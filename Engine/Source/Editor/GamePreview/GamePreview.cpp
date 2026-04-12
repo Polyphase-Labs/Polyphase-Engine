@@ -272,6 +272,7 @@ std::vector<ResolutionPreset> GamePreview::GetAllPresets()
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr)
     {
+
         const auto& hookPresets = hookMgr->GetGamePreviewResolutions();
         for (const auto& hp : hookPresets)
         {
