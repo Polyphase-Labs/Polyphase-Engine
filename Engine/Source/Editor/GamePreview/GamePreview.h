@@ -66,6 +66,15 @@ private:
     // Addon presets (populated by hooks)
     std::vector<ResolutionPreset> mAddonPresets;
 
+    // Custom user presets (persisted to editor preferences)
+    std::vector<ResolutionPreset> mCustomPresets;
+    bool mCustomPresetsLoaded = false;
+
+    // UI state for add-preset popup
+    char mNewPresetName[128] = {};
+    int32_t mNewPresetWidth = 1280;
+    int32_t mNewPresetHeight = 720;
+
     // Cached camera list
     std::vector<Camera3D*> mCachedCameras;
 
@@ -86,6 +95,8 @@ private:
     void DestroyRenderTargets();
     void RefreshCameraList();
     void CaptureScreenshot();
+    void LoadCustomPresets();
+    void SaveCustomPresets();
     ResolutionPreset GetCurrentPreset();
     std::vector<ResolutionPreset> GetAllPresets();
 };

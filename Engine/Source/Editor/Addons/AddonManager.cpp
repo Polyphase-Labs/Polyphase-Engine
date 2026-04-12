@@ -57,21 +57,21 @@ std::string AddonManager::GetAddonCacheDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        cacheDir = std::string(appData) + "/OctaveEditor/AddonCache";
+        cacheDir = std::string(appData) + "/PolyphaseEditor/AddonCache";
     }
     else
     {
         const char* userProfile = getenv("USERPROFILE");
         if (userProfile != nullptr)
         {
-            cacheDir = std::string(userProfile) + "/AppData/Roaming/OctaveEditor/AddonCache";
+            cacheDir = std::string(userProfile) + "/AppData/Roaming/PolyphaseEditor/AddonCache";
         }
     }
 #else
     const char* home = getenv("HOME");
     if (home != nullptr)
     {
-        cacheDir = std::string(home) + "/.config/OctaveEditor/AddonCache";
+        cacheDir = std::string(home) + "/.config/PolyphaseEditor/AddonCache";
     }
 #endif
 
@@ -91,13 +91,13 @@ std::string AddonManager::GetSettingsPath()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        settingsDir = std::string(appData) + "/OctaveEditor";
+        settingsDir = std::string(appData) + "/PolyphaseEditor";
     }
 #else
     const char* home = getenv("HOME");
     if (home != nullptr)
     {
-        settingsDir = std::string(home) + "/.config/OctaveEditor";
+        settingsDir = std::string(home) + "/.config/PolyphaseEditor";
     }
 #endif
 
@@ -127,7 +127,7 @@ void AddonManager::EnsureCacheDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        std::string polyphaseDir = std::string(appData) + "/OctaveEditor";
+        std::string polyphaseDir = std::string(appData) + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());
@@ -142,7 +142,7 @@ void AddonManager::EnsureCacheDirectory()
         {
             SYS_CreateDirectory(configDir.c_str());
         }
-        std::string polyphaseDir = configDir + "/OctaveEditor";
+        std::string polyphaseDir = configDir + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());

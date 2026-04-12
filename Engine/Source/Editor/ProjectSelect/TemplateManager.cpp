@@ -74,21 +74,21 @@ std::string TemplateManager::GetTemplatesDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        templatesDir = std::string(appData) + "/OctaveEditor/Templates";
+        templatesDir = std::string(appData) + "/PolyphaseEditor/Templates";
     }
     else
     {
         const char* userProfile = getenv("USERPROFILE");
         if (userProfile != nullptr)
         {
-            templatesDir = std::string(userProfile) + "/AppData/Roaming/OctaveEditor/Templates";
+            templatesDir = std::string(userProfile) + "/AppData/Roaming/PolyphaseEditor/Templates";
         }
     }
 #else
     const char* home = getenv("HOME");
     if (home != nullptr)
     {
-        templatesDir = std::string(home) + "/.config/OctaveEditor/Templates";
+        templatesDir = std::string(home) + "/.config/PolyphaseEditor/Templates";
     }
 #endif
 
@@ -108,13 +108,13 @@ std::string TemplateManager::GetSettingsPath()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        settingsDir = std::string(appData) + "/OctaveEditor";
+        settingsDir = std::string(appData) + "/PolyphaseEditor";
     }
 #else
     const char* home = getenv("HOME");
     if (home != nullptr)
     {
-        settingsDir = std::string(home) + "/.config/OctaveEditor";
+        settingsDir = std::string(home) + "/.config/PolyphaseEditor";
     }
 #endif
 
@@ -134,7 +134,7 @@ void TemplateManager::EnsureTemplatesDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        std::string polyphaseDir = std::string(appData) + "/OctaveEditor";
+        std::string polyphaseDir = std::string(appData) + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());
@@ -149,7 +149,7 @@ void TemplateManager::EnsureTemplatesDirectory()
         {
             SYS_CreateDirectory(configDir.c_str());
         }
-        std::string polyphaseDir = configDir + "/OctaveEditor";
+        std::string polyphaseDir = configDir + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());

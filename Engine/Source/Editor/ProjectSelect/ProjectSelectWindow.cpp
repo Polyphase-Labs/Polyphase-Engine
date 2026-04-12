@@ -308,6 +308,10 @@ void ProjectSelectWindow::DrawCreateProject()
     }
 
     ImGui::Spacing();
+
+    ImGui::Checkbox("Init Git Repo", &mInitGitRepo);
+
+    ImGui::Spacing();
     ImGui::Spacing();
 
     // Create button
@@ -833,6 +837,36 @@ void ProjectSelectWindow::OnCreateNewProject()
     // Close if project was created successfully
     if (!GetEngineState()->mProjectPath.empty())
     {
+        if (mInitGitRepo)
+        {
+            GitService* gitService = GitService::Get();
+            if (gitService != nullptr)
+            {
+                if (gitService->InitRepository(projectPath, "main"))
+                {
+                    GitRepository* repo = gitService->GetCurrentRepo();
+                    if (repo != nullptr)
+                    {
+                        std::vector<std::string> toStage;
+                        for (const GitStatusEntry& entry : repo->GetStatus())
+                        {
+                            toStage.push_back(entry.mPath);
+                        }
+                        if (!toStage.empty())
+                        {
+                            repo->StageFiles(toStage);
+                            repo->RefreshStatus();
+                        }
+                        repo->Commit("Initial commit", "", false);
+                    }
+                }
+                else
+                {
+                    LogError("Failed to init git repo at %s", projectPath.c_str());
+                }
+            }
+        }
+
         Close();
     }
 }

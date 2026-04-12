@@ -434,13 +434,13 @@ std::string InputMap::GetPresetsDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        dir = std::string(appData) + "/OctaveEditor/InputPresets";
+        dir = std::string(appData) + "/PolyphaseEditor/InputPresets";
     }
 #elif PLATFORM_LINUX
     const char* home = getenv("HOME");
     if (home != nullptr)
     {
-        dir = std::string(home) + "/.config/OctaveEditor/InputPresets";
+        dir = std::string(home) + "/.config/PolyphaseEditor/InputPresets";
     }
 #endif
 
@@ -460,7 +460,7 @@ static void EnsurePresetsDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        std::string parentDir = std::string(appData) + "/OctaveEditor";
+        std::string parentDir = std::string(appData) + "/PolyphaseEditor";
         if (!DoesDirExist(parentDir.c_str()))
         {
             SYS_CreateDirectory(parentDir.c_str());
@@ -473,7 +473,7 @@ static void EnsurePresetsDirectory()
         std::string configDir = std::string(home) + "/.config";
         if (!DoesDirExist(configDir.c_str()))
             SYS_CreateDirectory(configDir.c_str());
-        std::string parentDir = configDir + "/OctaveEditor";
+        std::string parentDir = configDir + "/PolyphaseEditor";
         if (!DoesDirExist(parentDir.c_str()))
             SYS_CreateDirectory(parentDir.c_str());
     }

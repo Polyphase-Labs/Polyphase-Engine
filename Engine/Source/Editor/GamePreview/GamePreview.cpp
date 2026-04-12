@@ -16,6 +16,9 @@
 #include "Packaging/PackagingSettings.h"
 #include "Input/Input.h"
 #include "../Preferences/Appearance/Viewport/ViewportModule.h"
+#include "../Preferences/JsonSettings.h"
+
+#include "document.h"
 
 #include "imgui.h"
 
@@ -207,14 +210,19 @@ void GamePreview::GetPlatformResolution(Platform platform, uint32_t& outWidth, u
             outName = "3DS Top";
             break;
         case Platform::Windows:
-            outWidth = 1280;
-            outHeight = 720;
+            outWidth = 1920;
+            outHeight = 1080;
             outName = "Windows";
             break;
         case Platform::Linux:
-            outWidth = 1280;
-            outHeight = 720;
+            outWidth = 1920;
+            outHeight = 1080;
             outName = "Linux";
+            break;
+        case Platform::Android:
+            outWidth = 1080;
+            outHeight = 1920;
+            outName = "Android";
             break;
         default:
             outWidth = 640;
@@ -226,6 +234,8 @@ void GamePreview::GetPlatformResolution(Platform platform, uint32_t& outWidth, u
 
 std::vector<ResolutionPreset> GamePreview::GetAllPresets()
 {
+    LoadCustomPresets();
+
     std::vector<ResolutionPreset> all;
 
     // Add "Target Platform" preset at top if a current target is set
@@ -250,6 +260,12 @@ std::vector<ResolutionPreset> GamePreview::GetAllPresets()
     for (const auto& preset : sBuiltInPresets)
     {
         all.push_back(preset);
+    }
+
+    // Add custom user presets
+    for (const auto& p : mCustomPresets)
+    {
+        all.push_back(p);
     }
 
     // Append addon presets from hook manager
@@ -293,6 +309,60 @@ void GamePreview::RemoveResolutionPreset(const std::string& name)
             return;
         }
     }
+}
+
+void GamePreview::LoadCustomPresets()
+{
+    if (mCustomPresetsLoaded)
+        return;
+    mCustomPresetsLoaded = true;
+
+    std::string path = JsonSettings::GetPreferencesDirectory() + "/GamePreview_CustomResolutions.json";
+    if (!SYS_DoesFileExist(path.c_str(), false))
+        return;
+
+    rapidjson::Document doc;
+    if (!JsonSettings::LoadFromFile(path, doc))
+        return;
+
+    if (doc.HasMember("presets") && doc["presets"].IsArray())
+    {
+        const auto& arr = doc["presets"].GetArray();
+        for (const auto& item : arr)
+        {
+            if (!item.HasMember("name") || !item.HasMember("width") || !item.HasMember("height"))
+                continue;
+
+            ResolutionPreset preset;
+            preset.mName = item["name"].GetString();
+            preset.mWidth = item["width"].GetUint();
+            preset.mHeight = item["height"].GetUint();
+            mCustomPresets.push_back(preset);
+        }
+    }
+}
+
+void GamePreview::SaveCustomPresets()
+{
+    JsonSettings::EnsurePreferencesDirectory();
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+
+    rapidjson::Value arr(rapidjson::kArrayType);
+    for (const auto& preset : mCustomPresets)
+    {
+        rapidjson::Value obj(rapidjson::kObjectType);
+        obj.AddMember("name", rapidjson::Value(preset.mName.c_str(), alloc), alloc);
+        obj.AddMember("width", preset.mWidth, alloc);
+        obj.AddMember("height", preset.mHeight, alloc);
+        arr.PushBack(obj, alloc);
+    }
+    doc.AddMember("presets", arr, alloc);
+
+    std::string path = JsonSettings::GetPreferencesDirectory() + "/GamePreview_CustomResolutions.json";
+    JsonSettings::SaveToFile(path, doc);
 }
 
 void GamePreview::Render()
@@ -464,10 +534,10 @@ void GamePreview::DrawPanel()
         return;
     }
 
+    std::vector<ResolutionPreset> allPresets = GetAllPresets();
+
     // Resolution dropdown
     {
-        std::vector<ResolutionPreset> allPresets = GetAllPresets();
-
         // Build combo preview string
         std::string previewLabel = "No presets";
         if (mSelectedPresetIndex >= 0 && mSelectedPresetIndex < (int32_t)allPresets.size())
@@ -497,6 +567,127 @@ void GamePreview::DrawPanel()
                     ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
+        }
+    }
+
+    // Add / Remove custom preset buttons
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("+##AddPreset"))
+        {
+            mNewPresetName[0] = '\0';
+            mNewPresetWidth = 1280;
+            mNewPresetHeight = 720;
+            ImGui::OpenPopup("Add Custom Resolution");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Add custom resolution preset");
+
+        // Check if currently selected preset is a custom one
+        bool isCustomPreset = false;
+        if (mSelectedPresetIndex >= 0 && mSelectedPresetIndex < (int32_t)allPresets.size())
+        {
+            const std::string& selectedName = allPresets[mSelectedPresetIndex].mName;
+            for (const auto& cp : mCustomPresets)
+            {
+                if (cp.mName == selectedName)
+                {
+                    isCustomPreset = true;
+                    break;
+                }
+            }
+        }
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!isCustomPreset);
+        if (ImGui::Button("-##RemovePreset") && isCustomPreset)
+        {
+            const std::string& name = allPresets[mSelectedPresetIndex].mName;
+            for (auto it = mCustomPresets.begin(); it != mCustomPresets.end(); ++it)
+            {
+                if (it->mName == name)
+                {
+                    mCustomPresets.erase(it);
+                    break;
+                }
+            }
+            mSelectedPresetIndex = 0;
+            ResolutionPreset preset = GetCurrentPreset();
+            if (preset.mWidth != mCurrentWidth || preset.mHeight != mCurrentHeight)
+            {
+                CreateRenderTargets(preset.mWidth, preset.mHeight);
+            }
+            SaveCustomPresets();
+            allPresets = GetAllPresets();
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(isCustomPreset ? "Remove custom preset" : "Only custom presets can be removed");
+
+        // Add-preset popup
+        if (ImGui::BeginPopupModal("Add Custom Resolution", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::InputText("Name", mNewPresetName, sizeof(mNewPresetName));
+            ImGui::InputInt("Width", &mNewPresetWidth);
+            ImGui::InputInt("Height", &mNewPresetHeight);
+
+            if (mNewPresetWidth < 1) mNewPresetWidth = 1;
+            if (mNewPresetHeight < 1) mNewPresetHeight = 1;
+            if (mNewPresetWidth > 7680) mNewPresetWidth = 7680;
+            if (mNewPresetHeight > 4320) mNewPresetHeight = 4320;
+
+            ImGui::Separator();
+
+            bool canAdd = (mNewPresetName[0] != '\0');
+            ImGui::BeginDisabled(!canAdd);
+            if (ImGui::Button("Add", ImVec2(120, 0)))
+            {
+                char fullName[256];
+                snprintf(fullName, sizeof(fullName), "%s  %dx%d",
+                         mNewPresetName, mNewPresetWidth, mNewPresetHeight);
+
+                // Check for duplicate display name
+                bool duplicate = false;
+                for (const auto& cp : mCustomPresets)
+                {
+                    if (cp.mName == fullName)
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate)
+                {
+                    mCustomPresets.push_back({ fullName, (uint32_t)mNewPresetWidth, (uint32_t)mNewPresetHeight });
+                    SaveCustomPresets();
+
+                    // Select the newly added preset
+                    allPresets = GetAllPresets();
+                    for (int32_t i = 0; i < (int32_t)allPresets.size(); ++i)
+                    {
+                        if (allPresets[i].mName == fullName)
+                        {
+                            mSelectedPresetIndex = i;
+                            if (allPresets[i].mWidth != mCurrentWidth || allPresets[i].mHeight != mCurrentHeight)
+                            {
+                                CreateRenderTargets(allPresets[i].mWidth, allPresets[i].mHeight);
+                            }
+                            break;
+                        }
+                    }
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
         }
     }
 

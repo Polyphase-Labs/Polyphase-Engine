@@ -54,6 +54,7 @@ private:
     char mProjectNameBuffer[256] = {};
     char mProjectPathBuffer[512] = {};
     int mProjectType = 0;  // 0 = Lua, 1 = C++
+    bool mInitGitRepo = false;
     int mSelectedTemplateIndex = -1;
 
     // Clone From Git state

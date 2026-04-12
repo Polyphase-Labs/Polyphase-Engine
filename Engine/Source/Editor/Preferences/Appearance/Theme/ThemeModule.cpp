@@ -51,6 +51,23 @@ ThemeModule::ThemeModule()
     EditorTheme::RefreshThemeNames();
     RefreshAvailableFonts();
     memset(mNewThemeName, 0, sizeof(mNewThemeName));
+
+    // Apply default theme now so fresh installs (no saved preference file)
+    // don't fall through to ImGui's built-in Dark. LoadSettings() will
+    // override this if a saved preference exists.
+    mCurrentTheme = EditorTheme::GetThemeTypeFromName("Material Default");
+    if (mCurrentTheme == EditorThemeType::Dark)
+    {
+        mCurrentTheme = EditorThemeType::FutureDark;
+    }
+
+    int builtInCount = static_cast<int>(EditorThemeType::Count);
+    if (IsCustomTheme(mCurrentTheme))
+        mSelectedThemeIndex = builtInCount + GetCustomThemeIndex(mCurrentTheme);
+    else
+        mSelectedThemeIndex = static_cast<int>(mCurrentTheme);
+
+    EditorTheme::ApplyTheme(mCurrentTheme);
 }
 }
 
@@ -350,8 +367,14 @@ void ThemeModule::LoadSettings(const rapidjson::Document& doc)
         return;
 	}
 
-    std::string themeName = JsonSettings::GetString(doc, "theme", "Material Original");
+    std::string themeName = JsonSettings::GetString(doc, "theme", "Material Default");
     mCurrentTheme = EditorTheme::GetThemeTypeFromName(themeName);
+
+    // If "Material Default" isn't available (no CSS file yet), fall back to Future Dark
+    if (mCurrentTheme == EditorThemeType::Dark && themeName == "Material Default")
+    {
+        mCurrentTheme = EditorThemeType::FutureDark;
+    }
 
     // Convert theme type to flat index for combo box
     int builtInCount = static_cast<int>(EditorThemeType::Count);
