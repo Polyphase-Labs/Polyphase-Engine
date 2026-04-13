@@ -941,6 +941,9 @@
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\BlurPass.cpp">
       <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.cpp">
+      <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.cpp">
       <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
     </ClCompile>
@@ -2311,6 +2314,9 @@
       <Filter>Source Files\Graphics\Vulkan</Filter>
     </ClInclude>
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\BlurPass.h">
+      <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.h">
       <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
     </ClInclude>
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.h">

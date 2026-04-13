@@ -973,6 +973,7 @@
     <ClCompile Include="Source\Graphics\GX\GxUtils.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcessChain.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\BlurPass.cpp" />
+    <ClCompile Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\TonemapPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\RenderPassCache.cpp" />
@@ -1457,6 +1458,7 @@
     <ClInclude Include="Source\Graphics\GX\GxUtils.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcessChain.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\BlurPass.h" />
+    <ClInclude Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\TonemapPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\RenderPassCache.h" />

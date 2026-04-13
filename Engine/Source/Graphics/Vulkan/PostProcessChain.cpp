@@ -6,6 +6,7 @@
 PostProcessChain::PostProcessChain()
 {
     mPasses[(uint32_t)PostProcessPassId::Blur] = &mBlurPass;
+    mPasses[(uint32_t)PostProcessPassId::Fxaa] = &mFxaaPass;
     mPasses[(uint32_t)PostProcessPassId::Tonemap] = &mTonemapPass;
 }
 

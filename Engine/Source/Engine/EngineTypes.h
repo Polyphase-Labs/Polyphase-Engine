@@ -154,6 +154,7 @@ enum class LightingDomain : uint8_t
 enum class PostProcessPassId : uint8_t
 {
     Blur,
+    Fxaa,
     Tonemap,
 
     Count

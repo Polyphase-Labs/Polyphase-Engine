@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PostProcess/BlurPass.h"
+#include "PostProcess/FxaaPass.h"
 #include "PostProcess/TonemapPass.h"
 #include "VulkanTypes.h"
 #include "Renderer.h"
@@ -22,6 +23,7 @@ protected:
 
     // Passes
     BlurPass mBlurPass;
+    FxaaPass mFxaaPass;
     TonemapPass mTonemapPass;
 
     PostProcessPass* mPasses[(uint32_t)PostProcessPassId::Count] = {};
