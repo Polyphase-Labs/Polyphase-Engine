@@ -54,7 +54,10 @@
       "Bash(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe\" --build build --config Release)",
       "Bash(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \"C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe\" --build build --config Debug)",
       "Bash(chmod +x:*)",
-      "Bash(ls /home/uai/Projects/Octave/Polyphase-Engine/Engine/External/libgit2/build/*.a)"
+      "Bash(ls /home/uai/Projects/Octave/Polyphase-Engine/Engine/External/libgit2/build/*.a)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/2019/Community/Common7/IDE/**)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/2017/Community/Common7/IDE/**)",
+      "Bash('M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/vswhere/vswhere.exe')"
     ]
   }
 }
