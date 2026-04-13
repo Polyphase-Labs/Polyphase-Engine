@@ -57,6 +57,7 @@ Tables that act as enumerations.
  - `Table`
  - `Node`
  - `Short`
+ - `Function`
 
 ## NetFuncType
  - `Server` Function only executes on the server.

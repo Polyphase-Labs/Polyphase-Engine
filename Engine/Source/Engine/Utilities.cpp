@@ -586,6 +586,12 @@ void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePt
         {
             Property* defaultProp = FindProperty(defaultProps, extProps[i].mName);
 
+            // Function properties are editor-only buttons with no data — skip serialization.
+            if (extProps[i].mType == DatumType::Function)
+            {
+                continue;
+            }
+
             // Skip Asset properties where both values are transient. Transient assets
             // (e.g. inline MaterialLite overrides) can't be serialized by reference — they
             // get written as null. Their data is already preserved through ExtraData/LoadStream,

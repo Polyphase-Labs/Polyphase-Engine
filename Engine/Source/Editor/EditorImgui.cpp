@@ -2865,6 +2865,22 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
             continue;
         }
 
+        // Function properties render as editor-only buttons (no data, no label).
+        if (propType == DatumType::Function)
+        {
+            const char* displayText = prop.mDisplayName.empty() ? prop.mName.c_str() : prop.mDisplayName.c_str();
+            if (ImGui::Button(displayText))
+            {
+                Script* script = static_cast<Script*>(prop.mOwner);
+                if (script != nullptr && script->IsActive())
+                {
+                    script->CallFunction(prop.mName.c_str());
+                }
+            }
+            ImGui::PopID();
+            continue;
+        }
+
         // Bools handle name on same line after checkbox
         if (propType != DatumType::Bool || prop.GetCount() > 1)
         {

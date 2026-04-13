@@ -1358,35 +1358,75 @@ void BindMaterialDescriptorSet(Material* material)
     MaterialResource* resource = material->GetResource();
     std::vector<ShaderParameter>& params = material->GetParameters();
 
-    if (material->IsLite())
+    // Determine if this non-Lite material has no compiled fragment shader.
+    // BindMaterialResource falls back to Forward.frag in that case, which expects
+    // the Lite descriptor layout (UBO + 4 textures). Binding a mismatched layout
+    // or a zero-size UBO causes a Vulkan spec violation and GPU hang (TDR).
+    bool useLiteLayout = material->IsLite();
+    if (!useLiteLayout)
     {
-        MaterialLite* matLite = (MaterialLite*)material;
+        MaterialResource* effectiveRes = resource;
+        if (material->IsInstance())
+        {
+            MaterialInstance* inst = (MaterialInstance*)material;
+            MaterialBase* base = inst->GetBaseMaterial();
+            if (base)
+                effectiveRes = base->GetResource();
+        }
+        if (effectiveRes->mFragmentShader == nullptr)
+        {
+            useLiteLayout = true;
+        }
+    }
 
-        Texture* textures[4] = {};
-        textures[0] = matLite->GetTexture(0);
-        textures[1] = matLite->GetTexture(1);
-        textures[2] = matLite->GetTexture(2);
-        textures[3] = matLite->GetTexture(3);
-
-        // Update uniform buffer data
+    if (useLiteLayout)
+    {
         MaterialData ubo = {};
-        WriteMaterialLiteUniformData(ubo, matLite);
-
-        UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
-
-        // Ensure we are using valid textures with valid GPU resources
         Renderer* renderer = Renderer::Get();
         Image* images[4] = {};
-        for (uint32_t i = 0; i < 4; ++i)
+
+        if (material->IsLite())
         {
-            Texture* tex = textures[i];
-            if (tex == nullptr || tex->GetResource()->mImage == nullptr)
+            MaterialLite* matLite = (MaterialLite*)material;
+
+            Texture* textures[4] = {};
+            textures[0] = matLite->GetTexture(0);
+            textures[1] = matLite->GetTexture(1);
+            textures[2] = matLite->GetTexture(2);
+            textures[3] = matLite->GetTexture(3);
+
+            WriteMaterialLiteUniformData(ubo, matLite);
+
+            for (uint32_t i = 0; i < 4; ++i)
             {
-                tex = renderer->mWhiteTexture.Get<Texture>();
+                Texture* tex = textures[i];
+                if (tex == nullptr || tex->GetResource()->mImage == nullptr)
+                {
+                    tex = renderer->mWhiteTexture.Get<Texture>();
+                }
+                OCT_ASSERT(tex != nullptr && tex->GetResource()->mImage != nullptr);
+                images[i] = tex->GetResource()->mImage;
             }
-            OCT_ASSERT(tex != nullptr && tex->GetResource()->mImage != nullptr);
-            images[i] = tex->GetResource()->mImage;
         }
+        else
+        {
+            // Uncompiled MaterialBase/Instance falling back to Forward.frag.
+            // Use default white material so the descriptor layout matches.
+            ubo.mUvScale0 = glm::vec2(1.0f);
+            ubo.mUvScale1 = glm::vec2(1.0f);
+            ubo.mColor = glm::vec4(1.0f);
+            ubo.mOpacity = 1.0f;
+            ubo.mMaskCutoff = 0.5f;
+
+            Texture* whiteTex = renderer->mWhiteTexture.Get<Texture>();
+            OCT_ASSERT(whiteTex != nullptr && whiteTex->GetResource()->mImage != nullptr);
+            for (uint32_t i = 0; i < 4; ++i)
+            {
+                images[i] = whiteTex->GetResource()->mImage;
+            }
+        }
+
+        UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
 
         DescriptorSet::Begin("Lite Material DS")
             .WriteUniformBuffer(MD_UNIFORM_BUFFER, uniformBlock)
@@ -1407,7 +1447,7 @@ void BindMaterialDescriptorSet(Material* material)
         DescriptorSet matSet = DescriptorSet::Begin("Material DS");
 
         Renderer* renderer = Renderer::Get();
-        
+
         // Update uniform buffer data
         UniformBlock uniformBlock = WriteUniformBlock(uboData, uboSize);
         matSet.WriteUniformBuffer(MD_UNIFORM_BUFFER, uniformBlock);

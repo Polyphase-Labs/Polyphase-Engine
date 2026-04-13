@@ -123,6 +123,8 @@ void Script::UploadScriptProperties()
 {
     for (uint32_t i = 0; i < mScriptProps.size(); ++i)
     {
+        if (mScriptProps[i].mType == DatumType::Function)
+            continue;
         UploadDatum(mScriptProps[i], mScriptProps[i].mName.c_str());
     }
 }
@@ -214,6 +216,15 @@ void Script::GatherScriptProperties()
                             isArray = lua_toboolean(L, -1);
                             lua_pop(L, 1);
 
+#if EDITOR
+                            lua_getfield(L, propIdx, "display_name");
+                            if (lua_isstring(L, -1))
+                            {
+                                newProp.mDisplayName = lua_tostring(L, -1);
+                            }
+                            lua_pop(L, 1);
+#endif
+
                             newProp.mOwner = this;
                             newProp.mExternal = false;
                             newProp.mChangeHandler = HandleScriptPropChange;
@@ -225,9 +236,11 @@ void Script::GatherScriptProperties()
 
                             // Setup initial value and push it onto the outProps vector.
                             // Table datum type is not supported for script props.
+                            // Function type is editor-only (rendered as a button) and has no data.
                             if (newProp.mName != "" &&
                                 type != DatumType::Count &&
-                                type != DatumType::Table)
+                                type != DatumType::Table &&
+                                type != DatumType::Function)
                             {
                                 int32_t count = 1;
                                 int tableIdx = -1;
@@ -401,8 +414,7 @@ void Script::GatherScriptProperties()
 
                                     case DatumType::Function:
                                     {
-                                        LogError("Function script properties are not supported.");
-                                        OCT_ASSERT(0);
+                                        // Function properties are handled separately (no data).
                                         break;
                                     }
 
@@ -425,6 +437,12 @@ void Script::GatherScriptProperties()
                                     // pop the array table
                                     lua_pop(L, 1);
                                 }
+                            }
+                            else if (newProp.mName != "" && type == DatumType::Function)
+                            {
+                                // Function properties are editor-only buttons with no data.
+                                // Just push the property — clicking it calls the Lua function.
+                                mScriptProps.push_back(newProp);
                             }
                             else
                             {
@@ -1191,8 +1209,8 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
 
         case DatumType::Function:
         {
+            // Function properties are editor-only buttons — nothing to download.
             success = false;
-            LogError("Function script properties are not supported.");
             break;
         }
 
@@ -1260,10 +1278,13 @@ void Script::UploadDatum(Datum& datum, const char* varName)
                 Node_Lua::Create(L, datum.GetNode(i).Get()); break;
 
             case DatumType::Table:
-            case DatumType::Function:
             case DatumType::Count:
                 // These datum types are not supported.
                 OCT_ASSERT(0);
+                break;
+
+            case DatumType::Function:
+                // Function properties are editor-only buttons — nothing to upload.
                 break;
             }
 

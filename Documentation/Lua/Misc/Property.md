@@ -105,3 +105,38 @@ end
 - Use the `+` button to add new elements
 - Use the `-` button to remove the last element
 ---
+
+### Function Properties (Editor-Only Buttons)
+
+You can expose Lua functions as clickable buttons in the Properties Inspector by using `DatumType.Function` in `GatherProperties`. When clicked, the button calls the Lua function with the matching name on the script instance. Function properties are editor-only — they store no data and are not serialized.
+
+**Basic Usage:**
+```lua
+function MyScript:GatherProperties()
+    return {
+        { name = "speed", type = DatumType.Float },
+        { name = "ResetPosition", type = DatumType.Function },
+        { name = "PrintDebugInfo", type = DatumType.Function, display_name = "Print Debug Info" },
+    }
+end
+
+function MyScript:ResetPosition()
+    self:SetWorldPosition(Vec(0, 0, 0))
+    Log("Position reset!")
+end
+
+function MyScript:PrintDebugInfo()
+    Log("Speed: " .. tostring(self.speed))
+end
+```
+
+**Fields:**
+ - `name` *(required)* — The name of the Lua function to call when the button is clicked. Must match a function defined on the script.
+ - `type` *(required)* — Must be `DatumType.Function`.
+ - `display_name` *(optional)* — Custom label for the button. If not provided, the function name is used.
+
+**Notes:**
+- The script must be active for the button to work. If the script is not running, clicking the button has no effect.
+- Function properties do not appear at runtime — they are only visible in the editor's Properties Inspector.
+- The `display_name` field is also supported on all other property types defined via `GatherProperties`.
+---
