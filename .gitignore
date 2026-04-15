@@ -9,6 +9,7 @@ Engine/External/libgit2/build/
 # Polyphase-specific files
 Local_*/
 Engine/Assets/*/*.oct
+!Engine/Assets/Fonts/*.oct
 Packaged/
 AssetRegistry.txt
 */Generated/EmbeddedAssets.*
