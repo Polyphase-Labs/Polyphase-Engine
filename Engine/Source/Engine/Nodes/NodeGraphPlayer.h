@@ -123,6 +123,10 @@ public:
 
     NodeGraph* GetRuntimeGraph() { return mRuntimeGraph; }
 
+    // Fire an externally-sourced event (e.g. from the Serial subsystem).
+    // Safe to call from the main thread at any time; no-op if not playing.
+    void FireNamedEvent(const char* eventName);
+
 protected:
 
     void EnsureRuntimeGraph();

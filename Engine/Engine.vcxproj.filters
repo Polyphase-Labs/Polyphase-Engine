@@ -78,6 +78,18 @@
     <Filter Include="Source Files\System\Android">
       <UniqueIdentifier>{357599d0-a3f2-48cb-8918-ad140e561af9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Serial">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Windows">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Linux">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Stub">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000004}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Engine\Nodes">
       <UniqueIdentifier>{0c1dc114-d792-49eb-bb9d-a0f98b94f95d}</UniqueIdentifier>
     </Filter>
@@ -386,6 +398,39 @@
     <ClCompile Include="Source\Network\Linux\Network_Linux.cpp">
       <Filter>Source Files\Network\Linux</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp">
+      <Filter>Source Files\Serial\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp">
+      <Filter>Source Files\Serial\Linux</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp">
+      <Filter>Source Files\Serial\Stub</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Serial\Serial.h">
+      <Filter>Source Files\Serial</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Serial\SerialTypes.h">
+      <Filter>Source Files\Serial</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\SerialManager.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Engine\SerialManager.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\LuaBindings\Serial_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClCompile Include="Source\Engine\Datum.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>

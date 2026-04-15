@@ -69,6 +69,8 @@ SOURCES		:=	Source \
 				Source/Audio/Linux \
 				Source/Network \
 				Source/Network/Linux \
+				Source/Serial \
+				Source/Serial/Linux \
 				Source/LuaBindings \
 				../External/Lua \
 				../External/Vorbis \

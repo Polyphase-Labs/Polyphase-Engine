@@ -32,6 +32,7 @@
 #include "Nodes/NodeGraphPlayer.h"
 #include "AssetManager.h"
 #include "NetworkManager.h"
+#include "SerialManager.h"
 #include "WindowManager.h"
 #include "ToolTipManager.h"
 #include "AudioManager.h"
@@ -243,6 +244,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(AnimationNodes);
     FORCE_LINK_CALL(FSMNodes);
     FORCE_LINK_CALL(SceneGraphNodes);
+    FORCE_LINK_CALL(SerialGraphNodes);
     FORCE_LINK_CALL(InputNodes);
     FORCE_LINK_CALL(FunctionNodes);
     FORCE_LINK_CALL(GizmoNodes);
@@ -372,6 +374,7 @@ bool Initialize()
     Renderer::Create();
     AssetManager::Create();
     NetworkManager::Create();
+    SerialManager::Create();
     WindowManager::Create();
     ToolTipManager::Create();
     TweenManager::Create();
@@ -495,6 +498,7 @@ bool Initialize()
         renderer->Initialize();
     }
     NetworkManager::Get()->Initialize();
+    SerialManager::Get()->Initialize();
 
 #if EDITOR
     // Initialize FileWatcher for script hot-reloading
@@ -694,6 +698,11 @@ bool Update()
         NetworkManager::Get()->PreTickUpdate(sClock.DeltaTime());
     }
 
+    {
+        SCOPED_FRAME_STAT("SerialPre");
+        SerialManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    }
+
     // Update PlayerInputSystem after raw input and clock
     if (PlayerInputSystem::Get() != nullptr)
     {
@@ -833,6 +842,7 @@ void Shutdown()
 #endif
 
     NetworkManager::Get()->Shutdown();
+    SerialManager::Get()->Shutdown();
 
     for (uint32_t i = 0; i < sWorlds.size(); ++i)
     {
@@ -862,6 +872,7 @@ void Shutdown()
     ToolTipManager::Destroy();
     WindowManager::Destroy();
     NetworkManager::Destroy();
+    SerialManager::Destroy();
     Renderer::Destroy();
     AssetManager::Destroy();
 

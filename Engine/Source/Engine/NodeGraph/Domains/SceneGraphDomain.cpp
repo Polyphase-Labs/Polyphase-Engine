@@ -4,6 +4,7 @@
 #include "NodeGraph/Nodes/MathNodes.h"
 #include "NodeGraph/Nodes/ValueNodes.h"
 #include "NodeGraph/Nodes/SceneGraphNodes.h"
+#include "NodeGraph/Nodes/SerialGraphNodes.h"
 #include "NodeGraph/Nodes/PointNodes.h"
 #include "NodeGraph/Nodes/SplineNodes.h"
 #include "NodeGraph/Nodes/GizmoNodes.h"
@@ -19,6 +20,17 @@ void SceneGraphDomain::RegisterNodeTypes()
     AddNodeType(EndOverlapEventNode::GetStaticType(), "On Overlap End", "Event", glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
     AddNodeType(CollisionBeginEventNode::GetStaticType(), "On Collision Begin", "Event", glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
     AddNodeType(CollisionEndEventNode::GetStaticType(), "On Collision End", "Event", glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
+
+    // Serial (event + action)
+    AddNodeType(SerialMessageEventNode::GetStaticType(),      "On Serial Message",      "Event",  glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
+    AddNodeType(SerialConnectedEventNode::GetStaticType(),    "On Serial Connected",    "Event",  glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
+    AddNodeType(SerialDisconnectedEventNode::GetStaticType(), "On Serial Disconnected", "Event",  glm::vec4(0.8f, 0.2f, 0.2f, 1.0f));
+    AddNodeType(SerialEnumeratePortsNode::GetStaticType(),    "Serial Enumerate Ports", "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
+    AddNodeType(SerialConnectNode::GetStaticType(),           "Serial Connect",         "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
+    AddNodeType(SerialDisconnectNode::GetStaticType(),        "Serial Disconnect",      "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
+    AddNodeType(SerialSendMessageNode::GetStaticType(),       "Serial Send Message",    "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
+    AddNodeType(SerialStartReceiveNode::GetStaticType(),      "Serial Start Receive",   "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
+    AddNodeType(SerialStopReceiveNode::GetStaticType(),       "Serial Stop Receive",    "Serial", glm::vec4(0.2f, 0.5f, 0.7f, 1.0f));
 
     // Math nodes
     AddNodeType(AddNode::GetStaticType(), "Add", "Math", glm::vec4(0.4f, 0.6f, 0.2f, 1.0f));

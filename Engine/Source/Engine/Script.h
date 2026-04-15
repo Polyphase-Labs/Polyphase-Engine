@@ -70,6 +70,8 @@ public:
         glm::vec3 impactNormal,
         btPersistentManifold* manifold);
 
+    void OnSerialMessage(uint32_t serialHandle, const std::string& data);
+
     bool HasFunction(const char* name) const;
 
     void CallFunction(const char* name);
@@ -148,5 +150,6 @@ protected:
     bool mHandleBeginOverlap = false;
     bool mHandleEndOverlap = false;
     bool mHandleOnCollision = false;
+    bool mHandleOnSerialMessage = false;
 };
 
