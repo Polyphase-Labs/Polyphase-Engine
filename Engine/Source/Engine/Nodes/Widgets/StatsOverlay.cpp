@@ -8,10 +8,36 @@
 
 #include "System/System.h"
 
+#include <algorithm>
+
 FORCE_LINK_DEF(StatsOverlay);
 DEFINE_NODE(StatsOverlay, Canvas);
 
 #define DEFAULT_STAT_COLOR glm::vec4(0.4f, 1.0f, 0.4f, 1.0f)
+
+static const char* sStatDisplayModeStrings[] =
+{
+    "None",
+    "Frame Text",
+    "CPU Stat Text",
+    "CPU Stat Bars",
+    "GPU Stat Text",
+    "GPU Stat Bars",
+    "All Stat Text",
+    "Memory",
+    "Network",
+};
+
+static std::vector<StatsOverlay*>& GetStatsOverlayInstancesMutable()
+{
+    static std::vector<StatsOverlay*> sInstances;
+    return sInstances;
+}
+
+const std::vector<StatsOverlay*>& StatsOverlay::GetAllInstances()
+{
+    return GetStatsOverlayInstancesMutable();
+}
 
 StatsOverlay::StatsOverlay()
 {
@@ -22,6 +48,14 @@ StatsOverlay::StatsOverlay()
 
     SetAnchorMode(AnchorMode::TopRight);
     SetRect(x, y, width, height);
+
+    GetStatsOverlayInstancesMutable().push_back(this);
+}
+
+StatsOverlay::~StatsOverlay()
+{
+    auto& v = GetStatsOverlayInstancesMutable();
+    v.erase(std::remove(v.begin(), v.end(), this), v.end());
 }
 
 void StatsOverlay::Tick(float deltaTime)
@@ -38,6 +72,32 @@ void StatsOverlay::EditorTick(float deltaTime)
 
 void StatsOverlay::TickCommon(float deltaTime)
 {
+    // (0) On the first tick after construction/load, nuke any serialized Key/
+    // Value Text children left over in the scene. Text children are now marked
+    // transient when created (see step 3), so fresh instances start clean —
+    // but scenes saved before that fix can carry dozens of stale children
+    // that pile up on top of new ones. Destroying them here is self-healing.
+    if (!mTextChildrenInitialized)
+    {
+        std::vector<Node*> toDestroy;
+        for (uint32_t i = 0; i < GetNumChildren(); ++i)
+        {
+            Node* child = GetChild(i);
+            Text* t = child ? child->As<Text>() : nullptr;
+            if (t == nullptr) continue;
+            const std::string& name = t->GetName();
+            if (name == "Key" || name == "Value")
+                toDestroy.push_back(child);
+        }
+        for (Node* n : toDestroy)
+        {
+            n->Destroy();
+        }
+        mStatKeyTexts.clear();
+        mStatValueTexts.clear();
+        mTextChildrenInitialized = true;
+    }
+
     // (1) Determine the number of stats to display.
     uint32_t numStats = 0;
 
@@ -88,10 +148,12 @@ void StatsOverlay::TickCommon(float deltaTime)
             Text* newKeyText = CreateChild<Text>("Key");
             newKeyText->SetColor(DEFAULT_STAT_COLOR);
             newKeyText->SetFont(font);
+            newKeyText->SetTransient(true);
 
             Text* newValueText = CreateChild<Text>("Value");
             newValueText->SetColor(DEFAULT_STAT_COLOR);
             newValueText->SetFont(font);
+            newValueText->SetTransient(true);
 
             mStatKeyTexts.push_back(newKeyText);
             mStatValueTexts.push_back(newValueText);
@@ -160,6 +222,17 @@ void StatsOverlay::TickCommon(float deltaTime)
             }
         }
     }
+}
+
+void StatsOverlay::GatherProperties(std::vector<Property>& outProps)
+{
+    Canvas::GatherProperties(outProps);
+
+    SCOPED_CATEGORY("Stats Overlay");
+
+    outProps.push_back(Property(DatumType::Byte, "Display Mode", this, &mDisplayMode, 1,
+        nullptr, NULL_DATUM, int32_t(StatDisplayMode::Count), sStatDisplayModeStrings));
+    outProps.push_back(Property(DatumType::Float, "Text Size", this, &mTextSize));
 }
 
 void StatsOverlay::SetDisplayMode(StatDisplayMode mode)

@@ -1340,6 +1340,10 @@ void SYS_SetWindowTitle(const char* title)
         strlen(title), title);
 }
 
+void SYS_SetWindowIcon(const char* iconPath)
+{
+}
+
 bool SYS_DoesWindowHaveFocus()
 {
     return GetEngineState()->mSystem.mWindowHasFocus;

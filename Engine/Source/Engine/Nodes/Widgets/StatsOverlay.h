@@ -3,7 +3,7 @@
 #include "Nodes/Widgets/Canvas.h"
 #include "Nodes/Widgets/Text.h"
 
-enum class StatDisplayMode
+enum class StatDisplayMode : uint8_t
 {
     None,
     FrameText,
@@ -25,6 +25,13 @@ public:
     DECLARE_NODE(StatsOverlay, Canvas);
 
     StatsOverlay();
+    virtual ~StatsOverlay();
+
+    virtual void GatherProperties(std::vector<Property>& outProps) override;
+
+    // Every live StatsOverlay registers itself here so the Renderer can tell
+    // if a scene-placed one exists before showing its own fallback.
+    static const std::vector<StatsOverlay*>& GetAllInstances();
 
     virtual void Tick(float deltaTime) override;
     virtual void EditorTick(float deltaTime) override;
@@ -40,4 +47,5 @@ public:
     std::vector<Text*> mStatKeyTexts;
     std::vector<Text*> mStatValueTexts;
     StatDisplayMode mDisplayMode = StatDisplayMode::AllStatText;
+    bool mTextChildrenInitialized = false;
 };

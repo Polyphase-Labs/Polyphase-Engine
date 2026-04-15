@@ -350,14 +350,31 @@ void Renderer::EndFrame()
 
 void Renderer::EnableStatsOverlay(bool enable)
 {
+    // If the user placed a StatsOverlay in their scene, prefer that one and
+    // keep the renderer-owned fallback hidden — otherwise both stack on the
+    // same TopRight anchor and render over each other.
+    bool hasScenePlaced = false;
+    for (StatsOverlay* so : StatsOverlay::GetAllInstances())
+    {
+        if (so != mStatsWidget.Get())
+        {
+            so->SetVisible(enable);
+            hasScenePlaced = true;
+        }
+    }
+
     if (mStatsWidget)
     {
-        mStatsWidget->SetVisible(enable);
+        mStatsWidget->SetVisible(enable && !hasScenePlaced);
     }
 }
 
 bool Renderer::IsStatsOverlayEnabled() const
 {
+    for (StatsOverlay* so : StatsOverlay::GetAllInstances())
+    {
+        if (so != mStatsWidget.Get() && so->IsVisible()) return true;
+    }
     return mStatsWidget && mStatsWidget->IsVisible();
 }
 

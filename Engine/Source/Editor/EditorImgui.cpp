@@ -61,6 +61,7 @@
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
 #include "Packaging/PackagingWindow.h"
+#include "AppSettings/AppSettingsWindow.h"
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonsWindow.h"
 #include "Addons/NativeAddonManager.h"
@@ -8464,6 +8465,11 @@ static void DrawMainMenuBar()
                 GetEditorHotkeysWindow()->Open();
             }
 
+            if (ImGui::MenuItem("App Settings..."))
+            {
+                GetAppSettingsWindow()->Open();
+            }
+
             // Draw plugin menu items for Edit menu
             {
                 EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
@@ -12524,6 +12530,7 @@ void EditorImguiDraw()
 
         GetPreferencesWindow()->Draw();
         GetPackagingWindow()->Draw();
+        GetAppSettingsWindow()->Draw();
         GetBuildDependencyWindow()->Draw();
         GetInputMapWindow()->Draw();
         GetEditorHotkeysWindow()->Draw();

@@ -730,6 +730,10 @@ void SYS_SetWindowTitle(const char* title)
 
 }
 
+void SYS_SetWindowIcon(const char* iconPath)
+{
+}
+
 bool SYS_DoesWindowHaveFocus()
 {
     return true;

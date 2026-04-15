@@ -305,6 +305,8 @@ struct EngineConfig
     float mEditorInterfaceScale = 1.0f;
     int32_t mColorScale = 2;
 
+    std::string mIconPath;
+
     // Headless mode configuration
     bool mHeadless = false;
     Platform mBuildPlatform = Platform::Count;  // Count = no build requested

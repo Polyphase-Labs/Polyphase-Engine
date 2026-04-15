@@ -104,6 +104,7 @@ void SYS_Alert(const char* message);
 void SYS_UpdateConsole();
 int32_t SYS_GetPlatformTier();
 void SYS_SetWindowTitle(const char* title);
+void SYS_SetWindowIcon(const char* iconPath);
 bool SYS_DoesWindowHaveFocus();
 void SYS_SetScreenOrientation(ScreenOrientation orientation);
 ScreenOrientation SYS_GetScreenOrientation();

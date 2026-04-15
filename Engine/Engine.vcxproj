@@ -772,6 +772,7 @@
     <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingSettings.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp" />
+    <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp" />
     <ClCompile Include="Source\Editor\ProjectSelect\ProjectSelectWindow.cpp" />
     <ClCompile Include="Source\Editor\ProjectSelect\TemplateManager.cpp" />
     <ClCompile Include="Source\Editor\Preferences\External\ExternalModule.cpp" />
@@ -1251,6 +1252,7 @@
     <ClInclude Include="Source\Editor\Packaging\BuildProfile.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingSettings.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h" />
+    <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\ProjectSelectWindow.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\TemplateData.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\TemplateManager.h" />

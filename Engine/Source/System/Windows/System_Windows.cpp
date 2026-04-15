@@ -268,6 +268,26 @@ void SYS_Initialize()
     GetModuleFileName(hInst, exeName, 1024);
     HICON icon = ExtractIcon(hInst, exeName, 0);
 
+    // Check for custom project icon
+    const std::string& iconPath = GetEngineConfig()->mIconPath;
+    if (!iconPath.empty())
+    {
+        std::string fullIconPath = GetEngineState()->mProjectDirectory + iconPath;
+        if (SYS_DoesFileExist(fullIconPath.c_str(), false))
+        {
+            HICON customIcon = (HICON)LoadImage(
+                NULL,
+                fullIconPath.c_str(),
+                IMAGE_ICON,
+                0, 0,
+                LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            if (customIcon != NULL)
+            {
+                icon = customIcon;
+            }
+        }
+    }
+
     // Initialize the window class structure:
     win_class.cbSize = sizeof(WNDCLASSEX);
     win_class.style = CS_HREDRAW | CS_VREDRAW;
@@ -1280,6 +1300,43 @@ int32_t SYS_GetPlatformTier()
 void SYS_SetWindowTitle(const char* title)
 {
     SetWindowText(GetEngineState()->mSystem.mWindow, title);
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
+    HWND hwnd = GetEngineState()->mSystem.mWindow;
+    if (hwnd == NULL)
+    {
+        return;
+    }
+
+    if (iconPath == nullptr || iconPath[0] == '\0')
+    {
+        // Reset to default (extract from executable)
+        HINSTANCE hInst = GetModuleHandle(NULL);
+        char exeName[1024];
+        GetModuleFileName(hInst, exeName, 1024);
+        HICON defaultIcon = ExtractIcon(hInst, exeName, 0);
+        if (defaultIcon != NULL)
+        {
+            SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)defaultIcon);
+            SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)defaultIcon);
+        }
+        return;
+    }
+
+    HICON icon = (HICON)LoadImage(
+        NULL,
+        iconPath,
+        IMAGE_ICON,
+        0, 0,
+        LR_LOADFROMFILE | LR_DEFAULTSIZE);
+
+    if (icon != NULL)
+    {
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    }
 }
 
 bool SYS_DoesWindowHaveFocus()

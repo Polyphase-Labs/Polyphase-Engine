@@ -1322,6 +1322,9 @@
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\ProjectSelect\ProjectSelectWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -2686,6 +2689,9 @@
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ProjectSelect\ProjectSelectWindow.h">

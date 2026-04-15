@@ -1240,6 +1240,7 @@ void WriteEngineConfig(std::string path)
         fprintf(configIni, "EditorInterfaceScale=%f\n", sEngineConfig.mEditorInterfaceScale);
         fprintf(configIni, "ScriptHotReload=%d\n", sEngineConfig.mScriptHotReload);
         fprintf(configIni, "ColorScale=%d\n", sEngineConfig.mColorScale);
+        fprintf(configIni, "Icon=%s\n", sEngineConfig.mIconPath.c_str());
 
         fclose(configIni);
         configIni = nullptr;
@@ -1350,6 +1351,8 @@ void ReadEngineConfig(std::string path)
                 sEngineConfig.mScriptHotReload = strToBool(value);
             else if (keyStr == "ColorScale")
                 sEngineConfig.mColorScale = atoi(value);
+            else if (keyStr == "Icon")
+                sEngineConfig.mIconPath = value;
 
             strcpy(key, "");
             strcpy(value, "");

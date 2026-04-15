@@ -864,6 +864,27 @@ void ActionManager::BuildPhase1()
         SYS_CopyFile((projectDir + "Config.ini").c_str(), (packagedDir + "Config.ini").c_str());
     }
 
+    // Copy custom icon for Windows packaging
+    if (platform == Platform::Windows && !GetEngineConfig()->mIconPath.empty())
+    {
+        std::string iconSrc = projectDir + GetEngineConfig()->mIconPath;
+        if (SYS_DoesFileExist(iconSrc.c_str(), false))
+        {
+            std::string iconDst = polyphaseDirectory + "Standalone/Polyphase.ico";
+            std::string iconBackup = polyphaseDirectory + "Standalone/Polyphase.ico.bak";
+
+            // Back up original icon
+            SYS_CopyFile(iconDst.c_str(), iconBackup.c_str());
+
+            // Replace with project icon
+            SYS_CopyFile(iconSrc.c_str(), iconDst.c_str());
+            AppendBuildOutput("Using custom project icon.\n");
+
+            // Also copy icon into packaged directory
+            SYS_CopyFile(iconSrc.c_str(), (packagedDir + GetEngineConfig()->mIconPath).c_str());
+        }
+    }
+
     // Handle SpirV shaders on Vulkan platforms
     if (platform == Platform::Windows ||
         platform == Platform::Linux ||
@@ -1284,6 +1305,17 @@ void ActionManager::FinalizeLocalBuild()
     std::string exeSrc = mBuildState.mExeSrc;
     bool useSteam = mBuildState.mUseSteam;
     bool needCompile = mBuildState.mNeedCompile;
+
+    // Restore original Standalone icon if it was backed up
+    {
+        std::string polyphaseDir = SYS_GetPolyphasePath();
+        std::string iconBackup = polyphaseDir + "Standalone/Polyphase.ico.bak";
+        if (SYS_DoesFileExist(iconBackup.c_str(), false))
+        {
+            SYS_CopyFile(iconBackup.c_str(), (polyphaseDir + "Standalone/Polyphase.ico").c_str());
+            SYS_RemoveFile(iconBackup.c_str());
+        }
+    }
 
     if (!mBuildState.mSuccess.load())
     {
