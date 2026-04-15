@@ -847,6 +847,7 @@
     <ClCompile Include="Source\Engine\NetFunc.cpp" />
     <ClCompile Include="Source\Engine\NetMsg.cpp" />
     <ClCompile Include="Source\Engine\NetworkManager.cpp" />
+    <ClCompile Include="Source\Engine\SerialManager.cpp" />
     <ClCompile Include="Source\Engine\WindowManager.cpp" />
     <ClCompile Include="Source\Engine\ToolTipManager.cpp" />
     <ClCompile Include="Source\Engine\NodePath.cpp" />
@@ -938,6 +939,7 @@
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\AnimationNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\FSMNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\SceneGraphNodes.cpp" />
+    <ClCompile Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\InputNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\FunctionNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\VariableNodes.cpp" />
@@ -1051,6 +1053,7 @@
     <ClCompile Include="Source\LuaBindings\Mesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Misc_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Particle3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ParticleSystemInstance_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ParticleSystem_Lua.cpp" />
@@ -1102,6 +1105,11 @@
     <ClCompile Include="Source\Network\NetPlatformEpic.cpp" />
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp" />
     <ClCompile Include="Source\Network\Windows\Network_Windows.cpp" />
+    <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp" />
+    <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp" />
+    <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp" />
+    <ClInclude Include="Source\Serial\Serial.h" />
+    <ClInclude Include="Source\Serial\SerialTypes.h" />
     <ClCompile Include="Source\System\3DS\System_3DS.cpp" />
     <ClCompile Include="Source\System\Android\System_Android.cpp" />
     <ClCompile Include="Source\System\Dolphin\System_Dolphin.cpp" />
@@ -1324,6 +1332,7 @@
     <ClInclude Include="Source\Engine\NetFunc.h" />
     <ClInclude Include="Source\Engine\NetMsg.h" />
     <ClInclude Include="Source\Engine\NetworkManager.h" />
+    <ClInclude Include="Source\Engine\SerialManager.h" />
     <ClInclude Include="Source\Engine\WindowManager.h" />
     <ClInclude Include="Source\Engine\ToolTipManager.h" />
     <ClInclude Include="Source\Engine\NodePath.h" />
@@ -1418,6 +1427,7 @@
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\AnimationNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\FSMNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\SceneGraphNodes.h" />
+    <ClInclude Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\InputNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\FunctionNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\VariableNodes.h" />
@@ -1533,6 +1543,7 @@
     <ClInclude Include="Source\LuaBindings\Mesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Misc_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Network_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Serial_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Particle3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ParticleSystemInstance_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ParticleSystem_Lua.h" />

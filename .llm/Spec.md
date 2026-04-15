@@ -57,6 +57,7 @@ polyphase-engine/
 | Timeline | [Timeline.md](Timeline.md) | `Engine/Source/Engine/Timeline/` | Keyframe animation: tracks, clips, interpolation, TimelinePlayer |
 | Addons | [Addons.md](Addons.md) | `Engine/Source/Plugins/` | Runtime plugin API, editor hooks, native addon system |
 | Controller Server | [ControlServer.md](ControlServer.md) | `Engine/Source/Editor/ControllerServer/` | REST API for remote editor control, Crow HTTP server, addon route hooks |
+| Serial I/O | [Serial.md](Serial.md) | `Engine/Source/Serial/` + `Engine/Source/Engine/SerialManager.h` | Cross-platform COM / USB-CDC serial ports: enumerate, connect, send, opt-in receive, script + graph-node callbacks |
 
 ## Key Entry Points
 

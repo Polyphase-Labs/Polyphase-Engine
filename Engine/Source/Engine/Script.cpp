@@ -1448,6 +1448,36 @@ bool Script::InvokeNetFunc(const char* name, uint32_t numParams, const Datum** p
     return validNetFunc;
 }
 
+void Script::OnSerialMessage(uint32_t serialHandle, const std::string& data)
+{
+#if LUA_ENABLED
+    if (mHandleOnSerialMessage && IsActive())
+    {
+        lua_State* L = GetLua();
+
+        Node_Lua::Create(L, mOwner);
+
+        OCT_ASSERT(lua_isuserdata(L, -1));
+        int udIdx = lua_gettop(L);
+        lua_getfield(L, udIdx, "OnSerialMessage");
+
+        if (lua_isfunction(L, -1))
+        {
+            lua_pushvalue(L, udIdx);
+            lua_pushinteger(L, (lua_Integer)serialHandle);
+            lua_pushlstring(L, data.data(), data.size());
+            LuaFuncCall(3);
+        }
+        else
+        {
+            lua_pop(L, 1);
+        }
+
+        lua_pop(L, 1);
+    }
+#endif
+}
+
 void Script::BeginOverlap(Primitive3D* thisNode, Primitive3D* otherNode)
 {
 #if LUA_ENABLED
@@ -1875,6 +1905,7 @@ void Script::CreateScriptInstance()
             mHandleBeginOverlap = CheckIfFunctionExists("BeginOverlap");
             mHandleEndOverlap = CheckIfFunctionExists("EndOverlap");
             mHandleOnCollision = CheckIfFunctionExists("OnCollision");
+            mHandleOnSerialMessage = CheckIfFunctionExists("OnSerialMessage");
 
             SetWorld(mOwner->GetWorld());
 
@@ -1970,6 +2001,7 @@ void Script::DestroyScriptInstance()
     mHandleBeginOverlap = false;
     mHandleEndOverlap = false;
     mHandleOnCollision = false;
+    mHandleOnSerialMessage = false;
 #endif
 }
 
@@ -2091,7 +2123,7 @@ void Script::GatherFunctionNames(std::vector<std::string>& outNames) const
             // Filter out known lifecycle/built-in functions
             static const char* sBuiltinFunctions[] = {
                 "Tick", "Create", "Destroy", "BeginPlay", "EndPlay",
-                "BeginOverlap", "EndOverlap", "OnCollision", "GatherProperties",
+                "BeginOverlap", "EndOverlap", "OnCollision", "OnSerialMessage", "GatherProperties",
                 "GatherReplicatedData", "GatherNetFuncs", "EditorTick"
             };
 
