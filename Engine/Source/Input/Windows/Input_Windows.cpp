@@ -5,6 +5,9 @@
 
 #include "Engine.h"
 #include "Log.h"
+#include "Profiler.h"
+
+#include <atomic>
 
 #include <set>
 #include <vector>
@@ -146,10 +149,23 @@ static void ParseDS4Report(const uint8_t* data, int size, bool bluetooth, Gamepa
 // ============================================================================
 static ULONGLONG sLastHidEnumTime = 0;
 
+// Device-topology dirty flag. WndProc (System_Windows.cpp) sets this on
+// WM_DEVICECHANGE; the two enumeration functions below consume it. We also
+// keep a very long fallback timer (60s) as a safety net in case any device
+// change event is missed. This replaces the old 2s periodic enumeration,
+// which was the direct cause of the recurring INP frame spike.
+static std::atomic<bool> sDeviceChangeDirty{ true };  // initial enum forced
+
+extern "C" void INP_NotifyDeviceChange()
+{
+    sDeviceChangeDirty.store(true, std::memory_order_relaxed);
+}
+
 static void EnumerateSonyHidDevices(InputState& input)
 {
     ULONGLONG now = GetTickCount64();
-    if (now - sLastHidEnumTime < 2000) return;
+    bool dirty = sDeviceChangeDirty.load(std::memory_order_relaxed);
+    if (!dirty && (now - sLastHidEnumTime < 60000)) return;
     sLastHidEnumTime = now;
 
     GUID hidGuid;
@@ -657,13 +673,15 @@ static void PollDirectInputDevices(InputState& input)
     }
 }
 
-// Timer for periodic DirectInput re-enumeration
+// DirectInput re-enumeration. Same event-driven scheme as Sony HID above —
+// only runs when WM_DEVICECHANGE fires, with a 60s fallback safety net.
 static ULONGLONG sLastDInputEnumTime = 0;
 
 static void EnumerateDirectInputDevices(InputState& input)
 {
     ULONGLONG now = GetTickCount64();
-    if (now - sLastDInputEnumTime < 2000) return; // every 2 seconds
+    bool dirty = sDeviceChangeDirty.load(std::memory_order_relaxed);
+    if (!dirty && (now - sLastDInputEnumTime < 60000)) return;
     sLastDInputEnumTime = now;
 
     BuildXInputDeviceList();
@@ -772,20 +790,40 @@ void INP_Shutdown()
     InputShutdown();
 }
 
+// Last poll timestamp per XInput slot. Used to throttle polling of
+// DISCONNECTED slots — XInputGetState on an empty slot triggers USB device
+// enumeration internally and is the classic cause of periodic frame spikes.
+// Microsoft explicitly recommends against polling empty slots every frame.
+static ULONGLONG sLastXInputPollTime[XUSER_MAX_COUNT] = { 0 };
+
 void INP_Update()
 {
-    InputAdvanceFrame();
+    {
+        SCOPED_FRAME_STAT("INP.Advance");
+        InputAdvanceFrame();
+    }
 
     InputState& input = GetEngineState()->mInput;
 
     // === XInput Pass ===
+    SCOPED_FRAME_STAT("INP.XInput");
     memset(input.mXinputStates, 0, sizeof(XINPUT_STATE) * INPUT_MAX_GAMEPADS);
 
+    ULONGLONG nowMs = GetTickCount64();
     for (int32_t i = 0; i < XUSER_MAX_COUNT && i < INPUT_MAX_GAMEPADS; i++)
     {
         // Skip slots owned by DirectInput or HID
         if (input.mDInputSlotUsed[i] || input.mHidSlotUsed[i])
             continue;
+
+        // Throttle disconnected-slot polls to 1Hz. Connected slots keep polling
+        // every frame so input stays low-latency for active controllers.
+        bool wasConnected = input.mGamepads[i].mConnected;
+        if (!wasConnected && (nowMs - sLastXInputPollTime[i] < 1000))
+        {
+            continue;
+        }
+        sLastXInputPollTime[i] = nowMs;
 
         if (!XInputGetState(i, &input.mXinputStates[i]))
         {
@@ -827,17 +865,35 @@ void INP_Update()
     }
 
     // === Sony HID Pass ===
-    PollSonyHidDevices(input);
-    EnumerateSonyHidDevices(input);
+    {
+        SCOPED_FRAME_STAT("INP.SonyPoll");
+        PollSonyHidDevices(input);
+    }
+    {
+        SCOPED_FRAME_STAT("INP.SonyEnum");
+        EnumerateSonyHidDevices(input);
+    }
 
     // === DirectInput Pass (for non-Sony, non-XInput controllers) ===
     if (input.mDirectInput != nullptr)
     {
-        PollDirectInputDevices(input);
-        EnumerateDirectInputDevices(input);
+        {
+            SCOPED_FRAME_STAT("INP.DInputPoll");
+            PollDirectInputDevices(input);
+        }
+        {
+            SCOPED_FRAME_STAT("INP.DInputEnum");
+            EnumerateDirectInputDevices(input);
+        }
     }
 
-    InputPostUpdate();
+    {
+        SCOPED_FRAME_STAT("INP.Post");
+        InputPostUpdate();
+    }
+
+    // Both enums have now consumed the dirty flag; reset for next event.
+    sDeviceChangeDirty.store(false, std::memory_order_relaxed);
 }
 
 void INP_SetCursorPos(int32_t x, int32_t y)

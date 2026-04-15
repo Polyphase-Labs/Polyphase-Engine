@@ -2,6 +2,9 @@
 
 #include "Nodes/Widgets/Canvas.h"
 #include "Nodes/Widgets/Text.h"
+#include <deque>
+
+class Poly;
 
 enum class StatDisplayMode : uint8_t
 {
@@ -14,6 +17,7 @@ enum class StatDisplayMode : uint8_t
     AllStatText,
     Memory,
     Network,
+    FrameGraph,
 
     Count
 };
@@ -48,4 +52,10 @@ public:
     std::vector<Text*> mStatValueTexts;
     StatDisplayMode mDisplayMode = StatDisplayMode::AllStatText;
     bool mTextChildrenInitialized = false;
+
+    // Frame-graph mode state.
+    Poly* mGraphPoly = nullptr;          // transient child, rebuilt each load
+    std::deque<float> mFrameTimeHistory; // ring of recent frame times (ms)
+    uint32_t mFrameGraphSamples = 120;   // how many samples to keep / draw
+    float mFrameGraphMaxMs = 33.33f;     // vertical scale; set to expected worst-case
 };

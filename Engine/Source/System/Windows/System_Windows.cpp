@@ -35,6 +35,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #define OCT_FULLSCREEN_STYLE_FLAGS (OCT_WINDOWED_STYLE_FLAGS & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU))
 
 // MS-Windows event handling function:
+// Declared in Input_Windows.cpp — sets the HID-enumeration dirty flag so the
+// next INP_Update does an enum pass. Replaces the old 2s periodic enum.
+extern "C" void INP_NotifyDeviceChange();
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if EDITOR
@@ -45,6 +49,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     EngineState* engineState = GetEngineState();
 
     switch (uMsg) {
+    case WM_DEVICECHANGE:
+        // Arrive / remove / generic change — just mark input as dirty. The
+        // input layer does the right amount of re-enumeration on its own.
+        INP_NotifyDeviceChange();
+        break;
     case WM_CLOSE:
         // Do not post quit message, we want the editor to handle the unsaved check.
         // So simply set the quit flag.

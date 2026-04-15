@@ -1,9 +1,11 @@
 #include "Nodes/Widgets/StatsOverlay.h"
+#include "Nodes/Widgets/Poly.h"
 #include "Assets/Font.h"
 #include "AssetManager.h"
 #include "Renderer.h"
 #include "Profiler.h"
 #include "Engine.h"
+#include "Clock.h"
 #include "NetworkManager.h"
 
 #include "System/System.h"
@@ -26,6 +28,7 @@ static const char* sStatDisplayModeStrings[] =
     "All Stat Text",
     "Memory",
     "Network",
+    "Frame Graph",
 };
 
 static std::vector<StatsOverlay*>& GetStatsOverlayInstancesMutable()
@@ -83,10 +86,9 @@ void StatsOverlay::TickCommon(float deltaTime)
         for (uint32_t i = 0; i < GetNumChildren(); ++i)
         {
             Node* child = GetChild(i);
-            Text* t = child ? child->As<Text>() : nullptr;
-            if (t == nullptr) continue;
-            const std::string& name = t->GetName();
-            if (name == "Key" || name == "Value")
+            if (child == nullptr) continue;
+            const std::string& name = child->GetName();
+            if (name == "Key" || name == "Value" || name == "Graph")
                 toDestroy.push_back(child);
         }
         for (Node* n : toDestroy)
@@ -95,6 +97,7 @@ void StatsOverlay::TickCommon(float deltaTime)
         }
         mStatKeyTexts.clear();
         mStatValueTexts.clear();
+        mGraphPoly = nullptr;
         mTextChildrenInitialized = true;
     }
 
@@ -124,6 +127,9 @@ void StatsOverlay::TickCommon(float deltaTime)
     case StatDisplayMode::Network:
         numStats = 2;
         break;
+    case StatDisplayMode::FrameGraph:
+        numStats = 0; // Graph takes over — no text rows.
+        break;
     default:
         numStats = 0;
         break;
@@ -135,6 +141,12 @@ void StatsOverlay::TickCommon(float deltaTime)
     {
         mStatKeyTexts[i]->SetVisible(false);
         mStatValueTexts[i]->SetVisible(false);
+    }
+
+    // Hide the frame-graph poly whenever we're not in FrameGraph mode.
+    if (mGraphPoly != nullptr && mDisplayMode != StatDisplayMode::FrameGraph)
+    {
+        mGraphPoly->SetVisible(false);
     }
 
     // (3) Create widget(s) if needed.
@@ -191,6 +203,58 @@ void StatsOverlay::TickCommon(float deltaTime)
         SetStatText(0, "Upload", netMan->GetUploadRate() / 1024, DEFAULT_STAT_COLOR, statY);
         SetStatText(1, "Download", netMan->GetDownloadRate() / 1024, DEFAULT_STAT_COLOR, statY);
     }
+    else if (mDisplayMode == StatDisplayMode::FrameGraph)
+    {
+        // Lazily create the graph's line widget (transient — never serialized).
+        if (mGraphPoly == nullptr)
+        {
+            mGraphPoly = CreateChild<Poly>("Graph");
+            mGraphPoly->SetTransient(true);
+            mGraphPoly->SetLineWidth(1.5f);
+        }
+        mGraphPoly->SetVisible(true);
+
+        // Fill the entire StatsOverlay rect.
+        const float graphW = GetWidth();
+        const float graphH = GetHeight();
+        mGraphPoly->SetRect(0.0f, 0.0f, graphW, graphH);
+
+        // Record the most recent frame time (ms).
+        const Clock* clock = GetAppClock();
+        float frameMs = clock ? (clock->DeltaTime() * 1000.0f) : 0.0f;
+        mFrameTimeHistory.push_back(frameMs);
+        while (mFrameTimeHistory.size() > mFrameGraphSamples)
+        {
+            mFrameTimeHistory.pop_front();
+        }
+
+        // Rebuild the poly's line strip from history. X goes left-to-right,
+        // Y is inverted (0 = top = largest frame time at maxMs).
+        mGraphPoly->ClearVertices();
+        const uint32_t n = (uint32_t)mFrameTimeHistory.size();
+        if (n >= 2 && mFrameGraphMaxMs > 0.0f)
+        {
+            const float stepX = graphW / (float)(mFrameGraphSamples - 1);
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                float ms = mFrameTimeHistory[i];
+                float normalized = ms / mFrameGraphMaxMs;
+                if (normalized > 1.0f) normalized = 1.0f;
+
+                float x = stepX * (float)i;
+                float y = graphH - (normalized * graphH);
+
+                // Colour ramps green -> yellow -> red as frame time climbs.
+                glm::vec4 color;
+                if (normalized < 0.5f)       color = glm::vec4(0.4f, 1.0f, 0.4f, 1.0f);
+                else if (normalized < 0.75f) color = glm::vec4(1.0f, 1.0f, 0.3f, 1.0f);
+                else                         color = glm::vec4(1.0f, 0.3f, 0.3f, 1.0f);
+
+                mGraphPoly->AddVertex(glm::vec2(x, y), color);
+            }
+            mGraphPoly->MarkVerticesDirty();
+        }
+    }
     else
     {
         const std::vector<CpuStat>& cpuStats = GetProfiler()->GetCpuFrameStats();
@@ -233,6 +297,8 @@ void StatsOverlay::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Byte, "Display Mode", this, &mDisplayMode, 1,
         nullptr, NULL_DATUM, int32_t(StatDisplayMode::Count), sStatDisplayModeStrings));
     outProps.push_back(Property(DatumType::Float, "Text Size", this, &mTextSize));
+    outProps.push_back(Property(DatumType::Integer, "Graph Samples", this, &mFrameGraphSamples));
+    outProps.push_back(Property(DatumType::Float, "Graph Max (ms)", this, &mFrameGraphMaxMs));
 }
 
 void StatsOverlay::SetDisplayMode(StatDisplayMode mode)

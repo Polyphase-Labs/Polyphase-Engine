@@ -529,6 +529,13 @@ bool Initialize()
         sEngineState.mLua = luaL_newstate();
         luaL_openlibs(sEngineState.mLua);
 
+        // Lua GC tuning: the default incremental collector lets the heap grow to
+        // ~2x before collecting and collects aggressively when it runs — that
+        // produces periodic big spikes. Reducing pause and raising stepmul makes
+        // GC run more often in smaller increments, distributing the cost.
+        lua_gc(sEngineState.mLua, LUA_GCSETPAUSE, 120);
+        lua_gc(sEngineState.mLua, LUA_GCSETSTEPMUL, 300);
+
 #if OCT_LUA_DEBUGGING
         luaopen_socket_core(sEngineState.mLua);
         lua_setglobal(sEngineState.mLua, "socket");
@@ -662,8 +669,14 @@ bool Update()
         AUD_Update();
     }
 
-    INP_Update();
-    SYS_Update();
+    {
+        SCOPED_FRAME_STAT("INP");
+        INP_Update();
+    }
+    {
+        SCOPED_FRAME_STAT("SYS");
+        SYS_Update();
+    }
 
     if (sEngineState.mQuit)
     {
@@ -671,13 +684,20 @@ bool Update()
     }
 
     sClock.Update();
-    AudioManager::Update(sClock.DeltaTime());
+    {
+        SCOPED_FRAME_STAT("AudioMgr");
+        AudioManager::Update(sClock.DeltaTime());
+    }
 
-    NetworkManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    {
+        SCOPED_FRAME_STAT("NetPre");
+        NetworkManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    }
 
     // Update PlayerInputSystem after raw input and clock
     if (PlayerInputSystem::Get() != nullptr)
     {
+        SCOPED_FRAME_STAT("PlayerInput");
         PlayerInputSystem::Get()->Update(sClock.DeltaTime());
     }
 
@@ -693,13 +713,16 @@ bool Update()
     }
 
 #if EDITOR
-    if (IsPlayingInEditor() && 
+    if (IsPlayingInEditor() &&
         GetEditorState()->IsPlayInEditorPaused())
     {
         gameDeltaTime = 0.0f;
     }
 
-    GetEditorState()->Update(realDeltaTime);
+    {
+        SCOPED_FRAME_STAT("EditorState");
+        GetEditorState()->Update(realDeltaTime);
+    }
 #endif
 
     bool doFrameStep = sEngineState.mFrameStep;
@@ -716,22 +739,32 @@ bool Update()
 
     Button::StaticUpdate();
 
-    GetTimerManager()->Update(gameDeltaTime);
-    GetTweenManager()->Update(gameDeltaTime);
+    {
+        SCOPED_FRAME_STAT("Timers");
+        GetTimerManager()->Update(gameDeltaTime);
+    }
+    {
+        SCOPED_FRAME_STAT("Tween");
+        GetTweenManager()->Update(gameDeltaTime);
+    }
 
 #if EDITOR
     GetGamePreview()->BeginInputRemap();
     GetSecondScreenPreview()->BeginInputRemap();
 #endif
 
-    for (uint32_t i = 0; i < sWorlds.size(); ++i)
     {
-        sWorlds[i]->Update(gameDeltaTime);
+        SCOPED_FRAME_STAT("Worlds");
+        for (uint32_t i = 0; i < sWorlds.size(); ++i)
+        {
+            sWorlds[i]->Update(gameDeltaTime);
+        }
     }
 
     // Update tooltip system after widgets
     if (ToolTipManager::Get() != nullptr)
     {
+        SCOPED_FRAME_STAT("ToolTip");
         ToolTipManager::Get()->Tick(realDeltaTime);
     }
 
@@ -750,21 +783,34 @@ bool Update()
     // Tick all runtime plugins
     if (RuntimePluginManager::Get())
     {
+        SCOPED_FRAME_STAT("Plugins");
         RuntimePluginManager::Get()->TickAllPlugins(gameDeltaTime);
     }
 
-    NetworkManager::Get()->PostTickUpdate(realDeltaTime);
-
-#if EDITOR
-    EditorImguiDraw();
-#endif
-
-    for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
     {
-        Renderer::Get()->Render(sWorlds[i], i);
+        SCOPED_FRAME_STAT("NetPost");
+        NetworkManager::Get()->PostTickUpdate(realDeltaTime);
     }
 
-    AssetManager::Get()->Update(realDeltaTime);
+#if EDITOR
+    {
+        SCOPED_FRAME_STAT("EditorUI");
+        EditorImguiDraw();
+    }
+#endif
+
+    {
+        SCOPED_FRAME_STAT("Render");
+        for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
+        {
+            Renderer::Get()->Render(sWorlds[i], i);
+        }
+    }
+
+    {
+        SCOPED_FRAME_STAT("AssetMgr");
+        AssetManager::Get()->Update(realDeltaTime);
+    }
 
     END_FRAME_STAT("Frame");
 
