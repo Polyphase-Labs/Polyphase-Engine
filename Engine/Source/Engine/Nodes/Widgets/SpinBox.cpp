@@ -3,6 +3,7 @@
 #include "Nodes/Widgets/Quad.h"
 #include "Nodes/Widgets/Text.h"
 #include "Nodes/Widgets/Button.h"
+#include "Nodes/Widgets/InputField.h"
 #include "InputDevices.h"
 #include "Engine.h"
 #include "Renderer.h"
@@ -37,17 +38,20 @@ void SpinBox::Create()
     mText = CreateChild<Text>("Text");
     mDecrementButton = CreateChild<Button>("Decrement");
     mIncrementButton = CreateChild<Button>("Increment");
+    mInputField = CreateChild<InputField>("InputField");
 
     mBackground->SetTransient(true);
     mText->SetTransient(true);
     mDecrementButton->SetTransient(true);
     mIncrementButton->SetTransient(true);
+    mInputField->SetTransient(true);
 
 #if EDITOR
     mBackground->mHiddenInTree = true;
     mText->mHiddenInTree = true;
     mDecrementButton->mHiddenInTree = true;
     mIncrementButton->mHiddenInTree = true;
+    mInputField->mHiddenInTree = true;
 #endif
 
     // Setup background - FullStretch
@@ -70,6 +74,14 @@ void SpinBox::Create()
     mIncrementButton->SetAnchorMode(AnchorMode::TopLeft);
     mIncrementButton->SetTextString("+");
     mIncrementButton->SetNormalColor(mButtonColor);
+
+    // Setup input field - FullStretch, hidden by default
+    mInputField->SetAnchorMode(AnchorMode::FullStretch);
+    mInputField->SetVisible(false);
+    mInputField->SetPlaceholder("");
+    mInputField->SetBackgroundColor({ 0.0f, 0.0f, 0.0f, 0.0f });
+    mInputField->SetFocusedBackgroundColor({ 0.0f, 0.0f, 0.0f, 0.0f });
+    mInputField->SetTextColor(mTextColor);
 
     // Default dimensions
     SetDimensions(120, 30);
@@ -113,15 +125,51 @@ void SpinBox::Tick(float deltaTime)
         return;
     }
 
-    // Check if buttons were activated
-    if (mDecrementButton->GetState() == ButtonState::Pressed && IsPointerJustDown(0))
+    if (mEditing)
     {
-        Decrement();
+        if (IsKeyJustDown(POLYPHASE_KEY_ESCAPE))
+        {
+            CancelEditing();
+            return;
+        }
+
+        if (IsKeyJustDown(POLYPHASE_KEY_ENTER))
+        {
+            CommitEditing();
+            return;
+        }
+
+        if (mInputField != nullptr && !mInputField->IsFocused())
+        {
+            CommitEditing();
+            return;
+        }
+
+        return;
     }
 
-    if (mIncrementButton->GetState() == ButtonState::Pressed && IsPointerJustDown(0))
+    // Check if buttons were activated (pointer released while over pressed button)
+    if (IsPointerJustUp(0))
     {
-        Increment();
+        if (mDecrementButton->GetState() == ButtonState::Pressed && mDecrementButton->ContainsMouse())
+        {
+            Decrement();
+        }
+
+        if (mIncrementButton->GetState() == ButtonState::Pressed && mIncrementButton->ContainsMouse())
+        {
+            Increment();
+        }
+    }
+
+    // Click on text area to enter edit mode
+    if (IsPointerJustDown(0))
+    {
+        bool onButton = (mDecrementButton->ContainsMouse() || mIncrementButton->ContainsMouse());
+        if (ContainsMouse() && !onButton)
+        {
+            BeginEditing();
+        }
     }
 
     // Handle scroll wheel when hovered
@@ -161,7 +209,7 @@ void SpinBox::PreRender()
 
 void SpinBox::UpdateAppearance()
 {
-    if (mBackground == nullptr || mText == nullptr || mDecrementButton == nullptr || mIncrementButton == nullptr)
+    if (mBackground == nullptr || mText == nullptr || mDecrementButton == nullptr || mIncrementButton == nullptr || mInputField == nullptr)
     {
         return;
     }
@@ -186,6 +234,10 @@ void SpinBox::UpdateAppearance()
     // Update text margins
     mText->SetMargins(mButtonWidth, 0.0f, mButtonWidth, 0.0f);
     mText->SetColor(mTextColor);
+
+    // Update input field overlay
+    mInputField->SetMargins(mButtonWidth, 0.0f, mButtonWidth, 0.0f);
+    mInputField->SetTextColor(mTextColor);
 
     // Format value text
     std::ostringstream oss;
@@ -369,4 +421,71 @@ Button* SpinBox::GetIncrementButton()
 Button* SpinBox::GetDecrementButton()
 {
     return mDecrementButton;
+}
+
+InputField* SpinBox::GetInputField()
+{
+    return mInputField;
+}
+
+bool SpinBox::IsEditing() const
+{
+    return mEditing;
+}
+
+void SpinBox::BeginEditing()
+{
+    if (mEditing || mInputField == nullptr)
+        return;
+
+    mEditing = true;
+    mValueBeforeEdit = mValue;
+
+    // Format the raw numeric value (no prefix/suffix)
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(mDecimalPlaces) << mValue;
+
+    mInputField->SetText(oss.str());
+    mInputField->SetVisible(true);
+    mInputField->SetFocused(true);
+    mInputField->SelectAll();
+
+    mText->SetVisible(false);
+}
+
+void SpinBox::CommitEditing()
+{
+    if (!mEditing || mInputField == nullptr)
+        return;
+
+    mEditing = false;
+
+    const std::string& text = mInputField->GetText();
+    if (!text.empty())
+    {
+        char* end = nullptr;
+        float parsed = strtof(text.c_str(), &end);
+        if (end != text.c_str())
+        {
+            SetValue(parsed);
+        }
+    }
+
+    mInputField->SetFocused(false);
+    mInputField->SetVisible(false);
+    mText->SetVisible(true);
+    MarkDirty();
+}
+
+void SpinBox::CancelEditing()
+{
+    if (!mEditing || mInputField == nullptr)
+        return;
+
+    mEditing = false;
+
+    mInputField->SetFocused(false);
+    mInputField->SetVisible(false);
+    mText->SetVisible(true);
+    MarkDirty();
 }

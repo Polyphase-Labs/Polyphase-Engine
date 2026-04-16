@@ -6,6 +6,7 @@ class Texture;
 class Quad;
 class Text;
 class Button;
+class InputField;
 
 class POLYPHASE_API SpinBox : public Widget
 {
@@ -43,6 +44,13 @@ public:
     void SetButtonColor(glm::vec4 color);
     glm::vec4 GetButtonColor();
 
+    // Edit mode
+    void BeginEditing();
+    void CommitEditing();
+    void CancelEditing();
+    bool IsEditing() const;
+    InputField* GetInputField();
+
     // Children
     Quad* GetBackground();
     Text* GetTextWidget();
@@ -74,6 +82,11 @@ protected:
     glm::vec4 mTextColor = { 1.0f, 1.0f, 1.0f, 1.0f };
     glm::vec4 mButtonColor = { 0.35f, 0.35f, 0.35f, 1.0f };
     float mButtonWidth = 20.0f;
+
+    // Edit mode
+    InputField* mInputField = nullptr;
+    bool mEditing = false;
+    float mValueBeforeEdit = 0.0f;
 
     // Children
     Quad* mBackground = nullptr;
