@@ -154,6 +154,42 @@ int Serial_Lua::IsReceiving(lua_State* L)
     return 1;
 }
 
+int Serial_Lua::RegisterMessageFunction(lua_State* L)
+{
+    SerialHandle h = (SerialHandle)CHECK_INTEGER(L, 1);
+    const char* pattern = CHECK_STRING(L, 2);
+    CHECK_FUNCTION(L, 3);
+    ScriptFunc func(L, 3);
+
+    uint32_t id = SerialManager::Get()->RegisterMessageMatcher(
+        h, pattern, SerialMessageMatcher::Type::Exact, func);
+
+    lua_pushinteger(L, (lua_Integer)id);
+    return 1;
+}
+
+int Serial_Lua::RegisterREGEXMessageFunction(lua_State* L)
+{
+    SerialHandle h = (SerialHandle)CHECK_INTEGER(L, 1);
+    const char* pattern = CHECK_STRING(L, 2);
+    CHECK_FUNCTION(L, 3);
+    ScriptFunc func(L, 3);
+
+    uint32_t id = SerialManager::Get()->RegisterMessageMatcher(
+        h, pattern, SerialMessageMatcher::Type::Regex, func);
+
+    lua_pushinteger(L, (lua_Integer)id);
+    return 1;
+}
+
+int Serial_Lua::UnregisterMessageFunction(lua_State* L)
+{
+    SerialHandle h = (SerialHandle)CHECK_INTEGER(L, 1);
+    uint32_t matcherId = (uint32_t)CHECK_INTEGER(L, 2);
+    SerialManager::Get()->UnregisterMessageMatcher(h, matcherId);
+    return 0;
+}
+
 int Serial_Lua::SetMessageCallback(lua_State* L)
 {
     CHECK_FUNCTION(L, 1);
@@ -194,6 +230,9 @@ void Serial_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, StartReceive);
     REGISTER_TABLE_FUNC(L, tableIdx, StopReceive);
     REGISTER_TABLE_FUNC(L, tableIdx, IsReceiving);
+    REGISTER_TABLE_FUNC(L, tableIdx, RegisterMessageFunction);
+    REGISTER_TABLE_FUNC(L, tableIdx, RegisterREGEXMessageFunction);
+    REGISTER_TABLE_FUNC(L, tableIdx, UnregisterMessageFunction);
     REGISTER_TABLE_FUNC(L, tableIdx, SetMessageCallback);
     REGISTER_TABLE_FUNC(L, tableIdx, SetConnectCallback);
     REGISTER_TABLE_FUNC(L, tableIdx, SetDisconnectCallback);

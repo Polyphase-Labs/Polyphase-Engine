@@ -277,6 +277,97 @@ const SerialManager::Port* SerialManager::FindPort(SerialHandle handle) const
     return nullptr;
 }
 
+uint32_t SerialManager::RegisterMessageMatcher(SerialHandle handle, const std::string& pattern,
+                                                SerialMessageMatcher::Type type, const ScriptFunc& callback)
+{
+    Port* p = FindPort(handle);
+    if (p == nullptr)
+        return 0;
+
+    SerialMessageMatcher matcher;
+    matcher.mId       = p->mNextMatcherId++;
+    matcher.mType     = type;
+    matcher.mPattern  = pattern;
+    matcher.mCallback = callback;
+
+    if (type == SerialMessageMatcher::Type::Regex)
+    {
+        try
+        {
+            matcher.mRegex = std::regex(pattern);
+        }
+        catch (const std::regex_error& e)
+        {
+            LogError("Serial: invalid regex pattern \"%s\": %s", pattern.c_str(), e.what());
+            return 0;
+        }
+    }
+
+    p->mMatchers.push_back(std::move(matcher));
+    return p->mMatchers.back().mId;
+}
+
+void SerialManager::UnregisterMessageMatcher(SerialHandle handle, uint32_t matcherId)
+{
+    Port* p = FindPort(handle);
+    if (p == nullptr)
+        return;
+
+    for (uint32_t i = 0; i < p->mMatchers.size(); ++i)
+    {
+        if (p->mMatchers[i].mId == matcherId)
+        {
+            p->mMatchers.erase(p->mMatchers.begin() + i);
+            return;
+        }
+    }
+}
+
+void SerialManager::ClearMessageMatchers(SerialHandle handle)
+{
+    Port* p = FindPort(handle);
+    if (p == nullptr)
+        return;
+
+    p->mMatchers.clear();
+    p->mLineBuffer.clear();
+}
+
+void SerialManager::DispatchLineToMatchers(Port* port, const std::string& line)
+{
+    for (uint32_t i = 0; i < port->mMatchers.size(); ++i)
+    {
+        const SerialMessageMatcher& matcher = port->mMatchers[i];
+
+        if (matcher.mType == SerialMessageMatcher::Type::Exact)
+        {
+            if (line == matcher.mPattern)
+            {
+                Datum params[1];
+                params[0] = Datum(line);
+                matcher.mCallback.Call(1, params);
+            }
+        }
+        else
+        {
+            std::smatch match;
+            if (std::regex_search(line, match, matcher.mRegex))
+            {
+                std::vector<std::string> captures;
+                for (size_t c = 1; c < match.size(); ++c)
+                {
+                    captures.push_back(match[c].str());
+                }
+
+                Datum params[2];
+                params[0] = Datum(line);
+                params[1] = Datum(captures);
+                matcher.mCallback.Call(2, params);
+            }
+        }
+    }
+}
+
 void SerialManager::PreTickUpdate(float /*deltaTime*/)
 {
     // Fire pending connect events.
@@ -313,6 +404,33 @@ void SerialManager::PreTickUpdate(float /*deltaTime*/)
         if (!frameBuffer.empty())
         {
             DispatchMessage(p->mHandle, frameBuffer.data(), (uint32_t)frameBuffer.size());
+
+            // Line-buffered pattern matching for registered matchers.
+            if (!p->mMatchers.empty())
+            {
+                p->mLineBuffer.append(reinterpret_cast<const char*>(frameBuffer.data()),
+                                      frameBuffer.size());
+
+                // Safety cap: discard if no newline in 64KB.
+                if (p->mLineBuffer.size() > kMaxBytesPerFrame)
+                {
+                    LogWarning("Serial line buffer overflow on handle %u, discarding", p->mHandle);
+                    p->mLineBuffer.clear();
+                }
+
+                size_t pos;
+                while ((pos = p->mLineBuffer.find('\n')) != std::string::npos)
+                {
+                    std::string line = p->mLineBuffer.substr(0, pos);
+                    p->mLineBuffer.erase(0, pos + 1);
+
+                    // Strip trailing \r (CRLF from Arduino/Windows devices).
+                    if (!line.empty() && line.back() == '\r')
+                        line.pop_back();
+
+                    DispatchLineToMatchers(p, line);
+                }
+            }
         }
     }
 

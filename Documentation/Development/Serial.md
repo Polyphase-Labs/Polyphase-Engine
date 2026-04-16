@@ -35,6 +35,22 @@ function SerialGameManager:Start()
 if self.connection == 0 then error("open failed") end
 	Log.Debug("SerialGameManager:Start() Connected to Serial Port : " .. tostring(self.connection))
 
+    Serial.StartReceive(self.connection)
+
+	Serial.RegisterMessageFunction(self.connection, "buttonPushed", function(message)
+		self:RunFunction()
+	end)
+
+	Serial.RegisterMessageFunction(self.connection, "unknownCommand", function(message)
+		Log.Debug("SerialGameManager: Received 'unknownCommand' from Serial Device: " .. tostring(message))
+	end)
+    
+
+end
+
+function SerialGameManager:RunFunction()
+		Log.Debug("SerialGameManager: Received 'buttonPushed' from Serial Device")
+
 end
 
 
@@ -147,6 +163,16 @@ Closes a serial port. Stops any active receive loop and releases the handle.
 Serial.Disconnect(h)
 ```
 
+### Serial.IsConnected(handle)
+
+Returns `true` if the given handle is currently connected.
+
+```lua
+if Serial.IsConnected(h) then
+    Serial.Send(h, "PING\n")
+end
+```
+
 ### Serial.Send(handle, data)
 
 Sends data to an open serial port. Returns the number of bytes written, or `-1` on error. Lua strings are binary-safe, so null bytes and raw binary data work.
@@ -157,6 +183,16 @@ Serial.Send(h, "PING\n")
 
 -- Send raw bytes
 Serial.Send(h, string.char(0xAA, 0x55, 0x01, 0x02))
+```
+
+### Serial.SendLine(handle, data)
+
+Sends data with a newline (`\n`) appended automatically. Returns the number of bytes written (including the newline), or `-1` on error.
+
+```lua
+-- These are equivalent:
+Serial.SendLine(h, "PING")
+Serial.Send(h, "PING\n")
 ```
 
 ### Serial.StartReceive(handle)
@@ -173,6 +209,73 @@ Stops the background read loop. Data already buffered but not yet delivered will
 
 ```lua
 Serial.StopReceive(h)
+```
+
+### Serial.IsReceiving(handle)
+
+Returns `true` if the background receive loop is currently active for the given handle.
+
+```lua
+if not Serial.IsReceiving(h) then
+    Serial.StartReceive(h)
+end
+```
+
+### Serial.RegisterMessageFunction(handle, pattern, callback)
+
+Registers a callback that fires when incoming data exactly matches the given pattern string. Returns a matcher ID that can be used with `UnregisterMessageFunction`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| handle | integer | Serial connection handle |
+| pattern | string | Exact string to match against incoming messages |
+| callback | function | Called with the matched message as its argument |
+
+```lua
+Serial.StartReceive(h)
+
+local id = Serial.RegisterMessageFunction(h, "buttonPushed", function(message)
+    Log.Debug("Button was pushed!")
+end)
+
+-- Later, to stop matching:
+Serial.UnregisterMessageFunction(h, id)
+```
+
+### Serial.RegisterREGEXMessageFunction(handle, pattern, callback)
+
+Like `RegisterMessageFunction`, but the pattern is a regular expression instead of an exact match. Returns a matcher ID.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| handle | integer | Serial connection handle |
+| pattern | string | Regex pattern to match against incoming messages |
+| callback | function | Called with the matched message as its argument |
+
+```lua
+-- Match any temperature reading like "TEMP:23.5"
+Serial.RegisterREGEXMessageFunction(h, "^TEMP:[0-9.]+$", function(message)
+    local value = message:match("TEMP:(.+)")
+    Log.Debug("Temperature: " .. value)
+end)
+```
+
+### Serial.UnregisterMessageFunction(handle, matcherId)
+
+Removes a previously registered message matcher by its ID.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| handle | integer | Serial connection handle |
+| matcherId | integer | ID returned by `RegisterMessageFunction` or `RegisterREGEXMessageFunction` |
+
+```lua
+local id = Serial.RegisterMessageFunction(h, "ping", function(msg)
+    Log.Debug("pong")
+end)
+
+-- Stop listening for "ping"
+Serial.UnregisterMessageFunction(h, id)
 ```
 
 ### Callbacks
