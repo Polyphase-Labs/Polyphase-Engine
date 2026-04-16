@@ -2616,21 +2616,120 @@ void ActionManager::CreateNewProject(const char* folderPath, bool cpp, const cha
     }
 }
 
+static std::string ResolveProjectPath(const std::string& inputPath)
+{
+    if (inputPath.empty())
+        return "";
+
+    std::string path = inputPath;
+    std::replace(path.begin(), path.end(), '\\', '/');
+
+    // Remove trailing slash
+    if (!path.empty() && path.back() == '/')
+        path.pop_back();
+
+    std::string directory;
+    std::string octpPath;
+
+    if (DoesDirExist(path.c_str()))
+    {
+        // Input is a directory — derive {dirName}.octp
+        directory = path + "/";
+        std::string dirName = path;
+        size_t slashPos = dirName.find_last_of('/');
+        if (slashPos != std::string::npos)
+            dirName = dirName.substr(slashPos + 1);
+
+        octpPath = directory + dirName + ".octp";
+    }
+    else
+    {
+        // Treat as a file path — extract directory
+        size_t dotPos = path.find_last_of('.');
+        if (dotPos != std::string::npos && path.substr(dotPos) == ".octp")
+        {
+            octpPath = path;
+            size_t slashPos = path.find_last_of('/');
+            directory = (slashPos != std::string::npos) ? path.substr(0, slashPos + 1) : "";
+        }
+        else
+        {
+            return "";
+        }
+    }
+
+    // If .octp already exists, return it
+    if (SYS_DoesFileExist(octpPath.c_str(), false))
+        return octpPath;
+
+    // .octp missing — check if directory looks like a project
+    if (directory.empty())
+        return "";
+
+    bool hasAssets = DoesDirExist((directory + "Assets").c_str());
+    bool hasScripts = DoesDirExist((directory + "Scripts").c_str());
+
+    if (!hasAssets && !hasScripts)
+    {
+        LogWarning("Directory does not appear to be a project (no Assets/ or Scripts/): %s", directory.c_str());
+        return "";
+    }
+
+    // Derive project name from directory
+    std::string dirName = directory;
+    if (!dirName.empty() && dirName.back() == '/')
+        dirName.pop_back();
+    size_t slashPos = dirName.find_last_of('/');
+    if (slashPos != std::string::npos)
+        dirName = dirName.substr(slashPos + 1);
+
+    octpPath = directory + dirName + ".octp";
+
+    // Auto-create the .octp
+    LogDebug("Auto-creating missing project file: %s", octpPath.c_str());
+    FILE* f = fopen(octpPath.c_str(), "w");
+    if (f != nullptr)
+    {
+        fprintf(f, "name=%s", dirName.c_str());
+        fclose(f);
+    }
+    else
+    {
+        LogError("Failed to create project file: %s", octpPath.c_str());
+        return "";
+    }
+
+    // Auto-create Config.ini if missing
+    std::string configPath = directory + "Config.ini";
+    if (!SYS_DoesFileExist(configPath.c_str(), false))
+    {
+        LogDebug("Auto-creating missing Config.ini: %s", configPath.c_str());
+        FILE* configFile = fopen(configPath.c_str(), "w");
+        if (configFile != nullptr)
+        {
+            fprintf(configFile, "Project=%s\n", dirName.c_str());
+            fclose(configFile);
+        }
+    }
+
+    return octpPath;
+}
+
 void ActionManager::OpenProject(const char* path)
 {
     std::string pathStr = path ? path : "";
 
-    if (pathStr == "")
+    if (pathStr.empty())
     {
-        std::vector<std::string> paths = SYS_OpenFileDialog();
-
-        if (paths.size() > 0)
-        {
-            pathStr = paths[0];
-        }
+        pathStr = SYS_SelectFolderDialog();
     }
 
-    if (pathStr != "")
+    if (!pathStr.empty())
+    {
+        pathStr = ResolveProjectPath(pathStr);
+    }
+
+    if (!pathStr.empty())
     {
         // Save and destroy previous PackagingSettings before loading new project
         if (PackagingSettings::Get() != nullptr)

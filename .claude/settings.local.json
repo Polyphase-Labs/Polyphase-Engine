@@ -57,7 +57,13 @@
       "Bash(ls /home/uai/Projects/Octave/Polyphase-Engine/Engine/External/libgit2/build/*.a)",
       "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/2019/Community/Common7/IDE/**)",
       "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/2017/Community/Common7/IDE/**)",
-      "Bash('M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/vswhere/vswhere.exe')"
+      "Bash('M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/vswhere/vswhere.exe')",
+      "Bash(python Tools/generate_lua_stubs.py --verbose)",
+      "Bash(where python3.exe)",
+      "Bash(where python.exe)",
+      "Bash(python3 Tools/generate_lua_stubs.py --verbose)",
+      "Bash(py -3 Tools/generate_lua_stubs.py --verbose)",
+      "Bash(py -3 Tools/generate_lua_stubs.py)"
     ]
   }
 }

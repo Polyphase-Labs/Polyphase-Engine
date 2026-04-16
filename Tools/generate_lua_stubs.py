@@ -259,6 +259,31 @@ def parse_check_macros_from_body(body, is_self_type):
             optional=is_optional
         )
 
+    # Detect luaL_checkstring(L, N) and luaL_checklstring(L, N, ...) calls
+    luaL_check_pattern = re.compile(
+        r'luaL_check(?:l)?string\s*\(\s*L\s*,\s*(\d+)\s*[,)]'
+    )
+    for m in luaL_check_pattern.finditer(body):
+        arg_idx = int(m.group(1))
+        if is_self_type and arg_idx == 1:
+            continue
+        if arg_idx in seen_args:
+            continue
+        # Infer name from assignment
+        line_start = body.rfind('\n', 0, m.start()) + 1
+        line_end = body.find('\n', m.start())
+        if line_end == -1:
+            line_end = len(body)
+        line = body[line_start:line_end]
+        name_match = re.match(r'\s*(?:[\w:*&<>]+\s+)+(\w+)\s*=', line)
+        offset = 1 if is_self_type else 0
+        param_name = name_match.group(1) if name_match else f"arg{arg_idx - offset}"
+        seen_args[arg_idx] = ParamInfo(
+            name=param_name,
+            lua_type="string",
+            optional=_is_optional_param(body, arg_idx)
+        )
+
     # Detect luaL_checktype(L, N, LUA_T*) calls (e.g. luaL_checktype(L, 1, LUA_TTABLE))
     LUA_TYPE_MAP = {
         "LUA_TTABLE": "table",
@@ -376,6 +401,15 @@ def parse_return_types(body):
     return_count = int(return_match.group(1))
     if return_count == 0:
         return []
+
+    # Detect table-building pattern: lua_newtable + lua_setfield/lua_rawseti
+    # In this pattern, intermediate lua_push* calls are consumed by setfield/rawseti
+    # and are NOT return values — the newtable itself is the return value.
+    if return_count == 1:
+        has_newtable = bool(re.search(r'lua_newtable\s*\(', body))
+        has_setfield = bool(re.search(r'(?:lua_setfield|lua_rawseti|lua_rawset)\s*\(', body))
+        if has_newtable and has_setfield:
+            return ["table"]
 
     # Always use position-based return type detection for accuracy
     return _order_returns_by_position(body, return_count)

@@ -115,7 +115,7 @@ function TileMap2D:GetClosestTilesOfType(targetTile, worldPos, maxDist) end
 function TileMap2D:GetNeighborCells(cellX, cellY) end
 
 ---@param worldPos Vector
----@return number
+---@return table
 function TileMap2D:GetCollisionAt(worldPos) end
 
 ---@param oldIdx integer
@@ -134,7 +134,7 @@ function TileMap2D:CountTileUses(tileIdx) end
 
 ---@param start Vector
 ---@param end Vector
----@return integer
+---@return table
 function TileMap2D:RaycastTiles(start, end) end
 
 ---@param startX integer

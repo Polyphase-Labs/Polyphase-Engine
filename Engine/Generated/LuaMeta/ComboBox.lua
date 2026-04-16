@@ -14,7 +14,7 @@ function ComboBox:ClearOptions() end
 ---@param arg1 table
 function ComboBox:SetOptions(arg1) end
 
----@return string
+---@return table
 function ComboBox:GetOptions() end
 
 ---@return integer

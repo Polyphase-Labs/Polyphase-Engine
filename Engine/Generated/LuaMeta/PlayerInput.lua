@@ -3,25 +3,37 @@
 ---@class PlayerInputModule
 PlayerInput = {}
 
+---@param category string
+---@param name string
 ---@param playerIndex? integer
 ---@return boolean
-function PlayerInput.IsActive(playerIndex) end
+function PlayerInput.IsActive(category, name, playerIndex) end
 
+---@param category string
+---@param name string
 ---@param playerIndex? integer
 ---@return boolean
-function PlayerInput.WasJustActivated(playerIndex) end
+function PlayerInput.WasJustActivated(category, name, playerIndex) end
 
+---@param category string
+---@param name string
 ---@param playerIndex? integer
 ---@return boolean
-function PlayerInput.WasJustDeactivated(playerIndex) end
+function PlayerInput.WasJustDeactivated(category, name, playerIndex) end
 
+---@param category string
+---@param name string
 ---@param playerIndex? integer
 ---@return number
-function PlayerInput.GetValue(playerIndex) end
+function PlayerInput.GetValue(category, name, playerIndex) end
 
-function PlayerInput.RegisterAction() end
+---@param category string
+---@param name string
+function PlayerInput.RegisterAction(category, name) end
 
-function PlayerInput.UnregisterAction() end
+---@param category string
+---@param name string
+function PlayerInput.UnregisterAction(category, name) end
 
 ---@return integer
 function PlayerInput.GetPlayersConnected() end

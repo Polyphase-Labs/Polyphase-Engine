@@ -1063,6 +1063,72 @@ void LoadProject(const std::string& path, bool discoverAssets)
 #endif
 
 #if EDITOR
+    // Auto-create .luarc.json for Lua IntelliSense if it doesn't exist
+    if (sEngineState.mProjectDirectory != "")
+    {
+        std::string luarcPath = sEngineState.mProjectDirectory + ".luarc.json";
+        if (!SYS_DoesFileExist(luarcPath.c_str(), false))
+        {
+            std::string polyphasePath = SYS_GetPolyphasePath();
+            std::string luaMetaPath = polyphasePath + "Engine/Generated/LuaMeta";
+
+            if (!DoesDirExist(luaMetaPath.c_str()))
+            {
+                polyphasePath = SYS_GetCurrentDirectoryPath();
+                luaMetaPath = polyphasePath + "Engine/Generated/LuaMeta";
+            }
+
+            if (DoesDirExist(luaMetaPath.c_str()))
+            {
+                std::replace(luaMetaPath.begin(), luaMetaPath.end(), '\\', '/');
+
+                FILE* luarcFile = fopen(luarcPath.c_str(), "w");
+                if (luarcFile != nullptr)
+                {
+                    fprintf(luarcFile,
+                        "{\n"
+                        "    \"runtime\": {\n"
+                        "        \"version\": \"Lua 5.3\"\n"
+                        "    },\n"
+                        "    \"workspace\": {\n"
+                        "        \"library\": [\n"
+                        "            \"%s\"\n"
+                        "        ]\n"
+                        "    },\n"
+                        "    \"diagnostics\": {\n"
+                        "        \"globals\": [\n"
+                        "            \"self\"\n"
+                        "        ]\n"
+                        "    }\n"
+                        "}\n",
+                        luaMetaPath.c_str());
+                    fclose(luarcFile);
+                    luarcFile = nullptr;
+                }
+            }
+        }
+    }
+
+    // Auto-create .gitignore if it doesn't exist
+    {
+        std::string gitignorePath = sEngineState.mProjectDirectory + ".gitignore";
+        if (!SYS_DoesFileExist(gitignorePath.c_str(), false))
+        {
+            FILE* gitignoreFile = fopen(gitignorePath.c_str(), "w");
+            if (gitignoreFile != nullptr)
+            {
+                fprintf(gitignoreFile,
+                    "Packaged/\n"
+                    "Generated/\n"
+                    "Intermediate/\n");
+                fclose(gitignoreFile);
+                gitignoreFile = nullptr;
+            }
+        }
+    }
+#endif
+
+#if EDITOR
     if (!IsHeadless())
     {
         GetEditorState()->ReadEditorProjectSave();

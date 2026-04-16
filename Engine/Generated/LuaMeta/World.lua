@@ -63,7 +63,7 @@ function World:GetShadowColor() end
 ---@param arg1 table
 function World:SetFogSettings(arg1) end
 
----@return number
+---@return table
 function World:GetFogSettings() end
 
 ---@param value Vector
@@ -77,21 +77,21 @@ function World:GetGravity() end
 ---@param colMask integer
 ---@param arg4 table
 ---@param ignorePureOverlap boolean
----@return number
+---@return table
 function World:RayTest(start, end, colMask, arg4, ignorePureOverlap) end
 
 ---@param start Vector
 ---@param end Vector
 ---@param colMask integer
 ---@param ignorePureOverlap boolean
----@return integer
+---@return table
 function World:RayTestMulti(start, end, colMask, ignorePureOverlap) end
 
 ---@param primComp Primitive3D
 ---@param start Vector
 ---@param end Vector
 ---@param colMask integer
----@return number
+---@return table
 function World:SweepTest(primComp, start, end, colMask) end
 
 ---@param newScene string
@@ -115,7 +115,7 @@ function World:SpawnParticle(particleSys, pos, velocity) end
 
 ---@param start Vector
 ---@param end Vector
----@return Vector
+---@return table
 function World:FindNavPath(start, end) end
 
 ---@return Vector
@@ -135,5 +135,5 @@ function World:Clear() end
 ---@param arg1 table
 function World:SetFog(arg1) end
 
----@return number
+---@return table
 function World:GetFog() end
