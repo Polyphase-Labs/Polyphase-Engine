@@ -236,7 +236,6 @@ void DialogWindow::Tick(float deltaTime)
 
 void DialogWindow::OnConfirmButtonActivated(Node* listener, const std::vector<Datum>& args)
 {
-    LogDebug("Confirm Clicked");
     DialogWindow* dialog = static_cast<DialogWindow*>(listener);
     dialog->Confirm();
 }

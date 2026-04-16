@@ -49,6 +49,43 @@ enum class DatumType : uint8_t
     Spline3D,
     Execution,
 
+    // Widget subtypes
+    SpinBox,
+    Window,
+    DialogWindow,
+    InputField,
+    ProgressBar,
+    CheckBox,
+    ListViewWidget,
+    ListViewItemWidget,
+    DebugResourcesWidget,
+    ArrayWidget,
+    Button,
+    Slider,
+    LineEdit,
+    Canvas,
+
+    // Node3D subtypes
+    Voxel3D,
+    Terrain3D,
+    TileMap2D,
+    NavMesh3D,
+    Camera3D,
+    DirectionalLight3D,
+    Box3D,
+    Particle3D,
+
+    // Node subtypes
+    TimelinePlayer,
+    NodeGraphPlayer,
+
+    // Asset subtypes
+    Material,
+    TileSet,
+    TileMap,
+    Timeline,
+    NodeGraphAsset,
+
     Count
 };
 
@@ -60,7 +97,45 @@ inline bool IsNodeDatumType(DatumType type)
            type == DatumType::Widget ||
            type == DatumType::Text ||
            type == DatumType::Quad ||
-           type == DatumType::Spline3D;
+           type == DatumType::Spline3D ||
+           // Widget subtypes
+           type == DatumType::SpinBox ||
+           type == DatumType::Window ||
+           type == DatumType::DialogWindow ||
+           type == DatumType::InputField ||
+           type == DatumType::ProgressBar ||
+           type == DatumType::CheckBox ||
+           type == DatumType::ListViewWidget ||
+           type == DatumType::ListViewItemWidget ||
+           type == DatumType::DebugResourcesWidget ||
+           type == DatumType::ArrayWidget ||
+           type == DatumType::Button ||
+           type == DatumType::Slider ||
+           type == DatumType::LineEdit ||
+           type == DatumType::Canvas ||
+           // Node3D subtypes
+           type == DatumType::Voxel3D ||
+           type == DatumType::Terrain3D ||
+           type == DatumType::TileMap2D ||
+           type == DatumType::NavMesh3D ||
+           type == DatumType::Camera3D ||
+           type == DatumType::DirectionalLight3D ||
+           type == DatumType::Box3D ||
+           type == DatumType::Particle3D ||
+           // Node subtypes
+           type == DatumType::TimelinePlayer ||
+           type == DatumType::NodeGraphPlayer;
+}
+
+inline bool IsAssetDatumType(DatumType type)
+{
+    return type == DatumType::Asset ||
+           type == DatumType::Scene ||
+           type == DatumType::Material ||
+           type == DatumType::TileSet ||
+           type == DatumType::TileMap ||
+           type == DatumType::Timeline ||
+           type == DatumType::NodeGraphAsset;
 }
 
 union DatumData

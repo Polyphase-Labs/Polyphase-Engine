@@ -1,54 +1,63 @@
 --- @meta
 
----@class SerialPortInfo
----@field name string Port name ("COM3", "/dev/ttyUSB0")
----@field description string Human-readable label ("USB Serial Port (COM3)")
-
----@class SerialConfig
----@field baud? integer Baud rate (default 9600)
----@field dataBits? integer Data bits 5-8 (default 8)
----@field stopBits? integer Stop bits 1 or 2 (default 1)
----@field parity? "none"|"odd"|"even"|"mark"|"space" Parity mode (default "none")
----@field flowControl? boolean RTS/CTS flow control (default false)
-
 ---@class SerialModule
 Serial = {}
 
----@return SerialPortInfo[]
+---@return table
 function Serial.EnumeratePorts() end
 
 ---@param portName string
----@param config? SerialConfig
----@return integer handle 0 on failure
-function Serial.Connect(portName, config) end
+---@return integer
+function Serial.Connect(portName) end
 
----@param handle integer
-function Serial.Disconnect(handle) end
+---@param h integer
+function Serial.Disconnect(h) end
 
----@param handle integer
+---@param h integer
 ---@return boolean
-function Serial.IsConnected(handle) end
+function Serial.IsConnected(h) end
 
----@param handle integer
----@param data string Binary-safe byte string
----@return integer bytesWritten -1 on error
-function Serial.Send(handle, data) end
+---@param h integer
+---@param data string
+---@return integer
+function Serial.Send(h, data) end
 
----@param handle integer
-function Serial.StartReceive(handle) end
+---@param h integer
+---@param data string
+---@return integer
+function Serial.SendLine(h, data) end
 
----@param handle integer
-function Serial.StopReceive(handle) end
+---@param h integer
+function Serial.StartReceive(h) end
 
----@param handle integer
+---@param h integer
+function Serial.StopReceive(h) end
+
+---@param h integer
 ---@return boolean
-function Serial.IsReceiving(handle) end
+function Serial.IsReceiving(h) end
 
----@param callback fun(handle: integer, data: string)
-function Serial.SetMessageCallback(callback) end
+---@param h integer
+---@param pattern string
+---@param arg3 function
+---@return integer
+function Serial.RegisterMessageFunction(h, pattern, arg3) end
 
----@param callback fun(handle: integer, portName: string)
-function Serial.SetConnectCallback(callback) end
+---@param h integer
+---@param pattern string
+---@param arg3 function
+---@return integer
+function Serial.RegisterREGEXMessageFunction(h, pattern, arg3) end
 
----@param callback fun(handle: integer)
-function Serial.SetDisconnectCallback(callback) end
+---@param h integer
+---@param matcherId integer
+function Serial.UnregisterMessageFunction(h, matcherId) end
+
+---@param arg1 function
+function Serial.SetMessageCallback(arg1) end
+
+---@param arg1 function
+function Serial.SetConnectCallback(arg1) end
+
+---@param arg1 function
+function Serial.SetDisconnectCallback(arg1) end
