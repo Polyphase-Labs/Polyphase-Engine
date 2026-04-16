@@ -3,6 +3,7 @@
 #include "AutoUpdater.h"
 #include "HttpClient.h"
 #include "Preferences/Updates/UpdatesModule.h"
+#include "Preferences/Updates/CuttingEdgeModule.h"
 #include "Constants.h"
 #include "Engine.h"
 #include "Log.h"
@@ -100,7 +101,12 @@ void AutoUpdater::CheckThreadFunc()
 {
     LogDebug("AutoUpdater: Checking for updates...");
 
-    HttpResponse response = HttpClient::Get(kGitHubApiUrl, 15000);
+    // Check if cutting edge builds are enabled
+    CuttingEdgeModule* cuttingEdge = CuttingEdgeModule::Get();
+    bool isCuttingEdge = cuttingEdge && cuttingEdge->GetCuttingEdgeEnabled();
+
+    const char* url = isCuttingEdge ? kGitHubApiAllReleasesUrl : kGitHubApiUrl;
+    HttpResponse response = HttpClient::Get(url, 15000);
 
     if (mCancelRequested.load())
     {
@@ -141,9 +147,19 @@ void AutoUpdater::CheckThreadFunc()
         updates->SetLastCheckTime(timestamp);
     }
 
+    // Skip pre-release versions when cutting edge is disabled (safety net)
+    if (!isCuttingEdge && mLatestRelease.mPrerelease)
+    {
+        LogDebug("AutoUpdater: Skipping pre-release %s (cutting edge disabled)",
+            mLatestRelease.GetVersion().c_str());
+        mState.store(UpdateCheckState::UpToDate);
+        mRunning.store(false);
+        return;
+    }
+
     // Compare versions
     std::string currentVersion = POLYPHASE_VERSION_STRING;
-    if (mLatestRelease.IsNewerThan(currentVersion))
+    if (mLatestRelease.IsNewerThan(currentVersion, isCuttingEdge))
     {
         // Check if this version is skipped
         if (updates && !updates->GetSkippedVersion().empty())
@@ -176,22 +192,17 @@ void AutoUpdater::CheckThreadFunc()
     mRunning.store(false);
 }
 
-bool AutoUpdater::ParseReleaseJson(const std::string& json)
+static bool ParseSingleReleaseObject(const rapidjson::Value& obj, ReleaseInfo& outRelease)
 {
-    rapidjson::Document doc;
-    doc.Parse(json.c_str());
-
-    if (doc.HasParseError() || !doc.IsObject())
+    if (!obj.IsObject())
     {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(mResultMutex);
-
     // Parse tag_name
-    if (doc.HasMember("tag_name") && doc["tag_name"].IsString())
+    if (obj.HasMember("tag_name") && obj["tag_name"].IsString())
     {
-        mLatestRelease.mTagName = doc["tag_name"].GetString();
+        outRelease.mTagName = obj["tag_name"].GetString();
     }
     else
     {
@@ -199,34 +210,40 @@ bool AutoUpdater::ParseReleaseJson(const std::string& json)
     }
 
     // Parse name
-    if (doc.HasMember("name") && doc["name"].IsString())
+    if (obj.HasMember("name") && obj["name"].IsString())
     {
-        mLatestRelease.mName = doc["name"].GetString();
+        outRelease.mName = obj["name"].GetString();
     }
 
     // Parse body (changelog)
-    if (doc.HasMember("body") && doc["body"].IsString())
+    if (obj.HasMember("body") && obj["body"].IsString())
     {
-        mLatestRelease.mBody = doc["body"].GetString();
+        outRelease.mBody = obj["body"].GetString();
     }
 
     // Parse html_url
-    if (doc.HasMember("html_url") && doc["html_url"].IsString())
+    if (obj.HasMember("html_url") && obj["html_url"].IsString())
     {
-        mLatestRelease.mHtmlUrl = doc["html_url"].GetString();
+        outRelease.mHtmlUrl = obj["html_url"].GetString();
     }
 
     // Parse published_at
-    if (doc.HasMember("published_at") && doc["published_at"].IsString())
+    if (obj.HasMember("published_at") && obj["published_at"].IsString())
     {
-        mLatestRelease.mPublishedAt = doc["published_at"].GetString();
+        outRelease.mPublishedAt = obj["published_at"].GetString();
+    }
+
+    // Parse prerelease flag
+    if (obj.HasMember("prerelease") && obj["prerelease"].IsBool())
+    {
+        outRelease.mPrerelease = obj["prerelease"].GetBool();
     }
 
     // Parse assets
-    mLatestRelease.mAssets.clear();
-    if (doc.HasMember("assets") && doc["assets"].IsArray())
+    outRelease.mAssets.clear();
+    if (obj.HasMember("assets") && obj["assets"].IsArray())
     {
-        const rapidjson::Value& assets = doc["assets"];
+        const rapidjson::Value& assets = obj["assets"];
         for (rapidjson::SizeType i = 0; i < assets.Size(); ++i)
         {
             const rapidjson::Value& asset = assets[i];
@@ -256,12 +273,38 @@ bool AutoUpdater::ParseReleaseJson(const std::string& json)
 
             if (!ra.mName.empty() && !ra.mDownloadUrl.empty())
             {
-                mLatestRelease.mAssets.push_back(std::move(ra));
+                outRelease.mAssets.push_back(std::move(ra));
             }
         }
     }
 
     return true;
+}
+
+bool AutoUpdater::ParseReleaseJson(const std::string& json)
+{
+    rapidjson::Document doc;
+    doc.Parse(json.c_str());
+
+    if (doc.HasParseError())
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mResultMutex);
+
+    if (doc.IsObject())
+    {
+        // Single release object (/releases/latest response)
+        return ParseSingleReleaseObject(doc, mLatestRelease);
+    }
+    else if (doc.IsArray() && doc.Size() > 0)
+    {
+        // Array of releases (/releases response) - first entry is newest
+        return ParseSingleReleaseObject(doc[0], mLatestRelease);
+    }
+
+    return false;
 }
 
 void AutoUpdater::StartDownload()

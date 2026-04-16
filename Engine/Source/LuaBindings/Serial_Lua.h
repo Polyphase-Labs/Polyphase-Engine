@@ -14,6 +14,7 @@ struct Serial_Lua
     static int Disconnect(lua_State* L);
     static int IsConnected(lua_State* L);
     static int Send(lua_State* L);
+    static int SendLine(lua_State* L);
     static int StartReceive(lua_State* L);
     static int StopReceive(lua_State* L);
     static int IsReceiving(lua_State* L);

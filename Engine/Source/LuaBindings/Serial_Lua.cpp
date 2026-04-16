@@ -114,6 +114,25 @@ int Serial_Lua::Send(lua_State* L)
     return 1;
 }
 
+int Serial_Lua::SendLine(lua_State* L)
+{
+    SerialHandle h = (SerialHandle)CHECK_INTEGER(L, 1);
+
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 2, &len);
+
+    std::string line(data, len);
+    line += '\n';
+
+    int32_t written = SerialManager::Get()->SendMessage(
+        h,
+        reinterpret_cast<const uint8_t*>(line.data()),
+        (uint32_t)line.size());
+
+    lua_pushinteger(L, (lua_Integer)written);
+    return 1;
+}
+
 int Serial_Lua::StartReceive(lua_State* L)
 {
     SerialHandle h = (SerialHandle)CHECK_INTEGER(L, 1);
@@ -171,6 +190,7 @@ void Serial_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, Disconnect);
     REGISTER_TABLE_FUNC(L, tableIdx, IsConnected);
     REGISTER_TABLE_FUNC(L, tableIdx, Send);
+    REGISTER_TABLE_FUNC(L, tableIdx, SendLine);
     REGISTER_TABLE_FUNC(L, tableIdx, StartReceive);
     REGISTER_TABLE_FUNC(L, tableIdx, StopReceive);
     REGISTER_TABLE_FUNC(L, tableIdx, IsReceiving);

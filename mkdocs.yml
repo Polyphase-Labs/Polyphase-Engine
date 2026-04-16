@@ -81,6 +81,8 @@ nav:
           - Tracks and Clips: Development/Timeline/TracksAndClips.md
           - Lua API: Development/Timeline/LuaAPI.md
           - Creating Custom Tracks: Development/Timeline/CreatingCustomTracks.md
+      - Serial:
+          - Overview: Development/Serial.md
       - Native Addons:
           - Overview: Development/NativeAddon/NativeAddon.md
           - General Examples:

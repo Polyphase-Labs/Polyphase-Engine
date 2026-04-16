@@ -723,6 +723,7 @@
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Network\NetworkModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Updates\UpdatesModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Input\InputMapModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.cpp" />
     <ClCompile Include="Source\Editor\Hotkeys\EditorAction.cpp" />
@@ -1209,6 +1210,7 @@
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerTypes.h" />
     <ClInclude Include="Source\Editor\Preferences\Network\NetworkModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Updates\UpdatesModule.h" />
+    <ClInclude Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Input\InputMapModule.h" />
     <ClInclude Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.h" />
     <ClInclude Include="Source\Editor\Hotkeys\EditorAction.h" />

@@ -1220,6 +1220,9 @@
     <ClCompile Include="Source\Editor\Preferences\Updates\UpdatesModule.cpp">
       <Filter>Source Files\Editor\Preferences\Updates</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.cpp">
+      <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Input\InputMapModule.cpp">
       <Filter>Source Files\Editor\Preferences\Input</Filter>
     </ClCompile>
@@ -2581,6 +2584,9 @@
       <Filter>Source Files\Editor\Preferences\Network</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Updates\UpdatesModule.h">
+      <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.h">
       <Filter>Source Files\Editor\Preferences\Updates</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Input\InputMapModule.h">

@@ -22,6 +22,7 @@
 #include "Packaging/DockerModule.h"
 #include "Network/NetworkModule.h"
 #include "Updates/UpdatesModule.h"
+#include "Updates/CuttingEdgeModule.h"
 #include "Input/InputMapModule.h"
 #include "EditorHotkeys/EditorHotkeysModule.h"
 #include "Git/GitPreferencesModule.h"
@@ -62,8 +63,10 @@ void PreferencesManager::Create()
     // Network module
     sInstance->RegisterModule(new NetworkModule());
 
-    // Updates module
-    sInstance->RegisterModule(new UpdatesModule());
+    // Updates module with sub-modules
+    UpdatesModule* updates = new UpdatesModule();
+    updates->AddSubModule(new CuttingEdgeModule());
+    sInstance->RegisterModule(updates);
 
     // Input mapping module
     sInstance->RegisterModule(new InputMapModule());

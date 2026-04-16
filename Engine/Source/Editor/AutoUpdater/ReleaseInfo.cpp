@@ -3,12 +3,52 @@
 #include "ReleaseInfo.h"
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
+#include <algorithm>
+
+static PreReleaseType ParsePreReleaseTypeString(const char* str, const char* end)
+{
+    // Extract and lowercase the type string
+    std::string type;
+    for (const char* p = str; p < end; ++p)
+    {
+        type += (char)std::tolower((unsigned char)*p);
+    }
+
+    if (type == "beta" || type == "beata")
+    {
+        return PreReleaseType::Beta;
+    }
+    if (type == "alpha")
+    {
+        return PreReleaseType::Alpha;
+    }
+    if (type == "rc")
+    {
+        return PreReleaseType::RC;
+    }
+
+    // Unknown pre-release type, treat as beta
+    return PreReleaseType::Beta;
+}
 
 bool ReleaseInfo::ParseVersion(const std::string& version, int& outMajor, int& outMinor, int& outPatch)
+{
+    int build = 0;
+    PreReleaseType preType = PreReleaseType::None;
+    int preNum = 0;
+    return ParseVersion(version, outMajor, outMinor, outPatch, build, preType, preNum);
+}
+
+bool ReleaseInfo::ParseVersion(const std::string& version, int& outMajor, int& outMinor, int& outPatch,
+                               int& outBuild, PreReleaseType& outPreReleaseType, int& outPreReleaseNum)
 {
     outMajor = 0;
     outMinor = 0;
     outPatch = 0;
+    outBuild = 0;
+    outPreReleaseType = PreReleaseType::None;
+    outPreReleaseNum = 0;
 
     if (version.empty())
     {
@@ -44,22 +84,76 @@ bool ReleaseInfo::ParseVersion(const std::string& version, int& outMajor, int& o
         }
     }
 
+    // Check for 4th component (build) or pre-release suffix
+    if (*end == '.')
+    {
+        // Could be build number (e.g., 6.1.1.1) or end of patch
+        const char* afterDot = end + 1;
+        char* buildEnd = nullptr;
+        int buildNum = (int)strtol(afterDot, &buildEnd, 10);
+        if (buildEnd != afterDot)
+        {
+            outBuild = buildNum;
+            end = buildEnd;
+        }
+    }
+
+    if (*end == '-')
+    {
+        // Pre-release suffix (e.g., -beta.5, -beata.5, -alpha.1, -rc.2)
+        const char* typeStart = end + 1;
+        const char* typeEnd = typeStart;
+
+        // Find end of type string (up to '.' or end of string)
+        while (*typeEnd != '\0' && *typeEnd != '.')
+        {
+            typeEnd++;
+        }
+
+        if (typeEnd > typeStart)
+        {
+            outPreReleaseType = ParsePreReleaseTypeString(typeStart, typeEnd);
+
+            // Parse pre-release number if present
+            if (*typeEnd == '.')
+            {
+                const char* numStart = typeEnd + 1;
+                char* numEnd = nullptr;
+                int preNum = (int)strtol(numStart, &numEnd, 10);
+                if (numEnd != numStart)
+                {
+                    outPreReleaseNum = preNum;
+                }
+            }
+        }
+    }
+
     return true;
 }
 
 bool ReleaseInfo::IsNewerThan(const std::string& currentVersion) const
 {
-    int relMajor, relMinor, relPatch;
-    int curMajor, curMinor, curPatch;
+    return IsNewerThan(currentVersion, false);
+}
+
+bool ReleaseInfo::IsNewerThan(const std::string& currentVersion, bool cuttingEdgeEnabled) const
+{
+    int relMajor, relMinor, relPatch, relBuild;
+    PreReleaseType relPreType;
+    int relPreNum;
+
+    int curMajor, curMinor, curPatch, curBuild;
+    PreReleaseType curPreType;
+    int curPreNum;
 
     std::string releaseVer = GetVersion();
 
-    if (!ParseVersion(releaseVer, relMajor, relMinor, relPatch))
+    if (!ParseVersion(releaseVer, relMajor, relMinor, relPatch, relBuild, relPreType, relPreNum))
     {
         return false;
     }
 
-    if (!ParseVersion(currentVersion, curMajor, curMinor, curPatch))
+    if (!ParseVersion(currentVersion, curMajor, curMinor, curPatch, curBuild, curPreType, curPreNum))
     {
         return false;
     }
@@ -73,7 +167,44 @@ bool ReleaseInfo::IsNewerThan(const std::string& currentVersion) const
     {
         return relMinor > curMinor;
     }
-    return relPatch > curPatch;
+    if (relPatch != curPatch)
+    {
+        return relPatch > curPatch;
+    }
+
+    // Base versions are equal -- compare build/pre-release
+    if (cuttingEdgeEnabled)
+    {
+        bool relIsPreRelease = (relPreType != PreReleaseType::None);
+        bool curIsPreRelease = (curPreType != PreReleaseType::None);
+
+        if (relIsPreRelease && !curIsPreRelease)
+        {
+            // Release is a pre-release for a future build, current is stable
+            return true;
+        }
+        if (!relIsPreRelease && curIsPreRelease)
+        {
+            // Release is stable, current is pre-release -- stable supersedes
+            return true;
+        }
+        if (relIsPreRelease && curIsPreRelease)
+        {
+            // Both pre-release: compare type rank (RC > Beta > Alpha)
+            // Lower enum value = higher precedence (None=0, RC=1, Beta=2, Alpha=3)
+            if (relPreType != curPreType)
+            {
+                return relPreType < curPreType;
+            }
+            return relPreNum > curPreNum;
+        }
+
+        // Both stable: compare build numbers
+        return relBuild > curBuild;
+    }
+
+    // Cutting edge disabled: only compare build numbers for stable versions
+    return relBuild > curBuild;
 }
 
 const ReleaseAsset* ReleaseInfo::GetAssetForPlatform() const
