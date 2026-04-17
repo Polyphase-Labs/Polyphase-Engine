@@ -64,6 +64,7 @@ enum class DatumType : uint8_t
     Slider,
     LineEdit,
     Canvas,
+    ComboBox,
 
     // Node3D subtypes
     Voxel3D,
@@ -113,6 +114,7 @@ inline bool IsNodeDatumType(DatumType type)
            type == DatumType::Slider ||
            type == DatumType::LineEdit ||
            type == DatumType::Canvas ||
+           type == DatumType::ComboBox ||
            // Node3D subtypes
            type == DatumType::Voxel3D ||
            type == DatumType::Terrain3D ||

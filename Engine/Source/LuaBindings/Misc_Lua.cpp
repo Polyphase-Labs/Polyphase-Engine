@@ -295,6 +295,9 @@ void BindDatumType()
     lua_pushinteger(L, (int)DatumType::Canvas);
     lua_setfield(L, tableIdx, "Canvas");
 
+    lua_pushinteger(L, (int)DatumType::ComboBox);
+    lua_setfield(L, tableIdx, "ComboBox");
+
     // Node3D subtypes
     lua_pushinteger(L, (int)DatumType::Voxel3D);
     lua_setfield(L, tableIdx, "Voxel3D");

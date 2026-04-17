@@ -194,6 +194,7 @@ GraphPin& GraphNode::AddOutputPin(const char* name, DatumType type)
     case DatumType::Slider:             pin.mValue = Datum((Node*)nullptr); break;
     case DatumType::LineEdit:           pin.mValue = Datum((Node*)nullptr); break;
     case DatumType::Canvas:             pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ComboBox:           pin.mValue = Datum((Node*)nullptr); break;
     // Node3D subtypes
     case DatumType::Voxel3D:            pin.mValue = Datum((Node*)nullptr); break;
     case DatumType::Terrain3D:          pin.mValue = Datum((Node*)nullptr); break;

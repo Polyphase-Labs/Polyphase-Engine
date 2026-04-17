@@ -34,6 +34,7 @@ DatumType = {
     Slider = 0,
     LineEdit = 0,
     Canvas = 0,
+    ComboBox = 0,
     Voxel3D = 0,
     Terrain3D = 0,
     TileMap2D = 0,

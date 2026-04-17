@@ -86,6 +86,7 @@
 #include "LuaBindings/TimerManager_Lua.h"
 #include "LuaBindings/Property_Lua.h"
 
+#include "LuaBindings/SaveData_Lua.h"
 #include "LuaBindings/Misc_Lua.h"
 #include "LuaBindings/TinyLLM_Lua.h"
 
@@ -107,6 +108,7 @@ void BindLuaInterface()
     Serial_Lua::Bind();
     Renderer_Lua::Bind();
     System_Lua::Bind();
+    SaveData_Lua::Bind();
     World_Lua::Bind();
     AssetManager_Lua::Bind();
     Stream_Lua::Bind();

@@ -340,6 +340,7 @@ static void DrawInputPinWidget(GraphPin& pin, GraphNode* ownerNode = nullptr, ui
     case DatumType::Slider:
     case DatumType::LineEdit:
     case DatumType::Canvas:
+    case DatumType::ComboBox:
     case DatumType::Voxel3D:
     case DatumType::Terrain3D:
     case DatumType::TileMap2D:
@@ -424,6 +425,7 @@ static void DrawOutputPinValue(const GraphPin& pin)
     case DatumType::Slider:
     case DatumType::LineEdit:
     case DatumType::Canvas:
+    case DatumType::ComboBox:
     case DatumType::Voxel3D:
     case DatumType::Terrain3D:
     case DatumType::TileMap2D:

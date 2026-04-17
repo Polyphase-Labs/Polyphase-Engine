@@ -447,11 +447,12 @@ void CopyPropertyValues(std::vector<Property>& dstProps, const std::vector<Prope
             {
                 dstProp->ResizeVector(srcProp->GetCount());
             }
-            else
+            else if (dstProp->mCount != srcProp->mCount)
             {
-                OCT_ASSERT(dstProp->mCount == srcProp->mCount);
+                // Count mismatch on a non-vector property — skip copy and keep default.
+                continue;
             }
-            
+
             dstProp->SetValue(srcProp->mData.vp, 0, srcProp->mCount);
 
             // Copy extra data (needed for node paths).

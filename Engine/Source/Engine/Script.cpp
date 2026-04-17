@@ -275,7 +275,7 @@ void Script::GatherScriptProperties()
                                     lua_getfield(L, isArray ? tableIdx : udIdx, name);
 
                                     if (lua_isnil(L, -1) &&
-                                        type != DatumType::Asset)
+                                        !IsAssetDatumType(type))
                                     {
                                         // Pop nil
                                         lua_pop(L, 1);
@@ -365,6 +365,12 @@ void Script::GatherScriptProperties()
                                         break;
                                     }
                                     case DatumType::Asset:
+                                    case DatumType::Scene:
+                                    case DatumType::Material:
+                                    case DatumType::TileSet:
+                                    case DatumType::TileMap:
+                                    case DatumType::Timeline:
+                                    case DatumType::NodeGraphAsset:
                                     {
                                         Asset* asset = nullptr;
                                         if (!lua_isnil(L, -1))
@@ -395,6 +401,31 @@ void Script::GatherScriptProperties()
                                     case DatumType::Text:
                                     case DatumType::Quad:
                                     case DatumType::Spline3D:
+                                    case DatumType::SpinBox:
+                                    case DatumType::Window:
+                                    case DatumType::DialogWindow:
+                                    case DatumType::InputField:
+                                    case DatumType::ProgressBar:
+                                    case DatumType::CheckBox:
+                                    case DatumType::ListViewWidget:
+                                    case DatumType::ListViewItemWidget:
+                                    case DatumType::DebugResourcesWidget:
+                                    case DatumType::ArrayWidget:
+                                    case DatumType::Button:
+                                    case DatumType::Slider:
+                                    case DatumType::LineEdit:
+                                    case DatumType::Canvas:
+                                    case DatumType::ComboBox:
+                                    case DatumType::Voxel3D:
+                                    case DatumType::Terrain3D:
+                                    case DatumType::TileMap2D:
+                                    case DatumType::NavMesh3D:
+                                    case DatumType::Camera3D:
+                                    case DatumType::DirectionalLight3D:
+                                    case DatumType::Box3D:
+                                    case DatumType::Particle3D:
+                                    case DatumType::TimelinePlayer:
+                                    case DatumType::NodeGraphPlayer:
                                     {
                                         Node* node = nullptr;
                                         if (luaL_testudata(L, -1, NODE_WRAPPER_TABLE_NAME))
@@ -562,6 +593,12 @@ void Script::GatherAutoProperties()
                     newProp.PushBack(value.GetColor());
                     break;
                 case DatumType::Asset:
+                case DatumType::Scene:
+                case DatumType::Material:
+                case DatumType::TileSet:
+                case DatumType::TileMap:
+                case DatumType::Timeline:
+                case DatumType::NodeGraphAsset:
                     newProp.PushBack(value.GetAsset());
                     break;
                 case DatumType::Node:
@@ -571,6 +608,30 @@ void Script::GatherAutoProperties()
                 case DatumType::Text:
                 case DatumType::Quad:
                 case DatumType::Spline3D:
+                case DatumType::SpinBox:
+                case DatumType::Window:
+                case DatumType::DialogWindow:
+                case DatumType::InputField:
+                case DatumType::ProgressBar:
+                case DatumType::CheckBox:
+                case DatumType::ListViewWidget:
+                case DatumType::ListViewItemWidget:
+                case DatumType::DebugResourcesWidget:
+                case DatumType::ArrayWidget:
+                case DatumType::Button:
+                case DatumType::Slider:
+                case DatumType::LineEdit:
+                case DatumType::Canvas:
+                case DatumType::Voxel3D:
+                case DatumType::Terrain3D:
+                case DatumType::TileMap2D:
+                case DatumType::NavMesh3D:
+                case DatumType::Camera3D:
+                case DatumType::DirectionalLight3D:
+                case DatumType::Box3D:
+                case DatumType::Particle3D:
+                case DatumType::TimelinePlayer:
+                case DatumType::NodeGraphPlayer:
                     newProp.PushBack(value.GetNode());
                     break;
                 case DatumType::Byte:
@@ -611,6 +672,12 @@ void Script::GatherAutoProperties()
                 newProp.PushBack(autoProp.mDefaultValue.GetColor());
                 break;
             case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
                 newProp.PushBack(autoProp.mDefaultValue.GetAsset());
                 break;
             case DatumType::Node:
@@ -620,6 +687,31 @@ void Script::GatherAutoProperties()
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
                 newProp.PushBack(autoProp.mDefaultValue.GetNode());
                 break;
             case DatumType::Byte:
@@ -791,6 +883,12 @@ void Script::GatherReplicatedData()
                                     break;
                                 }
                                 case DatumType::Asset:
+                                case DatumType::Scene:
+                                case DatumType::Material:
+                                case DatumType::TileSet:
+                                case DatumType::TileMap:
+                                case DatumType::Timeline:
+                                case DatumType::NodeGraphAsset:
                                 {
                                     Asset* asset = nullptr;
                                     if (!lua_isnil(L, -1))
@@ -821,6 +919,30 @@ void Script::GatherReplicatedData()
                                 case DatumType::Text:
                                 case DatumType::Quad:
                                 case DatumType::Spline3D:
+                                case DatumType::SpinBox:
+                                case DatumType::Window:
+                                case DatumType::DialogWindow:
+                                case DatumType::InputField:
+                                case DatumType::ProgressBar:
+                                case DatumType::CheckBox:
+                                case DatumType::ListViewWidget:
+                                case DatumType::ListViewItemWidget:
+                                case DatumType::DebugResourcesWidget:
+                                case DatumType::ArrayWidget:
+                                case DatumType::Button:
+                                case DatumType::Slider:
+                                case DatumType::LineEdit:
+                                case DatumType::Canvas:
+                                case DatumType::Voxel3D:
+                                case DatumType::Terrain3D:
+                                case DatumType::TileMap2D:
+                                case DatumType::NavMesh3D:
+                                case DatumType::Camera3D:
+                                case DatumType::DirectionalLight3D:
+                                case DatumType::Box3D:
+                                case DatumType::Particle3D:
+                                case DatumType::TimelinePlayer:
+                                case DatumType::NodeGraphPlayer:
                                 {
                                     Node* nodePointer = CHECK_NODE(L, -1);
                                     newDatum.PushBack(nodePointer);
@@ -1160,6 +1282,12 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
             break;
         }
         case DatumType::Asset:
+        case DatumType::Scene:
+        case DatumType::Material:
+        case DatumType::TileSet:
+        case DatumType::TileMap:
+        case DatumType::Timeline:
+        case DatumType::NodeGraphAsset:
         {
             Asset* asset = nullptr;
             if (!lua_isnil(L, -1))
@@ -1190,6 +1318,30 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
         case DatumType::Text:
         case DatumType::Quad:
         case DatumType::Spline3D:
+        case DatumType::SpinBox:
+        case DatumType::Window:
+        case DatumType::DialogWindow:
+        case DatumType::InputField:
+        case DatumType::ProgressBar:
+        case DatumType::CheckBox:
+        case DatumType::ListViewWidget:
+        case DatumType::ListViewItemWidget:
+        case DatumType::DebugResourcesWidget:
+        case DatumType::ArrayWidget:
+        case DatumType::Button:
+        case DatumType::Slider:
+        case DatumType::LineEdit:
+        case DatumType::Canvas:
+        case DatumType::Voxel3D:
+        case DatumType::Terrain3D:
+        case DatumType::TileMap2D:
+        case DatumType::NavMesh3D:
+        case DatumType::Camera3D:
+        case DatumType::DirectionalLight3D:
+        case DatumType::Box3D:
+        case DatumType::Particle3D:
+        case DatumType::TimelinePlayer:
+        case DatumType::NodeGraphPlayer:
         {
             Node* node = nullptr;
             if (!lua_isnil(L, -1))
@@ -1265,7 +1417,14 @@ void Script::UploadDatum(Datum& datum, const char* varName)
             case DatumType::Vector2D: Vector_Lua::Create(L, datum.GetVector2D(i)); break;
             case DatumType::Vector: Vector_Lua::Create(L, datum.GetVector(i)); break;
             case DatumType::Color: Vector_Lua::Create(L, datum.GetColor(i)); break;
-            case DatumType::Asset: Asset_Lua::Create(L, datum.GetAsset(i)); break;
+            case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
+                Asset_Lua::Create(L, datum.GetAsset(i)); break;
             case DatumType::Byte: lua_pushinteger(L, (int32_t)datum.GetByte(i)); break;
             case DatumType::Short: lua_pushinteger(L, (int32_t)datum.GetShort(i)); break;
             case DatumType::Node:
@@ -1275,6 +1434,31 @@ void Script::UploadDatum(Datum& datum, const char* varName)
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
                 Node_Lua::Create(L, datum.GetNode(i).Get()); break;
 
             case DatumType::Table:

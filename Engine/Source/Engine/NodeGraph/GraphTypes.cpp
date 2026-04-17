@@ -69,6 +69,8 @@ bool AreGraphPinTypesCompatible(DatumType outputType, DatumType inputType)
     if (outputType == DatumType::LineEdit           && inputType == DatumType::Node) return true;
     if (outputType == DatumType::Canvas             && inputType == DatumType::Widget) return true;
     if (outputType == DatumType::Canvas             && inputType == DatumType::Node) return true;
+    if (outputType == DatumType::ComboBox           && inputType == DatumType::Widget) return true;
+    if (outputType == DatumType::ComboBox           && inputType == DatumType::Node) return true;
 
     // DialogWindow -> Window -> Widget -> Node
     if (outputType == DatumType::DialogWindow       && inputType == DatumType::Window) return true;
@@ -154,6 +156,7 @@ const char* GetDatumTypeName(DatumType type)
     case DatumType::Slider:             return "Slider";
     case DatumType::LineEdit:           return "LineEdit";
     case DatumType::Canvas:             return "Canvas";
+    case DatumType::ComboBox:           return "ComboBox";
     // Node3D subtypes
     case DatumType::Voxel3D:            return "Voxel3D";
     case DatumType::Terrain3D:          return "Terrain3D";
@@ -213,6 +216,7 @@ glm::vec4 GetDatumTypeColor(DatumType type)
     case DatumType::Slider:             return glm::vec4(0.65f, 0.30f, 0.80f, 1.0f);
     case DatumType::LineEdit:           return glm::vec4(0.60f, 0.25f, 0.85f, 1.0f);
     case DatumType::Canvas:             return glm::vec4(0.55f, 0.20f, 0.85f, 1.0f);
+    case DatumType::ComboBox:           return glm::vec4(0.58f, 0.22f, 0.82f, 1.0f);
     // Node3D subtypes (cyan/teal family)
     case DatumType::Voxel3D:            return glm::vec4(0.0f, 0.75f, 0.65f, 1.0f);
     case DatumType::Terrain3D:          return glm::vec4(0.0f, 0.70f, 0.60f, 1.0f);

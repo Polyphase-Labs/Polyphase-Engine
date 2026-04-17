@@ -1079,6 +1079,7 @@
     <ClCompile Include="Source\LuaBindings\StaticMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\StaticMesh_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Stream_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SaveData_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\System_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\TinyLLM_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\TextMesh3d_Lua.cpp" />
@@ -1570,6 +1571,7 @@
     <ClInclude Include="Source\LuaBindings\StaticMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\StaticMesh_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Stream_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SaveData_Lua.h" />
     <ClInclude Include="Source\LuaBindings\System_Lua.h" />
     <ClInclude Include="Source\LuaBindings\TextMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Voxel3d_Lua.h" />

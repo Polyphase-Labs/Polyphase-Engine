@@ -81,6 +81,7 @@ nav:
           - Tracks and Clips: Development/Timeline/TracksAndClips.md
           - Lua API: Development/Timeline/LuaAPI.md
           - Creating Custom Tracks: Development/Timeline/CreatingCustomTracks.md
+      - Save Data: Development/SaveData.md
       - Serial:
           - Overview: Development/Serial.md
       - Native Addons:
@@ -164,6 +165,7 @@ nav:
           - Globals: Lua/Misc/Globals.md
           - Property: Lua/Misc/Property.md
           - Rect: Lua/Misc/Rect.md
+          - Save Data: Lua/Misc/SaveData.md
           - Signal: Lua/Misc/Signal.md
           - Stream: Lua/Misc/Stream.md
           - Vector: Lua/Misc/Vector.md

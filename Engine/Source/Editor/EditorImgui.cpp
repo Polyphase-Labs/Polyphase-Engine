@@ -3340,11 +3340,42 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
             {
                 DrawNodeProperty(prop, i, owner, ownerType);
                 break;
             }
             case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
             {
                 DrawAssetProperty(prop, i, owner, ownerType);
                 break;

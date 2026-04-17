@@ -284,6 +284,7 @@ uint32_t Datum::GetDataTypeSize() const
         case DatumType::Slider: size = sizeof(WeakPtr<Node>); break;
         case DatumType::LineEdit: size = sizeof(WeakPtr<Node>); break;
         case DatumType::Canvas: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ComboBox: size = sizeof(WeakPtr<Node>); break;
         // Node3D subtypes
         case DatumType::Voxel3D: size = sizeof(WeakPtr<Node>); break;
         case DatumType::Terrain3D: size = sizeof(WeakPtr<Node>); break;
@@ -467,6 +468,7 @@ void Datum::ReadStream(Stream& stream, uint32_t version, bool net, bool external
                 case DatumType::Slider:
                 case DatumType::LineEdit:
                 case DatumType::Canvas:
+                case DatumType::ComboBox:
                 case DatumType::Voxel3D:
                 case DatumType::Terrain3D:
                 case DatumType::TileMap2D:
@@ -547,6 +549,7 @@ void Datum::WriteStream(Stream& stream, bool net) const
             case DatumType::Slider:
             case DatumType::LineEdit:
             case DatumType::Canvas:
+            case DatumType::ComboBox:
             case DatumType::Voxel3D:
             case DatumType::Terrain3D:
             case DatumType::TileMap2D:
@@ -744,6 +747,7 @@ void Datum::SetValue(const void* value, uint32_t index, uint32_t count)
             case DatumType::Slider:
             case DatumType::LineEdit:
             case DatumType::Canvas:
+            case DatumType::ComboBox:
             case DatumType::Voxel3D:
             case DatumType::Terrain3D:
             case DatumType::TileMap2D:
@@ -803,6 +807,7 @@ void Datum::SetValueRaw(const void* value, uint32_t index)
     case DatumType::Slider:
     case DatumType::LineEdit:
     case DatumType::Canvas:
+    case DatumType::ComboBox:
     case DatumType::Voxel3D:
     case DatumType::Terrain3D:
     case DatumType::TileMap2D:
@@ -947,7 +952,8 @@ const glm::vec4& Datum::GetColor(uint32_t index) const
 
 Asset* Datum::GetAsset(uint32_t index) const
 {
-    PreGet(index, DatumType::Asset);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsAssetDatumType(mType));
     return mData.as[index].Get();
 }
 
@@ -1032,7 +1038,8 @@ glm::vec4& Datum::GetColorRef(uint32_t index)
 
 AssetRef& Datum::GetAssetRef(uint32_t index)
 {
-    PreGet(index, DatumType::Asset);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsAssetDatumType(mType));
     return mData.as[index];
 }
 
@@ -1044,7 +1051,8 @@ uint8_t& Datum::GetByteRef(uint32_t index)
 
 WeakPtr<Node>& Datum::GetNodeRef(uint32_t index)
 {
-    PreGet(index, DatumType::Node);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsNodeDatumType(mType));
     return mData.n[index];
 }
 
@@ -2100,6 +2108,7 @@ void Datum::DeepCopy(const Datum& src, bool forceInternalStorage)
             case DatumType::Slider:
             case DatumType::LineEdit:
             case DatumType::Canvas:
+            case DatumType::ComboBox:
             case DatumType::Voxel3D:
             case DatumType::Terrain3D:
             case DatumType::TileMap2D:
@@ -2317,6 +2326,7 @@ void Datum::ConstructData(DatumData& dataUnion, uint32_t index)
     case DatumType::Slider:
     case DatumType::LineEdit:
     case DatumType::Canvas:
+    case DatumType::ComboBox:
     case DatumType::Voxel3D:
     case DatumType::Terrain3D:
     case DatumType::TileMap2D:
@@ -2382,6 +2392,7 @@ void Datum::DestructData(DatumData& dataUnion, uint32_t index)
     case DatumType::Slider:
     case DatumType::LineEdit:
     case DatumType::Canvas:
+    case DatumType::ComboBox:
     case DatumType::Voxel3D:
     case DatumType::Terrain3D:
     case DatumType::TileMap2D:
