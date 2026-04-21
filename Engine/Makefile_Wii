@@ -41,6 +41,7 @@ SOURCES		:=	Source \
 				Source/Audio/Dolphin \
 				Source/Network \
 				Source/Network/Dolphin \
+				Source/Serial/Stub \
 				Source/LuaBindings \
 				../External/Lua \
 				../External/Vorbis \

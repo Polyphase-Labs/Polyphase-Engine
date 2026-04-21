@@ -56,6 +56,7 @@ SOURCES		:=	Source \
 				Source/Audio/3DS \
 				Source/Network \
 				Source/Network/3DS \
+				Source/Serial/Stub \
 				Source/LuaBindings \
 				../External/Lua \
 				../External/Vorbis \
