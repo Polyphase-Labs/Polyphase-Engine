@@ -206,7 +206,8 @@ def stage(platform, output_dir, engine_root, verbose=False):
     # --- Engine project/build files ---
     print("Staging Engine project files...")
     for fname in ["Engine.vcxproj", "Engine.vcxproj.filters", "CMakeLists.txt",
-                   "Makefile_3DS", "Makefile_GCN", "Makefile_Wii", "Makefile_Linux"]:
+                   "Makefile_3DS", "Makefile_GCN", "Makefile_Wii", "Makefile_Linux",
+                   "FeatureFlags.cpp"]:
         copy_file(engine_root / "Engine" / fname, dist / "Engine" / fname, verbose)
 
     # --- Engine/External (PolyVox and other Engine-level dependencies) ---

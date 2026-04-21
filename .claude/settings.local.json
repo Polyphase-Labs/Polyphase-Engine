@@ -63,7 +63,9 @@
       "Bash(where python.exe)",
       "Bash(python3 Tools/generate_lua_stubs.py --verbose)",
       "Bash(py -3 Tools/generate_lua_stubs.py --verbose)",
-      "Bash(py -3 Tools/generate_lua_stubs.py)"
+      "Bash(py -3 Tools/generate_lua_stubs.py)",
+      "Read(//c/Polyphase/Engine/**)",
+      "Read(//c/Polyphase/Engine//**)"
     ]
   }
 }
