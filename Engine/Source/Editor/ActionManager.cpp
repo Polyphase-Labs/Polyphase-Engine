@@ -15,6 +15,8 @@
 
 #include <stdint.h>
 #include <cstdlib>
+#include <cstdio>
+#include <sys/stat.h>
 
 #include <vector>
 #include <set>
@@ -417,6 +419,42 @@ void ReplaceStringInFile(const std::string& file, const std::string& srcString, 
 
     Stream outStream(fileString.c_str(), (uint32_t)fileString.size());
     outStream.WriteFile(file.c_str());
+}
+
+namespace
+{
+    struct ExeIntegrity
+    {
+        bool exists = false;
+        uint64_t size = 0;
+        int64_t mtime = 0;
+        bool validPE = false;  // starts with "MZ" — only meaningful for Windows .exe
+    };
+
+    ExeIntegrity CheckExeIntegrity(const std::string& path)
+    {
+        ExeIntegrity info;
+#if PLATFORM_WINDOWS
+        struct _stat64 st;
+        if (_stat64(path.c_str(), &st) != 0) return info;
+#else
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0) return info;
+#endif
+        info.exists = true;
+        info.size = (uint64_t)st.st_size;
+        info.mtime = (int64_t)st.st_mtime;
+
+        FILE* f = fopen(path.c_str(), "rb");
+        if (f != nullptr)
+        {
+            unsigned char sig[2] = { 0, 0 };
+            if (fread(sig, 1, 2, f) == 2 && sig[0] == 'M' && sig[1] == 'Z')
+                info.validPE = true;
+            fclose(f);
+        }
+        return info;
+    }
 }
 
 void ActionManager::BuildData(Platform platform, bool embedded)
@@ -1109,6 +1147,11 @@ void ActionManager::BuildPhase1()
         mBuildState.mExeSrc = exeSrc;
         mBuildState.mExtension = extension;
 
+        // Snapshot the existing exe's mtime so FinalizeLocalBuild can detect a
+        // silent compile/link failure that leaves a stale file on disk
+        // (e.g. MSVC LTCG link.exe crash). Zero if the file doesn't exist yet.
+        mBuildState.mExeMTimeBeforeBuild = CheckExeIntegrity(exeSrc).mtime;
+
         // Launch compile thread (or run synchronously in headless)
         if (IsHeadless())
         {
@@ -1329,6 +1372,44 @@ void ActionManager::FinalizeLocalBuild()
     if (!needCompile)
     {
         exeSrc = mBuildState.mPrebuiltExePath;
+    }
+
+    // Integrity check the compiled executable before packaging.
+    // msbuild / devenv can exit 0 even when link.exe silently crashes,
+    // leaving a stale or zero-filled binary on disk. Without this check the
+    // broken file gets copied into the packaged output.
+    if (needCompile)
+    {
+        ExeIntegrity info = CheckExeIntegrity(exeSrc);
+
+        bool missing       = !info.exists;
+        bool tooSmall      = info.size < 1024;
+        bool notRewritten  = info.mtime != 0 &&
+                             mBuildState.mExeMTimeBeforeBuild != 0 &&
+                             info.mtime <= mBuildState.mExeMTimeBeforeBuild;
+        bool badPE         = (platform == Platform::Windows) && info.exists && !info.validPE;
+
+        if (missing || tooSmall || notRewritten || badPE)
+        {
+            LogError("Build produced an invalid executable: %s", exeSrc.c_str());
+            LogError("  exists=%d size=%llu bytes mtime=%lld preMtime=%lld validPE=%d",
+                     (int)info.exists,
+                     (unsigned long long)info.size,
+                     (long long)info.mtime,
+                     (long long)mBuildState.mExeMTimeBeforeBuild,
+                     (int)info.validPE);
+            if (notRewritten)
+                LogError("  The compile step claimed success but did not rewrite the executable.");
+            if (badPE)
+                LogError("  The executable is not a valid PE/MZ image — link.exe may have crashed mid-write.");
+            LogError("  Packaging aborted. Clean Standalone/Intermediate and Standalone/Build, then rebuild.");
+
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->FireOnPackageFinished((int32_t)platform, false);
+            if (hookMgr != nullptr) hookMgr->FireOnPostBuild((int32_t)platform, false);
+            mShowBuildModal = false;
+            return;
+        }
     }
 
     // Copy the executable into the Packaged folder

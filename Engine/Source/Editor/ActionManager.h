@@ -58,6 +58,7 @@ struct LocalBuildState
     std::string mProjectName;
     std::string mExeSrc;
     std::string mExtension;
+    int64_t mExeMTimeBeforeBuild{0};  // stat mtime of mExeSrc before compile, used to detect silent link.exe failures
     bool mStandalone{false};
     bool mNeedCompile{true};
     bool mUseSteam{false};
@@ -93,6 +94,7 @@ struct LocalBuildState
         mProjectName.clear();
         mExeSrc.clear();
         mExtension.clear();
+        mExeMTimeBeforeBuild = 0;
         mStandalone = false;
         mNeedCompile = true;
         mUseSteam = false;
