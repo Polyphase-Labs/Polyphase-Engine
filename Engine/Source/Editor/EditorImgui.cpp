@@ -101,6 +101,7 @@
 #include "Timeline/TimelinePanel.h"
 #include "NodeGraph/NodeGraphPanel.h"
 #include "Profiling/ProfilingWindow.h"
+#include "InputTester/InputTesterPanel.h"
 #include "TextureAtlas/TextureAtlasViewer.h"
 #include "VoxelSculpt/VoxelSculptManager.h"
 #include "TerrainSculpt/TerrainSculptManager.h"
@@ -761,6 +762,26 @@ static void DrawDockspace()
         GetProfilingWindow()->DrawContent();
     }
     ImGui::EndDock();
+    ImGui::PopStyleColor();
+
+    // --- Input Tester dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        bool testerOpen = GetEditorState()->mShowInputTesterPanel;
+        if (testerOpen)
+        {
+            if (ImGui::BeginDock(ICON_FE_GAMEPAD "  Input Tester", &testerOpen, 0))
+            {
+                GetInputTesterPanel()->DrawContent();
+            }
+            ImGui::EndDock();
+        }
+        GetEditorState()->mShowInputTesterPanel =
+            testerOpen && GetEditorState()->mShowInputTesterPanel;
+    }
     ImGui::PopStyleColor();
 
     // --- CLI Terminal dock ---
@@ -8896,6 +8917,11 @@ static void DrawMainMenuBar()
             if (ImGui::MenuItem("Player Input Debugger"))
             {
                 GetPlayerInputDebugger()->Open();
+            }
+
+            if (ImGui::MenuItem("Input Tester", nullptr, GetEditorState()->mShowInputTesterPanel))
+            {
+                GetEditorState()->mShowInputTesterPanel = !GetEditorState()->mShowInputTesterPanel;
             }
 
             ImGui::Separator();

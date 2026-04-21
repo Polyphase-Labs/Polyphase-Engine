@@ -504,17 +504,19 @@ static void ReadDInputGenericState(const DIJOYSTATE2& js, GamepadState& pad)
     pad.mButtons[GAMEPAD_R2] = pad.mAxes[GAMEPAD_AXIS_RTRIGGER] > 0.2f;
 
     // Generic button mapping (0=A, 1=B, 2=X, 3=Y, ...)
-    if (js.rgbButtons[0] & 0x80) pad.mButtons[GAMEPAD_A] = true;
-    if (js.rgbButtons[1] & 0x80) pad.mButtons[GAMEPAD_B] = true;
-    if (js.rgbButtons[2] & 0x80) pad.mButtons[GAMEPAD_X] = true;
-    if (js.rgbButtons[3] & 0x80) pad.mButtons[GAMEPAD_Y] = true;
-    if (js.rgbButtons[4] & 0x80) pad.mButtons[GAMEPAD_L1] = true;
-    if (js.rgbButtons[5] & 0x80) pad.mButtons[GAMEPAD_R1] = true;
-    if (js.rgbButtons[6] & 0x80) pad.mButtons[GAMEPAD_SELECT] = true;
-    if (js.rgbButtons[7] & 0x80) pad.mButtons[GAMEPAD_START] = true;
-    if (js.rgbButtons[8] & 0x80) pad.mButtons[GAMEPAD_THUMBL] = true;
-    if (js.rgbButtons[9] & 0x80) pad.mButtons[GAMEPAD_THUMBR] = true;
-    if (js.rgbButtons[10] & 0x80) pad.mButtons[GAMEPAD_HOME] = true;
+    // Direct assignment is required so the state tracks release events, not just presses —
+    // `if (bit) mButtons[X] = true;` left buttons stuck on after release.
+    pad.mButtons[GAMEPAD_A]      = (js.rgbButtons[0]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_B]      = (js.rgbButtons[1]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_X]      = (js.rgbButtons[2]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_Y]      = (js.rgbButtons[3]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_L1]     = (js.rgbButtons[4]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_R1]     = (js.rgbButtons[5]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_SELECT] = (js.rgbButtons[6]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_START]  = (js.rgbButtons[7]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_THUMBL] = (js.rgbButtons[8]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_THUMBR] = (js.rgbButtons[9]  & 0x80) != 0;
+    pad.mButtons[GAMEPAD_HOME]   = (js.rgbButtons[10] & 0x80) != 0;
 
     MapDInputDPad(js.rgdwPOV[0], pad);
 }

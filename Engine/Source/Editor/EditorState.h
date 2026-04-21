@@ -216,6 +216,9 @@ struct EditorState
     // Profiling Panel state
     bool mShowProfilingPanel = false;
 
+    // Input Tester Panel state
+    bool mShowInputTesterPanel = false;
+
     // Texture Atlas Viewer state
     bool mShowTextureAtlasViewer = false;
 
