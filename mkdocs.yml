@@ -30,6 +30,7 @@ nav:
       - Build Profiles: Info/BuildProfiles.md
       - Docker: Info/Docker.md
       - LLM Docs: Info/LLM.md
+      - FAQ: Info/FAQ.md
 
   - Development:
       - Install Environment:
