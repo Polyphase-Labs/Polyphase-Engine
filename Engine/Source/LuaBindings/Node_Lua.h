@@ -15,7 +15,7 @@
 #define CHECK_NODE(L, arg)  CheckNodeLuaType(L, arg, NODE_LUA_NAME, NODE_LUA_FLAG);
 #define CHECK_NODE_PTR(L, arg)  CheckNodeWrapperPtr(L, arg);
 
-struct Node_Lua
+struct POLYPHASE_API Node_Lua
 {
     NodePtr mNode;
 

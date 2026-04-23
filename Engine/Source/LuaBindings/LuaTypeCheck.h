@@ -61,14 +61,14 @@ T* CheckAssetLuaType(lua_State* L, int arg, const char* className, const char* c
     return ret;
 }
 
-NodePtr& CheckNodeWrapperPtr(lua_State* L, int arg);
-Node* CheckNodeWrapper(lua_State* L, int arg);
-Node* CheckNodeLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
-Object* CheckObjectLuaType(lua_State* L, int arg);
+POLYPHASE_API NodePtr& CheckNodeWrapperPtr(lua_State* L, int arg);
+POLYPHASE_API Node* CheckNodeWrapper(lua_State* L, int arg);
+POLYPHASE_API Node* CheckNodeLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
+POLYPHASE_API Object* CheckObjectLuaType(lua_State* L, int arg);
 
-Asset* CheckAssetOrNilLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
-Node* CheckNodeOrNilLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
-Object* CheckObjectOrNilLuaType(lua_State* L, int arg);
+POLYPHASE_API Asset* CheckAssetOrNilLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
+POLYPHASE_API Node* CheckNodeOrNilLuaType(lua_State* L, int arg, const char* className, const char* classFlag);
+POLYPHASE_API Object* CheckObjectOrNilLuaType(lua_State* L, int arg);
 
 
 const char* CheckTableName(lua_State* L, int arg);

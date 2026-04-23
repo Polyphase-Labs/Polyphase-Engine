@@ -1128,7 +1128,16 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "call \"%VS_PATH%\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul 2>&1\n";
     ss << "\n";
     ss << ":: Compile\n";
+    // Match the engine's MSVC runtime so STL objects (std::string, std::vector, etc.) that
+    // cross the addon/engine DLL boundary have the same layout and iterator-debug state.
+    // Mismatching /MD and /MDd yields two CRT heaps and _ITERATOR_DEBUG_LEVEL 0 vs 2, which
+    // crashes at the first container destruction across modules (e.g. Node::mName destruction
+    // while discovering addon-registered node classes).
+#if defined(_DEBUG)
+    ss << "cl.exe /nologo /EHsc /Od /Zi /LD /MDd /D_DEBUG ";
+#else
     ss << "cl.exe /nologo /EHsc /O2 /LD /MD ";
+#endif
 
     // Add defines from manifest
     for (const std::string& define : defines)
