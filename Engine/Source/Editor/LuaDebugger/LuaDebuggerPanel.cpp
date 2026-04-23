@@ -24,6 +24,8 @@ void LuaDebuggerPanel::Shutdown()
 {
 }
 
+extern lua_State* GetLua();
+
 void LuaDebuggerPanel::DrawContent()
 {
     LuaDebugger* dbg = LuaDebugger::Get();
@@ -31,6 +33,34 @@ void LuaDebuggerPanel::DrawContent()
     {
         ImGui::TextDisabled("Lua debugger not available.");
         return;
+    }
+
+    // ----- Active toggle (hand off to LuaPanda) -----
+    {
+        bool active = dbg->IsInstalled();
+        if (ImGui::Checkbox("Active (uncheck to hand back to LuaPanda)", &active))
+        {
+            // Persist BEFORE Install -- Install reads the saved preference
+            // and bails if it's false, so we need the new value on disk first.
+            LuaDebugger::SaveActivePreference(active);
+
+            if (active)
+            {
+                dbg->Install(GetLua());
+            }
+            else
+            {
+                dbg->Uninstall();
+            }
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Lua only allows one line hook. While the in-engine\n"
+                              "debugger is active, LuaPanda VS Code debugging is\n"
+                              "disabled. Toggle off to restore LuaPanda.\n"
+                              "This choice is remembered across editor restarts.");
+        }
+        ImGui::Separator();
     }
 
     bool paused = dbg->IsPaused();

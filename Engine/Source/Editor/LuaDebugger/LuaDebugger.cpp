@@ -3,6 +3,10 @@
 #include "LuaDebugger.h"
 
 #include "Log.h"
+#include "Engine.h"
+#include "Input/Input.h"
+#include "EditorState.h"
+#include "Preferences/JsonSettings.h"
 
 extern "C" {
 #include "lua.h"
@@ -54,24 +58,114 @@ bool LuaDebugger::IsLuaPandaActive(lua_State* L)
     return active;
 }
 
+// Persisted preference (file in the editor preferences directory).
+// Lives in its own tiny JSON file rather than a full Preferences module --
+// the only thing we currently persist is one bool, so the lighter approach
+// is more honest than spinning up a module.
+static const char* kPrefFileName = "/LuaDebugger.json";
+static const char* kPrefKeyActive = "active";
+
+bool LuaDebugger::LoadActivePreference()
+{
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kPrefFileName;
+    if (!JsonSettings::LoadFromFile(path, doc))
+    {
+        return true; // first run / no file yet -- default to active
+    }
+    return JsonSettings::GetBool(doc, kPrefKeyActive, true);
+}
+
+void LuaDebugger::SaveActivePreference(bool active)
+{
+    JsonSettings::EnsurePreferencesDirectory();
+
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kPrefFileName;
+    JsonSettings::LoadFromFile(path, doc); // best-effort; ignore failure
+    if (!doc.IsObject())
+    {
+        doc.SetObject();
+    }
+    JsonSettings::SetBool(doc, kPrefKeyActive, active);
+    JsonSettings::SaveToFile(path, doc);
+}
+
 void LuaDebugger::Install(lua_State* L)
 {
     if (mInstalled || L == nullptr)
         return;
 
+    // Honor the persisted preference. If the user previously turned the
+    // in-engine debugger off (so VS Code + LuaPanda owns the hook), keep
+    // that state across editor restarts -- record the lua_State so the
+    // panel toggle can install later, but don't claim the hook now.
+    if (!LoadActivePreference())
+    {
+        mL = L;
+        LogDebug("LuaDebugger: Skipped install -- 'active' preference is off (toggle in panel to enable).");
+        return;
+    }
+
     if (IsLuaPandaActive(L))
     {
         // LuaPanda has installed its own line hook. Replacing it disables
         // LuaPanda's VS Code remote debugging for this run, but we can't
-        // chain hooks (Lua only allows one). Log so the user knows and can
-        // disable OCT_LUA_DEBUGGING if they want LuaPanda exclusively.
-        LogWarning("LuaDebugger: LuaPanda hook detected -- replacing it with in-engine debugger. Disable OCT_LUA_DEBUGGING in Engine.cpp if you prefer LuaPanda.");
+        // chain hooks (Lua only allows one). The user can hand control back
+        // to LuaPanda at runtime via the "Active" toggle in the Lua Debugger
+        // panel (calls Uninstall() below).
+        LogWarning("LuaDebugger: LuaPanda hook detected -- replacing it with in-engine debugger. Toggle off the panel's 'Active' checkbox to hand back to LuaPanda.");
     }
 
     mL = L;
     lua_sethook(L, &LuaDebugger::OnHookTrampoline, LUA_MASKLINE, 0);
     mInstalled = true;
     LogDebug("LuaDebugger: Installed line hook on lua_State %p", (void*)L);
+}
+
+void LuaDebugger::Uninstall()
+{
+    if (!mInstalled || mL == nullptr)
+        return;
+
+    // Drop our hook. After this, no breakpoints fire and Debugger.Break is
+    // still callable (it routes through us regardless) -- but mInstalled is
+    // false so Debugger_Lua::Break will short-circuit.
+    lua_sethook(mL, nullptr, 0, 0);
+    mInstalled = false;
+    LogDebug("LuaDebugger: Uninstalled line hook on lua_State %p", (void*)mL);
+
+    // If LuaPanda is loaded, re-arm its line hook so VS Code keeps receiving
+    // events. We can't go through LuaPanda.changeHookState() because:
+    //   - 'hookState' is a Lua local in LuaPanda.lua (not exposed on the
+    //     LuaPanda module), so the constants aren't reachable from outside.
+    //   - changeHookState() early-returns when the requested state matches
+    //     'currentHookState' -- which it does, because LuaPanda still thinks
+    //     it's in ALL_HOOK from when it was connected, even though our
+    //     install replaced its hook on the lua_State.
+    //
+    // Direct install of LuaPanda.debug_hook with mask "lrc" is what
+    // ALL_HOOK does internally and matches LuaPanda's "connected and
+    // forwarding line events to VS Code" behavior. If LuaPanda was actually
+    // in LITE/MID, this is a slight over-hook (more events than necessary)
+    // but correct -- LuaPanda's debug_hook handles event filtering itself.
+    if (IsLuaPandaActive(mL))
+    {
+        const char* code =
+            "if LuaPanda and LuaPanda.debug_hook then"
+            "  debug.sethook(LuaPanda.debug_hook, 'lrc')"
+            "end";
+        if (luaL_dostring(mL, code) != 0)
+        {
+            const char* err = lua_tostring(mL, -1);
+            LogWarning("LuaDebugger: Could not re-arm LuaPanda hook: %s", err ? err : "(unknown error)");
+            lua_pop(mL, 1);
+        }
+        else
+        {
+            LogDebug("LuaDebugger: Re-installed LuaPanda.debug_hook with mask 'lrc'.");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +304,50 @@ std::vector<LuaDebugger::BreakpointEntry> LuaDebugger::GetAllBreakpoints() const
 }
 
 // ---------------------------------------------------------------------------
+// Cursor save / restore for inspection
+// ---------------------------------------------------------------------------
+
+void LuaDebugger::FreeCursorForInspection()
+{
+    if (mSavedCursorValid)
+    {
+        // Already saved -- avoid clobbering the originals (could happen if
+        // a Snapshot fires before Continue is clicked from a previous one).
+        return;
+    }
+
+    InputState& input = GetEngineState()->mInput;
+    mSavedCursorShown        = input.mCursorShown;
+    mSavedCursorLocked       = input.mCursorLocked;
+    mSavedCursorTrapped      = input.mCursorTrapped;
+    mSavedGamePreviewCapture = GetEditorState()->mGamePreviewCaptured;
+    mSavedCursorValid        = true;
+
+    // GamePreview::DrawPanel re-traps the cursor every frame while
+    // mGamePreviewCaptured is true -- clear it so our untrap sticks.
+    GetEditorState()->mGamePreviewCaptured = false;
+
+    // Free the cursor so the user can actually click the panel buttons.
+    INP_TrapCursor(false);
+    INP_LockCursor(false);
+    INP_ShowCursor(true);
+}
+
+void LuaDebugger::RestoreCursor()
+{
+    if (!mSavedCursorValid)
+        return;
+
+    GetEditorState()->mGamePreviewCaptured = mSavedGamePreviewCapture;
+
+    INP_TrapCursor(mSavedCursorTrapped);
+    INP_LockCursor(mSavedCursorLocked);
+    INP_ShowCursor(mSavedCursorShown);
+
+    mSavedCursorValid = false;
+}
+
+// ---------------------------------------------------------------------------
 // Pause / Continue
 // ---------------------------------------------------------------------------
 
@@ -243,6 +381,8 @@ void LuaDebugger::RequestContinue()
     mCallStack.clear();
     mFrameLocals.clear();
     mFrameUpvalues.clear();
+
+    RestoreCursor();
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +618,8 @@ void LuaDebugger::EnterPausedSoft(lua_State* L, lua_Debug* ar, const char* optio
     mPauseMessage = (optionalMessage != nullptr) ? optionalMessage : "";
     mPaused.store(true);
 
+    FreeCursorForInspection();
+
     LogDebug("LuaDebugger: Soft-paused at %s:%d (current Lua call will complete; world freezes next frame)%s%s",
              mPauseFile.c_str(),
              mPauseLine,
@@ -496,6 +638,8 @@ void LuaDebugger::EnterPaused(lua_State* L, lua_Debug* ar, const char* optionalM
     mPauseLine = line;
     mPauseMessage = (optionalMessage != nullptr) ? optionalMessage : "";
     mPaused.store(true);
+
+    FreeCursorForInspection();
 
     LogDebug("LuaDebugger: Paused at %s:%d%s%s",
              mPauseFile.c_str(),
@@ -636,16 +780,67 @@ int LuaDebugger::LuaBreakBinding(lua_State* L)
         return 0; // pretend Debugger.Break() was a no-op this once
     }
 
-    // Use the SOFT variant: snapshot + set paused flag + RETURN. The current
-    // Lua function (often Start / Awake / one-shot init) gets to run to its
-    // natural end, so anything after the Debugger.Break call still executes
-    // for THIS call. World freezes from the next frame.
-    //
-    // Why not lua_error like F9 line breakpoints? Because Debugger.Break is
-    // typically used for "snapshot here and let me look", and aborting the
-    // surrounding pcall (e.g. a node's Start) would leave that node in a
-    // half-initialized state that Continue can never recover -- mHasStarted
-    // gets set before Lua Start runs, so Start is never called again.
+    // Hard abort (lua_error). The current Lua call stops at this line --
+    // matches what programmers expect from pdb.set_trace / `debugger;`. The
+    // surrounding pcall returns, the engine frame finishes, and the world
+    // freezes via gameDeltaTime=0 starting next frame. Continue resumes the
+    // world ticking but the aborted function does NOT re-run (engine flips
+    // mHasStarted/mHasAwoken before calling them). Use Debugger.Snapshot()
+    // instead if you need init code to complete.
+    if (haveCaller)
+    {
+        dbg->EnterPaused(L, &ar, msg, /*snapshotStartLevel=*/1);
+    }
+    else
+    {
+        dbg->EnterPaused(L, nullptr, msg, /*snapshotStartLevel=*/1);
+    }
+
+    // EnterPaused does not return (it lua_errors), but keep the compiler happy.
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Debugger.Snapshot(msg) binding entry  (soft pause, no abort)
+// ---------------------------------------------------------------------------
+
+int LuaDebugger::LuaSnapshotBinding(lua_State* L)
+{
+    LuaDebugger* dbg = LuaDebugger::Get();
+    if (dbg == nullptr) return 0;
+
+    const char* msg = nullptr;
+    if (lua_gettop(L) >= 1 && lua_isstring(L, 1))
+    {
+        msg = lua_tostring(L, 1);
+    }
+
+    lua_Debug ar;
+    bool haveCaller = (lua_getstack(L, 1, &ar) != 0);
+
+    std::string callFile;
+    int callLine = -1;
+    if (haveCaller)
+    {
+        lua_getinfo(L, "Sl", &ar);
+        if (ar.source != nullptr)
+        {
+            callFile = NormalizeSource(ar.source);
+        }
+        callLine = ar.currentline;
+    }
+
+    // Skip-once after Continue so a Snapshot in a per-frame Tick advances.
+    if (dbg->mSkipBreakOnceArmed &&
+        dbg->mSkipBreakFile == callFile &&
+        dbg->mSkipBreakLine == callLine)
+    {
+        dbg->mSkipBreakOnceArmed = false;
+        dbg->mSkipBreakFile.clear();
+        dbg->mSkipBreakLine = -1;
+        return 0;
+    }
+
     if (haveCaller)
     {
         dbg->EnterPausedSoft(L, &ar, msg, /*snapshotStartLevel=*/1);
@@ -655,7 +850,7 @@ int LuaDebugger::LuaBreakBinding(lua_State* L)
         dbg->EnterPausedSoft(L, nullptr, msg, /*snapshotStartLevel=*/1);
     }
 
-    return 0;
+    return 0; // returns normally so the surrounding Lua call continues
 }
 
 #endif // EDITOR

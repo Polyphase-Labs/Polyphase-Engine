@@ -8,24 +8,42 @@ overview.
 
 ---
 ### Break
-Capture a snapshot of the call stack / locals / upvalues at the call site
-and freeze the world from the **next** frame. The Lua Debugger panel shows
-the snapshot for inspection; click *Continue* to resume.
+**Hard stop** at the call site. Aborts the surrounding pcall via a Lua
+error, captures a snapshot, freezes the world. Matches the behaviour
+programmers expect from `pdb.set_trace()` or `debugger;`.
 
-**Important:** `Debugger.Break` does NOT abort the surrounding function.
-The current Lua call (often `Start` / `Awake` / one-shot init) runs to
-its natural end *before* the world freezes — this is intentional, so init
-code completes and Continue can actually resume cleanly. The values shown
-in the debugger panel reflect the moment of the Break call, even though the
-script continues past it for the rest of that one call.
+The current Lua call stops at this line — anything after `Debugger.Break`
+in the same function does **not** execute for that call. Click *Continue*
+to resume the world ticking, but the aborted function does NOT re-run on
+its own (the engine flips `mHasStarted` / `mHasAwoken` *before* calling
+those, so they're considered "done").
 
-If you need a hard "stop in place" (function aborted, state frozen mid-line),
-set a regular F9 line breakpoint in the in-engine Script Editor instead.
+If you put `Debugger.Break` in a one-shot init function (`Awake`, `Start`,
+or anything that spawns scenes / connects signals), be aware: hitting it
+will halt that init partway. Use `Debugger.Snapshot` (below) instead if
+you need the rest of the init to complete.
 
 In shipping builds `Debugger.Break` is a no-op and execution continues.
 
 Sig: `Debugger.Break([message])`
  - Arg: `string message` (optional) Reason for breaking; shown in the panel
+---
+### Snapshot
+**Soft pause**: capture the call stack / locals / upvalues at the call
+site and freeze the world from the **next** frame, but let the current
+Lua call run to its natural end. Use this when you need to inspect state
+inside a one-shot init function (`Awake` / `Start`) that spawns scenes
+or registers signals — otherwise the rest of the init is lost and
+dependent scripts crash with `nil` errors.
+
+The snapshot in the debugger panel reflects the moment of the Snapshot
+call, even though the surrounding function continues past it. Click
+*Continue* to resume world ticking.
+
+In shipping builds `Debugger.Snapshot` is a no-op and execution continues.
+
+Sig: `Debugger.Snapshot([message])`
+ - Arg: `string message` (optional) Reason for snapshotting; shown in the panel
 ---
 ### IsAttached
 Returns `true` when the in-engine debugger is installed (editor build), and

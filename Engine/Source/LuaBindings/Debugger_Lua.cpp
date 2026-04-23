@@ -29,6 +29,21 @@ int Debugger_Lua::Break(lua_State* L)
     return 0;
 }
 
+int Debugger_Lua::Snapshot(lua_State* L)
+{
+#if EDITOR
+    LuaDebugger* dbg = LuaDebugger::Get();
+    const char* msg = (lua_gettop(L) >= 1 && lua_isstring(L, 1)) ? lua_tostring(L, 1) : "(no msg)";
+    LogDebug("Debugger.Snapshot called from script: %s (dbg=%p)", msg, (void*)dbg);
+    if (dbg != nullptr)
+    {
+        return LuaDebugger::LuaSnapshotBinding(L); // returns normally, no abort
+    }
+#endif
+    (void)L;
+    return 0;
+}
+
 int Debugger_Lua::IsAttached(lua_State* L)
 {
 #if EDITOR
@@ -49,6 +64,7 @@ void Debugger_Lua::Bind()
     int tableIdx = lua_gettop(L);
 
     REGISTER_TABLE_FUNC(L, tableIdx, Break);
+    REGISTER_TABLE_FUNC(L, tableIdx, Snapshot);
     REGISTER_TABLE_FUNC(L, tableIdx, IsAttached);
 
     lua_setglobal(L, DEBUGGER_LUA_NAME);

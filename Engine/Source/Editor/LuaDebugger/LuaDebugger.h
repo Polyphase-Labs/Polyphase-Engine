@@ -42,7 +42,20 @@ public:
     static LuaDebugger* Get();
 
     void Install(lua_State* L);
+
+    // Removes our line hook from the lua_State and, if LuaPanda is loaded,
+    // tries to restore its hook so it can resume polling for a VS Code
+    // connection. Called by the panel's "Active" toggle when the user wants
+    // to hand off to LuaPanda without restarting the editor.
+    void Uninstall();
+
     bool IsInstalled() const { return mInstalled; }
+
+    // Persists the user's "Active" preference to a JSON file in the editor
+    // preferences directory so it carries across editor restarts. The
+    // preference defaults to true (in-engine debugger active) on first run.
+    static bool LoadActivePreference(); // returns last-saved value, or true
+    static void SaveActivePreference(bool active);
 
     // ----- Breakpoints --------------------------------------------------
 
@@ -70,6 +83,11 @@ public:
     // Captures the snapshot for the caller's frame, sets paused, then
     // throws a Lua error to abort the surrounding pcall. Does not return.
     static int LuaBreakBinding(lua_State* L);
+
+    // Called from Debugger.Snapshot() in Lua. Soft variant: captures the
+    // snapshot + sets paused, then RETURNS so the surrounding Lua call can
+    // finish naturally before the world freezes next frame.
+    static int LuaSnapshotBinding(lua_State* L);
 
     // ----- Snapshot (valid while paused) --------------------------------
 
@@ -137,6 +155,21 @@ private:
     bool mInstalled = false;
     bool mFirstHookLogged = false;
     lua_State* mL = nullptr;
+
+    // Saved cursor state captured when we entered the pause, restored on
+    // Continue. Lets the user actually click the panel during PIE pause
+    // (where the game would otherwise have hidden / locked / trapped the
+    // cursor for mouselook). Also captures EditorState::mGamePreviewCaptured
+    // because GamePreview::DrawPanel re-traps the cursor every frame while
+    // it's true.
+    bool mSavedCursorShown        = true;
+    bool mSavedCursorLocked       = false;
+    bool mSavedCursorTrapped      = false;
+    bool mSavedGamePreviewCapture = false;
+    bool mSavedCursorValid        = false;
+
+    void FreeCursorForInspection();
+    void RestoreCursor();
 
     mutable std::mutex mBreakpointMutex;
     std::map<std::string, std::set<int>> mBreakpoints; // key: normalized file

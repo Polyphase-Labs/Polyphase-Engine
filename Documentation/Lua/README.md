@@ -140,10 +140,10 @@ Debugger* category.
 * **LuaPanda coexistence.** Lua only allows one line hook at a time. If
   LuaPanda is loaded at startup (via `OCT_LUA_DEBUGGING` on Windows), the
   in-engine debugger logs a warning and **replaces** LuaPanda's hook so F9
-  / `Debugger.Break` work. To use LuaPanda exclusively, disable
-  `OCT_LUA_DEBUGGING` in `Engine/Source/Engine/Engine.cpp` (this also stops
-  LuaPanda from loading and frees the in-engine debugger to install
-  cleanly without the warning).
+  / `Debugger.Break` work. Switch at runtime via the **Active** checkbox at
+  the top of the Lua Debugger panel: uncheck to uninstall our hook and
+  re-arm LuaPanda's so VS Code can attach; check again to take back over.
+  No editor restart needed.
 
 ---
 

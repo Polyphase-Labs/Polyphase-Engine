@@ -14,9 +14,23 @@
 struct Debugger_Lua
 {
     // Debugger.Break([message])
-    //   Editor:  pauses execution at the call site, opens the debugger panel.
+    //   Editor:  HARD abort -- aborts the surrounding pcall via lua_error and
+    //            freezes the world. The current Lua call stops at this line;
+    //            the aborted function does not re-run after Continue. Match
+    //            for pdb.set_trace / `debugger;`. Use this for general
+    //            "stop here so I can inspect" debugging.
     //   Shipping: silent no-op.
     static int Break(lua_State* L);
+
+    // Debugger.Snapshot([message])
+    //   Editor:  SOFT pause -- captures snapshot + freezes the world from the
+    //            next frame, but the current Lua call continues to its
+    //            natural end. Use this when you want to inspect state inside
+    //            a one-shot init function (Awake / Start / SpawnScene flow)
+    //            and need the rest of the function to complete -- otherwise
+    //            scenes spawned by that function never finish initializing.
+    //   Shipping: silent no-op.
+    static int Snapshot(lua_State* L);
 
     // Debugger.IsAttached() -> bool
     //   Editor:  always true.
