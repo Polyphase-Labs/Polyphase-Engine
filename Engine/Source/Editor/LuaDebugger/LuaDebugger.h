@@ -57,6 +57,12 @@ public:
     static bool LoadActivePreference(); // returns last-saved value, or true
     static void SaveActivePreference(bool active);
 
+    // Persists the current breakpoint set to the same JSON file. Called
+    // automatically on every Set/Clear/Toggle so it stays in sync; loaded
+    // once at Install so F9 breakpoints survive editor restarts.
+    void LoadBreakpoints();
+    void SaveBreakpoints();
+
     // ----- Breakpoints --------------------------------------------------
 
     void ToggleBreakpoint(const std::string& sourceFile, int line);

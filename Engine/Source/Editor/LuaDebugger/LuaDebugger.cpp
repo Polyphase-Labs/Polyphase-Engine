@@ -91,10 +91,99 @@ void LuaDebugger::SaveActivePreference(bool active)
     JsonSettings::SaveToFile(path, doc);
 }
 
+void LuaDebugger::LoadBreakpoints()
+{
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kPrefFileName;
+    if (!JsonSettings::LoadFromFile(path, doc))
+    {
+        return; // no prefs file yet
+    }
+
+    if (!doc.HasMember("breakpoints") || !doc["breakpoints"].IsObject())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mBreakpointMutex);
+    mBreakpoints.clear();
+
+    const auto& obj = doc["breakpoints"];
+    for (auto it = obj.MemberBegin(); it != obj.MemberEnd(); ++it)
+    {
+        if (!it->value.IsArray()) continue;
+        const char* file = it->name.GetString();
+        std::set<int> lines;
+        const auto& arr = it->value.GetArray();
+        for (rapidjson::SizeType i = 0; i < arr.Size(); ++i)
+        {
+            if (arr[i].IsInt())
+            {
+                int line = arr[i].GetInt();
+                if (line > 0) lines.insert(line);
+            }
+        }
+        if (!lines.empty())
+        {
+            mBreakpoints[file] = std::move(lines);
+        }
+    }
+
+    LogDebug("LuaDebugger: Loaded %d file(s) of breakpoints from %s",
+             (int)mBreakpoints.size(), path.c_str());
+}
+
+void LuaDebugger::SaveBreakpoints()
+{
+    JsonSettings::EnsurePreferencesDirectory();
+
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kPrefFileName;
+    JsonSettings::LoadFromFile(path, doc); // merge with existing (e.g. 'active')
+    if (!doc.IsObject())
+    {
+        doc.SetObject();
+    }
+    auto& alloc = doc.GetAllocator();
+
+    // Replace any existing "breakpoints" node.
+    if (doc.HasMember("breakpoints"))
+    {
+        doc.RemoveMember("breakpoints");
+    }
+
+    rapidjson::Value bpsObj(rapidjson::kObjectType);
+    {
+        std::lock_guard<std::mutex> lock(mBreakpointMutex);
+        for (const auto& kv : mBreakpoints)
+        {
+            rapidjson::Value arr(rapidjson::kArrayType);
+            for (int line : kv.second)
+            {
+                arr.PushBack(line, alloc);
+            }
+            rapidjson::Value key(kv.first.c_str(), alloc);
+            bpsObj.AddMember(key, arr, alloc);
+        }
+    }
+    doc.AddMember("breakpoints", bpsObj, alloc);
+
+    JsonSettings::SaveToFile(path, doc);
+}
+
 void LuaDebugger::Install(lua_State* L)
 {
     if (mInstalled || L == nullptr)
         return;
+
+    // Restore persisted breakpoints on the first install (subsequent re-
+    // installs via the panel toggle already have them in memory).
+    static bool sBreakpointsLoaded = false;
+    if (!sBreakpointsLoaded)
+    {
+        LoadBreakpoints();
+        sBreakpointsLoaded = true;
+    }
 
     // Honor the persisted preference. If the user previously turned the
     // in-engine debugger off (so VS Code + LuaPanda owns the hook), keep
@@ -215,23 +304,26 @@ void LuaDebugger::ToggleBreakpoint(const std::string& sourceFile, int line)
     std::string key = NormalizeSource(sourceFile.c_str());
     if (key.empty()) return;
 
-    std::lock_guard<std::mutex> lock(mBreakpointMutex);
-    auto& set = mBreakpoints[key];
-    auto it = set.find(line);
-    if (it == set.end())
     {
-        set.insert(line);
-        LogDebug("LuaDebugger: Set breakpoint at %s:%d", key.c_str(), line);
-    }
-    else
-    {
-        set.erase(it);
-        LogDebug("LuaDebugger: Cleared breakpoint at %s:%d", key.c_str(), line);
-        if (set.empty())
+        std::lock_guard<std::mutex> lock(mBreakpointMutex);
+        auto& set = mBreakpoints[key];
+        auto it = set.find(line);
+        if (it == set.end())
         {
-            mBreakpoints.erase(key);
+            set.insert(line);
+            LogDebug("LuaDebugger: Set breakpoint at %s:%d", key.c_str(), line);
+        }
+        else
+        {
+            set.erase(it);
+            LogDebug("LuaDebugger: Cleared breakpoint at %s:%d", key.c_str(), line);
+            if (set.empty())
+            {
+                mBreakpoints.erase(key);
+            }
         }
     }
+    SaveBreakpoints();
 }
 
 void LuaDebugger::SetBreakpoint(const std::string& sourceFile, int line)
@@ -240,8 +332,11 @@ void LuaDebugger::SetBreakpoint(const std::string& sourceFile, int line)
     std::string key = NormalizeSource(sourceFile.c_str());
     if (key.empty()) return;
 
-    std::lock_guard<std::mutex> lock(mBreakpointMutex);
-    mBreakpoints[key].insert(line);
+    {
+        std::lock_guard<std::mutex> lock(mBreakpointMutex);
+        mBreakpoints[key].insert(line);
+    }
+    SaveBreakpoints();
 }
 
 void LuaDebugger::ClearBreakpoint(const std::string& sourceFile, int line)
@@ -249,22 +344,28 @@ void LuaDebugger::ClearBreakpoint(const std::string& sourceFile, int line)
     std::string key = NormalizeSource(sourceFile.c_str());
     if (key.empty()) return;
 
-    std::lock_guard<std::mutex> lock(mBreakpointMutex);
-    auto it = mBreakpoints.find(key);
-    if (it != mBreakpoints.end())
     {
-        it->second.erase(line);
-        if (it->second.empty())
+        std::lock_guard<std::mutex> lock(mBreakpointMutex);
+        auto it = mBreakpoints.find(key);
+        if (it != mBreakpoints.end())
         {
-            mBreakpoints.erase(it);
+            it->second.erase(line);
+            if (it->second.empty())
+            {
+                mBreakpoints.erase(it);
+            }
         }
     }
+    SaveBreakpoints();
 }
 
 void LuaDebugger::ClearAllBreakpoints()
 {
-    std::lock_guard<std::mutex> lock(mBreakpointMutex);
-    mBreakpoints.clear();
+    {
+        std::lock_guard<std::mutex> lock(mBreakpointMutex);
+        mBreakpoints.clear();
+    }
+    SaveBreakpoints();
 }
 
 bool LuaDebugger::HasBreakpoint(const std::string& sourceFile, int line) const
