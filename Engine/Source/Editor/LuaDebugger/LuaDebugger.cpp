@@ -215,14 +215,26 @@ std::vector<LuaDebugger::BreakpointEntry> LuaDebugger::GetAllBreakpoints() const
 
 void LuaDebugger::RequestContinue()
 {
-    if (!mPaused.load()) return;
+    if (!mPaused.load())
+    {
+        LogDebug("LuaDebugger: RequestContinue called but not paused -- ignoring.");
+        return;
+    }
 
-    // Arm a one-shot skip at the current break location so the next firing
-    // of the hook there is suppressed -- otherwise the very next Tick would
-    // immediately re-trap on the same line.
+    // Arm one-shot skips at the current break location so the very next
+    // firing at that exact spot is suppressed. Without these, a breakpoint
+    // (or Debugger.Break) inside a per-frame function would re-trap on the
+    // next tick and Continue would feel like it didn't do anything.
     mSkipOnceArmed = true;
     mSkipOnceFile = mPauseFile;
     mSkipOnceLine = mPauseLine;
+
+    mSkipBreakOnceArmed = true;
+    mSkipBreakFile = mPauseFile;
+    mSkipBreakLine = mPauseLine;
+
+    LogDebug("LuaDebugger: Continue -- clearing pause, skip-once armed at %s:%d",
+             mPauseFile.c_str(), mPauseLine);
 
     mPaused.store(false);
     mPauseMessage.clear();
@@ -413,43 +425,76 @@ std::vector<LuaDebugger::LocalVar> LuaDebugger::GetSnapshotVars(int frameIndex, 
 // Pause entry
 // ---------------------------------------------------------------------------
 
-void LuaDebugger::EnterPaused(lua_State* L, lua_Debug* ar, const char* optionalMessage, int snapshotStartLevel)
+// Shared snapshot+flag setup. Called by both EnterPaused (which then aborts
+// via lua_error) and EnterPausedSoft (which returns normally so the current
+// Lua function can finish before the world freezes next frame).
+static void CapturePauseStateImpl(LuaDebugger* self, lua_State* L, lua_Debug* ar,
+                                  const char* optionalMessage, int snapshotStartLevel,
+                                  std::string& outFile, int& outLine)
 {
-    // Capture pause location. NOTE: lua_getstack only sets up the activation
-    // record for use with lua_getinfo -- fields like 'source' / 'currentline'
-    // are uninitialized garbage until lua_getinfo populates them. Always call
-    // lua_getinfo here regardless of caller, otherwise we'd pass garbage to
-    // NormalizeSource and crash on the bogus pointer.
-    mPauseFile.clear();
-    mPauseLine = -1;
+    (void)optionalMessage; // recorded by caller; passed for symmetry
+    outFile.clear();
+    outLine = -1;
+
+    // NOTE: lua_getstack only sets up the activation record for use with
+    // lua_getinfo -- fields like 'source' / 'currentline' are uninitialized
+    // garbage until lua_getinfo populates them. Always call lua_getinfo here
+    // regardless of caller, otherwise we'd pass garbage to NormalizeSource
+    // and crash on the bogus pointer.
     if (ar != nullptr)
     {
         lua_getinfo(L, "Sl", ar);
         if (ar->source != nullptr)
         {
-            mPauseFile = NormalizeSource(ar->source);
+            outFile = LuaDebugger::NormalizeSource(ar->source);
         }
-        mPauseLine = ar->currentline;
+        outLine = ar->currentline;
     }
     else
     {
-        // Fall back to top-of-stack frame
         lua_Debug top;
         if (lua_getstack(L, 0, &top))
         {
             lua_getinfo(L, "Sl", &top);
             if (top.source != nullptr)
             {
-                mPauseFile = NormalizeSource(top.source);
+                outFile = LuaDebugger::NormalizeSource(top.source);
             }
-            mPauseLine = top.currentline;
+            outLine = top.currentline;
         }
     }
 
+    self->CaptureSnapshot(L, snapshotStartLevel);
+}
+
+void LuaDebugger::EnterPausedSoft(lua_State* L, lua_Debug* ar, const char* optionalMessage, int snapshotStartLevel)
+{
+    std::string file;
+    int line = -1;
+    CapturePauseStateImpl(this, L, ar, optionalMessage, snapshotStartLevel, file, line);
+
+    mPauseFile = file;
+    mPauseLine = line;
     mPauseMessage = (optionalMessage != nullptr) ? optionalMessage : "";
+    mPaused.store(true);
 
-    CaptureSnapshot(L, snapshotStartLevel);
+    LogDebug("LuaDebugger: Soft-paused at %s:%d (current Lua call will complete; world freezes next frame)%s%s",
+             mPauseFile.c_str(),
+             mPauseLine,
+             mPauseMessage.empty() ? "" : " - ",
+             mPauseMessage.c_str());
+    // Returns to caller -- no lua_error.
+}
 
+void LuaDebugger::EnterPaused(lua_State* L, lua_Debug* ar, const char* optionalMessage, int snapshotStartLevel)
+{
+    std::string file;
+    int line = -1;
+    CapturePauseStateImpl(this, L, ar, optionalMessage, snapshotStartLevel, file, line);
+
+    mPauseFile = file;
+    mPauseLine = line;
+    mPauseMessage = (optionalMessage != nullptr) ? optionalMessage : "";
     mPaused.store(true);
 
     LogDebug("LuaDebugger: Paused at %s:%d%s%s",
@@ -563,16 +608,53 @@ int LuaDebugger::LuaBreakBinding(lua_State* L)
     // Pass startLevel = 1 so the snapshot skips this C frame and the user
     // sees the Lua caller's locals immediately on the default selected frame.
     lua_Debug ar;
-    if (lua_getstack(L, 1, &ar))
+    bool haveCaller = (lua_getstack(L, 1, &ar) != 0);
+
+    // Resolve the call site so we can compare against the skip-once arm.
+    std::string callFile;
+    int callLine = -1;
+    if (haveCaller)
     {
-        dbg->EnterPaused(L, &ar, msg, /*snapshotStartLevel=*/1);
+        lua_getinfo(L, "Sl", &ar);
+        if (ar.source != nullptr)
+        {
+            callFile = NormalizeSource(ar.source);
+        }
+        callLine = ar.currentline;
+    }
+
+    // Skip-Break-once: after Continue, suppress the very next Debugger.Break
+    // at the same source location. Lets Continue actually advance past a
+    // Break in a per-frame Tick.
+    if (dbg->mSkipBreakOnceArmed &&
+        dbg->mSkipBreakFile == callFile &&
+        dbg->mSkipBreakLine == callLine)
+    {
+        dbg->mSkipBreakOnceArmed = false;
+        dbg->mSkipBreakFile.clear();
+        dbg->mSkipBreakLine = -1;
+        return 0; // pretend Debugger.Break() was a no-op this once
+    }
+
+    // Use the SOFT variant: snapshot + set paused flag + RETURN. The current
+    // Lua function (often Start / Awake / one-shot init) gets to run to its
+    // natural end, so anything after the Debugger.Break call still executes
+    // for THIS call. World freezes from the next frame.
+    //
+    // Why not lua_error like F9 line breakpoints? Because Debugger.Break is
+    // typically used for "snapshot here and let me look", and aborting the
+    // surrounding pcall (e.g. a node's Start) would leave that node in a
+    // half-initialized state that Continue can never recover -- mHasStarted
+    // gets set before Lua Start runs, so Start is never called again.
+    if (haveCaller)
+    {
+        dbg->EnterPausedSoft(L, &ar, msg, /*snapshotStartLevel=*/1);
     }
     else
     {
-        dbg->EnterPaused(L, nullptr, msg, /*snapshotStartLevel=*/1);
+        dbg->EnterPausedSoft(L, nullptr, msg, /*snapshotStartLevel=*/1);
     }
 
-    // EnterPaused does not return (it lua_errors), but keep the compiler happy.
     return 0;
 }
 

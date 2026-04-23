@@ -739,6 +739,18 @@ bool Update()
         gameDeltaTime = 0.0f;
     }
 
+    // Freeze the world (physics, animations, particles, audio playback) while
+    // the in-engine Lua debugger is paused. Same mechanism as PIE pause: set
+    // game delta time to 0 so World::Update / physics / anim sampling all see
+    // no time passing. Lua Tick is independently gated in Script::CallTick.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            gameDeltaTime = 0.0f;
+        }
+    }
+
     {
         SCOPED_FRAME_STAT("EditorState");
         GetEditorState()->Update(realDeltaTime);

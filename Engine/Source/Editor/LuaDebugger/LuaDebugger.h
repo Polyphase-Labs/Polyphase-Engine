@@ -87,6 +87,7 @@ public:
         std::string mTypeStr;
         std::string mValueStr;
     };
+    void CaptureSnapshot(lua_State* L, int startLevel = 0);
 
     const std::vector<StackFrame>& GetCallStack() const { return mCallStack; }
 
@@ -116,8 +117,18 @@ private:
     LuaDebugger() = default;
 
     void OnHook(lua_State* L, lua_Debug* ar);
+
+    // Snapshot + pause-flag, but DOES call lua_error to abort the running
+    // pcall. Used by line breakpoints, where stopping mid-line is the only
+    // way to actually halt execution.
     void EnterPaused(lua_State* L, lua_Debug* ar, const char* optionalMessage, int snapshotStartLevel = 0);
-    void CaptureSnapshot(lua_State* L, int startLevel = 0);
+
+    // Snapshot + pause-flag without lua_error. The current Lua function
+    // continues to its natural end; world freezes from the next frame.
+    // Used by Debugger.Break() so init code (Start, etc.) completes before
+    // the world freezes -- otherwise Continue can't recover the state.
+    void EnterPausedSoft(lua_State* L, lua_Debug* ar, const char* optionalMessage, int snapshotStartLevel = 0);
+
 
     static std::string FormatLuaValue(lua_State* L, int idx);
 
@@ -146,6 +157,14 @@ private:
     bool mSkipOnceArmed = false;
     std::string mSkipOnceFile;
     int mSkipOnceLine = -1;
+
+    // Same idea but for Debugger.Break() calls (which don't go through the
+    // line hook). After Continue, suppress the next Debugger.Break call from
+    // this exact (file, line) so a Break in a per-frame Tick doesn't re-trap
+    // immediately.
+    bool mSkipBreakOnceArmed = false;
+    std::string mSkipBreakFile;
+    int mSkipBreakLine = -1;
 };
 
 #endif // EDITOR

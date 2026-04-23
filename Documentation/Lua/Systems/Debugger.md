@@ -8,11 +8,21 @@ overview.
 
 ---
 ### Break
-Pause execution at the call site and open the Lua Debugger panel for
-inspection. In shipping builds this is a no-op and execution continues.
+Capture a snapshot of the call stack / locals / upvalues at the call site
+and freeze the world from the **next** frame. The Lua Debugger panel shows
+the snapshot for inspection; click *Continue* to resume.
 
-The optional `message` is shown in the debugger panel header so you know
-*why* this breakpoint fired (helpful for assert-style breaks).
+**Important:** `Debugger.Break` does NOT abort the surrounding function.
+The current Lua call (often `Start` / `Awake` / one-shot init) runs to
+its natural end *before* the world freezes — this is intentional, so init
+code completes and Continue can actually resume cleanly. The values shown
+in the debugger panel reflect the moment of the Break call, even though the
+script continues past it for the rest of that one call.
+
+If you need a hard "stop in place" (function aborted, state frozen mid-line),
+set a regular F9 line breakpoint in the in-engine Script Editor instead.
+
+In shipping builds `Debugger.Break` is a no-op and execution continues.
 
 Sig: `Debugger.Break([message])`
  - Arg: `string message` (optional) Reason for breaking; shown in the panel
