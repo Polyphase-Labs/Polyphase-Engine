@@ -132,6 +132,10 @@ enum class EditorAction : int32_t
     Git_QuickSwitchBranch,
     Git_SearchHistory,
 
+    // ----- Lua Debugger -----
+    Debug_LuaToggleBreakpoint, // F9 -- toggle bp at cursor in Script Editor
+    Debug_LuaContinue,         // F5 -- only fires while debugger is paused
+
     Count
 };
 

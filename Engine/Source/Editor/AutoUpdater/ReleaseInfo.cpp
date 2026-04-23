@@ -100,12 +100,13 @@ bool ReleaseInfo::ParseVersion(const std::string& version, int& outMajor, int& o
 
     if (*end == '-')
     {
-        // Pre-release suffix (e.g., -beta.5, -beata.5, -alpha.1, -rc.2)
+        // Pre-release suffix (e.g., -beta.5, -beta-5, -beta5, -alpha.1, -rc.2)
         const char* typeStart = end + 1;
         const char* typeEnd = typeStart;
 
-        // Find end of type string (up to '.' or end of string)
-        while (*typeEnd != '\0' && *typeEnd != '.')
+        // Find end of type string: stop at separator ('.', '-'), digit, or end
+        while (*typeEnd != '\0' && *typeEnd != '.' && *typeEnd != '-' &&
+               !std::isdigit((unsigned char)*typeEnd))
         {
             typeEnd++;
         }
@@ -114,16 +115,18 @@ bool ReleaseInfo::ParseVersion(const std::string& version, int& outMajor, int& o
         {
             outPreReleaseType = ParsePreReleaseTypeString(typeStart, typeEnd);
 
-            // Parse pre-release number if present
-            if (*typeEnd == '.')
+            // Parse pre-release number if present, allowing '.', '-', or no separator
+            const char* numStart = typeEnd;
+            if (*numStart == '.' || *numStart == '-')
             {
-                const char* numStart = typeEnd + 1;
-                char* numEnd = nullptr;
-                int preNum = (int)strtol(numStart, &numEnd, 10);
-                if (numEnd != numStart)
-                {
-                    outPreReleaseNum = preNum;
-                }
+                numStart++;
+            }
+
+            char* numEnd = nullptr;
+            int preNum = (int)strtol(numStart, &numEnd, 10);
+            if (numEnd != numStart)
+            {
+                outPreReleaseNum = preNum;
             }
         }
     }

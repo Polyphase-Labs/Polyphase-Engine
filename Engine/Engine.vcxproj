@@ -695,6 +695,8 @@
     <ClCompile Include="Source\Editor\BuildCache.cpp" />
     <ClCompile Include="Source\Editor\CustomImgui.cpp" />
     <ClCompile Include="Source\Editor\DebugLog\DebugLogWindow.cpp" />
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebugger.cpp" />
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.cpp" />
     <ClCompile Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.cpp" />
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp" />
     <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp" />
@@ -1044,6 +1046,7 @@
     <ClCompile Include="Source\LuaBindings\PlayerInput_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Light3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Log_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Debugger_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaBindings.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaTypeCheck.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaUtils.cpp" />
@@ -1164,6 +1167,8 @@
     <ClInclude Include="Source\Editor\BuildCache.h" />
     <ClInclude Include="Source\Editor\CustomImgui.h" />
     <ClInclude Include="Source\Editor\DebugLog\DebugLogWindow.h" />
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebugger.h" />
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.h" />
     <ClInclude Include="Source\Editor\Preferences\External\CliModule.h" />
     <ClInclude Include="Source\Editor\CliTerminal\ITerminalProcess.h" />
     <ClInclude Include="Source\Editor\CliTerminal\TerminalOutputBuffer.h" />
@@ -1540,6 +1545,7 @@
     <ClInclude Include="Source\LuaBindings\PlayerInput_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Light3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Log_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Debugger_Lua.h" />
     <ClInclude Include="Source\LuaBindings\LuaTypeCheck.h" />
     <ClInclude Include="Source\LuaBindings\LuaUtils.h" />
     <ClInclude Include="Source\LuaBindings\MaterialInstance_Lua.h" />

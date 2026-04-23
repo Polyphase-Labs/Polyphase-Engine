@@ -16,6 +16,10 @@
 #include "LuaBindings/World_Lua.h"
 #include "LuaBindings/Property_Lua.h"
 
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+#endif
+
 DEFINE_OBJECT(Script);
 
 std::unordered_map<std::string, ScriptNetFuncMap> Script::sScriptNetFuncMap;
@@ -1925,6 +1929,18 @@ Datum Script::CallFunctionR(const char* name, const Datum& param0, const Datum& 
 
 void Script::CallFunction(const char* name, uint32_t numParams, const Datum** params, Datum* ret)
 {
+#if EDITOR
+    // While the in-engine Lua debugger is paused, freeze any further script
+    // calls so the world stays in the inspected state.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            return;
+        }
+    }
+#endif
+
     if (IsActive())
     {
         ScriptUtils::CallMethod(mOwner, name, numParams, params, ret);
@@ -2201,6 +2217,15 @@ void Script::CallTick(float deltaTime)
 #if LUA_ENABLED
 
 #if EDITOR
+    // While the in-engine Lua debugger is paused, freeze all script ticks.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            return;
+        }
+    }
+
     if (IsActive())
     {
         if (IsGameTickEnabled())

@@ -16,6 +16,7 @@
 #include "LuaBindings/Renderer_Lua.h"
 #include "LuaBindings/System_Lua.h"
 #include "LuaBindings/Log_Lua.h"
+#include "LuaBindings/Debugger_Lua.h"
 #include "LuaBindings/Tween_Lua.h"
 #include "LuaBindings/Easing_Lua.h"
 #include "LuaBindings/World_Lua.h"
@@ -103,6 +104,7 @@ void BindLuaInterface()
     Audio_Lua::Bind();
     Gizmos_Lua::Bind();
     Log_Lua::Bind();
+    Debugger_Lua::Bind();
     Maths_Lua::Bind();
     Network_Lua::Bind();
     Serial_Lua::Bind();

@@ -7,6 +7,9 @@
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+#endif
 #include "Assets/Scene.h"
 #include "Assets/Timeline.h"
 #include "Assets/NodeGraphAsset.h"
@@ -557,6 +560,14 @@ bool Initialize()
         // Run Startup.lua if it exists.
         ScriptUtils::RunScript("EngineStartup.lua");
         ScriptUtils::RunScript("Startup.lua");
+
+#if EDITOR
+        // Install in-engine Lua debugger AFTER Startup so LuaPanda (if used)
+        // has had a chance to install its own hook -- our Install() detects
+        // that and skips with a warning rather than fighting over lua_sethook.
+        LuaDebugger::Create();
+        LuaDebugger::Get()->Install(sEngineState.mLua);
+#endif
     }
 #endif
 
@@ -859,6 +870,9 @@ void Shutdown()
     RuntimePluginManager::Destroy();
 
 #if LUA_ENABLED
+#if EDITOR
+    LuaDebugger::Destroy();
+#endif
     lua_close(sEngineState.mLua);
     sEngineState.mLua = nullptr;
 #endif
