@@ -79,6 +79,11 @@ public:
 
     void RequestContinue();
 
+    // Clears transient pause/skip state. Called when Play-In-Editor restarts
+    // so a "skip-once" left over from the previous run doesn't suppress the
+    // first Debugger.Break / Debugger.Snapshot of the next run.
+    void ResetTransientState();
+
     // Called from Debugger.Break() in Lua to pause at the call site.
     // Captures the snapshot for the caller's frame, sets paused, then
     // throws a Lua error to abort the surrounding pcall. Does not return.

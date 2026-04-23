@@ -351,6 +351,32 @@ void LuaDebugger::RestoreCursor()
 // Pause / Continue
 // ---------------------------------------------------------------------------
 
+void LuaDebugger::ResetTransientState()
+{
+    // Skip-once arms are sticky -- if the user clicks Continue and then ends
+    // PIE before the next firing of that breakpoint, the arm survives into
+    // the next PIE run and silently swallows the first hit. Clear them
+    // whenever PIE restarts so each run starts from a clean slate.
+    bool hadSomething = (mSkipOnceArmed || mSkipBreakOnceArmed);
+
+    mSkipOnceArmed = false;
+    mSkipOnceFile.clear();
+    mSkipOnceLine = -1;
+
+    mSkipBreakOnceArmed = false;
+    mSkipBreakFile.clear();
+    mSkipBreakLine = -1;
+
+    // Also clear stale snapshot data and the first-hook log gate so the
+    // user gets a fresh "first hook fire" line in the next run too.
+    mFirstHookLogged = false;
+
+    if (hadSomething)
+    {
+        LogDebug("LuaDebugger: Cleared transient skip-once state for new PIE run.");
+    }
+}
+
 void LuaDebugger::RequestContinue()
 {
     if (!mPaused.load())

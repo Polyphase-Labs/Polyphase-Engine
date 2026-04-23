@@ -19,6 +19,7 @@
 #include "Nodes/Widgets/Widget.h"
 #include "Nodes/Widgets/Text.h"
 #include "Engine.h"
+#include "LuaDebugger/LuaDebugger.h"
 #include "Renderer.h"
 #include "NodePath.h"
 #include "Grid.h"
@@ -812,6 +813,15 @@ void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
         return;
+
+    // Clear any stale Lua debugger pause/skip state left over from the
+    // previous PIE run -- otherwise a "skip-once" armed by Continue last
+    // time would silently swallow the first Debugger.Break/Snapshot of
+    // this run, producing the "every other PIE skips" pattern.
+    if (LuaDebugger::Get() != nullptr)
+    {
+        LuaDebugger::Get()->ResetTransientState();
+    }
 
     mSavedEditorClearColor = Renderer::Get()->GetClearColor();
     Renderer::Get()->SetClearColor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
