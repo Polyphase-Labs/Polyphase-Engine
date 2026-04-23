@@ -16,6 +16,10 @@
 #include "LuaBindings/World_Lua.h"
 #include "LuaBindings/Property_Lua.h"
 
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+#endif
+
 DEFINE_OBJECT(Script);
 
 std::unordered_map<std::string, ScriptNetFuncMap> Script::sScriptNetFuncMap;
@@ -1925,6 +1929,18 @@ Datum Script::CallFunctionR(const char* name, const Datum& param0, const Datum& 
 
 void Script::CallFunction(const char* name, uint32_t numParams, const Datum** params, Datum* ret)
 {
+    // NOTE: We deliberately do NOT gate CallFunction on the in-engine Lua
+    // debugger pause state. The pause gate lives only in CallTick (above).
+    //
+    // Why: Awake / Start / signal handlers / Stop / Destroy all flow through
+    // CallFunction, and the engine flags mHasAwoken / mHasStarted to TRUE
+    // *before* calling these. If we skipped them while paused, any node
+    // spawned during the pause window (e.g. via SpawnScene from a script
+    // that called Debugger.Break) would have its init permanently dropped,
+    // leaving signals / state un-set and producing nil-index errors after
+    // Continue. Init/teardown must run regardless of pause; only per-frame
+    // game progress (Tick) is what "freezing the world" means.
+
     if (IsActive())
     {
         ScriptUtils::CallMethod(mOwner, name, numParams, params, ret);
@@ -2201,6 +2217,15 @@ void Script::CallTick(float deltaTime)
 #if LUA_ENABLED
 
 #if EDITOR
+    // While the in-engine Lua debugger is paused, freeze all script ticks.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            return;
+        }
+    }
+
     if (IsActive())
     {
         if (IsGameTickEnabled())

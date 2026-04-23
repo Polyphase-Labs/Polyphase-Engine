@@ -4,6 +4,12 @@
 #include "LuaBindings/Node_Lua.h"
 #include "Plugins/RuntimePluginManager.h"
 
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+#endif
+
+#include <cstring>
+
 std::unordered_set<std::string> ScriptUtils::sLoadedLuaFiles;
 std::unordered_set<std::string> ScriptUtils::sLoadingLuaFiles;
 EmbeddedFile* ScriptUtils::sEmbeddedScripts = nullptr;
@@ -52,6 +58,17 @@ bool ScriptUtils::CallLuaFunc(int numArgs, int numResults)
     if (lua_pcall(L, numArgs, numResults, 0))
     {
         const char* errMsg = lua_tostring(L, -1);
+
+#if EDITOR
+        // The in-engine Lua debugger uses a sentinel error to longjmp out of
+        // a paused script. Swallow it silently -- it's not a real error.
+        if (errMsg != nullptr && std::strstr(errMsg, LuaDebugger::GetPauseSentinel()) != nullptr)
+        {
+            lua_pop(L, 1); // pop the sentinel error
+            return false;
+        }
+#endif
+
         if (errMsg)
         {
             LogError("Lua Error:\n%s", errMsg);

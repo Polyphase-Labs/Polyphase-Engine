@@ -95,6 +95,7 @@
 #include "PlayerInputDebugger.h"
 #include "DebugLog/DebugLogWindow.h"
 #include "CliTerminal/TerminalPanel.h"
+#include "LuaDebugger/LuaDebuggerPanel.h"
 #include "ScriptEditor/ScriptEditorWindow.h"
 #include "ThemeEditor/ThemeEditorWindow.h"
 #include "Preferences/Appearance/Theme/CssThemeParser.h"
@@ -801,6 +802,22 @@ static void DrawDockspace()
     }
     ImGui::PopStyleColor();
 
+    // --- Lua Debugger dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        bool debugOpen = GetLuaDebuggerPanel()->mVisible;
+        if (ImGui::BeginDock(ICON_MDI_BUG "  Lua Debugger", &debugOpen, ImGuiWindowFlags_NoScrollbar))
+        {
+            GetLuaDebuggerPanel()->DrawContent();
+        }
+        ImGui::EndDock();
+        GetLuaDebuggerPanel()->mVisible = debugOpen;
+    }
+    ImGui::PopStyleColor();
+
     // --- Texture Atlas Viewer dock ---
     {
         ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
@@ -846,6 +863,7 @@ static void DrawDockspace()
             ImGui::DockTo("EditorDock", "Texture Atlas Viewer", ICON_CURVEGRAPH "  Profiling", ImGuiDockSlot_Tab);
             ImGui::DockTo("EditorDock", ICON_CONSOLE "  CLI Terminal", ICON_STREAMLINE_LOG_SOLID "  Debug Log", ImGuiDockSlot_Tab);
             ImGui::DockTo("EditorDock", ICON_SKELETON "  Animation Browser", ICON_CONSOLE "  CLI Terminal", ImGuiDockSlot_Tab);
+            ImGui::DockTo("EditorDock", ICON_MDI_BUG "  Lua Debugger", ICON_STREAMLINE_LOG_SOLID "  Debug Log", ImGuiDockSlot_Tab);
 
             // Defer activating the Viewport tab — docks call setActive() on their
             // first BeginDock frame, so we need to wait a couple frames for all
@@ -10920,6 +10938,7 @@ void EditorImguiInit()
     ControllerServer::Create();
 
     GetScriptEditorWindow()->Init();
+    GetLuaDebuggerPanel()->Init();
 
     ImGui::InitDock();
 
@@ -12656,6 +12675,7 @@ void EditorImguiPreShutdown()
     }
     GetScriptEditorWindow()->Shutdown();
     GetTerminalPanel()->Shutdown();
+    GetLuaDebuggerPanel()->Shutdown();
     ImGui::ShutdownDock();
     UnregisterLogCallback(DebugLogWindow::LogCallback);
     ControllerServer::Destroy();

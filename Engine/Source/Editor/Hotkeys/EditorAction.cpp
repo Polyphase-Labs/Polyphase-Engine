@@ -150,6 +150,10 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "Git: Push",                "Version Control", "Push to remote",                                          "Git_Push",                   KB(0) },
     { "Git: Quick Switch Branch", "Version Control", "Open quick branch switcher",                              "Git_QuickSwitchBranch",      KB(0) },
     { "Git: Search History",      "Version Control", "Search commit history",                                   "Git_SearchHistory",          KB(0) },
+
+    // ----- Lua Debugger -----
+    { "Debug: Toggle Lua Breakpoint", "Lua Debugger", "Toggle a Lua breakpoint at the cursor's line in the Script Editor", "Debug_LuaToggleBreakpoint", KB(POLYPHASE_KEY_F9) },
+    { "Debug: Continue Lua",          "Lua Debugger", "Resume Lua execution after a breakpoint pause",                    "Debug_LuaContinue",         KB(POLYPHASE_KEY_F5) },
 };
 
 const EditorActionInfo& GetEditorActionInfo(EditorAction action)
