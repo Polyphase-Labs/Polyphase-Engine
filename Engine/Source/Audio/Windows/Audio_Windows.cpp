@@ -18,6 +18,41 @@ static IXAudio2SourceVoice* sSourceVoices[AUDIO_MAX_VOICES] = { };
 static XAUDIO2_BUFFER sSourceBuffers[AUDIO_MAX_VOICES] = { };
 static uint8_t* sStereoConvertedBuffers[AUDIO_MAX_VOICES] = { };
 
+// ----- Streaming voices (declared here so AUD_Shutdown can tear them down) -----
+static constexpr uint32_t kMaxStreamingVoices = 4;
+
+// XAudio2 voice callback that frees the staging buffer passed via pContext when the
+// corresponding buffer finishes playing. Defined up here (not later) so AUD_Shutdown
+// can `delete` instances without the "incomplete type" warning.
+struct StreamCallback : public IXAudio2VoiceCallback
+{
+    uint32_t mVoiceIndex = 0;
+
+    STDMETHOD_(void, OnBufferEnd)(void* bufferContext) override;
+
+    // Unused callbacks — must be stubbed for IXAudio2VoiceCallback.
+    STDMETHOD_(void, OnVoiceProcessingPassStart)(UINT32) override {}
+    STDMETHOD_(void, OnVoiceProcessingPassEnd)()          override {}
+    STDMETHOD_(void, OnStreamEnd)()                       override {}
+    STDMETHOD_(void, OnBufferStart)(void*)                override {}
+    STDMETHOD_(void, OnLoopEnd)(void*)                    override {}
+    STDMETHOD_(void, OnVoiceError)(void*, HRESULT)        override {}
+};
+
+struct StreamingVoiceEntry
+{
+    IXAudio2SourceVoice* mVoice = nullptr;
+    StreamCallback*      mCallback = nullptr;
+    uint32_t             mSampleRate = 0;
+    uint32_t             mNumChannels = 0;
+    uint32_t             mBitsPerSample = 0;
+    bool                 mInUse = false;
+    bool                 mPaused = false;
+    std::atomic<uint32_t> mPendingBuffers { 0 };
+};
+
+static StreamingVoiceEntry sStreamingVoices[kMaxStreamingVoices];
+
 // An attempt to reuse source voices?
 //struct WaveFormat
 //{
@@ -54,8 +89,32 @@ void AUD_Shutdown()
             sSourceVoices[i] = nullptr;
         }
     }
+    // Tear down any streaming voices still open (the VideoPlayer addon may have been
+    // playing at shutdown). Without this, the IXAudio2SourceVoice instances outlive the
+    // XAudio2 engine and any stray access from addon teardown crashes.
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        StreamingVoiceEntry& entry = sStreamingVoices[i];
+        if (entry.mVoice != nullptr)
+        {
+            entry.mVoice->Stop(0);
+            entry.mVoice->FlushSourceBuffers();
+            entry.mVoice->DestroyVoice();
+            entry.mVoice = nullptr;
+        }
+        if (entry.mCallback != nullptr)
+        {
+            delete entry.mCallback;
+            entry.mCallback = nullptr;
+        }
+        entry.mInUse = false;
+        entry.mPaused = false;
+        entry.mPendingBuffers.store(0);
+    }
     sMasterVoice->DestroyVoice();
     sXAudio2->Release();
+    sMasterVoice = nullptr;
+    sXAudio2 = nullptr;
 }
 
 void AUD_Update()
@@ -203,66 +262,38 @@ void AUD_ProcessWaveBuffer(SoundWave* soundWave)
 
 // ================================================================================================
 // Streaming voices (XAudio2 implementation)
+// Declarations for StreamingVoiceEntry / sStreamingVoices / kMaxStreamingVoices are at the
+// top of this file so AUD_Shutdown can tear them down.
 // ================================================================================================
 
-static constexpr uint32_t kMaxStreamingVoices = 4;
-
-struct StreamCallback; // fwd
-
-struct StreamingVoiceEntry
+// Out-of-line definition for the StreamCallback::OnBufferEnd method declared at the top
+// of the file. Lives here (not inline up top) so it can reach sStreamingVoices and
+// SYS_AlignedFree without needing more forward decls above.
+void StreamCallback::OnBufferEnd(void* bufferContext)
 {
-    IXAudio2SourceVoice* mVoice = nullptr;
-    StreamCallback*      mCallback = nullptr;
-    uint32_t             mSampleRate = 0;
-    uint32_t             mNumChannels = 0;
-    uint32_t             mBitsPerSample = 0;
-    bool                 mInUse = false;
-    bool                 mPaused = false;
-    // Number of byte-buffers currently queued (for debug / backpressure).
-    std::atomic<uint32_t> mPendingBuffers { 0 };
-};
-
-static StreamingVoiceEntry sStreamingVoices[kMaxStreamingVoices];
-
-// XAudio2 voice callback that frees the staging buffer passed via pContext when the
-// corresponding buffer finishes playing. This keeps the caller API synchronous — they
-// hand us bytes, we take a copy, XAudio2 eventually frees the copy.
-struct StreamCallback : public IXAudio2VoiceCallback
-{
-    uint32_t mVoiceIndex = 0;
-
-    STDMETHOD_(void, OnBufferEnd)(void* bufferContext) override
+    if (bufferContext != nullptr)
     {
-        if (bufferContext != nullptr)
+        SYS_AlignedFree(bufferContext);
+    }
+    if (mVoiceIndex < kMaxStreamingVoices)
+    {
+        // Best-effort pending count. Race-free enough: worst case we report one more
+        // pending than actually queued for a few microseconds.
+        uint32_t prev = sStreamingVoices[mVoiceIndex].mPendingBuffers.load();
+        if (prev > 0)
         {
-            SYS_AlignedFree(bufferContext);
-        }
-        if (mVoiceIndex < kMaxStreamingVoices)
-        {
-            // Best-effort pending count. Race-free enough: worst case we report one more
-            // pending than actually queued for a few microseconds.
-            uint32_t prev = sStreamingVoices[mVoiceIndex].mPendingBuffers.load();
-            if (prev > 0)
-            {
-                sStreamingVoices[mVoiceIndex].mPendingBuffers.store(prev - 1);
-            }
+            sStreamingVoices[mVoiceIndex].mPendingBuffers.store(prev - 1);
         }
     }
-
-    // Unused callbacks — must be stubbed for IXAudio2VoiceCallback.
-    STDMETHOD_(void, OnVoiceProcessingPassStart)(UINT32) override {}
-    STDMETHOD_(void, OnVoiceProcessingPassEnd)()          override {}
-    STDMETHOD_(void, OnStreamEnd)()                       override {}
-    STDMETHOD_(void, OnBufferStart)(void*)                override {}
-    STDMETHOD_(void, OnLoopEnd)(void*)                    override {}
-    STDMETHOD_(void, OnVoiceError)(void*, HRESULT)        override {}
-};
+}
 
 uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
 {
     if (sXAudio2 == nullptr || sMasterVoice == nullptr)
     {
-        LogWarning("AUD_OpenStream: audio system not initialized");
+        // Either audio never initialized or already shut down. Return 0 silently —
+        // callers (e.g. VideoPlayer3D) treat 0 as "no streaming voice available" and
+        // gracefully fall back to video-only playback.
         return 0;
     }
     if (numChannels != 1 && numChannels != 2)
@@ -307,9 +338,8 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
                 return 0;
             }
 
-            // Force frequency ratio to 1.0 in case any default differs from expectation —
-            // a stale ratio > 1 would play samples faster than declared, producing exactly
-            // the "sped-up / chipmunk" symptom the addon is hunting for.
+            // Force frequency ratio to 1.0 so playback rate matches the declared sample
+            // rate (a stale default > 1 would pitch-shift the output).
             entry.mVoice->SetFrequencyRatio(1.0f);
             entry.mVoice->Start(0);
             entry.mSampleRate     = sampleRate;
@@ -318,18 +348,6 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
             entry.mInUse          = true;
             entry.mPaused         = false;
             entry.mPendingBuffers.store(0);
-
-            // Diagnostic: report what XAudio2 actually accepted for the source voice and
-            // what the master voice is running at. A mismatch here would cause pitch drift.
-            XAUDIO2_VOICE_DETAILS sourceDetails = {};
-            XAUDIO2_VOICE_DETAILS masterDetails = {};
-            entry.mVoice->GetVoiceDetails(&sourceDetails);
-            sMasterVoice->GetVoiceDetails(&masterDetails);
-            float currentRatio = 0.0f;
-            entry.mVoice->GetFrequencyRatio(&currentRatio);
-            LogDebug("AUD_OpenStream: source voice rate=%u ch=%u freqRatio=%.2f | master voice rate=%u ch=%u",
-                     sourceDetails.InputSampleRate, sourceDetails.InputChannels, currentRatio,
-                     masterDetails.InputSampleRate, masterDetails.InputChannels);
 
             return i + 1; // 0 is sentinel for invalid
         }
@@ -370,6 +388,7 @@ void AUD_CloseStream(uint32_t streamId)
 
 int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
 {
+    if (sXAudio2 == nullptr) return 0;
     if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
     if (data == nullptr || byteSize == 0) return 0;
 
@@ -405,6 +424,7 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
 
 uint64_t AUD_GetStreamPlayedSamples(uint32_t streamId)
 {
+    if (sXAudio2 == nullptr) return 0;
     if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
     const StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
     if (!entry.mInUse || entry.mVoice == nullptr) return 0;
@@ -416,6 +436,7 @@ uint64_t AUD_GetStreamPlayedSamples(uint32_t streamId)
 
 void AUD_SetStreamVolume(uint32_t streamId, float volume)
 {
+    if (sXAudio2 == nullptr) return;
     if (streamId == 0 || streamId > kMaxStreamingVoices) return;
     StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
     if (!entry.mInUse || entry.mVoice == nullptr) return;
@@ -424,6 +445,7 @@ void AUD_SetStreamVolume(uint32_t streamId, float volume)
 
 void AUD_SetStreamPaused(uint32_t streamId, bool paused)
 {
+    if (sXAudio2 == nullptr) return;
     if (streamId == 0 || streamId > kMaxStreamingVoices) return;
     StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
     if (!entry.mInUse || entry.mVoice == nullptr) return;
@@ -441,6 +463,7 @@ void AUD_SetStreamPaused(uint32_t streamId, bool paused)
 
 void AUD_FlushStream(uint32_t streamId)
 {
+    if (sXAudio2 == nullptr) return;
     if (streamId == 0 || streamId > kMaxStreamingVoices) return;
     StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
     if (!entry.mInUse || entry.mVoice == nullptr) return;
