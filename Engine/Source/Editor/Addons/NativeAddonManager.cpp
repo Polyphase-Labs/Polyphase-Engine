@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "Engine/AssetManager.h"
 #include "Engine/AudioManager.h"
+#include "Audio/Audio.h"
 #include "Engine/Clock.h"
 #include "Engine/Nodes/Node.h"
 #include "Engine/Nodes/3D/Node3d.h"
@@ -21,6 +22,9 @@
 #include <Windows.h>
 #include <Psapi.h>
 #pragma comment(lib, "Psapi.lib")
+#elif PLATFORM_LINUX
+#include <dlfcn.h>
+#include <link.h>
 #endif
 #include "Engine/Gizmos.h"
 #include "Engine/Assets/TinyLLMAsset.h"
@@ -396,6 +400,38 @@ static float PluginGetMasterVolume()
     return AudioManager::GetMasterVolume();
 }
 
+// Streaming audio pass-throughs to the low-level AUD_ API. Kept as thin forwarders so
+// the plugin ABI is stable across engine versions even if AudioManager grows a streaming
+// abstraction on top.
+static uint32_t PluginAudio_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    return AUD_OpenStream(sampleRate, numChannels, bitsPerSample);
+}
+static void PluginAudio_CloseStream(uint32_t streamId)
+{
+    AUD_CloseStream(streamId);
+}
+static int32_t PluginAudio_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    return AUD_SubmitStreamBuffer(streamId, data, byteSize);
+}
+static uint64_t PluginAudio_GetStreamPlayedSamples(uint32_t streamId)
+{
+    return AUD_GetStreamPlayedSamples(streamId);
+}
+static void PluginAudio_SetStreamVolume(uint32_t streamId, float volume)
+{
+    AUD_SetStreamVolume(streamId, volume);
+}
+static void PluginAudio_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    AUD_SetStreamPaused(streamId, paused);
+}
+static void PluginAudio_FlushStream(uint32_t streamId)
+{
+    AUD_FlushStream(streamId);
+}
+
 // ===== Input =====
 
 static bool PluginIsKeyDown(int32_t key)
@@ -648,6 +684,15 @@ void NativeAddonManager::InitializeEngineAPI()
     mEngineAPI.StopAllSounds = PluginStopAllSounds;
     mEngineAPI.SetMasterVolume = PluginSetMasterVolume;
     mEngineAPI.GetMasterVolume = PluginGetMasterVolume;
+
+    // Streaming audio
+    mEngineAPI.Audio_OpenStream             = PluginAudio_OpenStream;
+    mEngineAPI.Audio_CloseStream            = PluginAudio_CloseStream;
+    mEngineAPI.Audio_SubmitStreamBuffer     = PluginAudio_SubmitStreamBuffer;
+    mEngineAPI.Audio_GetStreamPlayedSamples = PluginAudio_GetStreamPlayedSamples;
+    mEngineAPI.Audio_SetStreamVolume        = PluginAudio_SetStreamVolume;
+    mEngineAPI.Audio_SetStreamPaused        = PluginAudio_SetStreamPaused;
+    mEngineAPI.Audio_FlushStream            = PluginAudio_FlushStream;
 
     // Input
     mEngineAPI.IsKeyDown = PluginIsKeyDown;
@@ -1689,10 +1734,52 @@ namespace
         strip(TimelineClip::GetFactoryList(),  "TimelineClip");
         strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
     }
+#elif PLATFORM_LINUX
+    // Strip factories whose object address falls inside the given .so module's memory image.
+    // Windows parity via dlinfo(RTLD_DI_LINKMAP) for the module base + dladdr per factory.
+    void StripFactoriesFromModule(void* moduleHandle)
+    {
+        if (moduleHandle == nullptr) return;
+
+        struct link_map* lm = nullptr;
+        if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+        {
+            LogWarning("StripFactoriesFromModule: dlinfo failed (%s)", dlerror() ? dlerror() : "unknown");
+            return;
+        }
+        void* moduleBase = reinterpret_cast<void*>(lm->l_addr);
+
+        auto strip = [&](std::vector<Factory*>& list, const char* label) {
+            size_t removed = 0;
+            for (auto it = list.begin(); it != list.end(); )
+            {
+                Dl_info info = {};
+                if (dladdr(reinterpret_cast<void*>(*it), &info) != 0 && info.dli_fbase == moduleBase)
+                {
+                    it = list.erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            if (removed > 0)
+            {
+                LogDebug("  stripped %zu %s factories belonging to unloaded module", removed, label);
+            }
+        };
+
+        strip(Node::GetFactoryList(),          "Node");
+        strip(Asset::GetFactoryList(),         "Asset");
+        strip(GraphNode::GetFactoryList(),     "GraphNode");
+        strip(TimelineClip::GetFactoryList(),  "TimelineClip");
+        strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
+    }
 #else
     void StripFactoriesFromModule(void* /*moduleHandle*/)
     {
-        // TODO: implement for Linux using dladdr + Dl_info on each factory pointer.
+        // Other platforms (3DS, GC, Wii, Android) don't support native addon hot-reload yet.
     }
 #endif
 }

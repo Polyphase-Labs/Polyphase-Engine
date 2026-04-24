@@ -297,6 +297,27 @@ struct PolyphaseEngineAPI
      */
     float (*GetMasterVolume)();
 
+    // ===== Streaming audio =====
+    //
+    // Push-based PCM output for addons that decode audio at runtime (e.g. VideoPlayer).
+    // See Audio.h for the underlying AUD_* primitives; these are thin forwarders so addons
+    // don't have to link the engine's audio symbols directly.
+    //
+    // Not implemented on all platforms — Audio_OpenStream returns 0 on Linux / 3DS / Android /
+    // Dolphin, and addons must treat 0 as "streaming audio unavailable; play video-only".
+
+    uint32_t (*Audio_OpenStream)(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample);
+    void     (*Audio_CloseStream)(uint32_t streamId);
+    int32_t  (*Audio_SubmitStreamBuffer)(uint32_t streamId, const uint8_t* data, uint32_t byteSize);
+    uint64_t (*Audio_GetStreamPlayedSamples)(uint32_t streamId);
+    void     (*Audio_SetStreamVolume)(uint32_t streamId, float volume);
+    void     (*Audio_SetStreamPaused)(uint32_t streamId, bool paused);
+    // Discard any queued buffers without waiting for playback to finish. Use on seek/loop
+    // so stale audio doesn't keep playing while new decoded audio catches up.
+    // SamplesPlayed does NOT reset (XAudio2 limitation); the addon is expected to snapshot
+    // it right after Flush and treat subsequent readings as deltas.
+    void     (*Audio_FlushStream)(uint32_t streamId);
+
     // ===== Input =====
 
     /**

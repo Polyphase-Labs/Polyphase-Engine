@@ -374,4 +374,14 @@ void AUD_ProcessWaveBuffer(SoundWave* soundWave)
     }
 }
 
+// Streaming voices — not implemented on 3DS. Returning 0 from AUD_OpenStream tells callers
+// (e.g. the VideoPlayer addon) to fall back to video-only playback.
+uint32_t AUD_OpenStream(uint32_t, uint32_t, uint32_t) { return 0; }
+void     AUD_CloseStream(uint32_t) {}
+int32_t  AUD_SubmitStreamBuffer(uint32_t, const uint8_t*, uint32_t) { return 0; }
+uint64_t AUD_GetStreamPlayedSamples(uint32_t) { return 0; }
+void     AUD_SetStreamVolume(uint32_t, float) {}
+void     AUD_SetStreamPaused(uint32_t, bool) {}
+void     AUD_FlushStream(uint32_t) {}
+
 #endif

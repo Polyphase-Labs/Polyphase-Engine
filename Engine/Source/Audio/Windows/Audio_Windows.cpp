@@ -9,6 +9,9 @@
 
 #include <xaudio2.h>
 
+#include <atomic>
+#include <cstring>
+
 static IXAudio2* sXAudio2 = nullptr;
 static IXAudio2MasteringVoice* sMasterVoice = nullptr;
 static IXAudio2SourceVoice* sSourceVoices[AUDIO_MAX_VOICES] = { };
@@ -196,6 +199,258 @@ void AUD_FreeWaveBuffer(void* buffer)
 void AUD_ProcessWaveBuffer(SoundWave* soundWave)
 {
 
+}
+
+// ================================================================================================
+// Streaming voices (XAudio2 implementation)
+// ================================================================================================
+
+static constexpr uint32_t kMaxStreamingVoices = 4;
+
+struct StreamCallback; // fwd
+
+struct StreamingVoiceEntry
+{
+    IXAudio2SourceVoice* mVoice = nullptr;
+    StreamCallback*      mCallback = nullptr;
+    uint32_t             mSampleRate = 0;
+    uint32_t             mNumChannels = 0;
+    uint32_t             mBitsPerSample = 0;
+    bool                 mInUse = false;
+    bool                 mPaused = false;
+    // Number of byte-buffers currently queued (for debug / backpressure).
+    std::atomic<uint32_t> mPendingBuffers { 0 };
+};
+
+static StreamingVoiceEntry sStreamingVoices[kMaxStreamingVoices];
+
+// XAudio2 voice callback that frees the staging buffer passed via pContext when the
+// corresponding buffer finishes playing. This keeps the caller API synchronous — they
+// hand us bytes, we take a copy, XAudio2 eventually frees the copy.
+struct StreamCallback : public IXAudio2VoiceCallback
+{
+    uint32_t mVoiceIndex = 0;
+
+    STDMETHOD_(void, OnBufferEnd)(void* bufferContext) override
+    {
+        if (bufferContext != nullptr)
+        {
+            SYS_AlignedFree(bufferContext);
+        }
+        if (mVoiceIndex < kMaxStreamingVoices)
+        {
+            // Best-effort pending count. Race-free enough: worst case we report one more
+            // pending than actually queued for a few microseconds.
+            uint32_t prev = sStreamingVoices[mVoiceIndex].mPendingBuffers.load();
+            if (prev > 0)
+            {
+                sStreamingVoices[mVoiceIndex].mPendingBuffers.store(prev - 1);
+            }
+        }
+    }
+
+    // Unused callbacks — must be stubbed for IXAudio2VoiceCallback.
+    STDMETHOD_(void, OnVoiceProcessingPassStart)(UINT32) override {}
+    STDMETHOD_(void, OnVoiceProcessingPassEnd)()          override {}
+    STDMETHOD_(void, OnStreamEnd)()                       override {}
+    STDMETHOD_(void, OnBufferStart)(void*)                override {}
+    STDMETHOD_(void, OnLoopEnd)(void*)                    override {}
+    STDMETHOD_(void, OnVoiceError)(void*, HRESULT)        override {}
+};
+
+uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    if (sXAudio2 == nullptr || sMasterVoice == nullptr)
+    {
+        LogWarning("AUD_OpenStream: audio system not initialized");
+        return 0;
+    }
+    if (numChannels != 1 && numChannels != 2)
+    {
+        LogWarning("AUD_OpenStream: only mono/stereo supported (got %u channels)", numChannels);
+        return 0;
+    }
+    if (bitsPerSample != 16)
+    {
+        LogWarning("AUD_OpenStream: only 16-bit PCM supported (got %u bps)", bitsPerSample);
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        if (!sStreamingVoices[i].mInUse)
+        {
+            StreamingVoiceEntry& entry = sStreamingVoices[i];
+
+            WAVEFORMATEX waveFormat = {};
+            waveFormat.wFormatTag      = WAVE_FORMAT_PCM;
+            waveFormat.nChannels       = (WORD)numChannels;
+            waveFormat.nSamplesPerSec  = sampleRate;
+            waveFormat.wBitsPerSample  = (WORD)bitsPerSample;
+            waveFormat.nBlockAlign     = waveFormat.nChannels * (waveFormat.wBitsPerSample / 8);
+            waveFormat.nAvgBytesPerSec = waveFormat.nSamplesPerSec * waveFormat.nBlockAlign;
+
+            entry.mCallback = new StreamCallback();
+            entry.mCallback->mVoiceIndex = i;
+
+            HRESULT hr = sXAudio2->CreateSourceVoice(
+                &entry.mVoice,
+                &waveFormat,
+                0, XAUDIO2_DEFAULT_FREQ_RATIO,
+                entry.mCallback,
+                nullptr, nullptr);
+            if (FAILED(hr) || entry.mVoice == nullptr)
+            {
+                LogError("AUD_OpenStream: CreateSourceVoice failed (hr=0x%08lx)", (unsigned long)hr);
+                delete entry.mCallback;
+                entry.mCallback = nullptr;
+                return 0;
+            }
+
+            // Force frequency ratio to 1.0 in case any default differs from expectation —
+            // a stale ratio > 1 would play samples faster than declared, producing exactly
+            // the "sped-up / chipmunk" symptom the addon is hunting for.
+            entry.mVoice->SetFrequencyRatio(1.0f);
+            entry.mVoice->Start(0);
+            entry.mSampleRate     = sampleRate;
+            entry.mNumChannels    = numChannels;
+            entry.mBitsPerSample  = bitsPerSample;
+            entry.mInUse          = true;
+            entry.mPaused         = false;
+            entry.mPendingBuffers.store(0);
+
+            // Diagnostic: report what XAudio2 actually accepted for the source voice and
+            // what the master voice is running at. A mismatch here would cause pitch drift.
+            XAUDIO2_VOICE_DETAILS sourceDetails = {};
+            XAUDIO2_VOICE_DETAILS masterDetails = {};
+            entry.mVoice->GetVoiceDetails(&sourceDetails);
+            sMasterVoice->GetVoiceDetails(&masterDetails);
+            float currentRatio = 0.0f;
+            entry.mVoice->GetFrequencyRatio(&currentRatio);
+            LogDebug("AUD_OpenStream: source voice rate=%u ch=%u freqRatio=%.2f | master voice rate=%u ch=%u",
+                     sourceDetails.InputSampleRate, sourceDetails.InputChannels, currentRatio,
+                     masterDetails.InputSampleRate, masterDetails.InputChannels);
+
+            return i + 1; // 0 is sentinel for invalid
+        }
+    }
+
+    LogWarning("AUD_OpenStream: no free streaming voices (pool size %u)", kMaxStreamingVoices);
+    return 0;
+}
+
+void AUD_CloseStream(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse) return;
+
+    if (entry.mVoice != nullptr)
+    {
+        entry.mVoice->Stop(0);
+        entry.mVoice->FlushSourceBuffers();
+        entry.mVoice->DestroyVoice();
+        entry.mVoice = nullptr;
+    }
+
+    // Any buffers still queued had their OnBufferEnd fired during FlushSourceBuffers.
+    if (entry.mCallback != nullptr)
+    {
+        delete entry.mCallback;
+        entry.mCallback = nullptr;
+    }
+
+    entry.mInUse = false;
+    entry.mPaused = false;
+    entry.mSampleRate = 0;
+    entry.mNumChannels = 0;
+    entry.mBitsPerSample = 0;
+    entry.mPendingBuffers.store(0);
+}
+
+int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
+    if (data == nullptr || byteSize == 0) return 0;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse || entry.mVoice == nullptr) return 0;
+
+    // Soft backpressure: cap pending buffers so the engine doesn't grow unboundedly if the
+    // producer outruns playback (e.g. looping while paused). The producer should retry.
+    if (entry.mPendingBuffers.load() >= 16) return 0;
+
+    // Take a private copy: XAudio2 holds the pointer until OnBufferEnd, and our callers
+    // reuse their source buffer on the next submit.
+    uint8_t* copy = (uint8_t*)SYS_AlignedMalloc(byteSize, 16);
+    if (copy == nullptr) return 0;
+    std::memcpy(copy, data, byteSize);
+
+    XAUDIO2_BUFFER buffer = {};
+    buffer.AudioBytes = byteSize;
+    buffer.pAudioData = copy;
+    buffer.pContext   = copy; // freed in OnBufferEnd
+
+    HRESULT hr = entry.mVoice->SubmitSourceBuffer(&buffer);
+    if (FAILED(hr))
+    {
+        SYS_AlignedFree(copy);
+        LogWarning("AUD_SubmitStreamBuffer: SubmitSourceBuffer failed (hr=0x%08lx)", (unsigned long)hr);
+        return 0;
+    }
+
+    entry.mPendingBuffers.fetch_add(1);
+    return (int32_t)byteSize;
+}
+
+uint64_t AUD_GetStreamPlayedSamples(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
+    const StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse || entry.mVoice == nullptr) return 0;
+
+    XAUDIO2_VOICE_STATE state = {};
+    entry.mVoice->GetState(&state, 0 /* include SamplesPlayed */);
+    return state.SamplesPlayed;
+}
+
+void AUD_SetStreamVolume(uint32_t streamId, float volume)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse || entry.mVoice == nullptr) return;
+    entry.mVoice->SetVolume(volume);
+}
+
+void AUD_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse || entry.mVoice == nullptr) return;
+    if (paused && !entry.mPaused)
+    {
+        entry.mVoice->Stop(0);
+        entry.mPaused = true;
+    }
+    else if (!paused && entry.mPaused)
+    {
+        entry.mVoice->Start(0);
+        entry.mPaused = false;
+    }
+}
+
+void AUD_FlushStream(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+    if (!entry.mInUse || entry.mVoice == nullptr) return;
+    // Stop→Flush→(Start if not paused) so FlushSourceBuffers fires OnBufferEnd for each
+    // queued buffer. That reclaims our staging allocations and empties the voice's queue.
+    const bool wasPlaying = !entry.mPaused;
+    entry.mVoice->Stop(0);
+    entry.mVoice->FlushSourceBuffers();
+    entry.mPendingBuffers.store(0);
+    if (wasPlaying) entry.mVoice->Start(0);
 }
 
 #endif

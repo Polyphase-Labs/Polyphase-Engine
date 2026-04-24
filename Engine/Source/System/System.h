@@ -42,18 +42,19 @@ std::string SYS_SaveFileDialog();
 std::string SYS_SelectFolderDialog();
 std::string SYS_GetFileName(const std::string& path);
 
-// Threading
-ThreadObject* SYS_CreateThread(ThreadFuncFP func, void* arg);
-void SYS_JoinThread(ThreadObject* thread);
-void SYS_DestroyThread(ThreadObject* thread);
-MutexObject* SYS_CreateMutex();
-void SYS_LockMutex(MutexObject* mutex);
-void SYS_UnlockMutex(MutexObject* mutex);
-void SYS_DestroyMutex(MutexObject* mutex);
-void SYS_Sleep(uint32_t milliseconds);
+// Threading — exported so native addons can use them without relinking the engine's
+// implementation. See AsyncMediaPump in the VideoPlayer addon for a reference consumer.
+POLYPHASE_API ThreadObject* SYS_CreateThread(ThreadFuncFP func, void* arg);
+POLYPHASE_API void SYS_JoinThread(ThreadObject* thread);
+POLYPHASE_API void SYS_DestroyThread(ThreadObject* thread);
+POLYPHASE_API MutexObject* SYS_CreateMutex();
+POLYPHASE_API void SYS_LockMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_UnlockMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_DestroyMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_Sleep(uint32_t milliseconds);
 
 // Time
-uint64_t SYS_GetTimeMicroseconds();
+POLYPHASE_API uint64_t SYS_GetTimeMicroseconds();
 
 // Process
 void SYS_Exec(const char* cmd, std::string* output = nullptr);
