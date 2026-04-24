@@ -15,7 +15,48 @@ void* MOD_Load(const char* path)
 {
     sLastError.clear();
 
-    HMODULE module = LoadLibraryA(path);
+    // Native addons may ship third-party DLLs (e.g. FFmpeg) alongside their own DLL. For
+    // LoadLibrary to find those as transitive imports we add the addon DLL's directory
+    // to the dynamic search set and use the *USER_DIRS* flag so Windows searches
+    // AddDllDirectory-registered paths when resolving imports.
+    //
+    // LOAD_WITH_ALTERED_SEARCH_PATH alone is insufficient — it covers the *first-level*
+    // import resolution when loading an absolute-path DLL, but transitive imports (e.g.
+    // avcodec-62.dll -> swresample-6.dll) fall back to the standard search order, which
+    // does NOT include the addon's own directory.
+
+    // Extract the directory containing the DLL.
+    std::string dllPath(path);
+    std::string dllDir;
+    size_t lastSlash = dllPath.find_last_of("/\\");
+    if (lastSlash != std::string::npos)
+    {
+        dllDir = dllPath.substr(0, lastSlash);
+    }
+
+    // AddDllDirectory takes a wide string. Convert from UTF-8/ANSI.
+    DLL_DIRECTORY_COOKIE cookie = nullptr;
+    if (!dllDir.empty())
+    {
+        int wlen = MultiByteToWideChar(CP_ACP, 0, dllDir.c_str(), -1, nullptr, 0);
+        if (wlen > 0)
+        {
+            std::wstring wdir(wlen, L'\0');
+            MultiByteToWideChar(CP_ACP, 0, dllDir.c_str(), -1, &wdir[0], wlen);
+            // Trim the trailing null that the wide buffer includes.
+            if (!wdir.empty() && wdir.back() == L'\0') wdir.pop_back();
+            cookie = AddDllDirectory(wdir.c_str());
+        }
+    }
+
+    DWORD flags = LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_USER_DIRS;
+    HMODULE module = LoadLibraryExA(path, nullptr, flags);
+    if (module == nullptr)
+    {
+        // Fall back to the older semantics in case the newer flags aren't honored (pre-Win8).
+        module = LoadLibraryExA(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    }
+
     if (module == nullptr)
     {
         DWORD error = GetLastError();
@@ -30,8 +71,13 @@ void* MOD_Load(const char* path)
             nullptr
         );
         sLastError = buffer;
-        LogError("MOD_Load failed for '%s': %s", path, sLastError.c_str());
+        LogError("MOD_Load failed for '%s' (err %lu): %s", path, (unsigned long)error, sLastError.c_str());
     }
+
+    // Keep the added directory registered for the lifetime of the module so subsequent
+    // delay-loaded imports also resolve. We accept the minor leak because the cookie
+    // would otherwise be lost; addons never unload in the editor workflow.
+    (void)cookie;
 
     return static_cast<void*>(module);
 }

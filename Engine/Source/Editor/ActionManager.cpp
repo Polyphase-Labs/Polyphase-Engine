@@ -2839,12 +2839,14 @@ void ActionManager::OpenProject(const char* path)
 
         // Check if project needs upgrade to new UUID format
         CheckProjectNeedsUpgrade();
-        NativeAddonManager* nam = NativeAddonManager::Get();
-        if (nam != nullptr)
-        {
-            nam->ReloadAllNativeAddons();
-            LogDebug("Native addons reloaded.");
-        }
+        // Note: native addons are loaded inside LoadProject() before asset discovery so that
+        // addon-provided node types (registered via DEFINE_NODE static initializers) are
+        // available when scenes deserialize. Calling ReloadAllNativeAddons again here would
+        // re-enter LoadLibrary on the addon DLL, which re-runs its static initializers -
+        // those hit a duplicate-class-name assert in Node::RegisterFactory because
+        // UnloadNativeAddon doesn't currently remove the DLL's factory pointers from the
+        // global factory list. Proper fix belongs in UnloadNativeAddon (strip addon factories
+        // before FreeLibrary) but is out of scope here.
 
         // Fire OnProjectOpen hook
         EditorUIHookManager* hookMgr = EditorUIHookManager::Get();

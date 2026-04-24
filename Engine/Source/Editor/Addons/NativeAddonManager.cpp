@@ -12,6 +12,16 @@
 #include "Engine/Clock.h"
 #include "Engine/Nodes/Node.h"
 #include "Engine/Nodes/3D/Node3d.h"
+#include "Engine/Asset.h"
+#include "Engine/NodeGraph/GraphNode.h"
+#include "Engine/Timeline/TimelineClip.h"
+#include "Engine/Timeline/TimelineTrack.h"
+
+#if PLATFORM_WINDOWS
+#include <Windows.h>
+#include <Psapi.h>
+#pragma comment(lib, "Psapi.lib")
+#endif
 #include "Engine/Gizmos.h"
 #include "Engine/Assets/TinyLLMAsset.h"
 #include "Input/Input.h"
@@ -866,6 +876,28 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         }
     }
 
+    // Optional build extras: third-party includes, lib dirs, libs, defines, binary copies.
+    // Enables addons to link additional libraries (e.g. FFmpeg) by dropping them alongside
+    // the addon source, without touching the engine.
+    auto readStringArray = [&](const char* key, std::vector<std::string>& out) {
+        if (native.HasMember(key) && native[key].IsArray())
+        {
+            const rapidjson::Value& arr = native[key];
+            for (rapidjson::SizeType i = 0; i < arr.Size(); ++i)
+            {
+                if (arr[i].IsString())
+                {
+                    out.push_back(arr[i].GetString());
+                }
+            }
+        }
+    };
+    readStringArray("extraDefines",     outMetadata.mExtraDefines);
+    readStringArray("extraIncludeDirs", outMetadata.mExtraIncludeDirs);
+    readStringArray("extraLibDirs",     outMetadata.mExtraLibDirs);
+    readStringArray("extraLibs",        outMetadata.mExtraLibs);
+    readStringArray("copyBinaries",     outMetadata.mCopyBinaries);
+
     return true;
 }
 
@@ -920,6 +952,20 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         if (stream.ReadFile(file.c_str(), false))
         {
             hash = hash * 31 + stream.GetSize();
+        }
+    }
+
+    // Also hash package.json so edits to native.extraDefines/extraIncludeDirs/extraLibs/etc.
+    // invalidate the cached build and regenerate build.bat on next reload.
+    std::string packageJsonPath = state.mSourcePath + "package.json";
+    Stream pkgStream;
+    if (pkgStream.ReadFile(packageJsonPath.c_str(), false))
+    {
+        const char* data = pkgStream.GetData();
+        uint32_t size = pkgStream.GetSize();
+        for (uint32_t i = 0; i < size; ++i)
+        {
+            hash = hash * 31 + uint8_t(data[i]);
         }
     }
 
@@ -1145,6 +1191,12 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "/D" << define << " ";
     }
 
+    // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1)
+    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
+    {
+        ss << "/D" << define << " ";
+    }
+
     // Add export macro for this plugin
     std::string exportMacro = state.mNativeMetadata.mExportDefine.empty()
         ? GenerateExportMacroName(state.mAddonId)
@@ -1162,6 +1214,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
         ss << "/I\"" << packagesDir << depId << "/Source/\" ";
+    }
+
+    // Extra include directories from the addon's package.json, resolved relative to the
+    // addon's package root (e.g. "External/ffmpeg/include")
+    for (const std::string& inc : state.mNativeMetadata.mExtraIncludeDirs)
+    {
+        ss << "/I\"" << state.mSourcePath << inc << "/\" ";
     }
 
     // Add Vulkan SDK include path
@@ -1206,11 +1265,25 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Debug/\" ";
         ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Release/\" ";
     }
+
+    // Extra lib directories from the addon's package.json, resolved relative to the addon root
+    for (const std::string& libDir : state.mNativeMetadata.mExtraLibDirs)
+    {
+        ss << "/LIBPATH:\"" << state.mSourcePath << libDir << "/\" ";
+    }
+
     ss << "Polyphase.lib Lua.lib ";
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
         ss << GenerateLibraryName(depId) << ".lib ";
     }
+
+    // Extra libs from the addon's package.json
+    for (const std::string& lib : state.mNativeMetadata.mExtraLibs)
+    {
+        ss << lib << " ";
+    }
+
     ss << "\n";
     ss << "\n";
     ss << "if %ERRORLEVEL% neq 0 (\n";
@@ -1218,6 +1291,28 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "  exit /b 1\n";
     ss << ")\n";
     ss << "\n";
+
+    // Post-build: copy any binary directories (e.g. FFmpeg DLLs) next to the addon DLL so
+    // dynamic dependencies resolve at load time.
+    if (!state.mNativeMetadata.mCopyBinaries.empty())
+    {
+        // Derive the output directory from outputPath (strip the trailing filename).
+        std::string outDir = outputPath;
+        size_t lastSlash = outDir.find_last_of("/\\");
+        if (lastSlash != std::string::npos)
+        {
+            outDir = outDir.substr(0, lastSlash + 1);
+        }
+
+        for (const std::string& binDir : state.mNativeMetadata.mCopyBinaries)
+        {
+            std::string src = state.mSourcePath + binDir;
+            // xcopy flags: /Y overwrite, /E recurse including empty dirs, /I treat dest as dir, /D only-newer
+            ss << "xcopy /Y /E /I /D \"" << src << "\" \"" << outDir << "\" >nul\n";
+        }
+        ss << "\n";
+    }
+
     ss << "echo Build succeeded\n";
 
     std::string content = ss.str();
@@ -1547,6 +1642,61 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     return true;
 }
 
+namespace
+{
+#if PLATFORM_WINDOWS
+    // Strip factories whose object address falls inside the given DLL module's memory image.
+    // Called before FreeLibrary so the engine's factory lists don't hold dangling pointers
+    // (which would otherwise trip the duplicate-class-name assert on addon reload).
+    void StripFactoriesFromModule(void* moduleHandle)
+    {
+        if (moduleHandle == nullptr) return;
+
+        MODULEINFO info = {};
+        if (!GetModuleInformation(GetCurrentProcess(), (HMODULE)moduleHandle, &info, sizeof(info)))
+        {
+            LogWarning("StripFactoriesFromModule: GetModuleInformation failed");
+            return;
+        }
+
+        const uintptr_t base = (uintptr_t)info.lpBaseOfDll;
+        const uintptr_t end  = base + info.SizeOfImage;
+
+        auto strip = [&](std::vector<Factory*>& list, const char* label) {
+            size_t removed = 0;
+            for (auto it = list.begin(); it != list.end(); )
+            {
+                uintptr_t p = (uintptr_t)(*it);
+                if (p >= base && p < end)
+                {
+                    it = list.erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            if (removed > 0)
+            {
+                LogDebug("  stripped %zu %s factories belonging to unloaded module", removed, label);
+            }
+        };
+
+        strip(Node::GetFactoryList(),          "Node");
+        strip(Asset::GetFactoryList(),         "Asset");
+        strip(GraphNode::GetFactoryList(),     "GraphNode");
+        strip(TimelineClip::GetFactoryList(),  "TimelineClip");
+        strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
+    }
+#else
+    void StripFactoriesFromModule(void* /*moduleHandle*/)
+    {
+        // TODO: implement for Linux using dladdr + Dl_info on each factory pointer.
+    }
+#endif
+}
+
 bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
 {
     auto it = mStates.find(addonId);
@@ -1569,6 +1719,12 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     {
         state.mDesc.OnUnload();
     }
+
+    // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE
+    // FreeLibrary. Otherwise the lists hold dangling pointers and the next load of the
+    // addon hits a duplicate-class-name assert in Node::RegisterFactory when the DLL's
+    // static initializer re-registers the same class names.
+    StripFactoriesFromModule(state.mModuleHandle);
 
     // Unload module
     MOD_Unload(state.mModuleHandle);

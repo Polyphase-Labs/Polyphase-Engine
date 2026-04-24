@@ -9,6 +9,10 @@
 #include "Script.h"
 #if EDITOR
 #include "LuaDebugger/LuaDebugger.h"
+
+#if EDITOR
+#include "Editor/Addons/NativeAddonManager.h"
+#endif
 #endif
 #include "Assets/Scene.h"
 #include "Assets/Timeline.h"
@@ -1030,6 +1034,21 @@ void LoadProject(const std::string& path, bool discoverAssets)
 
     std::string configPath = sEngineState.mProjectDirectory + "Config.ini";
     ReadEngineConfig(configPath);
+
+#if EDITOR
+    // Load native addons BEFORE discovering assets. Addon DLLs register custom node types
+    // via DEFINE_NODE's static initializers; if scenes deserialize first, those node types
+    // are unknown and get replaced with their nearest registered parent class (e.g.
+    // VideoPlayer3D -> Node3D), silently corrupting the scene's type layout.
+    if (!IsHeadless())
+    {
+        NativeAddonManager* nam = NativeAddonManager::Get();
+        if (nam != nullptr)
+        {
+            nam->ReloadAllNativeAddons();
+        }
+    }
+#endif
 
     if (discoverAssets &&
         sEngineState.mProjectName != "")
