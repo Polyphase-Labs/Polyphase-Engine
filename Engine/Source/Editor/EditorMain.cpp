@@ -294,7 +294,10 @@ void EditorMain(int32_t argc, char** argv)
 
     GitService::Destroy();
     AutoUpdater::Destroy();
-    NativeAddonManager::Destroy();
+    // NOTE: NativeAddonManager::Destroy() is intentionally deferred until AFTER Shutdown().
+    // Shutdown destroys every world and recursively destroys their nodes. If addon DLLs
+    // are freed first, any scene node whose type came from an addon (e.g. VideoPlayer3D)
+    // has a dangling vtable pointer into unmapped memory; the destructor call crashes.
     EditorUIHookManager::Destroy();
     AddonManager::Destroy();
     TemplateManager::Destroy();
@@ -305,6 +308,9 @@ void EditorMain(int32_t argc, char** argv)
     InputMap::Destroy();
     GetEditorState()->Shutdown();
     Shutdown();
+    // Now that all worlds/nodes are destroyed and the Lua state is closed, it's safe to
+    // FreeLibrary the addon DLLs.
+    NativeAddonManager::Destroy();
 }
 
 #endif
