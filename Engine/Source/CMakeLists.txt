@@ -4,6 +4,7 @@ if(PLATFORM_NAME MATCHES "Linux")
     find_package(PkgConfig)
     pkg_check_modules(PKG_CONFIG_DEPS REQUIRED IMPORTED_TARGET
         alsa
+        libpulse
         ogg
         vorbis
         vorbisenc

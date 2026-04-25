@@ -77,7 +77,8 @@
       "Bash(git -C \"M:/Projects/Polyphase/Addons/VideoPlayer/videoplayer\" checkout -- \"Saves/EditorProject.sav\")",
       "PowerShell(Get-Process *)",
       "Read(//m/Projects/Polyphase/Addons/VideoPlayer/videoplayer/**)",
-      "Read(//m/Projects/Polyphase/Addons/**)"
+      "Read(//m/Projects/Polyphase/Addons/**)",
+      "Bash(nm -D --defined-only /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Build/Linux/PolyphaseEditor.elf)"
     ]
   }
 }

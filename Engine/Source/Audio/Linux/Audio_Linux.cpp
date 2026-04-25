@@ -100,8 +100,12 @@ void AUD_Initialize()
     LogDebug("PCM state: %s", snd_pcm_state_name(snd_pcm_state(sSoundDevice)));
 }
 
+void AUD_StreamingShutdown();
+
 void AUD_Shutdown()
 {
+    AUD_StreamingShutdown();
+
     delete [] sMixBuffer;
     sMixBuffer = nullptr;
 
@@ -314,15 +318,398 @@ void AUD_ProcessWaveBuffer(SoundWave* soundWave)
 
 }
 
-// Streaming voices — not yet implemented on Linux. The Linux mixer (AUD_Update) is itself a
-// stub today; full streaming audio on ALSA is a separate follow-up. Returning 0 from
-// AUD_OpenStream tells callers (e.g. the VideoPlayer addon) to fall back to video-only mode.
-uint32_t AUD_OpenStream(uint32_t, uint32_t, uint32_t) { return 0; }
-void     AUD_CloseStream(uint32_t) {}
-int32_t  AUD_SubmitStreamBuffer(uint32_t, const uint8_t*, uint32_t) { return 0; }
-uint64_t AUD_GetStreamPlayedSamples(uint32_t) { return 0; }
-void     AUD_SetStreamVolume(uint32_t, float) {}
-void     AUD_SetStreamPaused(uint32_t, bool) {}
-void     AUD_FlushStream(uint32_t) {}
+// ============================================================================
+// Streaming voices — PulseAudio async-API backend.
+// ============================================================================
+// Mirrors the Windows XAudio2 implementation in Audio_Windows.cpp: fixed pool
+// of voices, 1-based stream id (0 = sentinel), graceful fallback to "no voice
+// available" when PulseAudio is missing (e.g. headless container). The ALSA
+// mixer above is independent of this code path.
+
+#include <pulse/pulseaudio.h>
+#include <atomic>
+
+static constexpr uint32_t kMaxStreamingVoices = 4;
+
+struct StreamingVoiceEntry
+{
+    pa_stream*            mStream = nullptr;
+    uint32_t              mSampleRate = 0;
+    uint32_t              mNumChannels = 0;
+    uint32_t              mBitsPerSample = 0;
+    bool                  mInUse = false;
+    bool                  mPaused = false;
+    std::atomic<uint64_t> mSamplesSubmitted { 0 };
+};
+
+static StreamingVoiceEntry sStreamingVoices[kMaxStreamingVoices];
+
+static pa_threaded_mainloop* sPaMainloop   = nullptr;
+static pa_context*           sPaContext    = nullptr;
+static bool                  sPaInitFailed = false;
+
+static void PaContextStateCb(pa_context* /*c*/, void* userdata)
+{
+    pa_threaded_mainloop_signal(static_cast<pa_threaded_mainloop*>(userdata), 0);
+}
+
+static void PaStreamStateCb(pa_stream* /*s*/, void* userdata)
+{
+    pa_threaded_mainloop_signal(static_cast<pa_threaded_mainloop*>(userdata), 0);
+}
+
+static bool EnsurePulseInitialized()
+{
+    if (sPaContext != nullptr) return true;
+    if (sPaInitFailed) return false;
+
+    sPaMainloop = pa_threaded_mainloop_new();
+    if (sPaMainloop == nullptr)
+    {
+        LogWarning("PulseAudio: pa_threaded_mainloop_new failed");
+        sPaInitFailed = true;
+        return false;
+    }
+    if (pa_threaded_mainloop_start(sPaMainloop) != 0)
+    {
+        LogWarning("PulseAudio: pa_threaded_mainloop_start failed");
+        pa_threaded_mainloop_free(sPaMainloop);
+        sPaMainloop = nullptr;
+        sPaInitFailed = true;
+        return false;
+    }
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    sPaContext = pa_context_new(pa_threaded_mainloop_get_api(sPaMainloop), "Polyphase");
+    if (sPaContext == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        pa_threaded_mainloop_stop(sPaMainloop);
+        pa_threaded_mainloop_free(sPaMainloop);
+        sPaMainloop = nullptr;
+        sPaInitFailed = true;
+        LogWarning("PulseAudio: pa_context_new failed");
+        return false;
+    }
+
+    pa_context_set_state_callback(sPaContext, PaContextStateCb, sPaMainloop);
+    if (pa_context_connect(sPaContext, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0)
+    {
+        LogWarning("PulseAudio: pa_context_connect failed (%s)",
+                   pa_strerror(pa_context_errno(sPaContext)));
+        pa_context_unref(sPaContext);
+        sPaContext = nullptr;
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        pa_threaded_mainloop_stop(sPaMainloop);
+        pa_threaded_mainloop_free(sPaMainloop);
+        sPaMainloop = nullptr;
+        sPaInitFailed = true;
+        return false;
+    }
+
+    bool ready = false;
+    while (true)
+    {
+        pa_context_state_t st = pa_context_get_state(sPaContext);
+        if (st == PA_CONTEXT_READY) { ready = true; break; }
+        if (st == PA_CONTEXT_FAILED || st == PA_CONTEXT_TERMINATED) break;
+        pa_threaded_mainloop_wait(sPaMainloop);
+    }
+
+    if (!ready)
+    {
+        LogWarning("PulseAudio: context never reached READY (%s)",
+                   pa_strerror(pa_context_errno(sPaContext)));
+        pa_context_disconnect(sPaContext);
+        pa_context_unref(sPaContext);
+        sPaContext = nullptr;
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        pa_threaded_mainloop_stop(sPaMainloop);
+        pa_threaded_mainloop_free(sPaMainloop);
+        sPaMainloop = nullptr;
+        sPaInitFailed = true;
+        return false;
+    }
+
+    pa_threaded_mainloop_unlock(sPaMainloop);
+    LogDebug("PulseAudio: streaming context ready");
+    return true;
+}
+
+void AUD_StreamingShutdown()
+{
+    if (sPaMainloop == nullptr) return;
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        if (sStreamingVoices[i].mInUse && sStreamingVoices[i].mStream != nullptr)
+        {
+            pa_stream_disconnect(sStreamingVoices[i].mStream);
+            pa_stream_unref(sStreamingVoices[i].mStream);
+            sStreamingVoices[i].mStream = nullptr;
+            sStreamingVoices[i].mInUse  = false;
+        }
+    }
+    if (sPaContext != nullptr)
+    {
+        pa_context_disconnect(sPaContext);
+        pa_context_unref(sPaContext);
+        sPaContext = nullptr;
+    }
+    pa_threaded_mainloop_unlock(sPaMainloop);
+    pa_threaded_mainloop_stop(sPaMainloop);
+    pa_threaded_mainloop_free(sPaMainloop);
+    sPaMainloop = nullptr;
+}
+
+uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    if (numChannels != 1 && numChannels != 2)
+    {
+        LogWarning("AUD_OpenStream: only mono/stereo supported (got %u channels)", numChannels);
+        return 0;
+    }
+    if (bitsPerSample != 16)
+    {
+        LogWarning("AUD_OpenStream: only 16-bit PCM supported (got %u bps)", bitsPerSample);
+        return 0;
+    }
+    if (!EnsurePulseInitialized()) return 0;
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+
+    int slot = -1;
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        if (!sStreamingVoices[i].mInUse) { slot = (int)i; break; }
+    }
+    if (slot < 0)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        LogWarning("AUD_OpenStream: no free streaming voices (pool size %u)", kMaxStreamingVoices);
+        return 0;
+    }
+
+    StreamingVoiceEntry& entry = sStreamingVoices[slot];
+
+    pa_sample_spec spec = {};
+    spec.format   = PA_SAMPLE_S16LE;
+    spec.rate     = sampleRate;
+    spec.channels = (uint8_t)numChannels;
+
+    entry.mStream = pa_stream_new(sPaContext, "Polyphase Stream", &spec, nullptr);
+    if (entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        LogError("AUD_OpenStream: pa_stream_new failed (%s)",
+                 pa_strerror(pa_context_errno(sPaContext)));
+        return 0;
+    }
+
+    pa_stream_set_state_callback(entry.mStream, PaStreamStateCb, sPaMainloop);
+
+    if (pa_stream_connect_playback(entry.mStream, nullptr, nullptr,
+                                   PA_STREAM_NOFLAGS, nullptr, nullptr) < 0)
+    {
+        LogError("AUD_OpenStream: pa_stream_connect_playback failed (%s)",
+                 pa_strerror(pa_context_errno(sPaContext)));
+        pa_stream_unref(entry.mStream);
+        entry.mStream = nullptr;
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    bool ready = false;
+    while (true)
+    {
+        pa_stream_state_t st = pa_stream_get_state(entry.mStream);
+        if (st == PA_STREAM_READY) { ready = true; break; }
+        if (st == PA_STREAM_FAILED || st == PA_STREAM_TERMINATED) break;
+        pa_threaded_mainloop_wait(sPaMainloop);
+    }
+
+    if (!ready)
+    {
+        LogError("AUD_OpenStream: stream never reached READY");
+        pa_stream_disconnect(entry.mStream);
+        pa_stream_unref(entry.mStream);
+        entry.mStream = nullptr;
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    entry.mSampleRate    = sampleRate;
+    entry.mNumChannels   = numChannels;
+    entry.mBitsPerSample = bitsPerSample;
+    entry.mInUse         = true;
+    entry.mPaused        = false;
+    entry.mSamplesSubmitted.store(0);
+
+    pa_threaded_mainloop_unlock(sPaMainloop);
+    return (uint32_t)slot + 1;
+}
+
+void AUD_CloseStream(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    if (sPaMainloop == nullptr) return;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return;
+    }
+    if (entry.mStream != nullptr)
+    {
+        pa_stream_disconnect(entry.mStream);
+        pa_stream_unref(entry.mStream);
+        entry.mStream = nullptr;
+    }
+    entry.mInUse         = false;
+    entry.mPaused        = false;
+    entry.mSampleRate    = 0;
+    entry.mNumChannels   = 0;
+    entry.mBitsPerSample = 0;
+    entry.mSamplesSubmitted.store(0);
+    pa_threaded_mainloop_unlock(sPaMainloop);
+}
+
+int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
+    if (sPaMainloop == nullptr) return 0;
+    if (data == nullptr || byteSize == 0) return 0;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse || entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    size_t writable = pa_stream_writable_size(entry.mStream);
+    if (writable == 0 || writable == (size_t)-1)
+    {
+        // Soft backpressure (matches Windows: caller retries on next tick).
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    size_t toWrite = (writable < (size_t)byteSize) ? writable : (size_t)byteSize;
+    if (pa_stream_write(entry.mStream, data, toWrite, nullptr, 0, PA_SEEK_RELATIVE) < 0)
+    {
+        LogWarning("AUD_SubmitStreamBuffer: pa_stream_write failed (%s)",
+                   pa_strerror(pa_context_errno(sPaContext)));
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    const uint32_t bytesPerFrame = entry.mNumChannels * (entry.mBitsPerSample / 8);
+    if (bytesPerFrame > 0)
+    {
+        entry.mSamplesSubmitted.fetch_add(toWrite / bytesPerFrame);
+    }
+
+    pa_threaded_mainloop_unlock(sPaMainloop);
+    return (int32_t)toWrite;
+}
+
+uint64_t AUD_GetStreamPlayedSamples(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return 0;
+    if (sPaMainloop == nullptr) return 0;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse || entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return 0;
+    }
+
+    pa_usec_t usec = 0;
+    int rv = pa_stream_get_time(entry.mStream, &usec);
+    uint32_t rate = entry.mSampleRate;
+    uint64_t fallback = entry.mSamplesSubmitted.load();
+    pa_threaded_mainloop_unlock(sPaMainloop);
+
+    if (rv == 0 && rate > 0)
+    {
+        return ((uint64_t)usec * rate) / 1000000ULL;
+    }
+    // pa_stream_get_time returns -PA_ERR_NODATA before the first sample plays;
+    // fall back to submitted-sample count so the addon's audio-as-master clock
+    // degrades to wall-clock timing rather than wedging at 0.
+    return fallback;
+}
+
+void AUD_SetStreamVolume(uint32_t streamId, float volume)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    if (sPaMainloop == nullptr) return;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse || entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return;
+    }
+
+    pa_cvolume cv;
+    pa_cvolume_set(&cv, entry.mNumChannels, pa_sw_volume_from_linear(volume));
+    uint32_t idx = pa_stream_get_index(entry.mStream);
+    pa_operation* op = pa_context_set_sink_input_volume(sPaContext, idx, &cv, nullptr, nullptr);
+    if (op != nullptr) pa_operation_unref(op);
+    pa_threaded_mainloop_unlock(sPaMainloop);
+}
+
+void AUD_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    if (sPaMainloop == nullptr) return;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse || entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return;
+    }
+    if (paused != entry.mPaused)
+    {
+        pa_operation* op = pa_stream_cork(entry.mStream, paused ? 1 : 0, nullptr, nullptr);
+        if (op != nullptr) pa_operation_unref(op);
+        entry.mPaused = paused;
+    }
+    pa_threaded_mainloop_unlock(sPaMainloop);
+}
+
+void AUD_FlushStream(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    if (sPaMainloop == nullptr) return;
+
+    StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
+
+    pa_threaded_mainloop_lock(sPaMainloop);
+    if (!entry.mInUse || entry.mStream == nullptr)
+    {
+        pa_threaded_mainloop_unlock(sPaMainloop);
+        return;
+    }
+    pa_operation* op = pa_stream_flush(entry.mStream, nullptr, nullptr);
+    if (op != nullptr) pa_operation_unref(op);
+    pa_threaded_mainloop_unlock(sPaMainloop);
+}
 
 #endif

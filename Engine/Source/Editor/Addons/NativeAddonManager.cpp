@@ -1368,14 +1368,41 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // Generate a shell script for Linux
     outScriptPath = outputDir + "build.sh";
 
+    // FFmpeg via pkg-config when the addon opts in. The package.json's
+    // extraIncludeDirs/extraLibs entries describe the Windows External/ffmpeg
+    // layout, which doesn't exist on Linux — so on Linux we resolve FFmpeg
+    // through the system instead. The marker is the conventional
+    // POLYPHASE_WITH_FFMPEG define already used by the FFmpeg-bundling addon.
+    bool wantsFFmpeg = false;
+    for (const std::string& d : state.mNativeMetadata.mExtraDefines)
+    {
+        if (d.rfind("POLYPHASE_WITH_FFMPEG", 0) == 0)
+        {
+            wantsFFmpeg = true;
+            break;
+        }
+    }
+
     std::stringstream ss;
     ss << "#!/bin/bash\n";
     ss << "set -e\n";
     ss << "\n";
+    if (wantsFFmpeg)
+    {
+        ss << "FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libswresample)\n";
+        ss << "FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libswresample)\n";
+        ss << "\n";
+    }
     ss << "g++ -shared -fPIC -O2 \\\n";
 
     // Add defines from manifest
     for (const std::string& define : defines)
+    {
+        ss << "  -D" << define << " \\\n";
+    }
+
+    // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1).
+    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
     {
         ss << "  -D" << define << " \\\n";
     }
@@ -1393,6 +1420,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
     ss << "  -I\"" << sourceDir << "\" \\\n";
 
+    // Extra include dirs from the addon's package.json (resolved relative to the addon root).
+    // Missing dirs are harmless — g++ ignores them with a warning.
+    for (const std::string& incDir : state.mNativeMetadata.mExtraIncludeDirs)
+    {
+        ss << "  -I\"" << state.mSourcePath << incDir << "/\" \\\n";
+    }
+
     // Add dependency addon Source directories (packagesDir already computed above for Windows)
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
@@ -1401,6 +1435,11 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     // Add Vulkan SDK include path
     ss << "  -I\"$VULKAN_SDK/include\" \\\n";
+
+    if (wantsFFmpeg)
+    {
+        ss << "  $FFMPEG_CFLAGS \\\n";
+    }
 
     // Add source files
     for (const std::string& src : sourceFiles)
@@ -1411,7 +1450,10 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         }
     }
 
-    // Link against Lua library
+    // Lua symbols come from the editor executable on Linux: the engine's Linux build
+    // compiles External/Lua directly into libEngineEditor.a, and the editor links with
+    // -rdynamic, so dlopened addons resolve lua_* via --unresolved-symbols below.
+    // (Windows ships a separate Lua.lib; Linux does not.)
     std::string luaLibPathLinux;
     std::vector<std::string> luaConfigsLinux = {"DebugEditor", "ReleaseEditor", "Debug", "Release"};
     for (const std::string& config : luaConfigsLinux)
@@ -1423,15 +1465,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
             break;
         }
     }
-
     if (!luaLibPathLinux.empty())
     {
         ss << "  \"" << luaLibPathLinux << "\" \\\n";
-    }
-    else
-    {
-        // Try system Lua as fallback
-        ss << "  -llua \\\n";
     }
 
     // Link against dependency shared libraries
@@ -1442,8 +1478,17 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "  -l" << depLibName << " \\\n";
     }
 
-    // Allow unresolved symbols - ImGui symbols will be resolved at runtime from the editor executable
-    ss << "  -Wl,--unresolved-symbols=ignore-in-shared-libs \\\n";
+    if (wantsFFmpeg)
+    {
+        ss << "  $FFMPEG_LIBS \\\n";
+    }
+
+    // Engine symbols (Node3D, lua_*, Bullet inlines instantiated via templates, ImGui, etc.)
+    // live in the editor executable, not in any .so the addon links against. The
+    // executable is built with -rdynamic so dlopen resolves them at load time.
+    // Note: --unresolved-symbols=ignore-in-shared-libs is NOT enough — it only suppresses
+    // errors from .so deps, not from the .so we're producing. Use ignore-all here.
+    ss << "  -Wl,--unresolved-symbols=ignore-all \\\n";
     ss << "  -o \"" << outputPath << "\"\n";
     ss << "\n";
     ss << "echo \"Build succeeded\"\n";
