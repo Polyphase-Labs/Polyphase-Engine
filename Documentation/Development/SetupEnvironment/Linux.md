@@ -6,14 +6,24 @@
 
 ### For Debian/Ubuntu based distros:
 
-`sudo apt install g++ make libx11-dev libasound2-dev libcurl4 cmake`
+`sudo apt install g++ make libx11-dev libasound2-dev libpulse-dev libcurl4 cmake pkg-config`
+
+For the VideoPlayer addon (FFmpeg-backed video playback):
+
+`sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev`
 
 ### For Arch-based distributions:
 
-`sudo pacman -S gcc make libx11 alsa-lib curl cmake`
+`sudo pacman -S gcc make libx11 alsa-lib libpulse curl cmake pkgconf`
+
+For the VideoPlayer addon (FFmpeg-backed video playback):
+
+`sudo pacman -S ffmpeg`
 
 Note: arch users may get a dependency error when attempting to install `alsa-lib`, in this case try to install `lib32-alsa-lib`.
 Note: libcurl4/curl is optional but required for the auto-update feature in the editor.
+Note: `libpulse`/`libpulse-dev` is required for streaming audio (used by the engine's `AUD_*Stream*` API and the VideoPlayer addon). Without it, video plays silently.
+Note: FFmpeg dev packages are only required if you build a project that uses the VideoPlayer addon. The engine itself does not depend on them.
 
 ### Installing Dependencies
 

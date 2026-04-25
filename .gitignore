@@ -14,6 +14,7 @@ Packaged/
 AssetRegistry.txt
 */Generated/EmbeddedAssets.*
 */Generated/EmbeddedScripts.*
+*/Generated/AddonPlugins.cpp
 *.a
 *.so
 *.dol

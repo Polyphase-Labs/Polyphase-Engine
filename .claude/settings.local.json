@@ -78,7 +78,16 @@
       "PowerShell(Get-Process *)",
       "Read(//m/Projects/Polyphase/Addons/VideoPlayer/videoplayer/**)",
       "Read(//m/Projects/Polyphase/Addons/**)",
-      "Bash(nm -D --defined-only /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Build/Linux/PolyphaseEditor.elf)"
+      "Bash(nm -D --defined-only /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Build/Linux/PolyphaseEditor.elf)",
+      "Read(//home/uai/Projects/Polyphase/Examples/VideoPlayer-Polyphase-Demo/**)",
+      "Bash(nm -C /home/uai/Projects/Polyphase/Examples/VideoPlayer-Polyphase-Demo/Packaged/Linux/VideoPlayer-Polyphase-Demo.elf)",
+      "Bash(objdump -p /home/uai/Projects/Polyphase/Examples/VideoPlayer-Polyphase-Demo/Packaged/Linux/VideoPlayer-Polyphase-Demo.elf)",
+      "Bash(cp /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Makefile_Linux_Game /tmp/Makefile_TEST)",
+      "Bash(python3 -c ' *)",
+      "Bash(nm -C /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Intermediate/Linux/Game/FFmpegVideoDecoder.o)",
+      "Bash(nm -C /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Intermediate/Linux/Game/VideoDecoderFactory.o)",
+      "Bash(xxd /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Makefile_Linux_Game)",
+      "Bash(make -f Makefile_Linux_Editor)"
     ]
   }
 }

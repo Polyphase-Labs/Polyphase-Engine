@@ -70,7 +70,7 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngineEditor -lvulkan -lxcb -lasound -lAssimp -lBullet -lpthread -lm
+LIBS	:=	-lEngineEditor -lvulkan -lxcb -lasound -lpulse -lAssimp -lBullet -lpthread -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -139,7 +139,7 @@ MakeEngine:
 
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
-	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_Linux_Editor
+	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 #---------------------------------------------------------------------------------
 clean:
