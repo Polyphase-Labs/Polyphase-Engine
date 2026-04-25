@@ -351,3 +351,4 @@ Polyphase.exp
 Polyphase.lib
 *.orig
 /Standalone/Standalone.vcxproj.orig
+/Standalone/Polyphase.ico.bak
