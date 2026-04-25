@@ -1486,7 +1486,13 @@ void ActionManager::BuildPhase1()
 
     if (standalone)
     {
-        SYS_CopyDirectory((projectDir + "Generated").c_str(), "Standalone");
+        // Copy the project's Generated/ contents into the engine's Standalone/Generated/
+        // — that's what Standalone.vcxproj's <ClCompile Include="Generated\..."> entries
+        // resolve to. Earlier this used "Standalone" (root), which flattened the files
+        // and left the .vcxproj's `Generated\EmbeddedAssets.cpp` pointing at stale
+        // output from a previous packaging run.
+        SYS_CopyDirectory((projectDir + "Generated").c_str(),
+                          (polyphaseDirectory + "Standalone/Generated").c_str());
     }
 
     // Copy .octp and Config.ini.
@@ -5483,7 +5489,11 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
         fprintf(headerFile, "extern uint32_t gNumEmbeddedRawAssets;\n");
         fprintf(headerFile, "extern EmbeddedFile gEmbeddedRawAssets[];\n\n");
         fprintf(headerFile, "extern const char gEmbeddedConfig_Data[];\n\n");
-        fprintf(headerFile, "extern uint32_t gEmbeddedConfig_Size;\n\n");
+        // Match the const-ness of the source-side definition at line ~5615
+        // (`extern const uint32_t gEmbeddedConfig_Size = ...`). C++ links
+        // `extern T` and `extern const T` as different symbols, so a const/non-const
+        // mismatch here produced an LNK2001 in shipped builds.
+        fprintf(headerFile, "extern const uint32_t gEmbeddedConfig_Size;\n\n");
 
         fprintf(sourceFile, "#include <stdint.h>\n");
         fprintf(sourceFile, "#include \"EmbeddedFile.h\"\n\n");

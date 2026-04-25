@@ -743,6 +743,11 @@ void NativeAddonManager::DiscoverNativeAddons()
     }
     mStates.clear();
 
+    if (AddonManager* addonMgr = AddonManager::Get())
+    {
+        addonMgr->LoadInstalledAddons();
+    }
+
     // Scan both sources
     ScanLocalPackages();
     ScanInstalledAddons();

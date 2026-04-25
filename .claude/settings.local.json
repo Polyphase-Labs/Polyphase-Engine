@@ -90,7 +90,8 @@
       "Bash(make -f Makefile_Linux_Editor)",
       "Bash(xargs -n1 basename)",
       "Bash(make -f Makefile_3DS -p)",
-      "Bash(make -f /home/uai/Projects/Octave/Polyphase-Engine/External/Bullet/Makefile_3DS -p)"
+      "Bash(make -f /home/uai/Projects/Octave/Polyphase-Engine/External/Bullet/Makefile_3DS -p)",
+      "Bash(git *)"
     ]
   }
 }
