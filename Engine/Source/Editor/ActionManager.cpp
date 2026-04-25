@@ -268,12 +268,12 @@ static void InjectNativeAddonsIntoVcxproj(
     const std::vector<NativeAddonState>& addons,
     const std::string& generatedRegistrarRelPath /* relative to vcxproj */)
 {
-    if (addons.empty()) return;
-
     // Idempotent injection: restore the .vcxproj from a .orig backup on every call so we
     // don't accumulate duplicate ClCompile / AdditionalIncludeDirectories / etc. entries
     // on repeated builds. First build creates the backup; subsequent builds restore then
-    // re-inject the current addon set.
+    // re-inject the current addon set. Restore happens BEFORE the empty-addons early-out
+    // so switching from a project-with-addons to a project-without-addons doesn't leave
+    // stale FFmpeg/avformat references that break the link with missing-DLL errors.
     const std::string backupPath = vcxprojPath + ".orig";
     if (SYS_DoesFileExist(backupPath.c_str(), false))
     {
@@ -288,6 +288,9 @@ static void InjectNativeAddonsIntoVcxproj(
     {
         SYS_CopyFile(vcxprojPath.c_str(), backupPath.c_str());
     }
+
+    // No addons → vcxproj is now pristine, nothing to inject.
+    if (addons.empty()) return;
 
     Stream inStream;
     if (!inStream.ReadFile(vcxprojPath.c_str(), false))
@@ -466,6 +469,16 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     if (engineAddons.empty())
     {
         LogWarning("[INJ] No addons to inject");
+
+        // Even with no addons, we MUST overwrite Generated/AddonPlugins.cpp.
+        // The Standalone Makefile pulls in everything under Generated/ via its
+        // SOURCES list, so a stale AddonPlugins.cpp left behind by a previous
+        // build (one that DID have addons) will be compiled in and trigger
+        // `undefined reference to PolyphasePlugin_GetDesc_<addon>` at link
+        // time on every subsequent build of any addon-less project.
+        std::string generatedDir = buildProjDir + "Generated/";
+        SYS_CreateDirectory(generatedDir.c_str());
+        GenerateAddonPluginsRegistrar(generatedDir + "AddonPlugins.cpp", engineAddons);
         return;
     }
 
@@ -484,6 +497,34 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     // Build source directories list for Makefile-based builds
     std::string additionalSourceDirs;
     std::vector<std::string> sourceDirs;
+    // Basenames of every .cpp/.c file the addons contribute. Injected directly
+    // into the Makefile's CPPFILES/CFILES variables so we don't depend on
+    // GNU make's $(wildcard ...) expanding against absolute Windows-drive paths
+    // — under MSYS make (devkitPro for 3DS/Wii/GameCube), $(wildcard M:/...)
+    // returns nothing and the addon objects silently drop out of the build.
+    std::vector<std::string> addonCppBasenames;
+    std::vector<std::string> addonCBasenames;
+
+    // Convert Windows-drive paths (e.g. "M:/foo") to MSYS form ("/m/foo") so
+    // GNU make under MSYS can resolve VPATH entries cleanly. No-op for paths
+    // that don't start with a drive letter.
+    auto toMsysPath = [](const std::string& in) -> std::string
+    {
+        if (in.size() >= 3 &&
+            ((in[0] >= 'A' && in[0] <= 'Z') || (in[0] >= 'a' && in[0] <= 'z')) &&
+            in[1] == ':' &&
+            (in[2] == '/' || in[2] == '\\'))
+        {
+            std::string out = "/";
+            out += char(in[0] | 0x20); // lowercase drive letter
+            out += in.substr(2);
+            std::replace(out.begin(), out.end(), '\\', '/');
+            return out;
+        }
+        std::string out = in;
+        std::replace(out.begin(), out.end(), '\\', '/');
+        return out;
+    };
 
     for (const NativeAddonState& addon : engineAddons)
     {
@@ -498,11 +539,11 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         }
         LogWarning("[INJ] Dir exists");
 
-        // Gather source directories (for Makefile-based builds that use directory wildcards)
+        // Recursively walk the addon source tree, collecting both directories
+        // (for VPATH) and explicit .cpp/.c basenames (for direct CPPFILES injection).
         std::function<void(const std::string&)> gatherSourceDirs;
         gatherSourceDirs = [&](const std::string& dir)
         {
-            // Check if this directory has any source files
             bool hasSourceFiles = false;
             DirEntry dirEntry;
             SYS_OpenDirectory(dir, dirEntry);
@@ -524,9 +565,16 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
                         if (dotPos != std::string::npos)
                         {
                             std::string ext = filename.substr(dotPos);
-                            if (ext == ".cpp" || ext == ".c")
+                            if (ext == ".cpp")
                             {
                                 hasSourceFiles = true;
+                                addonCppBasenames.push_back(filename);
+                                LogDebug("  Found source: %s", path.c_str());
+                            }
+                            else if (ext == ".c")
+                            {
+                                hasSourceFiles = true;
+                                addonCBasenames.push_back(filename);
                                 LogDebug("  Found source: %s", path.c_str());
                             }
                         }
@@ -537,7 +585,6 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
             }
             SYS_CloseDirectory(dirEntry);
 
-            // Add this directory if it contains source files
             if (hasSourceFiles)
             {
                 sourceDirs.push_back(dir);
@@ -548,16 +595,16 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         LogDebug("Injected native addon: %s", addon.mAddonId.c_str());
     }
 
-    // Build the source directories string for Makefile injection
+    // Build the SOURCES (VPATH) extension. Convert each dir to MSYS form so
+    // make under devkitPro (3DS/Wii/GameCube cross-compiles on Windows host)
+    // sees a path it can stat. Under non-MSYS make (Linux host) the conversion
+    // is a no-op since paths don't have drive letters.
     LogWarning("[INJ] Total dirs: %zu", sourceDirs.size());
     for (const std::string& dir : sourceDirs)
     {
         LogWarning("[INJ] +Dir: %s", dir.c_str());
 
-        // Convert Windows backslashes to forward slashes for Make compatibility
-        std::string normalizedDir = dir;
-        std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
-
+        std::string normalizedDir = toMsysPath(dir);
         additionalSourceDirs += " \\\n\t\t\t\t" + normalizedDir;
     }
 
@@ -571,10 +618,7 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         std::string additionalIncludeDirs;
         for (const std::string& dir : sourceDirs)
         {
-            // Convert Windows backslashes to forward slashes for Make compatibility
-            std::string normalizedDir = dir;
-            std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
-            additionalIncludeDirs += " " + normalizedDir;
+            additionalIncludeDirs += " " + toMsysPath(dir);
         }
 
         // Try to find INCLUDES := (the actual variable, not comments)
@@ -606,10 +650,7 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
                 std::string includesWithFlags;
                 for (const std::string& dir : sourceDirs)
                 {
-                    // Convert Windows backslashes to forward slashes for Make compatibility
-                    std::string normalizedDir = dir;
-                    std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
-                    includesWithFlags += " -I" + normalizedDir;
+                    includesWithFlags += " -I" + toMsysPath(dir);
                 }
                 size_t lineEnd = makefileContent.find('\n', cxxflagsPos);
                 if (lineEnd != std::string::npos)
@@ -666,6 +707,65 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         }
     }
 
+    // --- Explicit CPPFILES / CFILES injection ---
+    // The devkitPro Makefiles compute CPPFILES via $(wildcard $(dir)/*.cpp) over
+    // each SOURCES entry. Under MSYS make on a Windows host, $(wildcard) often
+    // fails to expand against absolute drive-letter paths even after they're
+    // converted to /m/... form, so addon objects silently drop out of the build.
+    //
+    // Belt-and-braces fix: enumerate the .cpp/.c basenames here at injection
+    // time and append them to CPPFILES/CFILES via a `+=` line placed AFTER the
+    // existing wildcard-driven assignment. VPATH (driven by SOURCES) still
+    // resolves where each basename lives. Engine source files are unaffected
+    // because they live at relative paths that wildcard handles fine.
+    if (!addonCppBasenames.empty() || !addonCBasenames.empty())
+    {
+        auto findCppFilesAssignment = [&](const char* anchor) -> size_t {
+            size_t pos = makefileContent.find(anchor);
+            if (pos == std::string::npos) return std::string::npos;
+            // Walk to end of multi-line assignment (continues on lines ending with `\`).
+            size_t lineEnd = pos;
+            while (lineEnd < makefileContent.size())
+            {
+                size_t nl = makefileContent.find('\n', lineEnd);
+                if (nl == std::string::npos) return makefileContent.size();
+                if (nl > 0 && makefileContent[nl - 1] == '\\')
+                    lineEnd = nl + 1;
+                else
+                    return nl;
+            }
+            return lineEnd;
+        };
+
+        if (!addonCppBasenames.empty())
+        {
+            size_t cppEnd = findCppFilesAssignment("CPPFILES\t:=");
+            if (cppEnd == std::string::npos) cppEnd = findCppFilesAssignment("CPPFILES :=");
+            if (cppEnd == std::string::npos) cppEnd = findCppFilesAssignment("CPPFILES:=");
+
+            if (cppEnd != std::string::npos)
+            {
+                std::string cppAdd = "\nCPPFILES +=";
+                for (const std::string& f : addonCppBasenames) cppAdd += " " + f;
+                makefileContent.insert(cppEnd, cppAdd);
+            }
+        }
+
+        if (!addonCBasenames.empty())
+        {
+            size_t cEnd = findCppFilesAssignment("CFILES\t\t:=");
+            if (cEnd == std::string::npos) cEnd = findCppFilesAssignment("CFILES :=");
+            if (cEnd == std::string::npos) cEnd = findCppFilesAssignment("CFILES:=");
+
+            if (cEnd != std::string::npos)
+            {
+                std::string cAdd = "\nCFILES +=";
+                for (const std::string& f : addonCBasenames) cAdd += " " + f;
+                makefileContent.insert(cEnd, cAdd);
+            }
+        }
+    }
+
     // --- Extras from each addon's package.json ---
     // Append extraDefines as -DFOO=1 flags to CFLAGS; extraIncludeDirs as additional paths
     // on INCLUDES (or raw -I if INCLUDES not found); extraLibDirs and extraLibs as -L/-l flags
@@ -706,9 +806,7 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         std::string incs;
         for (const std::string& i : allExtraIncludeDirs)
         {
-            std::string n = i;
-            std::replace(n.begin(), n.end(), '\\', '/');
-            incs += " " + n;
+            incs += " " + toMsysPath(i);
         }
         appendAfterLine("INCLUDES\t:=", incs);
         if (makefileContent.find(incs) == std::string::npos) appendAfterLine("INCLUDES :=", incs);
@@ -719,9 +817,7 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         std::string libs;
         for (const std::string& ld : allExtraLibDirs)
         {
-            std::string n = ld;
-            std::replace(n.begin(), n.end(), '\\', '/');
-            libs += " -L" + n;
+            libs += " -L" + toMsysPath(ld);
         }
         for (const std::string& lb : allExtraLibs)
         {
@@ -1404,18 +1500,44 @@ void ActionManager::BuildPhase1()
         std::string iconSrc = projectDir + GetEngineConfig()->mIconPath;
         if (SYS_DoesFileExist(iconSrc.c_str(), false))
         {
-            std::string iconDst = polyphaseDirectory + "Standalone/Polyphase.ico";
-            std::string iconBackup = polyphaseDirectory + "Standalone/Polyphase.ico.bak";
+            // Validate the source is actually a Windows ICO before overwriting
+            // Standalone/Polyphase.ico — a PNG (or any non-ICO file) silently
+            // copied over the engine icon makes rc.exe fail with RC2175 and
+            // breaks the entire Windows build for everyone using the engine
+            // until the .ico is restored. Magic for ICO: 00 00 01 00.
+            bool validIco = false;
+            FILE* iconFile = fopen(iconSrc.c_str(), "rb");
+            if (iconFile != nullptr)
+            {
+                uint8_t header[4] = {};
+                size_t read = fread(header, 1, 4, iconFile);
+                fclose(iconFile);
+                validIco = (read == 4 &&
+                            header[0] == 0x00 && header[1] == 0x00 &&
+                            header[2] == 0x01 && header[3] == 0x00);
+            }
 
-            // Back up original icon
-            SYS_CopyFile(iconDst.c_str(), iconBackup.c_str());
+            if (!validIco)
+            {
+                LogWarning("Custom project icon '%s' is not a valid Windows .ico file (expected magic 00 00 01 00). Falling back to engine default.",
+                           iconSrc.c_str());
+                AppendBuildOutput("WARNING: Custom icon ignored (not a valid .ico).\n");
+            }
+            else
+            {
+                std::string iconDst = polyphaseDirectory + "Standalone/Polyphase.ico";
+                std::string iconBackup = polyphaseDirectory + "Standalone/Polyphase.ico.bak";
 
-            // Replace with project icon
-            SYS_CopyFile(iconSrc.c_str(), iconDst.c_str());
-            AppendBuildOutput("Using custom project icon.\n");
+                // Back up original icon
+                SYS_CopyFile(iconDst.c_str(), iconBackup.c_str());
 
-            // Also copy icon into packaged directory
-            SYS_CopyFile(iconSrc.c_str(), (packagedDir + GetEngineConfig()->mIconPath).c_str());
+                // Replace with project icon
+                SYS_CopyFile(iconSrc.c_str(), iconDst.c_str());
+                AppendBuildOutput("Using custom project icon.\n");
+
+                // Also copy icon into packaged directory
+                SYS_CopyFile(iconSrc.c_str(), (packagedDir + GetEngineConfig()->mIconPath).c_str());
+            }
         }
     }
 

@@ -4,6 +4,3 @@
 #include "Plugins/PolyphasePluginAPI.h"
 #include "Plugins/RuntimePluginManager.h"
 
-extern "C" int PolyphasePlugin_GetDesc_videoplayer(PolyphasePluginDesc*);
-POLYPHASE_REGISTER_PLUGIN(videoplayer, PolyphasePlugin_GetDesc_videoplayer)
-

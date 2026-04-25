@@ -292,6 +292,13 @@ uint32_t SerialManager::RegisterMessageMatcher(SerialHandle handle, const std::s
 
     if (type == SerialMessageMatcher::Type::Regex)
     {
+#if PLATFORM_3DS
+        // devkitARM compiles the engine for 3DS with -fno-exceptions, so the
+        // typed `catch (const std::regex_error&)` below won't compile. Skip
+        // the guard and rely on caller-side validation of `pattern`. A bad
+        // pattern will std::terminate; this is acceptable for the 3DS target.
+        matcher.mRegex = std::regex(pattern);
+#else
         try
         {
             matcher.mRegex = std::regex(pattern);
@@ -301,6 +308,7 @@ uint32_t SerialManager::RegisterMessageMatcher(SerialHandle handle, const std::s
             LogError("Serial: invalid regex pattern \"%s\": %s", pattern.c_str(), e.what());
             return 0;
         }
+#endif
     }
 
     p->mMatchers.push_back(std::move(matcher));

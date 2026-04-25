@@ -215,10 +215,13 @@ void TileMap::SetCell(int32_t cellX, int32_t cellY, const TileCell& cell, int32_
         }
         else
         {
-            mMinUsed.x = std::min(mMinUsed.x, cellX);
-            mMinUsed.y = std::min(mMinUsed.y, cellY);
-            mMaxUsed.x = std::max(mMaxUsed.x, cellX);
-            mMaxUsed.y = std::max(mMaxUsed.y, cellY);
+            // Explicit int32_t to avoid std::min/max template-deduction failure
+            // on devkitARM (3DS) where int32_t is `long int` while glm::ivec2's
+            // members are plain `int`.
+            mMinUsed.x = std::min<int32_t>(mMinUsed.x, cellX);
+            mMinUsed.y = std::min<int32_t>(mMinUsed.y, cellY);
+            mMaxUsed.x = std::max<int32_t>(mMaxUsed.x, cellX);
+            mMaxUsed.y = std::max<int32_t>(mMaxUsed.y, cellY);
         }
     }
 }
@@ -361,10 +364,10 @@ void TileMap::RecomputeUsedBounds()
                     }
                     else
                     {
-                        mMinUsed.x = std::min(mMinUsed.x, wx);
-                        mMinUsed.y = std::min(mMinUsed.y, wy);
-                        mMaxUsed.x = std::max(mMaxUsed.x, wx);
-                        mMaxUsed.y = std::max(mMaxUsed.y, wy);
+                        mMinUsed.x = std::min<int32_t>(mMinUsed.x, wx);
+                        mMinUsed.y = std::min<int32_t>(mMinUsed.y, wy);
+                        mMaxUsed.x = std::max<int32_t>(mMaxUsed.x, wx);
+                        mMaxUsed.y = std::max<int32_t>(mMaxUsed.y, wy);
                     }
                 }
             }

@@ -8,12 +8,14 @@
 #include "Input/Input.h"
 #include "Constants.h"
 #include "InputDevices.h"
+#include "EmbeddedFile.h"
 
 #include <gccore.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <cstring>
 #include <fat.h>
 
 #define ENABLE_LIBOGC_CONSOLE 0
@@ -121,6 +123,24 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before SD-card / FAT
+    // fallback. Especially relevant on GameCube/Wii where SD card I/O is
+    // slow — embedded files load instantly from RAM. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     FILE* file = fopen(path, "rb");
 
