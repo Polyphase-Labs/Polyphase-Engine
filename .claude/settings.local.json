@@ -87,7 +87,10 @@
       "Bash(nm -C /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Intermediate/Linux/Game/FFmpegVideoDecoder.o)",
       "Bash(nm -C /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Intermediate/Linux/Game/VideoDecoderFactory.o)",
       "Bash(xxd /home/uai/Projects/Octave/Polyphase-Engine/Standalone/Makefile_Linux_Game)",
-      "Bash(make -f Makefile_Linux_Editor)"
+      "Bash(make -f Makefile_Linux_Editor)",
+      "Bash(xargs -n1 basename)",
+      "Bash(make -f Makefile_3DS -p)",
+      "Bash(make -f /home/uai/Projects/Octave/Polyphase-Engine/External/Bullet/Makefile_3DS -p)"
     ]
   }
 }

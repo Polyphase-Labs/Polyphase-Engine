@@ -1843,30 +1843,91 @@ void ActionManager::BuildPhase1()
             // Wipe Intermediate/<platform>/ so every source recompiles from scratch.
             if (mBuildState.mForceCompile)
             {
-                std::string intDir;
-                std::string buildDir = buildProjDir + "Build/";
-                std::string exeName = standalone ? "Polyphase" : projectName;
-                std::string exeExt;
-                switch (platform)
-                {
-                case Platform::Linux:    intDir = buildProjDir + "Intermediate/Linux/Game/";    buildDir += "Linux/";    exeExt = ".elf"; break;
-                case Platform::GameCube: intDir = buildProjDir + "Intermediate/GCN/";           buildDir += "GCN/";      exeExt = ".dol"; break;
-                case Platform::Wii:      intDir = buildProjDir + "Intermediate/Wii/";           buildDir += "Wii/";      exeExt = ".dol"; break;
-                case Platform::N3DS:     intDir = buildProjDir + "Intermediate/3DS/";           buildDir += "3DS/";      exeExt = ".3dsx"; break;
-                default: break;
-                }
-
-                if (!intDir.empty())
-                {
-                    LogDebug("[BUILD] Force Rebuild: wiping %s and %s%s%s",
-                             intDir.c_str(), buildDir.c_str(), exeName.c_str(), exeExt.c_str());
-                    AppendBuildOutput("Force Rebuild: clearing intermediates at " + intDir + "\n");
-
-                    if (DoesDirExist(intDir.c_str()))
+                // Force Rebuild for Makefile-based platforms wipes EVERY cached
+                // artifact this target depends on, not just the game intermediates.
+                // Stale partial caches in External/Bullet/Intermediate/<plat>/
+                // (e.g. an interrupted prior build that left some .o files
+                // missing) otherwise survive Force Rebuild and trigger
+                // "ar: <file>.o: No such file or directory" at link time, which
+                // is impossible to diagnose without knowing the cache layout.
+                // Slower than wiping just the game intermediates, but matches
+                // what users expect from a button labelled "Force Rebuild".
+                const std::string platDir = [&]() -> std::string {
+                    switch (platform)
                     {
-                        RemoveDir(intDir.c_str());
+                    case Platform::Linux:    return "Linux";
+                    case Platform::GameCube: return "GCN";
+                    case Platform::Wii:      return "Wii";
+                    case Platform::N3DS:     return "3DS";
+                    default: return "";
                     }
-                    SYS_RemoveFile((buildDir + exeName + exeExt).c_str());
+                }();
+
+                if (!platDir.empty())
+                {
+                    const std::string exeName = standalone ? "Polyphase" : projectName;
+                    const std::string exeExt = (platform == Platform::Linux)    ? ".elf"
+                                             : (platform == Platform::N3DS)    ? ".3dsx"
+                                             : /* GCN/Wii */                     ".dol";
+
+                    // Per-platform wipe targets. For each: a directory to nuke
+                    // recursively, and an optional file to delete. Empty paths
+                    // are skipped (keeps logic linear).
+                    struct Target { std::string dir; std::string file; };
+                    std::vector<Target> targets;
+
+                    // Standalone game intermediate + final exe.
+                    targets.push_back({
+                        buildProjDir + "Intermediate/" + platDir + (platform == Platform::Linux ? "/Game/" : "/"),
+                        buildProjDir + "Build/" + platDir + "/" + exeName + exeExt
+                    });
+
+                    // Engine library intermediate + .a. Linux splits Editor/Game
+                    // intermediates; consoles share a single dir.
+                    if (platform == Platform::Linux)
+                    {
+                        targets.push_back({
+                            polyphaseDirectory + "Engine/Intermediate/Linux/EngineGame/",
+                            polyphaseDirectory + "Engine/Build/Linux/libEngineGame.a"
+                        });
+                    }
+                    else
+                    {
+                        targets.push_back({
+                            polyphaseDirectory + "Engine/Intermediate/" + platDir + "/",
+                            polyphaseDirectory + "Engine/Build/" + platDir + "/libEngine.a"
+                        });
+                    }
+
+                    // External/Bullet — Bullet's interrupted-build partial cache
+                    // is the actual reported failure mode this block addresses.
+                    targets.push_back({
+                        polyphaseDirectory + "External/Bullet/Intermediate/" + platDir + "/",
+                        polyphaseDirectory + "External/Bullet/Build/" + platDir + "/libBullet.a"
+                    });
+
+                    // External/Assimp — only on platforms that build it (Linux).
+                    if (platform == Platform::Linux)
+                    {
+                        targets.push_back({
+                            polyphaseDirectory + "External/Assimp/Intermediate/Linux/",
+                            polyphaseDirectory + "External/Assimp/Build/Linux/libAssimp.a"
+                        });
+                    }
+
+                    AppendBuildOutput("Force Rebuild: clearing all caches for " + platDir + "\n");
+                    for (const Target& t : targets)
+                    {
+                        if (!t.dir.empty() && DoesDirExist(t.dir.c_str()))
+                        {
+                            LogDebug("[BUILD] Force Rebuild: wiping %s", t.dir.c_str());
+                            RemoveDir(t.dir.c_str());
+                        }
+                        if (!t.file.empty())
+                        {
+                            SYS_RemoveFile(t.file.c_str());
+                        }
+                    }
                 }
             }
 
