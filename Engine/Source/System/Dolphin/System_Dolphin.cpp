@@ -96,7 +96,11 @@ void SYS_Shutdown()
 
 void SYS_Update()
 {
-    GetEngineState()->mQuit = !SYS_MainLoop();
+    // sRunning is flipped to false by the Reset/Power button callbacks
+    // (libogc IRQ + Wii hooks at the top of this file). The SYS_MainLoop
+    // wrapper that used to return sRunning was removed in 922fe79b but the
+    // caller wasn't updated — read sRunning directly.
+    GetEngineState()->mQuit = !sRunning;
 }
 
 // Files
