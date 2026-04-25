@@ -735,6 +735,12 @@ void AssetManager::LoadAll()
         if (stub->mAsset == nullptr)
         {
             stub->mAsset = Asset::CreateInstance(stub->mType);
+            if (stub->mAsset == nullptr)
+            {
+                LogError("LoadAll: no factory for type=%u, path='%s' — skipping",
+                         stub->mType, stub->mPath.c_str());
+                continue;
+            }
             stub->mAsset->LoadFile(stub->mPath.c_str());
         }
     }
@@ -975,6 +981,18 @@ Asset* AssetManager::LoadAsset(AssetStub& stub)
     if (stub.mAsset == nullptr)
     {
         stub.mAsset = Asset::CreateInstance(stub.mType);
+
+        // CreateInstance returns nullptr when no factory is registered for stub.mType —
+        // the usual cause is (a) an addon that owned the type is not loaded yet, or
+        // (b) the .oct file's type header got corrupted (e.g. mid-write crash) and now
+        // decodes to a garbage TypeId. Either way, dereferencing null here took the
+        // whole editor down; log and bail instead so the rest of asset discovery proceeds.
+        if (stub.mAsset == nullptr)
+        {
+            LogError("LoadAsset: no factory for type=%u, path='%s' — skipping (corrupt .oct or unloaded addon?)",
+                     stub.mType, stub.mPath.c_str());
+            return nullptr;
+        }
 
         if (stub.mEmbeddedData != nullptr)
         {

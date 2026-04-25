@@ -65,7 +65,19 @@
       "Bash(py -3 Tools/generate_lua_stubs.py --verbose)",
       "Bash(py -3 Tools/generate_lua_stubs.py)",
       "Read(//c/Polyphase/Engine/**)",
-      "Read(//c/Polyphase/Engine//**)"
+      "Read(//c/Polyphase/Engine//**)",
+      "Bash(xxd \"Engine/Shaders/GLSL/bin/Quad.vert\")",
+      "Bash(xxd Quad.vert)",
+      "Bash(xxd Line.frag)",
+      "Bash(awk '{for\\(i=2;i<=9;i++\\) if\\($i != \"0000\"\\) print \"non-zero at line\", $1, \"col\", i, \":\", $i}')",
+      "Bash(git -C \"M:/Projects/Polyphase/Addons/VideoPlayer/videoplayer\" checkout -- \"Assets/Scenes/SC_Default.oct\")",
+      "Read(//m/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/**)",
+      "Bash(git -C \"M:/Projects/Polyphase/Addons/VideoPlayer/videoplayer\" status --short)",
+      "Bash(git -C \"M:/Projects/Polyphase/Addons/VideoPlayer/videoplayer\" show HEAD:Saves/EditorProject.sav)",
+      "Bash(git -C \"M:/Projects/Polyphase/Addons/VideoPlayer/videoplayer\" checkout -- \"Saves/EditorProject.sav\")",
+      "PowerShell(Get-Process *)",
+      "Read(//m/Projects/Polyphase/Addons/VideoPlayer/videoplayer/**)",
+      "Read(//m/Projects/Polyphase/Addons/**)"
     ]
   }
 }

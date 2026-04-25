@@ -29,6 +29,16 @@ static void OpenLogFile()
         }
         std::string logName = projName + ".log";
         engineState->mLogFile = fopen(logName.c_str(), "w");
+
+        if (engineState->mLogFile != nullptr)
+        {
+            // Default stdio full-buffering hides every log line until ~4 KB is queued
+            // or the process exits cleanly — a hard shutdown (or simply tailing the
+            // file while the game is running) shows an empty file. Windows MSVCRT
+            // treats _IOLBF as _IOFBF, so set _IONBF and also fflush on each write
+            // in LogToFile. The net cost is negligible (log volume is low).
+            setvbuf(engineState->mLogFile, nullptr, _IONBF, 0);
+        }
     }
 }
 
@@ -84,6 +94,7 @@ void LogToFile(const char* format, va_list arg)
     {
         vfprintf(logFile, format, arg);
         fprintf(logFile, "\n");
+        fflush(logFile);
     }
 }
 

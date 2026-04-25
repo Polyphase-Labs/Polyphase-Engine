@@ -331,15 +331,41 @@ static void InjectNativeAddonsIntoVcxproj(
     }
 
     // Inject ClCompile entries (generated registrar + every addon .cpp).
+    //
+    // Addon sources are compiled *into* the game exe only for shipped configs (EDITOR=0).
+    // The editor configs (DebugEditor / ReleaseEditor, EDITOR=1) load the addon dynamically
+    // as a DLL via NativeAddonManager, so compiling the sources into the editor exe would
+    //   (a) double-link the same symbols (DLL + static), and
+    //   (b) fail with C2491 on PolyphasePlugin_GetDesc because OCTAVE_PLUGIN_EXPORT isn't
+    //       defined for the editor's Standalone.vcxproj.
+    // Hence the ExcludedFromBuild guards per editor config.
     {
+        const char* kExcludedEditorConfigs[] = {
+            "DebugEditor|Win32",
+            "DebugEditor|x64",
+            "ReleaseEditor|Win32",
+            "ReleaseEditor|x64",
+        };
+        auto makeExcludedItem = [&](const std::string& include) {
+            std::string s = "<ClCompile Include=\"" + include + "\">\n";
+            for (const char* cfg : kExcludedEditorConfigs)
+            {
+                s += "      <ExcludedFromBuild Condition=\"'$(Configuration)|$(Platform)'=='";
+                s += cfg;
+                s += "'\">true</ExcludedFromBuild>\n";
+            }
+            s += "    </ClCompile>\n    ";
+            return s;
+        };
+
         std::string inject;
-        inject += "<ClCompile Include=\"" + generatedRegistrarRelPath + "\" />\n    ";
+        inject += makeExcludedItem(generatedRegistrarRelPath);
         for (const std::string& src : sourceFiles)
         {
             std::string path = src;
             // vcxproj prefers backslashes.
             std::replace(path.begin(), path.end(), '/', '\\');
-            inject += "<ClCompile Include=\"" + path + "\" />\n    ";
+            inject += makeExcludedItem(path);
         }
         content.insert(anchorPos, inject);
         anchorPos += inject.size();
@@ -885,7 +911,12 @@ void ActionManager::BuildData(Platform platform, bool embedded)
         }
     }
 
-    // Reset force rebuild flag after checking
+    // Snapshot the user's force-rebuild request to a local BEFORE any state-mutating
+    // step (we clear mForceRebuild here, and the non-headless path also calls Reset()
+    // which wipes mForceCompile). After all resets/inits are done, we write the
+    // snapshot back to mBuildState.mForceCompile so BuildPhase1's needCompile decision
+    // still sees the user's intent when it runs (even a frame later).
+    const bool forceRebuildRequested = mBuildState.mForceRebuild;
     mBuildState.mForceRebuild = false;
 
     // In headless mode, run the entire build synchronously (original behavior)
@@ -896,6 +927,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
         mBuildState.mEmbedded = embedded;
         mBuildState.mRunAfterBuild = false;
         mBuildState.mRunOnDevice = false;
+        mBuildState.mForceCompile = forceRebuildRequested;
         BuildPhase1();
         if (mBuildState.mNeedCompile)
         {
@@ -909,6 +941,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     mBuildState.Reset();
     mBuildState.mPlatform = platform;
     mBuildState.mEmbedded = embedded;
+    mBuildState.mForceCompile = forceRebuildRequested; // write AFTER Reset so it survives
     mBuildDisplayOutput.clear();
     mBuildAutoScroll = true;
     mShowBuildModal = true;
@@ -1184,11 +1217,22 @@ void ActionManager::BuildPhase1()
                     strcmp(dirEntry.mFilename, "..") != 0)
                 {
                     std::string packageName = dirEntry.mFilename;
+                    std::string packageDestDir = packagedDir + projectName + "/Packages/" + packageName + "/";
+
                     std::string packageScriptsDir = packagesDir + packageName + "/Scripts/";
                     if (DoesDirExist(packageScriptsDir.c_str()))
                     {
-                        std::string destDir = packagedDir + projectName + "/Packages/" + packageName + "/Scripts/";
-                        SYS_CopyDirectory(packageScriptsDir.c_str(), destDir.c_str());
+                        SYS_CopyDirectory(packageScriptsDir.c_str(), (packageDestDir + "Scripts/").c_str());
+                    }
+
+                    // Addon code resolves runtime files at Packages/{packageName}/Assets/...
+                    // relative to the exe; copy the source Assets dir so they land there.
+                    // Other siblings (Source/External/CMakeLists/package.json/...) are dev-only
+                    // or handled via copyBinaries — don't bulk-copy the whole package dir.
+                    std::string packageAssetsDir = packagesDir + packageName + "/Assets/";
+                    if (DoesDirExist(packageAssetsDir.c_str()))
+                    {
+                        SYS_CopyDirectory(packageAssetsDir.c_str(), (packageDestDir + "Assets/").c_str());
                     }
                 }
                 SYS_IterateDirectory(dirEntry);
@@ -1211,10 +1255,33 @@ void ActionManager::BuildPhase1()
         SYS_CopyDirectory((projectDir + "Generated").c_str(), "Standalone");
     }
 
-    // Copy .octp and Config.ini
+    // Copy .octp and Config.ini.
+    //
+    // Originally both were copied ONLY to the root of packagedDir. That's enough for
+    // the initial CWD-relative `Config.ini` read (which discovers `mProjectName`), but
+    // NOT for the subsequent `LoadProject("{projectName}/{projectName}.octp", ...)` at
+    // `Engine.cpp:431` — which needs the .octp and its sibling Config.ini living in a
+    // subdirectory named after the project. Windows shipped builds were silently failing
+    // here with "Failed to open file: {projectName}/{projectName}.octp" etc.
+    //
+    // Fix: keep the original root copies (additive, so nothing that depended on them
+    // breaks) AND add the project-subdirectory copies the loader actually needs.
     {
+        // Root-level copies — unchanged from original behaviour. Config.ini here is
+        // mandatory for the first read; the .octp is kept for any external tooling
+        // that might reference it.
         SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (packagedDir + projectName + ".octp").c_str());
         SYS_CopyFile((projectDir + "Config.ini").c_str(), (packagedDir + "Config.ini").c_str());
+
+        // Project-subdirectory copies — what the standalone LoadProject() call at
+        // Engine.cpp:431 actually opens. Required for shipped exe to boot its project.
+        const std::string projSubdir = packagedDir + projectName + "/";
+        if (!DoesDirExist(projSubdir.c_str()))
+        {
+            CreateDir(projSubdir.c_str());
+        }
+        SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (projSubdir + projectName + ".octp").c_str());
+        SYS_CopyFile((projectDir + "Config.ini").c_str(), (projSubdir + "Config.ini").c_str());
     }
 
     // Copy custom icon for Windows packaging
@@ -1303,7 +1370,12 @@ void ActionManager::BuildPhase1()
     if (standalone && !IsHeadless() &&
         (platform == Platform::Windows || platform == Platform::Linux))
     {
-        needCompile = !SYS_DoesFileExist(prebuiltExePath.c_str(), false);
+        // Force Rebuild must invalidate the prebuilt-exe shortcut too, otherwise
+        // BuildData silently reuses a stale Polyphase.exe that predates the user's
+        // latest source edit. mForceCompile is the snapshot BuildData took before
+        // mForceRebuild was cleared.
+        needCompile = mBuildState.mForceCompile
+            || !SYS_DoesFileExist(prebuiltExePath.c_str(), false);
     }
 
     mBuildState.mNeedCompile = needCompile;
@@ -1344,6 +1416,70 @@ void ActionManager::BuildPhase1()
                         const std::string vcxprojPath = buildProjDir + buildProjName + ".vcxproj";
                         InjectNativeAddonsIntoVcxproj(vcxprojPath, engineAddons, "Generated\\AddonPlugins.cpp");
                     }
+                }
+            }
+
+            // If the user asked for a Force Rebuild, wipe MSBuild's incremental state for
+            // this config before invoking devenv. MSBuild's own .tlog-driven
+            // up-to-date check will otherwise declare "nothing to do" even after we've
+            // edited sources, because the injected addon source mtimes match .tlog
+            // expectations. Clearing the intermediate dir + the output exe forces a
+            // real full compile and link.
+            if (mBuildState.mForceCompile)
+            {
+                const std::string config = useSteam ? "ReleaseSteam" : "Release";
+                const std::string intDir = buildProjDir + "Intermediate/Windows/x64/" + config + "/" + buildProjName + "/";
+                const std::string buildDir = buildProjDir + "Build/Windows/x64/" + config + "/";
+
+                LogDebug("[BUILD] Force Rebuild: wiping %s and %sPolyphase.exe",
+                         intDir.c_str(), buildDir.c_str());
+                AppendBuildOutput("Force Rebuild: clearing intermediates for " + config + "\n");
+
+                if (DoesDirExist(intDir.c_str()))
+                {
+                    RemoveDir(intDir.c_str());
+                }
+                // Only remove the exe + incremental-link companion files; keep the rest
+                // of Build/ in case other artifacts in that folder are wanted (shaders,
+                // side-by-side libs). link.exe will regenerate these.
+                SYS_RemoveFile((buildDir + "Polyphase.exe").c_str());
+                SYS_RemoveFile((buildDir + "Polyphase.ilk").c_str());
+                SYS_RemoveFile((buildDir + "Polyphase.pdb").c_str());
+
+                // Engine.lib is what Standalone links against. devenv /Build (not
+                // /Rebuild) will only re-lib Engine if its .lib output is missing -
+                // otherwise MSBuild's up-to-date check hands the linker a stale
+                // Engine.lib whose exports may not match the user's latest edits.
+                // Delete it so the dependency check forces a fresh re-lib.
+                //
+                // Engine.pdb is cl.exe's compile-time PDB. If it's locked when the
+                // next build starts (devenv with a debug session of Polyphase.exe
+                // attached, leaked mspdbsrv.exe from a killed prior build, AV scan
+                // in flight, ...) every cpp file fails with C1033 and the entire
+                // Engine compile aborts. Try to delete it; if the delete fails the
+                // lock is real, so abort here with a clear message rather than let
+                // devenv spin up a doomed compile.
+                const std::string engineBuildDir =
+                    polyphaseDirectory + "Engine/Build/Windows/x64/" + config + "/";
+                const std::string enginePdb = engineBuildDir + "Engine.pdb";
+                const std::string engineLib = engineBuildDir + "Engine.lib";
+
+                SYS_RemoveFile(engineLib.c_str());
+                SYS_RemoveFile(enginePdb.c_str());
+
+                if (SYS_DoesFileExist(enginePdb.c_str(), false))
+                {
+                    LogError("[BUILD] Force Rebuild aborted: %s is locked",
+                             enginePdb.c_str());
+                    AppendBuildOutput(
+                        "ERROR: Could not delete " + enginePdb +
+                        " (file is locked).\n"
+                        "  Visual Studio likely has a debug session of Polyphase.exe\n"
+                        "  attached, or a leaked mspdbsrv.exe is holding the PDB.\n"
+                        "  Stop debugging (or close devenv.exe) and retry Force Rebuild.\n");
+                    mBuildState.mComplete.store(true);
+                    mBuildState.mSuccess.store(false);
+                    return;
                 }
             }
 

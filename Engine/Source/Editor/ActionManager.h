@@ -72,6 +72,10 @@ struct LocalBuildState
     bool mRunAfterBuild{false};
     bool mRunOnDevice{false};
     bool mForceRebuild{false};
+    // Snapshot of mForceRebuild captured in BuildData before it's cleared, so BuildPhase1
+    // can still tell whether the user requested a force rebuild when it decides whether
+    // to reuse the prebuilt Polyphase.exe.
+    bool mForceCompile{false};
 
     void Reset()
     {
@@ -106,6 +110,7 @@ struct LocalBuildState
         mRunAfterBuild = false;
         mRunOnDevice = false;
         mForceRebuild = false;
+        mForceCompile = false;
 #if PLATFORM_LINUX
         mProcessId = 0;
 #elif PLATFORM_WINDOWS
