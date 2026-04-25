@@ -349,3 +349,5 @@ Documentation/api/
 Polyphase.exe
 Polyphase.exp
 Polyphase.lib
+*.orig
+/Standalone/Standalone.vcxproj.orig
