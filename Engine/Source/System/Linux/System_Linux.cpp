@@ -8,6 +8,9 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
+
+#include <cstring>
 
 #include <chrono>
 #include <malloc.h>
@@ -550,6 +553,23 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 {
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before opening from disk.
+    // See SystemUtils.cpp::SYS_LookupEmbeddedRawAsset for details.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     FILE* file = fopen(path, "rb");
 

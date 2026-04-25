@@ -28,9 +28,61 @@
 
 #if EDITOR
 #include "Editor/EditorState.h"
+#include "document.h"          // rapidjson — used for {asset}.meta sidecar parsing
+#include "stringbuffer.h"
+#include "writer.h"
+#include "prettywriter.h"
 #endif
 
 #define ASYNC_REQUEUE_LIMIT 30
+
+#if EDITOR
+namespace
+{
+    // Map of platform-name string (as it appears in .meta JSON) to PlatformBit value.
+    // Both "N3DS" (matches enum identifier) and "3DS" (friendlier human form) map to
+    // PlatformBit_N3DS. New platforms must be appended here AND in EngineTypes.h's
+    // Platform enum + PlatformBit enum.
+    struct PlatformNameBit { const char* name; uint32_t bit; };
+    static const PlatformNameBit kPlatformNameTable[] =
+    {
+        { "Windows",  PlatformBit_Windows  },
+        { "Linux",    PlatformBit_Linux    },
+        { "Android",  PlatformBit_Android  },
+        { "GameCube", PlatformBit_GameCube },
+        { "Wii",      PlatformBit_Wii      },
+        { "N3DS",     PlatformBit_N3DS     },
+        { "3DS",      PlatformBit_N3DS     },
+    };
+
+    static uint32_t PlatformBitFromName(const char* name)
+    {
+        if (name == nullptr) return 0u;
+        for (const auto& entry : kPlatformNameTable)
+        {
+            if (strcmp(entry.name, name) == 0)
+            {
+                return entry.bit;
+            }
+        }
+        return 0u;
+    }
+
+    // Returns the canonical (first-listed) string name for a single PlatformBit value.
+    // Used when serialising the platforms array.
+    static const char* CanonicalNameForPlatformBit(uint32_t bit)
+    {
+        for (const auto& entry : kPlatformNameTable)
+        {
+            if (entry.bit == bit)
+            {
+                return entry.name; // first match wins; "N3DS" beats "3DS" for N3DS bit
+            }
+        }
+        return nullptr;
+    }
+}
+#endif // EDITOR
 
 AssetManager* AssetManager::sInstance = nullptr;
 
@@ -369,7 +421,14 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
             // TODO: Read the asset header to check the asset type.
             const char* extension = strrchr(dirEntry.mFilename, '.');
 
-            if (extension != nullptr &&
+            // Skip {asset}.meta sidecars entirely — they're paired metadata,
+            // not first-class assets. They get loaded on demand alongside
+            // their parent asset (see LoadAssetMeta below).
+            if (extension != nullptr && strcmp(extension, ".meta") == 0)
+            {
+                // intentionally empty — neither register nor track
+            }
+            else if (extension != nullptr &&
                 strcmp(extension, ".oct") == 0)
             {
                 Stream stream;
@@ -380,12 +439,33 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
                 AssetHeader header = Asset::ReadHeader(stream);
 
                 // Pass UUID from header (may be 0 for legacy assets, RegisterAsset will generate one)
-                RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
+                AssetStub* stub = RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
+#if EDITOR
+                // Apply paired {asset}.oct.meta sidecar (if any) to the stub.
+                if (stub != nullptr)
+                {
+                    AssetMetaSidecar meta = LoadAssetMeta(path);
+                    stub->mPlatformMask = meta.mPlatformMask;
+                    stub->mEmbed        = meta.mEmbed;
+                }
+#endif
             }
 #if EDITOR
-            else if (extension == nullptr || strcmp(extension, ".oct") != 0)
+            else
             {
+                // Raw asset (.mp4, .json, .png, .txt, …). Track it for the
+                // editor browser AND for packaging-time copy/embed decisions.
                 directory->mLooseFiles.push_back(dirEntry.mFilename);
+
+                const std::string absPath = directory->mPath + dirEntry.mFilename;
+                AssetMetaSidecar meta = LoadAssetMeta(absPath);
+
+                RawAssetEntry entry;
+                entry.mAbsolutePath = absPath;
+                entry.mEngineAsset  = engineDir;
+                entry.mPlatformMask = meta.mPlatformMask;
+                entry.mEmbed        = meta.mEmbed;
+                mRawAssetEntries.push_back(std::move(entry));
             }
 #endif
         }
@@ -411,6 +491,21 @@ void AssetManager::RefreshDirectory(AssetDir* directory)
 
 #if EDITOR
     directory->mLooseFiles.clear();
+
+    // Drop any RawAssetEntry rows that originated from this directory; the
+    // walk below will rebuild them from the current on-disk state.
+    {
+        const std::string& dirPath = directory->mPath;
+        mRawAssetEntries.erase(
+            std::remove_if(mRawAssetEntries.begin(), mRawAssetEntries.end(),
+                [&dirPath](const RawAssetEntry& e) {
+                    return e.mAbsolutePath.compare(0, dirPath.size(), dirPath) == 0
+                           // only this directory's files, not grandchildren
+                           && e.mAbsolutePath.find('/', dirPath.size()) == std::string::npos
+                           && e.mAbsolutePath.find('\\', dirPath.size()) == std::string::npos;
+                }),
+            mRawAssetEntries.end());
+    }
 #endif
 
     bool engineDir = directory->mEngineDir;
@@ -429,18 +524,40 @@ void AssetManager::RefreshDirectory(AssetDir* directory)
         else
         {
             const char* extension = strrchr(dirEntry.mFilename, '.');
-            if (extension != nullptr && strcmp(extension, ".oct") == 0)
+            if (extension != nullptr && strcmp(extension, ".meta") == 0)
+            {
+                // Sidecar — handled implicitly via LoadAssetMeta on the parent asset.
+            }
+            else if (extension != nullptr && strcmp(extension, ".oct") == 0)
             {
                 Stream stream;
                 std::string path = directory->mPath + dirEntry.mFilename;
                 stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t));
                 AssetHeader header = Asset::ReadHeader(stream);
-                RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
+                AssetStub* stub = RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
+#if EDITOR
+                if (stub != nullptr)
+                {
+                    AssetMetaSidecar meta = LoadAssetMeta(path);
+                    stub->mPlatformMask = meta.mPlatformMask;
+                    stub->mEmbed        = meta.mEmbed;
+                }
+#endif
             }
 #if EDITOR
-            else if (extension == nullptr || strcmp(extension, ".oct") != 0)
+            else
             {
                 directory->mLooseFiles.push_back(dirEntry.mFilename);
+
+                const std::string absPath = directory->mPath + dirEntry.mFilename;
+                AssetMetaSidecar meta = LoadAssetMeta(absPath);
+
+                RawAssetEntry entry;
+                entry.mAbsolutePath = absPath;
+                entry.mEngineAsset  = engineDir;
+                entry.mPlatformMask = meta.mPlatformMask;
+                entry.mEmbed        = meta.mEmbed;
+                mRawAssetEntries.push_back(std::move(entry));
             }
 #endif
         }
@@ -2028,6 +2145,156 @@ void AssetManager::InitAssetColorMap()
         Asset* asset = (Asset*)factoryList[i]->Create();
         mAssetColorMap.insert(std::pair<TypeId, glm::vec4>(factoryList[i]->GetType(), asset->GetTypeColor()));
         delete asset;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// {asset}.meta sidecar I/O.
+//
+// Schema (both keys optional; missing keys = defaults):
+//   { "platforms": ["Windows", "Linux", ...], "embed": false }
+//
+// Missing file or unparseable JSON => defaults (PlatformBit_All, embed=false).
+// Defaults-only => the writer deletes the sidecar instead of writing it.
+// ---------------------------------------------------------------------------
+
+AssetMetaSidecar AssetManager::LoadAssetMeta(const std::string& assetPath)
+{
+    AssetMetaSidecar out;
+
+    const std::string metaPath = assetPath + ".meta";
+    if (!SYS_DoesFileExist(metaPath.c_str(), false))
+    {
+        return out; // mExists=false, defaults
+    }
+
+    Stream stream;
+    if (!stream.ReadFile(metaPath.c_str(), false) || stream.GetSize() == 0)
+    {
+        return out;
+    }
+
+    // rapidjson needs a null-terminated buffer; ParseInsitu would mutate the
+    // backing memory, so we Parse from a copy.
+    std::string text(stream.GetData(), stream.GetSize());
+
+    rapidjson::Document doc;
+    doc.Parse(text.c_str());
+
+    if (doc.HasParseError() || !doc.IsObject())
+    {
+        LogWarning("AssetManager::LoadAssetMeta: %s is not valid JSON, ignoring", metaPath.c_str());
+        return out;
+    }
+
+    out.mExists = true;
+
+    if (doc.HasMember("platforms") && doc["platforms"].IsArray())
+    {
+        uint32_t mask = 0u;
+        const rapidjson::Value& arr = doc["platforms"];
+        for (rapidjson::SizeType i = 0; i < arr.Size(); ++i)
+        {
+            if (arr[i].IsString())
+            {
+                mask |= PlatformBitFromName(arr[i].GetString());
+            }
+        }
+        if (mask != 0u)
+        {
+            out.mPlatformMask = mask;
+        }
+        // mask == 0 means an empty/unrecognised platforms array — treat as
+        // "no platforms", which would exclude this asset everywhere. Honor it.
+        else
+        {
+            out.mPlatformMask = 0u;
+        }
+    }
+
+    if (doc.HasMember("embed") && doc["embed"].IsBool())
+    {
+        out.mEmbed = doc["embed"].GetBool();
+    }
+
+    return out;
+}
+
+void AssetManager::SaveAssetMeta(const std::string& assetPath, uint32_t platformMask, bool embed)
+{
+    const std::string metaPath = assetPath + ".meta";
+
+    // All-defaults: delete the sidecar so the source tree stays clean.
+    const bool isDefault = (platformMask == PlatformBit_All) && !embed;
+    if (isDefault)
+    {
+        if (SYS_DoesFileExist(metaPath.c_str(), false))
+        {
+            SYS_RemoveFile(metaPath.c_str());
+        }
+        return;
+    }
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& alloc = doc.GetAllocator();
+
+    if (platformMask != PlatformBit_All)
+    {
+        rapidjson::Value arr(rapidjson::kArrayType);
+        for (int i = 0; i < int(Platform::Count); ++i)
+        {
+            const uint32_t bit = (1u << i);
+            if (platformMask & bit)
+            {
+                const char* name = CanonicalNameForPlatformBit(bit);
+                if (name != nullptr)
+                {
+                    arr.PushBack(rapidjson::Value().SetString(name, alloc), alloc);
+                }
+            }
+        }
+        doc.AddMember("platforms", arr, alloc);
+    }
+
+    if (embed)
+    {
+        doc.AddMember("embed", true, alloc);
+    }
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+    writer.SetIndent(' ', 4);
+    doc.Accept(writer);
+
+    Stream out(buffer.GetString(), (uint32_t)buffer.GetSize());
+    out.WriteFile(metaPath.c_str());
+}
+
+void AssetManager::ApplyAssetMetaFlags(const std::string& assetPath, uint32_t platformMask, bool embed)
+{
+    SaveAssetMeta(assetPath, platformMask, embed);
+
+    // Update matching RawAssetEntry if present.
+    for (RawAssetEntry& entry : mRawAssetEntries)
+    {
+        if (entry.mAbsolutePath == assetPath)
+        {
+            entry.mPlatformMask = platformMask;
+            entry.mEmbed        = embed;
+            break;
+        }
+    }
+
+    // Update matching AssetStub if present (cooked .oct path match).
+    for (auto& kv : mAssetMap)
+    {
+        if (kv.second != nullptr && kv.second->mPath == assetPath)
+        {
+            kv.second->mPlatformMask = platformMask;
+            kv.second->mEmbed        = embed;
+            break;
+        }
     }
 }
 #endif

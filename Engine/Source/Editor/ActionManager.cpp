@@ -1015,6 +1015,7 @@ void ActionManager::BuildPhase1()
     bool useRomfs = (platform == Platform::N3DS) && embedded;
 
     std::vector<std::pair<AssetStub*, std::string> > embeddedAssets;
+    std::vector<ActionManager::EmbeddedRawAssetEntry> embeddedRawAssets;
 
     if (projectDir == "")
     {
@@ -1075,9 +1076,20 @@ void ActionManager::BuildPhase1()
             CreateDir(packDir.c_str());
         }
 
+        const uint32_t targetPlatformBit = GetPlatformBit(platform);
+
         for (uint32_t i = 0; i < dir->mAssetStubs.size(); ++i)
         {
             AssetStub* stub = dir->mAssetStubs[i];
+
+            // Skip assets explicitly excluded from this platform via {asset}.oct.meta.
+            // Default mPlatformMask is PlatformBit_All, so .meta-less assets always ship.
+            if ((stub->mPlatformMask & targetPlatformBit) == 0u)
+            {
+                LogDebug("Skipping %s — excluded from %s by .meta", stub->mPath.c_str(), GetPlatformString(platform));
+                continue;
+            }
+
             bool alreadyLoaded = (stub->mAsset != nullptr);
 
             if (!alreadyLoaded)
@@ -1120,6 +1132,103 @@ void ActionManager::BuildPhase1()
     saveDir(engineAssetDir, true);
     saveDir(projectAssetDir, false);
 
+    // (2b) Copy raw (non-.oct) assets that AssetManager tracks via mRawAssetEntries.
+    // These are .mp4 / .json / .png / .txt etc. — invisible to the runtime asset
+    // system but needed at the on-disk path the game opens them by. saveDir above
+    // only handles cooked .oct files, so this is the parallel step for raw files.
+    //
+    // Filtering rules (per-asset .meta sidecar):
+    //   - Skip if (mPlatformMask & targetPlatformBit) == 0  -> excluded from this platform
+    //   - Skip if mEmbed                                    -> handled by the embed pipeline below
+    {
+        AppendBuildOutput("Copying raw assets...\n");
+        const uint32_t rawTargetBit = GetPlatformBit(platform);
+        const std::vector<RawAssetEntry>& rawEntries = AssetManager::Get()->GetRawAssetEntries();
+
+        for (const RawAssetEntry& entry : rawEntries)
+        {
+            if ((entry.mPlatformMask & rawTargetBit) == 0u)
+            {
+                continue;
+            }
+            if (entry.mEmbed && embedded && !useRomfs)
+            {
+                // Route into the embed pipeline below. The VFS lookup key is
+                // the runtime path the game would pass to SYS_AcquireFileData,
+                // which is relative to the shipped exe's working directory:
+                //   engine    -> "Engine/Assets/<...>"           (path used as-is)
+                //   project   -> "Assets/<...>"                  (after stripping projectDir)
+                //   addon     -> "Packages/<addon>/Assets/<...>" (after stripping projectDir)
+                ActionManager::EmbeddedRawAssetEntry rawEmbed;
+                rawEmbed.mAbsolutePath = entry.mAbsolutePath;
+                rawEmbed.mEngineAsset  = entry.mEngineAsset;
+
+                if (entry.mEngineAsset)
+                {
+                    rawEmbed.mLookupKey = entry.mAbsolutePath;
+                }
+                else
+                {
+                    std::string rel = entry.mAbsolutePath;
+                    if (rel.compare(0, projectDir.length(), projectDir) == 0)
+                    {
+                        rel = rel.substr(projectDir.length());
+                    }
+                    rawEmbed.mLookupKey = rel;
+                }
+
+                // Normalize to forward slashes — VFS shim canonicalizes the
+                // same way at lookup time.
+                std::replace(rawEmbed.mLookupKey.begin(), rawEmbed.mLookupKey.end(), '\\', '/');
+
+                embeddedRawAssets.push_back(std::move(rawEmbed));
+                continue;
+            }
+            if (entry.mEmbed)
+            {
+                // Embed flag set but not in embedded build mode (or romfs path).
+                // Treat as loose — fall through to the copy branch.
+            }
+
+            // Destination mirrors saveDir's projectDir-prefix-strip rule:
+            //   engine asset    -> packagedDir + "Engine/Assets/<...>"   (path used as-is)
+            //   project asset   -> packagedDir + projectName + "/Assets/<...>"
+            //   addon asset     -> packagedDir + projectName + "/Packages/<addon>/Assets/<...>"
+            // Both project and addon strip projectDir from mAbsolutePath; the
+            // remainder already contains "Packages/<addon>/Assets/..." for addons.
+            std::string destPath;
+            if (entry.mEngineAsset)
+            {
+                destPath = packagedDir + entry.mAbsolutePath;
+            }
+            else
+            {
+                std::string rel = entry.mAbsolutePath;
+                if (rel.compare(0, projectDir.length(), projectDir) == 0)
+                {
+                    rel = rel.substr(projectDir.length());
+                }
+                destPath = packagedDir + projectName + "/" + rel;
+            }
+
+            // Ensure parent directory exists. Walk the path and CreateDir each
+            // missing ancestor (CreateDir is idempotent).
+            {
+                size_t slash = 0;
+                while ((slash = destPath.find('/', slash + 1)) != std::string::npos)
+                {
+                    std::string parent = destPath.substr(0, slash);
+                    if (!DoesDirExist(parent.c_str()))
+                    {
+                        CreateDir(parent.c_str());
+                    }
+                }
+            }
+
+            SYS_CopyFile(entry.mAbsolutePath.c_str(), destPath.c_str());
+        }
+    }
+
     // (3) Generate embedded files and asset registry
     AppendBuildOutput("Generating asset registry...\n");
     std::unordered_map<std::string, AssetStub*>& assetMap = AssetManager::Get()->GetAssetMap();
@@ -1128,8 +1237,17 @@ void ActionManager::BuildPhase1()
     std::string registryFileName = packagedDir + projectName + "/AssetRegistry.txt";
     registryFile = fopen(registryFileName.c_str(), "w");
 
+    const uint32_t registryPlatformBit = GetPlatformBit(platform);
     for (auto pair : assetMap)
     {
+        // Skip assets excluded from this platform — they were not cooked to
+        // packagedDir, so listing them in the registry would cause runtime
+        // load failures.
+        if ((pair.second->mPlatformMask & registryPlatformBit) == 0u)
+        {
+            continue;
+        }
+
         if (pair.second->mAsset != nullptr &&
             pair.second->mEngineAsset)
         {
@@ -1165,7 +1283,7 @@ void ActionManager::BuildPhase1()
 
     std::string embeddedHeaderPath = projectDir + "Generated/EmbeddedAssets.h";
     std::string embeddedSourcePath = projectDir + "Generated/EmbeddedAssets.cpp";
-    GenerateEmbeddedAssetFiles(embeddedAssets, embeddedHeaderPath.c_str(), embeddedSourcePath.c_str());
+    GenerateEmbeddedAssetFiles(embeddedAssets, embeddedRawAssets, embeddedHeaderPath.c_str(), embeddedSourcePath.c_str());
 
     // Generate embedded script source files
     AppendBuildOutput("Copying scripts...\n");
@@ -1225,15 +1343,11 @@ void ActionManager::BuildPhase1()
                         SYS_CopyDirectory(packageScriptsDir.c_str(), (packageDestDir + "Scripts/").c_str());
                     }
 
-                    // Addon code resolves runtime files at Packages/{packageName}/Assets/...
-                    // relative to the exe; copy the source Assets dir so they land there.
-                    // Other siblings (Source/External/CMakeLists/package.json/...) are dev-only
-                    // or handled via copyBinaries — don't bulk-copy the whole package dir.
-                    std::string packageAssetsDir = packagesDir + packageName + "/Assets/";
-                    if (DoesDirExist(packageAssetsDir.c_str()))
-                    {
-                        SYS_CopyDirectory(packageAssetsDir.c_str(), (packageDestDir + "Assets/").c_str());
-                    }
+                    // Note: Packages/<addon>/Assets/ are NOT bulk-copied here anymore.
+                    // Each file is discovered into AssetManager::mRawAssetEntries
+                    // (or mAssetStubs for .oct) and copied/embedded by the unified
+                    // raw-asset and saveDir steps above, which apply per-platform .meta
+                    // filtering. This block intentionally only handles Scripts.
                 }
                 SYS_IterateDirectory(dirEntry);
             }
@@ -5108,6 +5222,7 @@ void ActionManager::BeginReimportScene(AssetStub* sceneStub)
 }
 
 void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*, std::string> >& assets,
+    std::vector<EmbeddedRawAssetEntry>& rawAssets,
     const char* headerPath,
     const char* sourcePath)
 {
@@ -5122,7 +5237,9 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
         fprintf(headerFile, "#include \"EmbeddedFile.h\"\n\n");
 
         fprintf(headerFile, "extern uint32_t gNumEmbeddedAssets;\n");
-        fprintf(headerFile, "extern EmbeddedFile gEmbeddedAssets[];\n\n");
+        fprintf(headerFile, "extern EmbeddedFile gEmbeddedAssets[];\n");
+        fprintf(headerFile, "extern uint32_t gNumEmbeddedRawAssets;\n");
+        fprintf(headerFile, "extern EmbeddedFile gEmbeddedRawAssets[];\n\n");
         fprintf(headerFile, "extern const char gEmbeddedConfig_Data[];\n\n");
         fprintf(headerFile, "extern uint32_t gEmbeddedConfig_Size;\n\n");
 
@@ -5187,6 +5304,60 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
             fprintf(sourceFile, "\n\nEmbeddedFile gEmbeddedAssets[] = { {} };\n");
         }
 
+        // ---- Raw embedded assets (.mp4, .json, .png, …) ----
+        // Lookup keys are projectDir-relative paths (forward slashes) to match
+        // the canonicalisation the runtime VFS shim performs at SYS_OpenFile.
+        // Hex-byte format is the same as the .oct path; warn on > 10 MB files
+        // so devs notice compile-time blowup before it's a problem.
+        {
+            std::string rawInitializer;
+            for (size_t i = 0; i < rawAssets.size(); ++i)
+            {
+                const EmbeddedRawAssetEntry& rawEntry = rawAssets[i];
+
+                std::string rawDataVar = SanitizeCppIdentifier("RawAsset_" + std::to_string(i) + "_" + rawEntry.mLookupKey) + "_Data";
+                uint32_t rawDataSize = 0;
+                std::string rawSourceString;
+                ConvertFileToByteString(
+                    rawEntry.mAbsolutePath,
+                    rawDataVar,
+                    rawSourceString,
+                    rawDataSize);
+
+                if (rawDataSize > 10u * 1024u * 1024u)
+                {
+                    LogWarning("Embedded raw asset '%s' is %.1f MB. The hex-byte embed format scales poorly past ~10 MB; expect long compile times.",
+                               rawEntry.mLookupKey.c_str(), double(rawDataSize) / (1024.0 * 1024.0));
+                }
+
+                fprintf(sourceFile, "%s", rawSourceString.c_str());
+
+                rawInitializer += "{\"" + rawEntry.mLookupKey + "\"," +
+                                  rawDataVar + "," +
+                                  std::to_string(rawDataSize) + "," +
+                                  (rawEntry.mEngineAsset ? "true" : "false") +
+                                  "},\n";
+            }
+
+            fprintf(sourceFile, "\n\nuint32_t gNumEmbeddedRawAssets = %d;\n", uint32_t(rawAssets.size()));
+            if (rawAssets.size() > 0)
+            {
+                fprintf(sourceFile, "\n\nEmbeddedFile gEmbeddedRawAssets[] = \n{\n");
+                fprintf(sourceFile, "%s", rawInitializer.c_str());
+                fprintf(sourceFile, "\n};\n");
+            }
+            else
+            {
+                fprintf(sourceFile, "\n\nEmbeddedFile gEmbeddedRawAssets[] = { {} };\n");
+            }
+
+            // Static initializer: register the embedded raw asset table with
+            // SystemUtils so SYS_LookupEmbeddedRawAsset / SYS_AcquireFileData
+            // can resolve embedded paths at runtime. Editor builds never link
+            // this file in, so registration only happens in shipped builds.
+            fprintf(sourceFile, "\nvoid SYS_RegisterEmbeddedRawAssets(EmbeddedFile* table, uint32_t count);\n");
+            fprintf(sourceFile, "namespace { struct EmbeddedRawAssetsRegistrar { EmbeddedRawAssetsRegistrar() { SYS_RegisterEmbeddedRawAssets(gEmbeddedRawAssets, gNumEmbeddedRawAssets); } }; static EmbeddedRawAssetsRegistrar sEmbeddedRawAssetsRegistrar; }\n");
+        }
 
         {
             std::string sourceString;

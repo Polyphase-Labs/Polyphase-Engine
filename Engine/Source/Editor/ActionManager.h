@@ -231,8 +231,20 @@ protected:
     static ActionManager* sInstance;
     ActionManager();
 
+    // Raw (non-.oct) file entry to embed into gEmbeddedRawAssets[].
+    // mLookupKey is the canonical VFS lookup path the runtime will use
+    // (projectDir-relative, forward slashes, e.g. "Assets/intro.mp4" or
+    // "Packages/videoplayer/Assets/test.mp4").
+    struct EmbeddedRawAssetEntry
+    {
+        std::string mAbsolutePath;
+        std::string mLookupKey;
+        bool        mEngineAsset = false;
+    };
+
     void GenerateEmbeddedAssetFiles(
         std::vector<std::pair<AssetStub*, std::string> >& assets,
+        std::vector<EmbeddedRawAssetEntry>& rawAssets,
         const char* headerPath,
         const char* sourcePath);
 

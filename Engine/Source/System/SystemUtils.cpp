@@ -1,9 +1,11 @@
 #include "SystemUtils.h"
 #include "System.h"
 #include "Log.h"
+#include "EmbeddedFile.h"
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 void ExecCommon(const char* cmd, std::string* output)
 {
@@ -125,4 +127,66 @@ bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStder
 #undef popen
 #undef pclose
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Embedded raw-asset VFS — runtime-registration model.
+//
+// The generated Generated/EmbeddedAssets.cpp (when linked into a shipped exe)
+// runs a static initializer that calls SYS_RegisterEmbeddedRawAssets, handing
+// off a pointer to its gEmbeddedRawAssets[] table. Editor builds don't link
+// the generated cpp, so registration is a no-op and lookups always miss.
+// ---------------------------------------------------------------------------
+
+static EmbeddedFile* sEmbeddedRawTable = nullptr;
+static uint32_t      sEmbeddedRawCount = 0;
+
+void SYS_RegisterEmbeddedRawAssets(EmbeddedFile* table, uint32_t count)
+{
+    sEmbeddedRawTable = table;
+    sEmbeddedRawCount = count;
+}
+
+// Canonicalise a path for VFS lookup: forward-slashes only, strip a leading
+// "./" if present. Must match the format ActionManager emits as mLookupKey.
+static void CanonicaliseVfsKey(const char* in, char* out, size_t outCap)
+{
+    if (in == nullptr || outCap == 0) { if (outCap) out[0] = 0; return; }
+
+    if (in[0] == '.' && (in[1] == '/' || in[1] == '\\'))
+    {
+        in += 2;
+    }
+
+    size_t i = 0;
+    while (in[i] != 0 && i + 1 < outCap)
+    {
+        char c = in[i];
+        if (c == '\\') c = '/';
+        out[i] = c;
+        ++i;
+    }
+    out[i] = 0;
+}
+
+const char* SYS_LookupEmbeddedRawAsset(const char* path, uint32_t& outSize)
+{
+    outSize = 0;
+    if (path == nullptr || path[0] == 0) return nullptr;
+    if (sEmbeddedRawTable == nullptr || sEmbeddedRawCount == 0) return nullptr;
+
+    char canonical[512];
+    CanonicaliseVfsKey(path, canonical, sizeof(canonical));
+
+    for (uint32_t i = 0; i < sEmbeddedRawCount; ++i)
+    {
+        const EmbeddedFile& f = sEmbeddedRawTable[i];
+        if (f.mName == nullptr) continue;
+        if (strcmp(f.mName, canonical) == 0)
+        {
+            outSize = f.mSize;
+            return f.mData;
+        }
+    }
+    return nullptr;
 }
