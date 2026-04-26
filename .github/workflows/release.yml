@@ -54,6 +54,9 @@ jobs:
           copy /Y "build\Release\git2.lib" "..\..\External\lib\Lib\git2.lib"
           copy /Y "build\Debug\git2.lib" "..\..\External\lib\Lib\git2d.lib"
 
+      - name: Generate Standalone embedded asset stubs
+        run: python Tools/generate_embedded_stubs.py
+
       - name: Build Engine (ReleaseEditor x64)
         run: msbuild Polyphase.sln /p:Configuration=ReleaseEditor /p:Platform=x64 /m
 
@@ -119,6 +122,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Generate Standalone embedded asset stubs
+        run: python3 Tools/generate_embedded_stubs.py
 
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
