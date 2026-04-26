@@ -9,9 +9,23 @@
 #include "Engine/World.h"
 #include "Engine/AssetManager.h"
 #include "Engine/AudioManager.h"
+#include "Audio/Audio.h"
 #include "Engine/Clock.h"
 #include "Engine/Nodes/Node.h"
 #include "Engine/Nodes/3D/Node3d.h"
+#include "Engine/Asset.h"
+#include "Engine/NodeGraph/GraphNode.h"
+#include "Engine/Timeline/TimelineClip.h"
+#include "Engine/Timeline/TimelineTrack.h"
+
+#if PLATFORM_WINDOWS
+#include <Windows.h>
+#include <Psapi.h>
+#pragma comment(lib, "Psapi.lib")
+#elif PLATFORM_LINUX
+#include <dlfcn.h>
+#include <link.h>
+#endif
 #include "Engine/Gizmos.h"
 #include "Engine/Assets/TinyLLMAsset.h"
 #include "Input/Input.h"
@@ -386,6 +400,38 @@ static float PluginGetMasterVolume()
     return AudioManager::GetMasterVolume();
 }
 
+// Streaming audio pass-throughs to the low-level AUD_ API. Kept as thin forwarders so
+// the plugin ABI is stable across engine versions even if AudioManager grows a streaming
+// abstraction on top.
+static uint32_t PluginAudio_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    return AUD_OpenStream(sampleRate, numChannels, bitsPerSample);
+}
+static void PluginAudio_CloseStream(uint32_t streamId)
+{
+    AUD_CloseStream(streamId);
+}
+static int32_t PluginAudio_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    return AUD_SubmitStreamBuffer(streamId, data, byteSize);
+}
+static uint64_t PluginAudio_GetStreamPlayedSamples(uint32_t streamId)
+{
+    return AUD_GetStreamPlayedSamples(streamId);
+}
+static void PluginAudio_SetStreamVolume(uint32_t streamId, float volume)
+{
+    AUD_SetStreamVolume(streamId, volume);
+}
+static void PluginAudio_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    AUD_SetStreamPaused(streamId, paused);
+}
+static void PluginAudio_FlushStream(uint32_t streamId)
+{
+    AUD_FlushStream(streamId);
+}
+
 // ===== Input =====
 
 static bool PluginIsKeyDown(int32_t key)
@@ -639,6 +685,15 @@ void NativeAddonManager::InitializeEngineAPI()
     mEngineAPI.SetMasterVolume = PluginSetMasterVolume;
     mEngineAPI.GetMasterVolume = PluginGetMasterVolume;
 
+    // Streaming audio
+    mEngineAPI.Audio_OpenStream             = PluginAudio_OpenStream;
+    mEngineAPI.Audio_CloseStream            = PluginAudio_CloseStream;
+    mEngineAPI.Audio_SubmitStreamBuffer     = PluginAudio_SubmitStreamBuffer;
+    mEngineAPI.Audio_GetStreamPlayedSamples = PluginAudio_GetStreamPlayedSamples;
+    mEngineAPI.Audio_SetStreamVolume        = PluginAudio_SetStreamVolume;
+    mEngineAPI.Audio_SetStreamPaused        = PluginAudio_SetStreamPaused;
+    mEngineAPI.Audio_FlushStream            = PluginAudio_FlushStream;
+
     // Input
     mEngineAPI.IsKeyDown = PluginIsKeyDown;
     mEngineAPI.IsKeyJustPressed = PluginIsKeyJustPressed;
@@ -687,6 +742,11 @@ void NativeAddonManager::DiscoverNativeAddons()
         }
     }
     mStates.clear();
+
+    if (AddonManager* addonMgr = AddonManager::Get())
+    {
+        addonMgr->LoadInstalledAddons();
+    }
 
     // Scan both sources
     ScanLocalPackages();
@@ -866,6 +926,28 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         }
     }
 
+    // Optional build extras: third-party includes, lib dirs, libs, defines, binary copies.
+    // Enables addons to link additional libraries (e.g. FFmpeg) by dropping them alongside
+    // the addon source, without touching the engine.
+    auto readStringArray = [&](const char* key, std::vector<std::string>& out) {
+        if (native.HasMember(key) && native[key].IsArray())
+        {
+            const rapidjson::Value& arr = native[key];
+            for (rapidjson::SizeType i = 0; i < arr.Size(); ++i)
+            {
+                if (arr[i].IsString())
+                {
+                    out.push_back(arr[i].GetString());
+                }
+            }
+        }
+    };
+    readStringArray("extraDefines",     outMetadata.mExtraDefines);
+    readStringArray("extraIncludeDirs", outMetadata.mExtraIncludeDirs);
+    readStringArray("extraLibDirs",     outMetadata.mExtraLibDirs);
+    readStringArray("extraLibs",        outMetadata.mExtraLibs);
+    readStringArray("copyBinaries",     outMetadata.mCopyBinaries);
+
     return true;
 }
 
@@ -920,6 +1002,20 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         if (stream.ReadFile(file.c_str(), false))
         {
             hash = hash * 31 + stream.GetSize();
+        }
+    }
+
+    // Also hash package.json so edits to native.extraDefines/extraIncludeDirs/extraLibs/etc.
+    // invalidate the cached build and regenerate build.bat on next reload.
+    std::string packageJsonPath = state.mSourcePath + "package.json";
+    Stream pkgStream;
+    if (pkgStream.ReadFile(packageJsonPath.c_str(), false))
+    {
+        const char* data = pkgStream.GetData();
+        uint32_t size = pkgStream.GetSize();
+        for (uint32_t i = 0; i < size; ++i)
+        {
+            hash = hash * 31 + uint8_t(data[i]);
         }
     }
 
@@ -1128,10 +1224,25 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "call \"%VS_PATH%\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul 2>&1\n";
     ss << "\n";
     ss << ":: Compile\n";
+    // Match the engine's MSVC runtime so STL objects (std::string, std::vector, etc.) that
+    // cross the addon/engine DLL boundary have the same layout and iterator-debug state.
+    // Mismatching /MD and /MDd yields two CRT heaps and _ITERATOR_DEBUG_LEVEL 0 vs 2, which
+    // crashes at the first container destruction across modules (e.g. Node::mName destruction
+    // while discovering addon-registered node classes).
+#if defined(_DEBUG)
+    ss << "cl.exe /nologo /EHsc /Od /Zi /LD /MDd /D_DEBUG ";
+#else
     ss << "cl.exe /nologo /EHsc /O2 /LD /MD ";
+#endif
 
     // Add defines from manifest
     for (const std::string& define : defines)
+    {
+        ss << "/D" << define << " ";
+    }
+
+    // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1)
+    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
     {
         ss << "/D" << define << " ";
     }
@@ -1153,6 +1264,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
         ss << "/I\"" << packagesDir << depId << "/Source/\" ";
+    }
+
+    // Extra include directories from the addon's package.json, resolved relative to the
+    // addon's package root (e.g. "External/ffmpeg/include")
+    for (const std::string& inc : state.mNativeMetadata.mExtraIncludeDirs)
+    {
+        ss << "/I\"" << state.mSourcePath << inc << "/\" ";
     }
 
     // Add Vulkan SDK include path
@@ -1197,11 +1315,25 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Debug/\" ";
         ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Release/\" ";
     }
+
+    // Extra lib directories from the addon's package.json, resolved relative to the addon root
+    for (const std::string& libDir : state.mNativeMetadata.mExtraLibDirs)
+    {
+        ss << "/LIBPATH:\"" << state.mSourcePath << libDir << "/\" ";
+    }
+
     ss << "Polyphase.lib Lua.lib ";
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
         ss << GenerateLibraryName(depId) << ".lib ";
     }
+
+    // Extra libs from the addon's package.json
+    for (const std::string& lib : state.mNativeMetadata.mExtraLibs)
+    {
+        ss << lib << " ";
+    }
+
     ss << "\n";
     ss << "\n";
     ss << "if %ERRORLEVEL% neq 0 (\n";
@@ -1209,6 +1341,28 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "  exit /b 1\n";
     ss << ")\n";
     ss << "\n";
+
+    // Post-build: copy any binary directories (e.g. FFmpeg DLLs) next to the addon DLL so
+    // dynamic dependencies resolve at load time.
+    if (!state.mNativeMetadata.mCopyBinaries.empty())
+    {
+        // Derive the output directory from outputPath (strip the trailing filename).
+        std::string outDir = outputPath;
+        size_t lastSlash = outDir.find_last_of("/\\");
+        if (lastSlash != std::string::npos)
+        {
+            outDir = outDir.substr(0, lastSlash + 1);
+        }
+
+        for (const std::string& binDir : state.mNativeMetadata.mCopyBinaries)
+        {
+            std::string src = state.mSourcePath + binDir;
+            // xcopy flags: /Y overwrite, /E recurse including empty dirs, /I treat dest as dir, /D only-newer
+            ss << "xcopy /Y /E /I /D \"" << src << "\" \"" << outDir << "\" >nul\n";
+        }
+        ss << "\n";
+    }
+
     ss << "echo Build succeeded\n";
 
     std::string content = ss.str();
@@ -1219,14 +1373,41 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // Generate a shell script for Linux
     outScriptPath = outputDir + "build.sh";
 
+    // FFmpeg via pkg-config when the addon opts in. The package.json's
+    // extraIncludeDirs/extraLibs entries describe the Windows External/ffmpeg
+    // layout, which doesn't exist on Linux — so on Linux we resolve FFmpeg
+    // through the system instead. The marker is the conventional
+    // POLYPHASE_WITH_FFMPEG define already used by the FFmpeg-bundling addon.
+    bool wantsFFmpeg = false;
+    for (const std::string& d : state.mNativeMetadata.mExtraDefines)
+    {
+        if (d.rfind("POLYPHASE_WITH_FFMPEG", 0) == 0)
+        {
+            wantsFFmpeg = true;
+            break;
+        }
+    }
+
     std::stringstream ss;
     ss << "#!/bin/bash\n";
     ss << "set -e\n";
     ss << "\n";
+    if (wantsFFmpeg)
+    {
+        ss << "FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libswresample)\n";
+        ss << "FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libswresample)\n";
+        ss << "\n";
+    }
     ss << "g++ -shared -fPIC -O2 \\\n";
 
     // Add defines from manifest
     for (const std::string& define : defines)
+    {
+        ss << "  -D" << define << " \\\n";
+    }
+
+    // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1).
+    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
     {
         ss << "  -D" << define << " \\\n";
     }
@@ -1244,6 +1425,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
     ss << "  -I\"" << sourceDir << "\" \\\n";
 
+    // Extra include dirs from the addon's package.json (resolved relative to the addon root).
+    // Missing dirs are harmless — g++ ignores them with a warning.
+    for (const std::string& incDir : state.mNativeMetadata.mExtraIncludeDirs)
+    {
+        ss << "  -I\"" << state.mSourcePath << incDir << "/\" \\\n";
+    }
+
     // Add dependency addon Source directories (packagesDir already computed above for Windows)
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
@@ -1252,6 +1440,11 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     // Add Vulkan SDK include path
     ss << "  -I\"$VULKAN_SDK/include\" \\\n";
+
+    if (wantsFFmpeg)
+    {
+        ss << "  $FFMPEG_CFLAGS \\\n";
+    }
 
     // Add source files
     for (const std::string& src : sourceFiles)
@@ -1262,7 +1455,10 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         }
     }
 
-    // Link against Lua library
+    // Lua symbols come from the editor executable on Linux: the engine's Linux build
+    // compiles External/Lua directly into libEngineEditor.a, and the editor links with
+    // -rdynamic, so dlopened addons resolve lua_* via --unresolved-symbols below.
+    // (Windows ships a separate Lua.lib; Linux does not.)
     std::string luaLibPathLinux;
     std::vector<std::string> luaConfigsLinux = {"DebugEditor", "ReleaseEditor", "Debug", "Release"};
     for (const std::string& config : luaConfigsLinux)
@@ -1274,15 +1470,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
             break;
         }
     }
-
     if (!luaLibPathLinux.empty())
     {
         ss << "  \"" << luaLibPathLinux << "\" \\\n";
-    }
-    else
-    {
-        // Try system Lua as fallback
-        ss << "  -llua \\\n";
     }
 
     // Link against dependency shared libraries
@@ -1293,8 +1483,17 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "  -l" << depLibName << " \\\n";
     }
 
-    // Allow unresolved symbols - ImGui symbols will be resolved at runtime from the editor executable
-    ss << "  -Wl,--unresolved-symbols=ignore-in-shared-libs \\\n";
+    if (wantsFFmpeg)
+    {
+        ss << "  $FFMPEG_LIBS \\\n";
+    }
+
+    // Engine symbols (Node3D, lua_*, Bullet inlines instantiated via templates, ImGui, etc.)
+    // live in the editor executable, not in any .so the addon links against. The
+    // executable is built with -rdynamic so dlopen resolves them at load time.
+    // Note: --unresolved-symbols=ignore-in-shared-libs is NOT enough — it only suppresses
+    // errors from .so deps, not from the .so we're producing. Use ignore-all here.
+    ss << "  -Wl,--unresolved-symbols=ignore-all \\\n";
     ss << "  -o \"" << outputPath << "\"\n";
     ss << "\n";
     ss << "echo \"Build succeeded\"\n";
@@ -1538,6 +1737,103 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     return true;
 }
 
+namespace
+{
+#if PLATFORM_WINDOWS
+    // Strip factories whose object address falls inside the given DLL module's memory image.
+    // Called before FreeLibrary so the engine's factory lists don't hold dangling pointers
+    // (which would otherwise trip the duplicate-class-name assert on addon reload).
+    void StripFactoriesFromModule(void* moduleHandle)
+    {
+        if (moduleHandle == nullptr) return;
+
+        MODULEINFO info = {};
+        if (!GetModuleInformation(GetCurrentProcess(), (HMODULE)moduleHandle, &info, sizeof(info)))
+        {
+            LogWarning("StripFactoriesFromModule: GetModuleInformation failed");
+            return;
+        }
+
+        const uintptr_t base = (uintptr_t)info.lpBaseOfDll;
+        const uintptr_t end  = base + info.SizeOfImage;
+
+        auto strip = [&](std::vector<Factory*>& list, const char* label) {
+            size_t removed = 0;
+            for (auto it = list.begin(); it != list.end(); )
+            {
+                uintptr_t p = (uintptr_t)(*it);
+                if (p >= base && p < end)
+                {
+                    it = list.erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            if (removed > 0)
+            {
+                LogDebug("  stripped %zu %s factories belonging to unloaded module", removed, label);
+            }
+        };
+
+        strip(Node::GetFactoryList(),          "Node");
+        strip(Asset::GetFactoryList(),         "Asset");
+        strip(GraphNode::GetFactoryList(),     "GraphNode");
+        strip(TimelineClip::GetFactoryList(),  "TimelineClip");
+        strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
+    }
+#elif PLATFORM_LINUX
+    // Strip factories whose object address falls inside the given .so module's memory image.
+    // Windows parity via dlinfo(RTLD_DI_LINKMAP) for the module base + dladdr per factory.
+    void StripFactoriesFromModule(void* moduleHandle)
+    {
+        if (moduleHandle == nullptr) return;
+
+        struct link_map* lm = nullptr;
+        if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+        {
+            LogWarning("StripFactoriesFromModule: dlinfo failed (%s)", dlerror() ? dlerror() : "unknown");
+            return;
+        }
+        void* moduleBase = reinterpret_cast<void*>(lm->l_addr);
+
+        auto strip = [&](std::vector<Factory*>& list, const char* label) {
+            size_t removed = 0;
+            for (auto it = list.begin(); it != list.end(); )
+            {
+                Dl_info info = {};
+                if (dladdr(reinterpret_cast<void*>(*it), &info) != 0 && info.dli_fbase == moduleBase)
+                {
+                    it = list.erase(it);
+                    ++removed;
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+            if (removed > 0)
+            {
+                LogDebug("  stripped %zu %s factories belonging to unloaded module", removed, label);
+            }
+        };
+
+        strip(Node::GetFactoryList(),          "Node");
+        strip(Asset::GetFactoryList(),         "Asset");
+        strip(GraphNode::GetFactoryList(),     "GraphNode");
+        strip(TimelineClip::GetFactoryList(),  "TimelineClip");
+        strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
+    }
+#else
+    void StripFactoriesFromModule(void* /*moduleHandle*/)
+    {
+        // Other platforms (3DS, GC, Wii, Android) don't support native addon hot-reload yet.
+    }
+#endif
+}
+
 bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
 {
     auto it = mStates.find(addonId);
@@ -1560,6 +1856,12 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     {
         state.mDesc.OnUnload();
     }
+
+    // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE
+    // FreeLibrary. Otherwise the lists hold dangling pointers and the next load of the
+    // addon hits a duplicate-class-name assert in Node::RegisterFactory when the DLL's
+    // static initializer re-registers the same class names.
+    StripFactoriesFromModule(state.mModuleHandle);
 
     // Unload module
     MOD_Unload(state.mModuleHandle);

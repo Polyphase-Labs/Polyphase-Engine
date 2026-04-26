@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "Engine/AssetManager.h"
 #include "Engine/AudioManager.h"
+#include "Audio/Audio.h"
 #include "Engine/Clock.h"
 #include "Engine/Nodes/Node.h"
 #include "Engine/Nodes/3D/Node3d.h"
@@ -311,6 +312,39 @@ static float PluginGetMasterVolume()
     return AudioManager::GetMasterVolume();
 }
 
+// Streaming audio pass-throughs to the low-level AUD_ API. Required by addons
+// that decode PCM at runtime (VideoPlayer's audio track) - without these wired
+// up the addon's `if (api->Audio_OpenStream != nullptr)` guard silently skips
+// every audio submit and playback is video-only.
+static uint32_t PluginAudio_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    return AUD_OpenStream(sampleRate, numChannels, bitsPerSample);
+}
+static void PluginAudio_CloseStream(uint32_t streamId)
+{
+    AUD_CloseStream(streamId);
+}
+static int32_t PluginAudio_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    return AUD_SubmitStreamBuffer(streamId, data, byteSize);
+}
+static uint64_t PluginAudio_GetStreamPlayedSamples(uint32_t streamId)
+{
+    return AUD_GetStreamPlayedSamples(streamId);
+}
+static void PluginAudio_SetStreamVolume(uint32_t streamId, float volume)
+{
+    AUD_SetStreamVolume(streamId, volume);
+}
+static void PluginAudio_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    AUD_SetStreamPaused(streamId, paused);
+}
+static void PluginAudio_FlushStream(uint32_t streamId)
+{
+    AUD_FlushStream(streamId);
+}
+
 // ===== Input =====
 
 static bool PluginIsKeyDown(int32_t key)
@@ -562,6 +596,15 @@ void RuntimePluginManager::InitializeEngineAPI()
     mEngineAPI.StopAllSounds = PluginStopAllSounds;
     mEngineAPI.SetMasterVolume = PluginSetMasterVolume;
     mEngineAPI.GetMasterVolume = PluginGetMasterVolume;
+
+    // Streaming audio
+    mEngineAPI.Audio_OpenStream             = PluginAudio_OpenStream;
+    mEngineAPI.Audio_CloseStream            = PluginAudio_CloseStream;
+    mEngineAPI.Audio_SubmitStreamBuffer     = PluginAudio_SubmitStreamBuffer;
+    mEngineAPI.Audio_GetStreamPlayedSamples = PluginAudio_GetStreamPlayedSamples;
+    mEngineAPI.Audio_SetStreamVolume        = PluginAudio_SetStreamVolume;
+    mEngineAPI.Audio_SetStreamPaused        = PluginAudio_SetStreamPaused;
+    mEngineAPI.Audio_FlushStream            = PluginAudio_FlushStream;
 
     // Input
     mEngineAPI.IsKeyDown = PluginIsKeyDown;

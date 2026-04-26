@@ -53,6 +53,72 @@
 #include "Hotkeys/EditorHotkeyMap.h"
 #include "Git/GitService.h"
 #include "Utilities.h"
+#include "Stream.h"
+
+#include <string>
+
+#if PLATFORM_WINDOWS
+// If a prior packaging build (or a Visual Studio link) was interrupted by a BSOD,
+// power loss, or hard kill, `Standalone/Standalone.vcxproj` can be left truncated
+// — ends in a run of null bytes instead of `</Project>` — which both VS and our
+// own packager choke on. Our injection keeps a pristine `.orig` next to it, so
+// detecting a malformed `.vcxproj` and restoring from `.orig` is safe and
+// automatic. Same crash tends to corrupt whatever was mid-write in the
+// Standalone build/intermediate trees, so wipe those too — they regenerate on
+// the next build, and leaving garbage behind silently fails later links.
+static void SelfHealStandaloneIfCrashed()
+{
+    const std::string vcxprojPath = "Standalone/Standalone.vcxproj";
+    const std::string origPath    = "Standalone/Standalone.vcxproj.orig";
+
+    if (!SYS_DoesFileExist(origPath.c_str(), false))
+        return;
+
+    Stream live;
+    if (!live.ReadFile(vcxprojPath.c_str(), false) || live.GetSize() == 0)
+    {
+        // Live file missing or zero-length — treat as corrupt, fall through to restore.
+    }
+    else
+    {
+        // A healthy vcxproj ends with `</Project>` (possibly followed by whitespace).
+        // Anything else — truncation, null-byte tail — is treated as corrupt.
+        const std::string content(live.GetData(), live.GetSize());
+        if (content.find("</Project>") != std::string::npos)
+            return;
+    }
+
+    LogWarning("Standalone.vcxproj appears corrupt (likely interrupted by crash). Restoring from .orig.");
+
+    Stream orig;
+    if (!orig.ReadFile(origPath.c_str(), false) || orig.GetSize() == 0)
+    {
+        LogWarning("SelfHealStandaloneIfCrashed: .orig unreadable; skipping.");
+        return;
+    }
+    Stream writeBack(orig.GetData(), orig.GetSize());
+    writeBack.WriteFile(vcxprojPath.c_str());
+
+    // Wipe per-config Standalone intermediate + output artifacts. Engine.vcxproj is
+    // shared and expensive to rebuild; leave it alone — its intermediates usually
+    // survive crashes intact, and a Force Rebuild from the editor can clear them.
+    const char* configs[] = { "Release", "ReleaseSteam", "DebugEditor", "ReleaseEditor", "Debug" };
+    for (const char* cfg : configs)
+    {
+        const std::string intDir = std::string("Standalone/Intermediate/Windows/x64/") + cfg + "/Standalone/";
+        if (DoesDirExist(intDir.c_str()))
+        {
+            RemoveDir(intDir.c_str());
+        }
+        const std::string buildDir = std::string("Standalone/Build/Windows/x64/") + cfg + "/";
+        SYS_RemoveFile((buildDir + "Polyphase.exe").c_str());
+        SYS_RemoveFile((buildDir + "Polyphase.ilk").c_str());
+        SYS_RemoveFile((buildDir + "Polyphase.pdb").c_str());
+    }
+
+    LogWarning("Self-heal complete. Standalone build state reset.");
+}
+#endif
 
 void OctPreInitialize(EngineConfig& config);
 
@@ -71,6 +137,12 @@ void EditorMain(int32_t argc, char** argv)
     ReadEngineConfig();
 
     Initialize();
+
+#if PLATFORM_WINDOWS
+    // Must run before anything looks at Standalone.vcxproj (headless BuildData, interactive
+    // packaging, etc). No-op on a clean install — only acts when the last run crashed.
+    SelfHealStandaloneIfCrashed();
+#endif
 
     const EngineConfig* engineConfig = GetEngineConfig();
 
@@ -294,7 +366,10 @@ void EditorMain(int32_t argc, char** argv)
 
     GitService::Destroy();
     AutoUpdater::Destroy();
-    NativeAddonManager::Destroy();
+    // NOTE: NativeAddonManager::Destroy() is intentionally deferred until AFTER Shutdown().
+    // Shutdown destroys every world and recursively destroys their nodes. If addon DLLs
+    // are freed first, any scene node whose type came from an addon (e.g. VideoPlayer3D)
+    // has a dangling vtable pointer into unmapped memory; the destructor call crashes.
     EditorUIHookManager::Destroy();
     AddonManager::Destroy();
     TemplateManager::Destroy();
@@ -305,6 +380,9 @@ void EditorMain(int32_t argc, char** argv)
     InputMap::Destroy();
     GetEditorState()->Shutdown();
     Shutdown();
+    // Now that all worlds/nodes are destroyed and the Lua state is closed, it's safe to
+    // FreeLibrary the addon DLLs.
+    NativeAddonManager::Destroy();
 }
 
 #endif

@@ -650,8 +650,11 @@ void Terrain3D::BakeSplatmapTexture()
             float gx = u * (mResolutionX - 1);
             float gz = v * (mResolutionZ - 1);
 
-            int32_t gx0 = std::max(0, std::min((int32_t)gx, mResolutionX - 2));
-            int32_t gz0 = std::max(0, std::min((int32_t)gz, mResolutionZ - 2));
+            // Explicit int32_t to keep template deduction working on devkitARM
+            // where int32_t is `long int` (different from `int`), so std::max(0,…)
+            // would fail to deduce a single T.
+            int32_t gx0 = std::max<int32_t>(0, std::min<int32_t>((int32_t)gx, mResolutionX - 2));
+            int32_t gz0 = std::max<int32_t>(0, std::min<int32_t>((int32_t)gz, mResolutionZ - 2));
             float fx = gx - gx0;
             float fz = gz - gz0;
 
@@ -1191,8 +1194,8 @@ void Terrain3D::RebuildMeshInternal()
                     int32_t triSlot = 0;
                     if (mUseMaterialSlots)
                     {
-                        int32_t centGX = std::max(0, std::min((int32_t)std::round(centX), mResolutionX - 1));
-                        int32_t centGZ = std::max(0, std::min((int32_t)std::round(centZ), mResolutionZ - 1));
+                        int32_t centGX = std::max<int32_t>(0, std::min<int32_t>((int32_t)std::round(centX), mResolutionX - 1));
+                        int32_t centGZ = std::max<int32_t>(0, std::min<int32_t>((int32_t)std::round(centZ), mResolutionZ - 1));
                         size_t centIdx = centGZ * mResolutionX + centGX;
                         if (centIdx < mSplatmap.size())
                         {

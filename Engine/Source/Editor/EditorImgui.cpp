@@ -162,6 +162,13 @@
 
 static const char* GetNodeIcon(Node* node)
 {
+    // Defensive: parent->mChildren has been observed handing out stale pointers
+    // after script hot-reload (a Node gets `delete`d via its Lua wrapper's GC
+    // path without going through Node::Destroy → Attach(nullptr), so the parent
+    // never erases it). Returning a default icon here is a band-aid; root cause
+    // lives in the Node_Lua GC / SharedPtr lifecycle.
+    if (node == nullptr || node->IsDestroyed()) return ICON_STREAMLINE_PLUMP_WORLD_REMIX;
+
     if (node->As<InstancedMesh3D>())          return ICON_INSTANCE_MESH;
     if (node->As<ShadowMesh3D>())             return ICON_SHADOW;
     if (node->As<SkeletalMesh3D>())           return ICON_SKELETON;
@@ -5076,6 +5083,8 @@ static void DrawScenePanel()
                     Scene* newSubScene = nodeSceneLinked ? node->GetScene() : subScene;
 
                     Node* child = node->GetChild(i);
+                    // Stale-pointer guard: see GetNodeIcon comment. Same root cause.
+                    if (child == nullptr || child->IsDestroyed()) continue;
                     if (!child->mHiddenInTree)
                     {
                         if (collapseChildren)
@@ -5138,7 +5147,9 @@ static void DrawScenePanel()
 
             for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
             {
-                drawTree(node->GetChild(i), newSubScene);
+                Node* child = node->GetChild(i);
+                if (child == nullptr || child->IsDestroyed()) continue;
+                drawTree(child, newSubScene);
             }
         }
     };
@@ -6656,6 +6667,16 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
     {
         const std::string& filename = dir->mLooseFiles[i];
 
+        // {asset}.meta sidecars are paired metadata, never their own asset —
+        // never list them in the browser. Discovery already excludes them
+        // from mLooseFiles, but this is a defensive filter for any future
+        // code path that might push them in.
+        const char* metaExt = strrchr(filename.c_str(), '.');
+        if (metaExt != nullptr && strcmp(metaExt, ".meta") == 0)
+        {
+            continue;
+        }
+
         // Filter check
         if (!filterLower.empty())
         {
@@ -6768,6 +6789,50 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 
                     ImGui::EndMenu();
                 }
+            }
+
+            // Packaging submenu — mirrors DrawAssetPackagingSection in the Properties
+            // panel. Loose files can't ride the AssetStub "Properties" path, so wire
+            // the same {file}.meta read/write directly into the right-click menu.
+            if (ImGui::BeginMenu("Packaging"))
+            {
+                AssetMetaSidecar meta = AssetManager::LoadAssetMeta(fullPath);
+                bool changed = false;
+
+                if (ImGui::MenuItem("Embed in shipped exe", nullptr, meta.mEmbed))
+                {
+                    meta.mEmbed = !meta.mEmbed;
+                    changed = true;
+                }
+
+                ImGui::Separator();
+                ImGui::TextDisabled("Include in builds:");
+
+                static const struct { const char* label; uint32_t bit; } kPkgRows[] = {
+                    { "Windows",  PlatformBit_Windows  },
+                    { "Linux",    PlatformBit_Linux    },
+                    { "Android",  PlatformBit_Android  },
+                    { "GameCube", PlatformBit_GameCube },
+                    { "Wii",      PlatformBit_Wii      },
+                    { "3DS",      PlatformBit_N3DS     },
+                };
+                for (const auto& row : kPkgRows)
+                {
+                    bool on = (meta.mPlatformMask & row.bit) != 0;
+                    if (ImGui::MenuItem(row.label, nullptr, on))
+                    {
+                        if (on) meta.mPlatformMask &= ~row.bit;
+                        else    meta.mPlatformMask |=  row.bit;
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    AssetManager::Get()->ApplyAssetMetaFlags(fullPath, meta.mPlatformMask, meta.mEmbed);
+                }
+
+                ImGui::EndMenu();
             }
 
             ImGui::Separator();
@@ -7344,6 +7409,91 @@ static void DrawInstancedMeshExtra(InstancedMesh3D* instMesh)
     }
 }
 
+// Renders the per-asset Packaging section (platform-mask checkboxes + embed
+// flag) sourced from {assetPath}.meta. Live-saves on toggle and updates the
+// in-memory AssetStub flags so the change takes effect immediately without
+// re-running discovery.
+//
+// `assetAbsolutePath` is the path passed to LoadAssetMeta — it should match
+// AssetStub::mPath for cooked .oct assets, or the full disk path for raw files.
+// `stub` may be nullptr for raw files (which have no AssetStub).
+static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, AssetStub* stub)
+{
+    if (assetAbsolutePath.empty())
+        return;
+
+    // Cache the .meta read keyed on path. Re-read whenever selection changes;
+    // re-read after we save so authoritative state == on-disk.
+    static std::string sCachedPath;
+    static AssetMetaSidecar sCachedMeta;
+    if (sCachedPath != assetAbsolutePath)
+    {
+        sCachedPath = assetAbsolutePath;
+        sCachedMeta = AssetManager::LoadAssetMeta(assetAbsolutePath);
+    }
+
+    if (!ImGui::CollapsingHeader("Packaging", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+
+    // 6 platforms = engine's Platform enum count. Layout in two rows of three.
+    struct PlatformRow { const char* label; uint32_t bit; };
+    static const PlatformRow kRows[] = {
+        { "Windows",  PlatformBit_Windows  },
+        { "Linux",    PlatformBit_Linux    },
+        { "Android",  PlatformBit_Android  },
+        { "GameCube", PlatformBit_GameCube },
+        { "Wii",      PlatformBit_Wii      },
+        { "3DS",      PlatformBit_N3DS     }, // user-facing label; serialised as "N3DS"
+    };
+
+    bool changed = false;
+    uint32_t mask = sCachedMeta.mPlatformMask;
+    bool embed   = sCachedMeta.mEmbed;
+
+    ImGui::Text("Include in builds:");
+    ImGui::Indent();
+    for (int i = 0; i < (int)(sizeof(kRows)/sizeof(kRows[0])); ++i)
+    {
+        if ((i % 3) != 0)
+            ImGui::SameLine();
+
+        bool on = (mask & kRows[i].bit) != 0;
+        ImGui::PushID(i);
+        if (ImGui::Checkbox(kRows[i].label, &on))
+        {
+            if (on) mask |=  kRows[i].bit;
+            else    mask &= ~kRows[i].bit;
+            changed = true;
+        }
+        ImGui::PopID();
+    }
+    ImGui::Unindent();
+
+    if (ImGui::Checkbox("Embed in shipped exe", &embed))
+    {
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Bake this file into the exe via gEmbeddedRawAssets[].\n"
+            "Recommended only for files smaller than ~10 MB; the hex-byte\n"
+            "format used by the embed pipeline blows up compile times for\n"
+            "large files.");
+    }
+
+    if (changed)
+    {
+        // ApplyAssetMetaFlags writes the .meta file AND updates any matching
+        // in-memory AssetStub / RawAssetEntry, so a packaging build run right
+        // after the toggle picks up the new flags without re-discovery.
+        AssetManager::Get()->ApplyAssetMetaFlags(assetAbsolutePath, mask, embed);
+        sCachedMeta.mPlatformMask = mask;
+        sCachedMeta.mEmbed        = embed;
+        sCachedMeta.mExists       = (mask != PlatformBit_All) || embed;
+        (void)stub;
+    }
+}
 
 static void DrawPropertiesPanel()
 {
@@ -7467,6 +7617,18 @@ static void DrawPropertiesPanel()
                     ImGui::NewLine();
                 }
 
+                // Per-asset Packaging section ({asset}.meta sidecar editor) —
+                // appears above the regular property rows so it's discoverable
+                // when the user is configuring an asset for shipping.
+                if (Asset* assetForMeta = obj->As<Asset>())
+                {
+                    AssetStub* stubForMeta = AssetManager::Get()->GetAssetStub(assetForMeta->GetName());
+                    if (stubForMeta != nullptr && !stubForMeta->mPath.empty())
+                    {
+                        DrawAssetPackagingSection(stubForMeta->mPath, stubForMeta);
+                    }
+                }
+
                 std::vector<Property> props;
                 obj->GatherProperties(props);
 
@@ -7550,6 +7712,26 @@ static void DrawPropertiesPanel()
                         }
                     }
                 }
+            }
+            else if (!sSelectedLooseFile.empty())
+            {
+                // Raw-file inspector view. Loose files (.mp4, .json, .png, …)
+                // aren't Object-derived so they don't go through GatherProperties,
+                // but they DO carry a {file}.meta sidecar that drives their
+                // packaging behaviour. Show a read-only header + Packaging
+                // section so devs can configure platform-mask + embed without
+                // having to edit JSON by hand.
+                const std::string& filePath = sSelectedLooseFile;
+                size_t lastSlash = filePath.find_last_of("/\\");
+                std::string fileName = (lastSlash == std::string::npos)
+                    ? filePath
+                    : filePath.substr(lastSlash + 1);
+
+                ImGui::Text("Raw file: %s", fileName.c_str());
+                ImGui::TextDisabled("%s", filePath.c_str());
+                ImGui::Separator();
+
+                DrawAssetPackagingSection(filePath, /*stub=*/nullptr);
             }
 
             ImGui::EndTabItem();

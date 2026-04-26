@@ -7,11 +7,13 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
 
 #include <chrono>
 #include <malloc.h>
 #include <stdlib.h>
 #include <string>
+#include <cstring>
 #include <assert.h>
 #include <signal.h>
 
@@ -455,6 +457,23 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 {
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before falling back to
+    // either AAssetManager (apk-bundled) or libc fopen. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     if (isAsset)
     {

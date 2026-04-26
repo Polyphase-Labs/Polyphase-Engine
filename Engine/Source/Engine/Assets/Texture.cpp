@@ -20,6 +20,10 @@ using namespace std;
 #include "Graphics/Graphics.h"
 #include "Graphics/GraphicsTypes.h"
 
+#if API_VULKAN
+#include "Graphics/Vulkan/Image.h"
+#endif
+
 static const char* sPixelFormatEnumStrings[] =
 {
     "LA4",
@@ -570,10 +574,35 @@ void Texture::Init(uint32_t width, uint32_t height, uint8_t* data)
 
     mWidth = width;
     mHeight = height;
-    
+
     uint32_t imageSize = width * height * 4;
     mPixels.resize(imageSize);
     memcpy(mPixels.data(), data, imageSize);
+}
+
+void Texture::UpdatePixels(const uint8_t* data, size_t byteSize)
+{
+    OCT_ASSERT(data != nullptr);
+    OCT_ASSERT(byteSize == size_t(mWidth) * size_t(mHeight) * RGBA8_SIZE);
+
+#if EDITOR
+    if (mPixels.size() != byteSize)
+    {
+        mPixels.resize(byteSize);
+    }
+    memcpy(mPixels.data(), data, byteSize);
+#endif
+
+#if API_VULKAN
+    if (mResource.mImage != nullptr)
+    {
+        mResource.mImage->Update(data);
+    }
+#else
+    // Streaming texture updates are currently only implemented for the Vulkan backend.
+    // Non-Vulkan platforms should fall back to recreating the texture resource.
+    OCT_ASSERT(0 && "Texture::UpdatePixels requires API_VULKAN");
+#endif
 }
 
 void Texture::SetMipmapped(bool mipmapped)

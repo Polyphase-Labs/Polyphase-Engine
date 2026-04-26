@@ -87,6 +87,11 @@ struct AssetStub
     bool mEngineAsset = false;
     uint64_t mUuid = 0;  // Primary identifier
 
+    // Per-asset packaging metadata, sourced from the {asset}.meta sidecar at discovery time.
+    // Defaults preserve pre-meta behaviour: ship to all platforms, loose on disk.
+    uint32_t mPlatformMask = PlatformBit_All;
+    bool     mEmbed        = false;
+
 #if EDITOR
     std::string mName;
     AssetDir* mDirectory = nullptr;

@@ -307,14 +307,39 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
             std::string packageName(afterPackages, secondSlash - afterPackages);
             // Extract script name (after the second slash)
             std::string scriptName = secondSlash + 1;
+            if (scriptName.length() < 4 || scriptName.compare(scriptName.length() - 4, 4, ".lua") != 0)
+            {
+                scriptName.append(".lua");
+            }
 
             // Build the full path: {projectDir}/Packages/{packageName}/Scripts/{scriptName}.lua
             fullFileName = projectDir + "Packages/" + packageName + "/Scripts/" + scriptName;
-            if (fullFileName.length() < 4 || fullFileName.compare(fullFileName.length() - 4, 4, ".lua") != 0)
-            {
-                fullFileName.append(".lua");
-            }
             fileExists = SYS_DoesFileExist(fullFileName.c_str(), true);
+
+            // Tolerant fallback: a scene may carry a legacy package name (e.g. the addon
+            // was renamed since the scene was authored). Scan every Packages/* dir for
+            // a matching Scripts/{scriptName}.lua and use the first hit.
+            if (!fileExists)
+            {
+                DirEntry pkgDir = {};
+                SYS_OpenDirectory(projectDir + "Packages/", pkgDir);
+                while (pkgDir.mValid)
+                {
+                    if (pkgDir.mDirectory && pkgDir.mFilename[0] != '.')
+                    {
+                        std::string candidate = projectDir + "Packages/" + pkgDir.mFilename
+                                              + "/Scripts/" + scriptName;
+                        if (SYS_DoesFileExist(candidate.c_str(), true))
+                        {
+                            fullFileName = candidate;
+                            fileExists = true;
+                            break;
+                        }
+                    }
+                    SYS_IterateDirectory(pkgDir);
+                }
+                SYS_CloseDirectory(pkgDir);
+            }
         }
     }
 

@@ -69,7 +69,7 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngineGame -lvulkan -lxcb -lasound -lBullet -lpthread -lm
+LIBS	:=	-lEngineGame -lvulkan -lxcb -lasound -lpulse -lBullet -lpthread -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -136,7 +136,7 @@ MakeEngine:
 
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
-	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_Linux_Game
+	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 #---------------------------------------------------------------------------------
 clean:

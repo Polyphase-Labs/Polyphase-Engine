@@ -35,7 +35,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libxcb1-dev libasound2-dev libx11-dev \
-            cmake
+            libpulse-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            pkg-config cmake
+          # libpulse-dev: streaming audio backend (engine)
+          # libav*-dev / libsw*-dev: FFmpeg backend used by the VideoPlayer addon
+          # pkg-config: addon build scripts resolve FFmpeg via pkg-config on Linux
 
       - name: Prebuild libgit2
         run: bash Tools/prebuild_libgit2.sh

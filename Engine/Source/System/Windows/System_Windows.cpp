@@ -8,6 +8,7 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
 
 #include <direct.h>
 #include <chrono>
@@ -422,6 +423,25 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 {
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check if this path was embedded into the exe via the
+    // {asset}.meta `embed: true` flag at packaging time. On hit, copy the
+    // embedded byte array into a malloc'd buffer so SYS_ReleaseFileData's
+    // free() works without a special case.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     FILE* file = fopen(path, "rb");
 

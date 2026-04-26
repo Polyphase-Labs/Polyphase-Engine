@@ -8,12 +8,14 @@
 #include "Input/Input.h"
 #include "InputDevices.h"
 #include "Constants.h"
+#include "EmbeddedFile.h"
 
 #include <3ds.h>
 #include <citro3d.h>
 
 #include <unistd.h>
 #include <malloc.h>
+#include <cstring>
 
 #define ENABLE_SYSTEM_CONSOLE 0
 
@@ -128,6 +130,25 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before romfs/disk lookup.
+    // Embedded files take precedence over both romfs:/ and bare paths so a
+    // dev who flags `embed: true` always gets the in-exe copy, never a stale
+    // SD-card copy. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     // First try romfs path
     std::string romfsPath = path;

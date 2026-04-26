@@ -32,7 +32,7 @@ inline glm::vec4 LuaQuatToVector(glm::quat quat)
     return retVec;
 }
 
-int CreateClassMetatable(
+POLYPHASE_API int CreateClassMetatable(
     const char* className,
     const char* classFlag,
     const char* parentClassName);
