@@ -45,5 +45,8 @@ jobs:
       - name: Prebuild libgit2
         run: bash Tools/prebuild_libgit2.sh
 
+      - name: Generate Standalone embedded asset stubs
+        run: python3 Tools/generate_embedded_stubs.py
+
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
