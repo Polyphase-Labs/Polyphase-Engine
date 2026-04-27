@@ -50,6 +50,7 @@
 #include "Assets/Font.h"
 #include "Assets/NodeGraphAsset.h"
 #include "Assets/DataAsset.h"
+#include "Assets/SpriteAnimation.h"
 #include "UI/UIDocument.h"
 #include "UI/UITypes.h"
 
@@ -5839,6 +5840,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = DataAsset::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = SpriteAnimation::GetStaticType();
                 showPopup = true;
             }
 

@@ -70,3 +70,4 @@ typedef AssetRef FontRef;
 typedef AssetRef SceneRef;
 typedef AssetRef TimelineRef;
 typedef AssetRef DataAssetRef;
+typedef AssetRef SpriteAnimationRef;

@@ -1,5 +1,6 @@
 #include "Assets/TileSet.h"
 #include "Assets/Texture.h"
+#include "Assets/TextureAtlasUtil.h"
 #include "Stream.h"
 #include "Property.h"
 #include "Log.h"
@@ -186,22 +187,14 @@ bool TileSet::GetTileUVs(int32_t tileIndex, glm::vec2& outUV0, glm::vec2& outUV1
     if (tex == nullptr || tileIndex < 0 || tileIndex >= int32_t(mTiles.size()))
         return false;
 
-    int32_t col = tileIndex % mAtlasColumns;
-    int32_t row = tileIndex / mAtlasColumns;
-
-    float texW = float(tex->GetWidth());
-    float texH = float(tex->GetHeight());
-    if (texW <= 0.0f || texH <= 0.0f)
-        return false;
-
-    float px0 = float(mMarginX + col * (mTileWidth + mSpacingX));
-    float py0 = float(mMarginY + row * (mTileHeight + mSpacingY));
-    float px1 = px0 + float(mTileWidth);
-    float py1 = py0 + float(mTileHeight);
-
-    outUV0 = { px0 / texW, py0 / texH };
-    outUV1 = { px1 / texW, py1 / texH };
-    return true;
+    return ComputeAtlasCellUV(
+        mAtlasColumns, mAtlasRows,
+        mTileWidth, mTileHeight,
+        mMarginX, mMarginY,
+        mSpacingX, mSpacingY,
+        tileIndex,
+        int32_t(tex->GetWidth()), int32_t(tex->GetHeight()),
+        outUV0, outUV1);
 }
 
 const TileDefinition* TileSet::GetTileDef(int32_t tileIndex) const

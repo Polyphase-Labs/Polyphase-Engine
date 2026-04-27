@@ -206,6 +206,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(NodeGraphPlayer);
     FORCE_LINK_CALL(Spline3D);
     FORCE_LINK_CALL(NavMesh3D);
+    FORCE_LINK_CALL(SpriteAnimator);
 
     // Asset Types
     FORCE_LINK_CALL(Scene);
@@ -217,6 +218,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(ParticleSystemInstance);
     FORCE_LINK_CALL(SkeletalMesh);
     FORCE_LINK_CALL(SoundWave);
+    FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);
     FORCE_LINK_CALL(Texture);
     FORCE_LINK_CALL(TileSet);

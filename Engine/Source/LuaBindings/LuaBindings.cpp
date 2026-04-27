@@ -61,6 +61,8 @@
 #include "LuaBindings/AssetManager_Lua.h"
 #include "LuaBindings/Widget_Lua.h"
 #include "LuaBindings/Quad_Lua.h"
+#include "LuaBindings/SpriteAnimation_Lua.h"
+#include "LuaBindings/SpriteAnimator_Lua.h"
 #include "LuaBindings/Text_Lua.h"
 #include "LuaBindings/Button_Lua.h"
 #include "LuaBindings/Slider_Lua.h"
@@ -137,6 +139,7 @@ void BindLuaInterface()
     Capsule3D_Lua::Bind();
     Particle3D_Lua::Bind();
     Spline3D_Lua::Bind();
+    SpriteAnimator_Lua::Bind();
     ShadowMesh3D_Lua::Bind();
     InstancedMesh3D_Lua::Bind();
     TextMesh3D_Lua::Bind();
@@ -157,6 +160,7 @@ void BindLuaInterface()
     ParticleSystemInstance_Lua::Bind();
     StaticMesh_Lua::Bind();
     SoundWave_Lua::Bind();
+    SpriteAnimation_Lua::Bind();
     SkeletalMesh_Lua::Bind();
     Texture_Lua::Bind();
     Font_Lua::Bind();

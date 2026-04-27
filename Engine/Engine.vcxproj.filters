@@ -548,10 +548,16 @@
     <ClCompile Include="Source\Engine\Assets\SoundWave.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\SpriteAnimation.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Assets\StaticMesh.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Assets\Texture.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\TextureAtlasUtil.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Assets\TileSet.cpp">
@@ -1190,6 +1196,15 @@
     <ClCompile Include="Source\LuaBindings\Spline3d_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\SpriteAnimator.cpp">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SpriteAnimation_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SpriteAnimator_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Appearance\AppearanceModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
     </ClCompile>
@@ -1707,10 +1722,16 @@
     <ClInclude Include="Source\Engine\Assets\SoundWave.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\SpriteAnimation.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Assets\StaticMesh.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\Texture.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\TextureAtlasUtil.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\TileSet.h">
@@ -1774,6 +1795,9 @@
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\NodeGraphPlayer.h">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\SpriteAnimator.h">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Timeline\TimelineTrack.h">
@@ -2566,6 +2590,12 @@
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\Spline3d_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SpriteAnimation_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SpriteAnimator_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Appearance\AppearanceModule.h">

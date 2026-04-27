@@ -91,7 +91,8 @@
       "Bash(xargs -n1 basename)",
       "Bash(make -f Makefile_3DS -p)",
       "Bash(make -f /home/uai/Projects/Octave/Polyphase-Engine/External/Bullet/Makefile_3DS -p)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -30 {}')"
     ]
   }
 }

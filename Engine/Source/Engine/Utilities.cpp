@@ -597,7 +597,12 @@ void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePt
             // (e.g. inline MaterialLite overrides) can't be serialized by reference — they
             // get written as null. Their data is already preserved through ExtraData/LoadStream,
             // so saving them as property overrides would incorrectly null out the asset on load.
-            if (extProps[i].mType == DatumType::Asset && defaultProp != nullptr)
+            // Vector-of-asset properties (e.g. SpriteAnimator's Animations) skip this check —
+            // GetAsset() asserts when the vector is empty, and the transient-shortcut here is
+            // only meaningful for single-asset slots like inline material overrides anyway.
+            if (extProps[i].mType == DatumType::Asset && defaultProp != nullptr
+                && !extProps[i].IsVector() && !defaultProp->IsVector()
+                && extProps[i].GetCount() > 0 && defaultProp->GetCount() > 0)
             {
                 Asset* curAsset = extProps[i].GetAsset();
                 Asset* defAsset = defaultProp->GetAsset();
