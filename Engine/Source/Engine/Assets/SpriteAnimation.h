@@ -44,6 +44,9 @@ public:
     virtual void GatherProperties(std::vector<Property>& outProps) override;
     virtual glm::vec4 GetTypeColor() override;
     virtual const char* GetTypeName() override;
+#if EDITOR
+    virtual bool DrawCustomProperty(Property& prop) override;
+#endif
 
     // Common
     SpriteFrameSourceMode GetMode() const { return mMode; }
@@ -103,4 +106,7 @@ protected:
     int32_t mAtlasSpacingX = 0;
     int32_t mAtlasSpacingY = 0;
     std::vector<int32_t> mAtlasFrameIndices;
+
+    // Synthetic Bool used as the "Edit Atlas Frames..." inspector button.
+    bool mEditAtlasButton = false;
 };

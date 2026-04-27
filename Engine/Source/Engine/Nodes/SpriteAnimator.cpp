@@ -523,7 +523,17 @@ glm::vec2 SpriteAnimator::GetCurrentUVOffset() const
     glm::vec2 uv0, uv1;
     if (!ResolveCurrentUV(uv0, uv1))
         return glm::vec2(0.0f, 0.0f);
-    return uv0;
+
+    // The engine's Quad applies UVs as final = (baseUV + offset) * scale
+    // (Quad.cpp:441-442), i.e. offset is pre-scale. So to map base [0..1] onto
+    // the atlas sub-rect [uv0..uv1], the offset has to be uv0 / scale.
+    // Returning uv0 directly worked for cell 0 but caused all later cells to
+    // shift by tiny fractions per frame — looked like a UV lerp.
+    const glm::vec2 scale = uv1 - uv0;
+    glm::vec2 offset(0.0f);
+    if (scale.x > 0.0001f) offset.x = uv0.x / scale.x;
+    if (scale.y > 0.0001f) offset.y = uv0.y / scale.y;
+    return offset;
 }
 
 glm::vec4 SpriteAnimator::GetCurrentUVRect() const

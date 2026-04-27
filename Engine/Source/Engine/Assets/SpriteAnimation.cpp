@@ -93,6 +93,12 @@ void SpriteAnimation::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Integer, "Atlas Spacing X", this, &mAtlasSpacingX));
     outProps.push_back(Property(DatumType::Integer, "Atlas Spacing Y", this, &mAtlasSpacingY));
     outProps.push_back(Property(DatumType::Integer, "Atlas Frame Indices", this, &mAtlasFrameIndices).MakeVector());
+
+    // Inspector-only button that opens the visual atlas editor (DrawCustomProperty
+    // intercepts this property name and replaces the default Bool checkbox with
+    // a button + popup). Always present so the property layout is stable; the
+    // custom drawer disables it in Discrete mode.
+    outProps.push_back(Property(DatumType::Bool, "Edit Atlas Frames", this, &mEditAtlasButton));
 }
 
 glm::vec4 SpriteAnimation::GetTypeColor()
@@ -259,3 +265,34 @@ bool SpriteAnimation::GetFrameUV(int32_t frameIndex, glm::vec2& outUV0, glm::vec
         texW, texH,
         outUV0, outUV1);
 }
+
+#if EDITOR
+#include "imgui.h"
+#include "SpriteAnimationEditor/SpriteAnimationAtlasEditor.h"
+
+bool SpriteAnimation::DrawCustomProperty(Property& prop)
+{
+    if (prop.mName == "Edit Atlas Frames")
+    {
+        if (mMode == SpriteFrameSourceMode::AtlasGrid)
+        {
+            if (ImGui::Button("Edit Atlas Frames..."))
+            {
+                GetSpriteAnimationAtlasEditor()->Open(this);
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("(Switch Mode to Atlas Grid to enable visual editor)");
+        }
+
+        // The popup itself is drawn unconditionally — it's a no-op when closed,
+        // and persists across re-Gathers because the editor stores its own state.
+        GetSpriteAnimationAtlasEditor()->DrawPopup();
+
+        return true;
+    }
+    return false;
+}
+#endif
+

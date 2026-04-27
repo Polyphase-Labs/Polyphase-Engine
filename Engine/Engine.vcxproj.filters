@@ -1511,6 +1511,9 @@
     <ClCompile Include="Source\Editor\TextureAtlas\TextureAtlasViewer.cpp">
       <Filter>Source Files\Editor\TextureAtlas</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp">
+      <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp">
       <Filter>Source Files\Editor\TextureCrop</Filter>
     </ClCompile>
@@ -2915,6 +2918,9 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\TextureAtlas\TextureAtlasViewer.h">
       <Filter>Source Files\Editor\TextureAtlas</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h">
+      <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h">
       <Filter>Source Files\Editor\TextureCrop</Filter>

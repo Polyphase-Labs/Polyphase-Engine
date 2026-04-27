@@ -802,6 +802,7 @@
     <ClCompile Include="Source\Editor\NodeGraph\NodeGraphPanel.cpp" />
     <ClCompile Include="Source\Editor\Profiling\ProfilingWindow.cpp" />
     <ClCompile Include="Source\Editor\InputTester\InputTesterPanel.cpp" />
+    <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp" />
     <ClCompile Include="Source\Editor\TextureAtlas\TextureAtlasViewer.cpp" />
     <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp" />
     <ClCompile Include="Source\Editor\VoxelSculpt\VoxelSculptManager.cpp" />
@@ -1288,6 +1289,7 @@
     <ClInclude Include="Source\Editor\NodeGraph\NodeGraphPanel.h" />
     <ClInclude Include="Source\Editor\Profiling\ProfilingWindow.h" />
     <ClInclude Include="Source\Editor\InputTester\InputTesterPanel.h" />
+    <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h" />
     <ClInclude Include="Source\Editor\TextureAtlas\TextureAtlasViewer.h" />
     <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h" />
     <ClInclude Include="Source\Editor\VoxelSculpt\VoxelSculptManager.h" />
