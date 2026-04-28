@@ -264,8 +264,59 @@ For full details on the Timeline system, see the [Timeline documentation](../Tim
 
 ---
 
+---
+
+## Sprite Animation (frame-by-frame)
+
+For frame-by-frame sprite animations (walk cycles, pickups, FX), the engine ships dedicated nodes that handle playback, frame timing, and atlas UV math without any of the manual `Tick`-based plumbing above.
+
+### AnimatedWidget — sprite animation in UI
+
+Drop in an [AnimatedWidget](../../UI/AnimatedWidget.md) (it appears in *Add Widget* under Canvas), assign one or more [SpriteAnimation](../../Lua/Assets/SpriteAnimation.md) assets to its **Animations** array, set **Default Animation**, tick **Auto Play**, and hit Play. No script required for basic playback.
+
+```lua
+-- Minimal control from script
+self.widget:PlayAnimation("walk")
+self.widget:Pause()
+self.widget:SetFrame(0)
+```
+
+### Discrete vs Atlas frames
+
+Each `SpriteAnimation` asset operates in one of two modes:
+
+* **Discrete** — one Texture per frame. Best when frames come from individual PNGs.
+* **AtlasGrid** — one packed sprite-sheet texture sliced into a grid. Best for memory efficiency. Cells are addressed by index in the playback order list. Comes with a visual editor (**Edit Atlas Frames…** button) for clicking cells to add to the playback.
+
+Both modes use the same playback API on the animator nodes — switching modes on an asset changes how frames are stored and sampled, but doesn't change how scripts drive playback.
+
+### Other sprite nodes
+
+* [SpriteAnimator](../../Lua/Nodes/SpriteAnimator.md) — logical-only animator (no rendering). Useful when you want to feed multiple Quads or custom shader params from one timeline.
+* [AnimatedSprite3D](../../Lua/Nodes/3D/AnimatedSprite3D.md) — drives a 3D Material's texture parameters (Diffuse / Alpha / Emission). Place next to a StaticMesh3D using the same Material.
+
+### Targeted playback
+
+The animators support `AnimateTo(frame, pauseOnFinished, onFinished)` and `AnimateToProgress(0..1, ...)` for "play to here, then notify" patterns:
+
+```lua
+-- Wind-up, attack on peak frame, return to idle
+self.spr:PlayAnimation("attack")
+self.spr:AnimateTo(8, false, function()
+    Player:DealDamage()
+end)
+```
+
+`GetProgress()` returns smooth 0..1 playback position, useful for driving progress bars or cross-fades synced to animation completion.
+
+---
+
 ## Further Reading
 
+- [AnimatedWidget UI guide](../../UI/AnimatedWidget.md)
+- [SpriteAnimator (Lua)](../../Lua/Nodes/SpriteAnimator.md)
+- [AnimatedSprite3D (Lua)](../../Lua/Nodes/3D/AnimatedSprite3D.md)
+- [SpriteAnimation asset (Lua)](../../Lua/Assets/SpriteAnimation.md)
 - [Widget System Overview](Overview.md)
 - [Displaying Images](DisplayingImages.md) — animate Quad opacity, UV offset
 - [Building Complete UIs](BuildingUI.md) — full examples with animation

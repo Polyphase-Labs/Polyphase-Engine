@@ -130,6 +130,12 @@ nav:
                   - Custom Node: Development/NativeAddon/Examples/Editor/NodeGraph/CustomNode.md
                   - Domain Callbacks: Development/NativeAddon/Examples/Editor/NodeGraph/DomainCallbacks.md
 
+  - UI Widgets:
+      - AnimatedWidget: UI/AnimatedWidget.md
+      - DialogWindow: UI/DialogWindow.md
+      - ScrollContainer: UI/ScrollContainer.md
+      - Window: UI/Window.md
+
   - Lua API:
       - Overview: Lua/README.md
 
@@ -158,6 +164,7 @@ nav:
           - Scene: Lua/Assets/Scene.md
           - Skeletal Mesh: Lua/Assets/SkeletalMesh.md
           - Sound Wave: Lua/Assets/SoundWave.md
+          - Sprite Animation: Lua/Assets/SpriteAnimation.md
           - Static Mesh: Lua/Assets/StaticMesh.md
           - Texture: Lua/Assets/Texture.md
 
@@ -174,7 +181,9 @@ nav:
 
       - Nodes:
           - Node: Lua/Nodes/Node.md
+          - SpriteAnimator: Lua/Nodes/SpriteAnimator.md
           - 3D:
+              - AnimatedSprite3D: Lua/Nodes/3D/AnimatedSprite3D.md
               - Audio3D: Lua/Nodes/3D/Audio3D.md
               - Box3D: Lua/Nodes/3D/Box3D.md
               - Camera3D: Lua/Nodes/3D/Camera3D.md
@@ -196,6 +205,7 @@ nav:
 
       - Widgets:
           - Widget: Lua/Nodes/Widgets/Widget.md
+          - AnimatedWidget: Lua/Nodes/Widgets/AnimatedWidget.md
           - Button: Lua/Nodes/Widgets/Button.md
           - Poly: Lua/Nodes/Widgets/Poly.md
           - PolyRect: Lua/Nodes/Widgets/PolyRect.md

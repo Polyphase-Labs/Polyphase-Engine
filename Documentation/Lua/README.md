@@ -3,7 +3,9 @@
 ## Nodes
 
 * [Node](Nodes/Node.md)
+    * [SpriteAnimator](Nodes/SpriteAnimator.md)
     * [Node3D](Nodes/3D/Node3D.md)
+        * [AnimatedSprite3D](Nodes/3D/AnimatedSprite3D.md)
         * [Audio3D](Nodes/3D/Audio3D.md)
         * [Camera3D](Nodes/3D/Camera3D.md)
         * [Light3D](Nodes/3D/Light3D.md)
@@ -24,6 +26,7 @@
         * [Poly](Nodes/Widgets/Poly.md)
             * [PolyRect](Nodes/Widgets/PolyRect.md)
         * [Quad](Nodes/Widgets/Quad.md)
+            * [AnimatedWidget](Nodes/Widgets/AnimatedWidget.md)
         * [Text](Nodes/Widgets/Text.md)
         * [Button](Nodes/Widgets/Button.md)
 
@@ -40,6 +43,7 @@
     * [Scene](Assets/Scene.md)
     * [SkeletalMesh](Assets/SkeletalMesh.md)
     * [SoundWave](Assets/SoundWave.md)
+    * [SpriteAnimation](Assets/SpriteAnimation.md)
     * [StaticMesh](Assets/StaticMesh.md)
     * [Texture](Assets/Texture.md)
 

@@ -3,6 +3,7 @@
 #include "Nodes/Node.h"
 #include "Assets/SpriteAnimation.h"
 #include "AssetRef.h"
+#include "ScriptFunc.h"
 
 #include "glm/glm.hpp"
 
@@ -62,6 +63,10 @@ public:
     void Pause();
     void Stop();
     void PlayAnimation(const std::string& name);
+    void SetFrame(int32_t frameIndex);
+    bool AnimateTo(int32_t targetFrame, bool pauseOnFinished, const ScriptFunc& onFinished);
+    bool AnimateToProgress(float progress, bool pauseOnFinished, const ScriptFunc& onFinished);
+    void CancelAnimateTo();
     void SetSpeed(float speed);
     float GetSpeed() const { return mPlaybackSpeed; }
     bool IsPlaying() const { return mPlaying; }
@@ -86,6 +91,8 @@ public:
 
     void RemoveAnimation(const std::string& name);
     bool HasAnimation(const std::string& name) const;
+
+    float GetProgress() const;
 
     // Output for binding (works uniformly for Discrete and AtlasGrid frames)
     Texture* GetCurrentTexture() const;
@@ -138,4 +145,11 @@ protected:
     float mElapsed = 0.0f;
     bool mPlaying = false;
     bool mRegistryDirty = true;
+
+    // AnimateTo: set by AnimateTo()/AnimateToProgress(); checked + cleared in
+    // TickInternal when target frame is reached.
+    bool       mAnimateToActive = false;
+    int32_t    mAnimateToTarget = -1;
+    bool       mAnimateToPause = true;
+    ScriptFunc mAnimateToCallback;
 };

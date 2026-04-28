@@ -46,6 +46,52 @@ int SpriteAnimator_Lua::IsPlaying(lua_State* L)
     return 1;
 }
 
+int SpriteAnimator_Lua::SetFrame(lua_State* L)
+{
+    SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
+    int32_t frame = (int32_t)CHECK_INTEGER(L, 2);
+    anim->SetFrame(frame);
+    return 0;
+}
+
+int SpriteAnimator_Lua::GetProgress(lua_State* L)
+{
+    SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
+    lua_pushnumber(L, anim->GetProgress());
+    return 1;
+}
+
+// AnimateTo(targetFrame, pauseOnFinished?, onFinished?)
+int SpriteAnimator_Lua::AnimateTo(lua_State* L)
+{
+    SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
+    int32_t target = (int32_t)CHECK_INTEGER(L, 2);
+    bool pauseOnFinished = (lua_gettop(L) >= 3) ? (lua_toboolean(L, 3) != 0) : true;
+    ScriptFunc cb;
+    if (lua_gettop(L) >= 4 && lua_isfunction(L, 4)) cb = ScriptFunc(L, 4);
+    anim->AnimateTo(target, pauseOnFinished, cb);
+    return 0;
+}
+
+// AnimateToProgress(progress, pauseOnFinished?, onFinished?)
+int SpriteAnimator_Lua::AnimateToProgress(lua_State* L)
+{
+    SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
+    float progress = (float)CHECK_NUMBER(L, 2);
+    bool pauseOnFinished = (lua_gettop(L) >= 3) ? (lua_toboolean(L, 3) != 0) : true;
+    ScriptFunc cb;
+    if (lua_gettop(L) >= 4 && lua_isfunction(L, 4)) cb = ScriptFunc(L, 4);
+    anim->AnimateToProgress(progress, pauseOnFinished, cb);
+    return 0;
+}
+
+int SpriteAnimator_Lua::CancelAnimateTo(lua_State* L)
+{
+    SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
+    anim->CancelAnimateTo();
+    return 0;
+}
+
 int SpriteAnimator_Lua::SetSpeed(lua_State* L)
 {
     SpriteAnimator* anim = CHECK_SPRITE_ANIMATOR(L, 1);
@@ -281,6 +327,11 @@ void SpriteAnimator_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, Stop);
     REGISTER_TABLE_FUNC(L, mtIndex, PlayAnimation);
     REGISTER_TABLE_FUNC(L, mtIndex, IsPlaying);
+    REGISTER_TABLE_FUNC(L, mtIndex, SetFrame);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetProgress);
+    REGISTER_TABLE_FUNC(L, mtIndex, AnimateTo);
+    REGISTER_TABLE_FUNC(L, mtIndex, AnimateToProgress);
+    REGISTER_TABLE_FUNC(L, mtIndex, CancelAnimateTo);
 
     REGISTER_TABLE_FUNC(L, mtIndex, SetSpeed);
     REGISTER_TABLE_FUNC(L, mtIndex, GetSpeed);

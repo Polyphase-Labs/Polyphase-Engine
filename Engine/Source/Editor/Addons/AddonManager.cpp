@@ -165,8 +165,8 @@ void AddonManager::LoadSettings()
     {
         // Add default repository on first run
         AddonRepository defaultRepo;
-        defaultRepo.mName = "Official Polyphase Addons";
-        defaultRepo.mUrl = "https://github.com/polyphase-engine/addons";
+        defaultRepo.mName = "Polyphase Engine Official Addons";
+        defaultRepo.mUrl = "https://github.com/Polyphase-Labs/Polyphase-Engine---Official-Addons";
         mRepositories.push_back(defaultRepo);
         SaveSettings();
         return;

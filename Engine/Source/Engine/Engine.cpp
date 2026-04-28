@@ -207,6 +207,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(Spline3D);
     FORCE_LINK_CALL(NavMesh3D);
     FORCE_LINK_CALL(SpriteAnimator);
+    FORCE_LINK_CALL(AnimatedSprite3D);
 
     // Asset Types
     FORCE_LINK_CALL(Scene);
@@ -264,6 +265,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(Canvas);
     FORCE_LINK_CALL(Console);
     FORCE_LINK_CALL(Quad);
+    FORCE_LINK_CALL(AnimatedWidget);
     FORCE_LINK_CALL(PolyRect);
     FORCE_LINK_CALL(Poly);
     FORCE_LINK_CALL(StatsOverlay);

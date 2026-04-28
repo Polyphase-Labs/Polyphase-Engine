@@ -63,6 +63,8 @@
 #include "LuaBindings/Quad_Lua.h"
 #include "LuaBindings/SpriteAnimation_Lua.h"
 #include "LuaBindings/SpriteAnimator_Lua.h"
+#include "LuaBindings/AnimatedWidget_Lua.h"
+#include "LuaBindings/AnimatedSprite3d_Lua.h"
 #include "LuaBindings/Text_Lua.h"
 #include "LuaBindings/Button_Lua.h"
 #include "LuaBindings/Slider_Lua.h"
@@ -140,6 +142,7 @@ void BindLuaInterface()
     Particle3D_Lua::Bind();
     Spline3D_Lua::Bind();
     SpriteAnimator_Lua::Bind();
+    AnimatedSprite3D_Lua::Bind();
     ShadowMesh3D_Lua::Bind();
     InstancedMesh3D_Lua::Bind();
     TextMesh3D_Lua::Bind();
@@ -171,6 +174,7 @@ void BindLuaInterface()
     // Widgets need to be bound in hierarchy order
     Widget_Lua::Bind();
     Quad_Lua::Bind();
+    AnimatedWidget_Lua::Bind();
     Text_Lua::Bind();
     Button_Lua::Bind();
     Slider_Lua::Bind();

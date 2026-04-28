@@ -858,6 +858,8 @@
     <ClCompile Include="Source\Engine\WindowManager.cpp" />
     <ClCompile Include="Source\Engine\ToolTipManager.cpp" />
     <ClCompile Include="Source\Engine\NodePath.cpp" />
+    <ClCompile Include="Source\Engine\Animation\SpriteAnimPlayback.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\AnimatedSprite3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Audio3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Box3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Camera3d.cpp" />
@@ -902,6 +904,7 @@
     <ClCompile Include="Source\Engine\Nodes\Widgets\Poly.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\PolyRect.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Quad.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\Widgets\AnimatedWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\StatsOverlay.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\DebugResourcesWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Text.cpp" />
@@ -1086,6 +1089,8 @@
     <ClCompile Include="Source\LuaBindings\Spline3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SpriteAnimation_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SpriteAnimator_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\AnimatedWidget_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\AnimatedSprite3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\StaticMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\StaticMesh_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Stream_Lua.cpp" />
@@ -1355,6 +1360,8 @@
     <ClInclude Include="Source\Engine\WindowManager.h" />
     <ClInclude Include="Source\Engine\ToolTipManager.h" />
     <ClInclude Include="Source\Engine\NodePath.h" />
+    <ClInclude Include="Source\Engine\Animation\SpriteAnimPlayback.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\AnimatedSprite3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Audio3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Box3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Camera3d.h" />
@@ -1588,6 +1595,8 @@
     <ClInclude Include="Source\LuaBindings\Spline3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SpriteAnimation_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SpriteAnimator_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\AnimatedWidget_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\AnimatedSprite3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\StaticMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\StaticMesh_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Stream_Lua.h" />

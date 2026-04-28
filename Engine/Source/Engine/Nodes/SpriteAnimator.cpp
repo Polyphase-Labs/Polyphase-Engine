@@ -187,6 +187,20 @@ void SpriteAnimator::TickInternal(float deltaTime)
             args.push_back(Datum(mCurrentFrame));
             EmitSignal("OnFrameChanged", args);
         }
+
+        // AnimateTo target reached — fire callback (and optionally pause)
+        // before any further advance.
+        if (mAnimateToActive && mCurrentFrame == mAnimateToTarget)
+        {
+            ScriptFunc cb = mAnimateToCallback;
+            const bool pauseAfter = mAnimateToPause;
+            mAnimateToActive = false;
+            mAnimateToTarget = -1;
+            mAnimateToCallback = ScriptFunc();
+            if (pauseAfter) mPlaying = false;
+            if (cb.IsValid()) cb.Call();
+            break;
+        }
     }
 }
 
@@ -215,6 +229,7 @@ void SpriteAnimator::Stop()
     mPlaying = false;
     mCurrentFrame = 0;
     mElapsed = 0.0f;
+    CancelAnimateTo();
 }
 
 void SpriteAnimator::PlayAnimation(const std::string& name)
@@ -235,9 +250,100 @@ void SpriteAnimator::PlayAnimation(const std::string& name)
     mElapsed = 0.0f;
     mPlaying = true;
 
+    // PlayAnimation is a fundamental clip switch — drop any pending AnimateTo.
+    CancelAnimateTo();
+
     std::vector<Datum> args;
     args.push_back(Datum(name));
     EmitSignal("OnAnimationStart", args);
+}
+
+void SpriteAnimator::SetFrame(int32_t frameIndex)
+{
+    if (mRegistryDirty)
+    {
+        RebuildRegistry();
+    }
+
+    const SpriteAnimEntry* entry = !mCurrentName.empty() ? FindEntry(mCurrentName) : nullptr;
+    const int32_t frameCount = entry ? EntryFrameCount(*entry) : 0;
+    if (frameCount <= 0) { mCurrentFrame = 0; mElapsed = 0.0f; return; }
+
+    int32_t clamped = frameIndex;
+    if (clamped < 0) clamped = 0;
+    if (clamped >= frameCount) clamped = frameCount - 1;
+
+    const bool changed = (clamped != mCurrentFrame);
+    mCurrentFrame = clamped;
+    mElapsed = 0.0f;
+
+    if (changed)
+    {
+        std::vector<Datum> args;
+        args.push_back(Datum(mCurrentFrame));
+        EmitSignal("OnFrameChanged", args);
+    }
+
+    // SetFrame is a manual override; cancel any in-flight AnimateTo so the
+    // callback doesn't fire on a frame the user explicitly jumped to.
+    CancelAnimateTo();
+}
+
+bool SpriteAnimator::AnimateTo(int32_t targetFrame, bool pauseOnFinished, const ScriptFunc& onFinished)
+{
+    if (mRegistryDirty)
+    {
+        RebuildRegistry();
+    }
+
+    const SpriteAnimEntry* entry = !mCurrentName.empty() ? FindEntry(mCurrentName) : nullptr;
+    const int32_t frameCount = entry ? EntryFrameCount(*entry) : 0;
+    if (frameCount <= 0) return false;
+
+    int32_t clamped = targetFrame;
+    if (clamped < 0) clamped = 0;
+    if (clamped >= frameCount) clamped = frameCount - 1;
+
+    if (clamped == mCurrentFrame)
+    {
+        // Already there — fire callback now rather than playing a full lap.
+        ScriptFunc cb = onFinished;
+        if (pauseOnFinished) mPlaying = false;
+        if (cb.IsValid()) cb.Call();
+        return true;
+    }
+
+    mAnimateToActive = true;
+    mAnimateToTarget = clamped;
+    mAnimateToPause = pauseOnFinished;
+    mAnimateToCallback = onFinished;
+    mPlaying = true;
+    return true;
+}
+
+bool SpriteAnimator::AnimateToProgress(float progress, bool pauseOnFinished, const ScriptFunc& onFinished)
+{
+    if (mRegistryDirty)
+    {
+        RebuildRegistry();
+    }
+
+    const SpriteAnimEntry* entry = !mCurrentName.empty() ? FindEntry(mCurrentName) : nullptr;
+    const int32_t frameCount = entry ? EntryFrameCount(*entry) : 0;
+    if (frameCount <= 0) return false;
+
+    if (progress < 0.0f) progress = 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+    int32_t target = static_cast<int32_t>(progress * static_cast<float>(frameCount));
+    if (target >= frameCount) target = frameCount - 1;
+    return AnimateTo(target, pauseOnFinished, onFinished);
+}
+
+void SpriteAnimator::CancelAnimateTo()
+{
+    mAnimateToActive = false;
+    mAnimateToTarget = -1;
+    mAnimateToCallback = ScriptFunc();
 }
 
 void SpriteAnimator::SetSpeed(float speed)
@@ -503,6 +609,21 @@ bool SpriteAnimator::ResolveCurrentUV(glm::vec2& outUV0, glm::vec2& outUV1) cons
         return false;
 
     return asset->GetFrameUV(mCurrentFrame, outUV0, outUV1);
+}
+
+float SpriteAnimator::GetProgress() const
+{
+    const SpriteAnimEntry* entry = !mCurrentName.empty() ? FindEntry(mCurrentName) : nullptr;
+    if (entry == nullptr) return 0.0f;
+    const int32_t frameCount = EntryFrameCount(*entry);
+    if (frameCount <= 0) return 0.0f;
+    const float fps = EntryFps(*entry);
+    const float fractional = (fps > 0.0f) ? (float(mCurrentFrame) + mElapsed * fps) : float(mCurrentFrame);
+    float progress = fractional / float(frameCount);
+    if (!mPlaying && mCurrentFrame >= frameCount - 1) progress = 1.0f;
+    if (progress < 0.0f) progress = 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+    return progress;
 }
 
 Texture* SpriteAnimator::GetCurrentTexture() const
