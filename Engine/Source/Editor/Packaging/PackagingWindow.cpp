@@ -236,14 +236,14 @@ void PackagingWindow::DrawProfileList()
         {
             if (isCurrentTarget)
             {
-                if (ImGui::MenuItem("Clear as Current Target"))
+                if (ImGui::MenuItem("Clear as Target"))
                 {
                     settings->SetCurrentTargetProfileId(0);
                 }
             }
             else
             {
-                if (ImGui::MenuItem("Set as Current Target"))
+                if (ImGui::MenuItem("Set as Target"))
                 {
                     settings->SetCurrentTargetProfileId(profile.mId);
                 }
@@ -411,11 +411,20 @@ void PackagingWindow::DrawBuildButtons()
     {
         ImGui::BeginDisabled();
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Set As Target", ImVec2(dropdownButtonWidth, 0)))
+    {
+        settings->SetCurrentTargetProfileId(profile->mId);
+
+    }
 
     // For Wii: Show dropdown with Dolphin and Wii LAN options
     if (isWii)
     {
         // Main button
+
+        ImGui::SameLine();
+
         if (ImGui::Button("Build & Run", ImVec2(dropdownButtonWidth, 0)))
         {
             ImGui::OpenPopup("WiiBuildRunMenu");
@@ -445,6 +454,7 @@ void PackagingWindow::DrawBuildButtons()
     else
     {
         // Standard Build & Run button for other platforms
+        ImGui::SameLine();
         if (ImGui::Button("Build & Run", ImVec2(buttonWidth, 0)))
         {
             OnBuildAndRun();

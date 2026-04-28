@@ -7,13 +7,18 @@
 #include "LuaBindings/Engine_Lua.h"
 #include "LuaBindings/Script_Lua.h"
 #include "LuaBindings/Input_Lua.h"
+#include "LuaBindings/PlayerInput_Lua.h"
 #include "LuaBindings/Audio_Lua.h"
 #include "LuaBindings/Gizmos_Lua.h"
 #include "LuaBindings/Maths_Lua.h"
 #include "LuaBindings/Network_Lua.h"
+#include "LuaBindings/Serial_Lua.h"
 #include "LuaBindings/Renderer_Lua.h"
 #include "LuaBindings/System_Lua.h"
 #include "LuaBindings/Log_Lua.h"
+#include "LuaBindings/Debugger_Lua.h"
+#include "LuaBindings/Tween_Lua.h"
+#include "LuaBindings/Easing_Lua.h"
 #include "LuaBindings/World_Lua.h"
 #include "LuaBindings/Node_Lua.h"
 #include "LuaBindings/Node3d_Lua.h"
@@ -33,6 +38,9 @@
 #include "LuaBindings/ShadowMesh3d_Lua.h"
 #include "LuaBindings/InstancedMesh3d_Lua.h"
 #include "LuaBindings/TextMesh3d_Lua.h"
+#include "LuaBindings/Voxel3d_Lua.h"
+#include "LuaBindings/Terrain3d_Lua.h"
+#include "LuaBindings/TileMap2d_Lua.h"
 #include "LuaBindings/Sphere3d_Lua.h"
 #include "LuaBindings/Asset_Lua.h"
 #include "LuaBindings/Scene_Lua.h"
@@ -53,6 +61,10 @@
 #include "LuaBindings/AssetManager_Lua.h"
 #include "LuaBindings/Widget_Lua.h"
 #include "LuaBindings/Quad_Lua.h"
+#include "LuaBindings/SpriteAnimation_Lua.h"
+#include "LuaBindings/SpriteAnimator_Lua.h"
+#include "LuaBindings/AnimatedWidget_Lua.h"
+#include "LuaBindings/AnimatedSprite3d_Lua.h"
 #include "LuaBindings/Text_Lua.h"
 #include "LuaBindings/Button_Lua.h"
 #include "LuaBindings/Slider_Lua.h"
@@ -79,6 +91,7 @@
 #include "LuaBindings/TimerManager_Lua.h"
 #include "LuaBindings/Property_Lua.h"
 
+#include "LuaBindings/SaveData_Lua.h"
 #include "LuaBindings/Misc_Lua.h"
 #include "LuaBindings/TinyLLM_Lua.h"
 
@@ -91,18 +104,24 @@ void BindLuaInterface()
     Engine_Lua::Bind();
     Script_Lua::Bind();
     Input_Lua::Bind();
+    PlayerInput_Lua::Bind();
     Audio_Lua::Bind();
     Gizmos_Lua::Bind();
     Log_Lua::Bind();
+    Debugger_Lua::Bind();
     Maths_Lua::Bind();
     Network_Lua::Bind();
+    Serial_Lua::Bind();
     Renderer_Lua::Bind();
     System_Lua::Bind();
+    SaveData_Lua::Bind();
     World_Lua::Bind();
     AssetManager_Lua::Bind();
     Stream_Lua::Bind();
     Signal_Lua::Bind();
     TimerManager_Lua::Bind();
+    Easing_Lua::Bind();
+    Tween_Lua::Bind();
     Property_Lua::Bind();
 
     // Components need to be bound in hierarchy order.
@@ -122,9 +141,14 @@ void BindLuaInterface()
     Capsule3D_Lua::Bind();
     Particle3D_Lua::Bind();
     Spline3D_Lua::Bind();
+    SpriteAnimator_Lua::Bind();
+    AnimatedSprite3D_Lua::Bind();
     ShadowMesh3D_Lua::Bind();
     InstancedMesh3D_Lua::Bind();
     TextMesh3D_Lua::Bind();
+    Voxel3D_Lua::Bind();
+    Terrain3D_Lua::Bind();
+    TileMap2D_Lua::Bind();
     Sphere3D_Lua::Bind();
     TimelinePlayer_Lua::Bind();
     NodeGraphPlayer_Lua::Bind();
@@ -139,6 +163,7 @@ void BindLuaInterface()
     ParticleSystemInstance_Lua::Bind();
     StaticMesh_Lua::Bind();
     SoundWave_Lua::Bind();
+    SpriteAnimation_Lua::Bind();
     SkeletalMesh_Lua::Bind();
     Texture_Lua::Bind();
     Font_Lua::Bind();
@@ -149,6 +174,7 @@ void BindLuaInterface()
     // Widgets need to be bound in hierarchy order
     Widget_Lua::Bind();
     Quad_Lua::Bind();
+    AnimatedWidget_Lua::Bind();
     Text_Lua::Bind();
     Button_Lua::Bind();
     Slider_Lua::Bind();

@@ -226,3 +226,59 @@ Set the scene images's clear color. On platforms with multiple screens, the same
 Sig: `Renderer.SetClearColor(color)`
  - Arg: `Vector color` Clear color
 ---
+### GetRAMUsage
+Get the current process RAM usage in megabytes. On Windows this returns the working set size. On Linux/Android it returns VmRSS from /proc. On 3DS/Dolphin it returns free bytes of the main memory pool.
+
+Sig: `ram = Renderer.GetRAMUsage()`
+ - Ret: `number ram` RAM usage in MB
+---
+### GetVRAMUsage
+Get the current VRAM usage in megabytes. On Vulkan platforms this returns the total bytes allocated through the VRAM allocator. On 3DS it returns free VRAM. Returns 0 on platforms without GPU memory tracking.
+
+Sig: `vram = Renderer.GetVRAMUsage()`
+ - Ret: `number vram` VRAM usage in MB
+---
+### GetRAM1Usage
+Get platform-specific memory pool 1 usage in megabytes. On 3DS this is linear heap free space. On Wii/GameCube this is MEM1 (arena 1) free space. Returns 0 on Windows/Linux/Android.
+
+Sig: `ram1 = Renderer.GetRAM1Usage()`
+ - Ret: `number ram1` RAM pool 1 usage in MB
+---
+### GetRAM2Usage
+Get platform-specific memory pool 2 usage in megabytes. On 3DS this is VRAM free space. On Wii this is MEM2 (arena 2) free space. Returns 0 on Windows/Linux/Android/GameCube.
+
+Sig: `ram2 = Renderer.GetRAM2Usage()`
+ - Ret: `number ram2` RAM pool 2 usage in MB
+---
+### GetCPUUsage
+Get the CPU usage as a percentage (0-100). On Windows this measures process CPU time vs wall time. On Linux it parses /proc/self/stat. Returns 0 on 3DS/Dolphin/Android.
+
+Sig: `cpu = Renderer.GetCPUUsage()`
+ - Ret: `number cpu` CPU usage percentage
+---
+### AddDebugResourcesWidget
+Create a DebugResourcesWidget and attach it as a child of the given parent widget. The widget displays live progress bars for RAM, VRAM, and FPS. It auto-updates every 0.5 seconds for memory and every frame for FPS.
+
+Sig: `widget = Renderer.AddDebugResourcesWidget(parent, showMultipleRAM=true, showFPS=true, showVRAM=true)`
+ - Arg: `Node parent` Parent widget to attach to
+ - Arg: `boolean showMultipleRAM` Show RAM1/RAM2 rows (default true)
+ - Arg: `boolean showFPS` Show FPS row (default true)
+ - Arg: `boolean showVRAM` Show VRAM row (default true)
+ - Ret: `DebugResourcesWidget widget` The created widget
+
+Example:
+```lua
+-- Create a debug resources panel on a UI canvas
+local panel = Renderer.AddDebugResourcesWidget(myCanvas, true, true, true)
+
+-- Position it
+panel:SetAnchorMode(AnchorMode.TopRight)
+panel:SetPosition(-310, 10)
+
+-- Hide it later
+panel:SetVisible(false)
+
+-- Or destroy it
+panel:Destroy()
+```
+---

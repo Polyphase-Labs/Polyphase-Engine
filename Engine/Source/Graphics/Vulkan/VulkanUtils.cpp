@@ -17,6 +17,9 @@
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "Nodes/3D/InstancedMesh3d.h"
 #include "Nodes/3D/TextMesh3d.h"
+#include "Nodes/3D/Voxel3d.h"
+#include "Nodes/3D/Terrain3d.h"
+#include "Nodes/3D/TileMap2d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/Widgets/Quad.h"
 #include "Nodes/Widgets/Text.h"
@@ -1355,40 +1358,82 @@ void BindMaterialDescriptorSet(Material* material)
     MaterialResource* resource = material->GetResource();
     std::vector<ShaderParameter>& params = material->GetParameters();
 
-    if (material->IsLite())
+    // Determine if this non-Lite material has no compiled fragment shader.
+    // BindMaterialResource falls back to Forward.frag in that case, which expects
+    // the Lite descriptor layout (UBO + 4 textures). Binding a mismatched layout
+    // or a zero-size UBO causes a Vulkan spec violation and GPU hang (TDR).
+    bool useLiteLayout = material->IsLite();
+    if (!useLiteLayout)
     {
-        MaterialLite* matLite = (MaterialLite*)material;
-
-        Texture* textures[4] = {};
-        textures[0] = matLite->GetTexture(0);
-        textures[1] = matLite->GetTexture(1);
-        textures[2] = matLite->GetTexture(2);
-        textures[3] = matLite->GetTexture(3);
-
-        // Update uniform buffer data
-        MaterialData ubo = {};
-        WriteMaterialLiteUniformData(ubo, matLite);
-
-        UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
-
-        // Ensure we are using valid textures
-        Renderer* renderer = Renderer::Get();
-        for (uint32_t i = 0; i < 4; ++i)
+        MaterialResource* effectiveRes = resource;
+        if (material->IsInstance())
         {
-            Texture* texture = textures[i];
-            if (texture == nullptr)
+            MaterialInstance* inst = (MaterialInstance*)material;
+            MaterialBase* base = inst->GetBaseMaterial();
+            if (base)
+                effectiveRes = base->GetResource();
+        }
+        if (effectiveRes->mFragmentShader == nullptr)
+        {
+            useLiteLayout = true;
+        }
+    }
+
+    if (useLiteLayout)
+    {
+        MaterialData ubo = {};
+        Renderer* renderer = Renderer::Get();
+        Image* images[4] = {};
+
+        if (material->IsLite())
+        {
+            MaterialLite* matLite = (MaterialLite*)material;
+
+            Texture* textures[4] = {};
+            textures[0] = matLite->GetTexture(0);
+            textures[1] = matLite->GetTexture(1);
+            textures[2] = matLite->GetTexture(2);
+            textures[3] = matLite->GetTexture(3);
+
+            WriteMaterialLiteUniformData(ubo, matLite);
+
+            for (uint32_t i = 0; i < 4; ++i)
             {
-                texture = renderer->mWhiteTexture.Get<Texture>();
-                OCT_ASSERT(texture != nullptr);
+                Texture* tex = textures[i];
+                if (tex == nullptr || tex->GetResource()->mImage == nullptr)
+                {
+                    tex = renderer->mWhiteTexture.Get<Texture>();
+                }
+                OCT_ASSERT(tex != nullptr && tex->GetResource()->mImage != nullptr);
+                images[i] = tex->GetResource()->mImage;
+            }
+        }
+        else
+        {
+            // Uncompiled MaterialBase/Instance falling back to Forward.frag.
+            // Use default white material so the descriptor layout matches.
+            ubo.mUvScale0 = glm::vec2(1.0f);
+            ubo.mUvScale1 = glm::vec2(1.0f);
+            ubo.mColor = glm::vec4(1.0f);
+            ubo.mOpacity = 1.0f;
+            ubo.mMaskCutoff = 0.5f;
+
+            Texture* whiteTex = renderer->mWhiteTexture.Get<Texture>();
+            OCT_ASSERT(whiteTex != nullptr && whiteTex->GetResource()->mImage != nullptr);
+            for (uint32_t i = 0; i < 4; ++i)
+            {
+                images[i] = whiteTex->GetResource()->mImage;
             }
         }
 
+        UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
+
         DescriptorSet::Begin("Lite Material DS")
             .WriteUniformBuffer(MD_UNIFORM_BUFFER, uniformBlock)
-            .WriteImage(MD_TEXTURE_START + 0, textures[0]->GetResource()->mImage)
-            .WriteImage(MD_TEXTURE_START + 1, textures[1]->GetResource()->mImage)
-            .WriteImage(MD_TEXTURE_START + 2, textures[2]->GetResource()->mImage)
-            .WriteImage(MD_TEXTURE_START + 3, textures[3]->GetResource()->mImage)
+            .WriteImage(MD_TEXTURE_START + 0, images[0])
+            .WriteImage(MD_TEXTURE_START + 1, images[1])
+            .WriteImage(MD_TEXTURE_START + 2, images[2])
+            .WriteImage(MD_TEXTURE_START + 3, images[3])
             .Build()
             .Bind(cb, 2);
     }
@@ -1402,7 +1447,7 @@ void BindMaterialDescriptorSet(Material* material)
         DescriptorSet matSet = DescriptorSet::Begin("Material DS");
 
         Renderer* renderer = Renderer::Get();
-        
+
         // Update uniform buffer data
         UniformBlock uniformBlock = WriteUniformBlock(uboData, uboSize);
         matSet.WriteUniformBuffer(MD_UNIFORM_BUFFER, uniformBlock);
@@ -1413,11 +1458,11 @@ void BindMaterialDescriptorSet(Material* material)
             if (param.mType == ShaderParameterType::Texture)
             {
                 Texture* texture = param.mTextureValue.Get<Texture>();
-                if (texture == nullptr)
+                if (texture == nullptr || texture->GetResource()->mImage == nullptr)
                 {
                     texture = renderer->mWhiteTexture.Get<Texture>();
-                    OCT_ASSERT(texture != nullptr);
                 }
+                OCT_ASSERT(texture != nullptr && texture->GetResource()->mImage != nullptr);
 
                 matSet.WriteImage(param.mOffset, texture->GetResource()->mImage);
             }
@@ -2087,6 +2132,345 @@ void BindGeometryDescriptorSet(TextMesh3D* textMeshComp)
         .Build()
         .Bind(cb, 1);
 }
+
+void CreateVoxel3DResource(Voxel3D* voxel)
+{
+    // Resource will be created on first upload
+}
+
+void DestroyVoxel3DResource(Voxel3D* voxel)
+{
+    Voxel3DResource* resource = voxel->GetResource();
+
+    if (resource->mVertexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+}
+
+void UpdateVoxel3DResource(Voxel3D* voxel, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    Voxel3DResource* resource = voxel->GetResource();
+
+    // Vertex buffer
+    size_t vertexSize = vertices.size() * sizeof(VertexColor);
+    if (resource->mVertexBuffer != nullptr && resource->mVertexBuffer->GetSize() < vertexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mVertexBuffer == nullptr && vertexSize > 0)
+    {
+        resource->mVertexBuffer = new Buffer(BufferType::Vertex, vertexSize, "Voxel3D Vertices");
+    }
+
+    if (resource->mVertexBuffer != nullptr && vertices.size() > 0)
+    {
+        resource->mVertexBuffer->Update(vertices.data(), vertexSize, 0);
+    }
+
+    // Index buffer
+    size_t indexSize = indices.size() * sizeof(IndexType);
+    if (resource->mIndexBuffer != nullptr && resource->mIndexBuffer->GetSize() < indexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer == nullptr && indexSize > 0)
+    {
+        resource->mIndexBuffer = new Buffer(BufferType::Index, indexSize, "Voxel3D Indices");
+    }
+
+    if (resource->mIndexBuffer != nullptr && indices.size() > 0)
+    {
+        resource->mIndexBuffer->Update(indices.data(), indexSize, 0);
+    }
+}
+
+void DrawVoxel3D(Voxel3D* voxel)
+{
+    Voxel3DResource* resource = voxel->GetResource();
+    if (resource->mVertexBuffer == nullptr || resource->mIndexBuffer == nullptr || voxel->GetNumIndices() == 0)
+        return;
+
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    VkDeviceSize offset = 0;
+    VkBuffer vertexBuffer = resource->mVertexBuffer->Get();
+    vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer, &offset);
+    vkCmdBindIndexBuffer(cb, resource->mIndexBuffer->Get(), 0, VK_INDEX_TYPE_UINT32);
+
+    Material* material = nullptr;
+
+    if (GetVulkanContext()->AreMaterialsEnabled())
+    {
+        material = voxel->GetMaterial();
+        material = material ? material : Renderer::Get()->GetDefaultMaterial();
+    }
+
+    BindForwardVertexType(VertexType::VertexColor, material);
+    BindMaterialResource(material);
+    GetVulkanContext()->CommitPipeline();
+
+    BindGeometryDescriptorSet(voxel);
+    BindMaterialDescriptorSet(material);
+
+    vkCmdDrawIndexed(cb, voxel->GetNumIndices(), 1, 0, 0, 0);
+}
+
+void BindGeometryDescriptorSet(Voxel3D* voxel)
+{
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    World* world = voxel->GetWorld();
+    GeometryData ubo = {};
+
+    WriteGeometryUniformData(ubo, world, voxel, voxel->GetRenderTransform());
+    GatherGeometryLightUniformData(ubo, voxel, voxel->GetMaterial(), false);
+
+    UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
+    DescriptorSet::Begin("Voxel3D DS")
+        .WriteUniformBuffer(GD_UNIFORM_BUFFER, uniformBlock)
+        .Build()
+        .Bind(cb, 1);
+}
+
+// --- Terrain3D ---
+
+void CreateTerrain3DResource(Terrain3D* terrain)
+{
+    // Resource will be created on first upload
+}
+
+void DestroyTerrain3DResource(Terrain3D* terrain)
+{
+    Terrain3DResource* resource = terrain->GetResource();
+
+    if (resource->mVertexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+}
+
+void UpdateTerrain3DResource(Terrain3D* terrain, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    Terrain3DResource* resource = terrain->GetResource();
+
+    // Vertex buffer
+    size_t vertexSize = vertices.size() * sizeof(VertexColor);
+    if (resource->mVertexBuffer != nullptr && resource->mVertexBuffer->GetSize() < vertexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mVertexBuffer == nullptr && vertexSize > 0)
+    {
+        resource->mVertexBuffer = new Buffer(BufferType::Vertex, vertexSize, "Terrain3D Vertices");
+    }
+
+    if (resource->mVertexBuffer != nullptr && vertices.size() > 0)
+    {
+        resource->mVertexBuffer->Update(vertices.data(), vertexSize, 0);
+    }
+
+    // Index buffer
+    size_t indexSize = indices.size() * sizeof(IndexType);
+    if (resource->mIndexBuffer != nullptr && resource->mIndexBuffer->GetSize() < indexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer == nullptr && indexSize > 0)
+    {
+        resource->mIndexBuffer = new Buffer(BufferType::Index, indexSize, "Terrain3D Indices");
+    }
+
+    if (resource->mIndexBuffer != nullptr && indices.size() > 0)
+    {
+        resource->mIndexBuffer->Update(indices.data(), indexSize, 0);
+    }
+}
+
+void DrawTerrain3D(Terrain3D* terrain)
+{
+    Terrain3DResource* resource = terrain->GetResource();
+    if (resource->mVertexBuffer == nullptr || resource->mIndexBuffer == nullptr || terrain->GetNumIndices() == 0)
+        return;
+
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    VkDeviceSize offset = 0;
+    VkBuffer vertexBuffer = resource->mVertexBuffer->Get();
+    vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer, &offset);
+    vkCmdBindIndexBuffer(cb, resource->mIndexBuffer->Get(), 0, VK_INDEX_TYPE_UINT32);
+
+    Material* material = nullptr;
+
+    if (GetVulkanContext()->AreMaterialsEnabled())
+    {
+        material = terrain->GetMaterial();
+        material = material ? material : Renderer::Get()->GetDefaultMaterial();
+    }
+
+    BindForwardVertexType(VertexType::VertexColor, material);
+    BindMaterialResource(material);
+    GetVulkanContext()->CommitPipeline();
+
+    BindGeometryDescriptorSet(terrain);
+    BindMaterialDescriptorSet(material);
+
+    vkCmdDrawIndexed(cb, terrain->GetNumIndices(), 1, 0, 0, 0);
+}
+
+void BindGeometryDescriptorSet(Terrain3D* terrain)
+{
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    World* world = terrain->GetWorld();
+    GeometryData ubo = {};
+
+    WriteGeometryUniformData(ubo, world, terrain, terrain->GetRenderTransform());
+    GatherGeometryLightUniformData(ubo, terrain, terrain->GetMaterial(), false);
+
+    UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
+    DescriptorSet::Begin("Terrain3D DS")
+        .WriteUniformBuffer(GD_UNIFORM_BUFFER, uniformBlock)
+        .Build()
+        .Bind(cb, 1);
+}
+
+// --- End Terrain3D ---
+
+// --- TileMap2D ---
+
+void CreateTileMap2DResource(TileMap2D* tileMap)
+{
+    // Resource will be created on first upload
+}
+
+void DestroyTileMap2DResource(TileMap2D* tileMap)
+{
+    TileMap2DResource* resource = tileMap->GetResource();
+
+    if (resource->mVertexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer != nullptr)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+}
+
+void UpdateTileMap2DResource(TileMap2D* tileMap, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    TileMap2DResource* resource = tileMap->GetResource();
+
+    size_t vertexSize = vertices.size() * sizeof(VertexColor);
+    if (resource->mVertexBuffer != nullptr && resource->mVertexBuffer->GetSize() < vertexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mVertexBuffer);
+        resource->mVertexBuffer = nullptr;
+    }
+
+    if (resource->mVertexBuffer == nullptr && vertexSize > 0)
+    {
+        resource->mVertexBuffer = new Buffer(BufferType::Vertex, vertexSize, "TileMap2D Vertices");
+    }
+
+    if (resource->mVertexBuffer != nullptr && vertices.size() > 0)
+    {
+        resource->mVertexBuffer->Update(vertices.data(), vertexSize, 0);
+    }
+
+    size_t indexSize = indices.size() * sizeof(IndexType);
+    if (resource->mIndexBuffer != nullptr && resource->mIndexBuffer->GetSize() < indexSize)
+    {
+        GetDestroyQueue()->Destroy(resource->mIndexBuffer);
+        resource->mIndexBuffer = nullptr;
+    }
+
+    if (resource->mIndexBuffer == nullptr && indexSize > 0)
+    {
+        resource->mIndexBuffer = new Buffer(BufferType::Index, indexSize, "TileMap2D Indices");
+    }
+
+    if (resource->mIndexBuffer != nullptr && indices.size() > 0)
+    {
+        resource->mIndexBuffer->Update(indices.data(), indexSize, 0);
+    }
+}
+
+void DrawTileMap2D(TileMap2D* tileMap)
+{
+    TileMap2DResource* resource = tileMap->GetResource();
+    if (resource->mVertexBuffer == nullptr || resource->mIndexBuffer == nullptr || tileMap->GetNumIndices() == 0)
+        return;
+
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    VkDeviceSize offset = 0;
+    VkBuffer vertexBuffer = resource->mVertexBuffer->Get();
+    vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer, &offset);
+    vkCmdBindIndexBuffer(cb, resource->mIndexBuffer->Get(), 0, VK_INDEX_TYPE_UINT32);
+
+    Material* material = nullptr;
+
+    if (GetVulkanContext()->AreMaterialsEnabled())
+    {
+        material = tileMap->GetMaterial();
+        material = material ? material : Renderer::Get()->GetDefaultMaterial();
+    }
+
+    BindForwardVertexType(VertexType::VertexColor, material);
+    BindMaterialResource(material);
+    GetVulkanContext()->CommitPipeline();
+
+    BindGeometryDescriptorSet(tileMap);
+    BindMaterialDescriptorSet(material);
+
+    vkCmdDrawIndexed(cb, tileMap->GetNumIndices(), 1, 0, 0, 0);
+}
+
+void BindGeometryDescriptorSet(TileMap2D* tileMap)
+{
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    World* world = tileMap->GetWorld();
+    GeometryData ubo = {};
+
+    WriteGeometryUniformData(ubo, world, tileMap, tileMap->GetRenderTransform());
+    GatherGeometryLightUniformData(ubo, tileMap, tileMap->GetMaterial(), false);
+
+    UniformBlock uniformBlock = WriteUniformBlock(&ubo, sizeof(ubo));
+    DescriptorSet::Begin("TileMap2D DS")
+        .WriteUniformBuffer(GD_UNIFORM_BUFFER, uniformBlock)
+        .Build()
+        .Bind(cb, 1);
+}
+
+// --- End TileMap2D ---
 
 void DestroyParticleCompResource(Particle3D* particleComp)
 {

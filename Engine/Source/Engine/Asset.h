@@ -39,7 +39,19 @@ class AssetDir;
 #define ASSET_VERSION_NODE_GRAPH_VARIABLES 17
 #define ASSET_VERSION_SCENE_ICON_OVERRIDE 18
 #define ASSET_VERSION_SCENE_MENU_OVERRIDE 19
-#define ASSET_VERSION_CURRENT 19
+#define ASSET_VERSION_VOXEL3D 20
+#define ASSET_VERSION_VOXEL3D_ATLAS 21
+#define ASSET_VERSION_VOXEL3D_ATLAS_INT32 22
+#define ASSET_VERSION_TERRAIN3D 23
+#define ASSET_VERSION_TERRAIN3D_MATSLOTS 24
+#define ASSET_VERSION_TERRAIN3D_ATLAS 25
+#define ASSET_VERSION_TERRAIN3D_BAKE 26
+#define ASSET_VERSION_TERRAIN3D_BAKEDMAP 27
+#define ASSET_VERSION_TILESET_BASE 28
+#define ASSET_VERSION_TILEMAP_BASE 29
+#define ASSET_VERSION_TILESET_METADATA 30
+#define ASSET_VERSION_TILESET_AUTOTILE 31
+#define ASSET_VERSION_CURRENT 31
 // ----------------------------------------------------
 
 #define DECLARE_ASSET(Base, Parent) DECLARE_FACTORY(Base, Asset); DECLARE_OBJECT(Base, Parent);
@@ -74,6 +86,11 @@ struct AssetStub
     TypeId mType = INVALID_TYPE_ID;
     bool mEngineAsset = false;
     uint64_t mUuid = 0;  // Primary identifier
+
+    // Per-asset packaging metadata, sourced from the {asset}.meta sidecar at discovery time.
+    // Defaults preserve pre-meta behaviour: ship to all platforms, loose on disk.
+    uint32_t mPlatformMask = PlatformBit_All;
+    bool     mEmbed        = false;
 
 #if EDITOR
     std::string mName;

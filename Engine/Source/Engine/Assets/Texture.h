@@ -31,6 +31,10 @@ public:
 
     void Init(uint32_t width, uint32_t height, uint8_t* data);
 
+    // Streams a new RGBA8 pixel buffer into the existing GPU image.
+    // The texture must already be Create()'d, dimensions must match, and byteSize must equal width * height * 4.
+    void UpdatePixels(const uint8_t* data, size_t byteSize);
+
     void SetMipmapped(bool mipmapped);
     bool IsMipmapped() const;
     bool IsRenderTarget() const;
@@ -52,6 +56,8 @@ public:
     void SetForceHighQuality(bool forceHq);
 
     static bool HandlePropChange(class Datum* datum, uint32_t index, const void* newValue);
+
+    const std::vector<uint8_t>& GetPixels() const { return mPixels; }
 
 protected:
 

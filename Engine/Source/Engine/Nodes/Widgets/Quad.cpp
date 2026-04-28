@@ -90,6 +90,14 @@ void Quad::GatherProperties(std::vector<Property>& outProps)
 void Quad::GatherQuadProperties(std::vector<Property>& outProps)
 {
     outProps.push_back(Property(DatumType::Asset, "Texture", this, &mTexture, 1, Quad::HandlePropChange, int32_t(Texture::GetStaticType())));
+#if EDITOR
+    static bool sFakeCrop = false;
+    outProps.push_back(Property(DatumType::Bool, "Crop Texture", this, &sFakeCrop, 1, Quad::HandlePropChange));
+    static bool sFakeMatchAspect = false;
+    outProps.push_back(Property(DatumType::Bool, "Match Texture Aspect", this, &sFakeMatchAspect, 1, Quad::HandlePropChange));
+    static bool sFakeMatchSize = false;
+    outProps.push_back(Property(DatumType::Bool, "Match Texture Size", this, &sFakeMatchSize, 1, Quad::HandlePropChange));
+#endif
     outProps.push_back(Property(DatumType::Byte, "Object Fit", this, &mObjectFit, 1, Quad::HandlePropChange, NULL_DATUM, int32_t(ObjectFit::Count), sObjectFitStrings));
     outProps.push_back(Property(DatumType::Vector2D, "UV Scale", this, &mUvScale, 1, Quad::HandlePropChange));
     outProps.push_back(Property(DatumType::Vector2D, "UV Offset", this, &mUvOffset, 1, Quad::HandlePropChange));
@@ -483,3 +491,69 @@ uint32_t Quad::GetBorderNumVertices() const
 {
     return mBorderNumVertices;
 }
+
+#if EDITOR
+#include "imgui.h"
+#include "TextureCrop/TextureCropEditor.h"
+
+bool Quad::DrawCustomProperty(Property& prop)
+{
+    Texture* tex = mTexture.Get<Texture>();
+
+    if (prop.mName == "Crop Texture")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Crop Texture"))
+            {
+                Quad* self = this;
+                GetTextureCropEditor()->Open(tex, mUvScale, mUvOffset,
+                    [self](glm::vec2 scale, glm::vec2 offset) {
+                        self->SetUvScale(scale);
+                        self->SetUvOffset(offset);
+                    });
+            }
+            GetTextureCropEditor()->DrawPopup();
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Texture Aspect")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Texture Aspect"))
+            {
+                float texW = static_cast<float>(tex->GetWidth());
+                float texH = static_cast<float>(tex->GetHeight());
+                if (texW > 0.0f && texH > 0.0f)
+                {
+                    float texAR = texW / texH;
+                    float widgetW = GetWidth();
+                    float widgetH = GetHeight();
+                    if (widgetW >= widgetH)
+                        SetDimensions(widgetW, widgetW / texAR);
+                    else
+                        SetDimensions(widgetH * texAR, widgetH);
+                }
+            }
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Texture Size")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Texture Size"))
+            {
+                SetDimensions(static_cast<float>(tex->GetWidth()),
+                              static_cast<float>(tex->GetHeight()));
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+#endif

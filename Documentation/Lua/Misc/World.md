@@ -43,6 +43,12 @@ Sig: `node = World:SpawnScene(scene, position=Vec(0,0,0))`
  - Arg: `Vector position` World position to place new node
  - Ret: `Node node` Newly spawned node (root of spawned scene)
 ---
+### DespawnScene
+Despawn a previously spawned scene by destroying its root node and all of its children. Uses deferred destruction so it is safe to call mid-frame.
+
+Sig: `World:DespawnScene(sceneRoot)`
+ - Arg: `Node sceneRoot` Root node returned by SpawnScene
+---
 ### GetRootNode
 Get the world's root node.
 
@@ -251,10 +257,11 @@ Sig: `enable = World:IsInternalEdgeSmoothingEnabled()`
  - Ret: `boolean enable` Internal edge smoothing enabled
 ---
 ### SpawnParticle
-Spawn a particle system at a specific location and set it to automatically destroy itself after it finishes.
+Spawn a particle system at a specific location and set it to automatically destroy itself after it finishes. An optional velocity can be provided to give all spawned particles an additional base velocity.
 
-Sig: `particle = World:SpawnParticle(system, position)`
+Sig: `particle = World:SpawnParticle(system, position, velocity=nil)`
  - Arg: `ParticleSystem system` Particle system asset to instantiate
  - Arg: `Vector position` World position to place particle
+ - Arg: `Vector velocity` (optional) Base velocity added to all spawned particles
  - Ret: `Particle3D particle` The newly created particle
 ---

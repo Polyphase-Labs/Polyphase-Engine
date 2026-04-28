@@ -94,6 +94,9 @@ public:
     std::vector<Particle>& GetParticles();
     const std::vector<VertexParticle>& GetVertices();
 
+    void SetBaseVelocity(glm::vec3 velocity);
+    glm::vec3 GetBaseVelocity() const;
+
     void SetParticleVelocity(int32_t index, glm::vec3 velocity);
     glm::vec3 GetParticleVelocity(int32_t index);
 
@@ -138,6 +141,7 @@ protected:
     bool mAlwaysSimulate = true;
     bool mEnableSimulation = true;
     ParticleOrientation mOrientation = ParticleOrientation::Billboard;
+    glm::vec3 mBaseVelocity = {};
 
     // Graphics Resource
     ParticleCompResource mResource;

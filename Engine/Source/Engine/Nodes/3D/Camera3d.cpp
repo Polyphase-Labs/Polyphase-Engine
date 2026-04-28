@@ -170,13 +170,12 @@ void Camera3D::ComputeMatrices()
 
         mViewProjectionMatrix = mProjectionMatrix * mViewMatrix;
 
-        // Because the 3DS projection matrix is wonky and I don't know how to 
-        // derive the clipspace position for World-To-Screen conversions,
-        // just create a standard perspective matrix and we can use it for the conversions.
-        glm::mat4 stdProjMtx = glm::perspectiveFov(
+        // Standard perspective matrix for World-To-Screen conversions.
+        // Use glm::perspective (vertical FOV + aspect) so the FOV axis
+        // matches the engine's mFovY definition exactly.
+        glm::mat4 stdProjMtx = glm::perspective(
             glm::radians(mFovY),
             mAspectRatio,
-            1.0f,
             mNear,
             mFar);
 
@@ -189,7 +188,7 @@ void Camera3D::ComputeMatrices()
 glm::mat4 Camera3D::CalculateViewMatrix()
 {
     glm::mat4 view = glm::toMat4(glm::conjugate(GetWorldRotationQuat()));
-    view = translate(mViewMatrix, -GetWorldPosition());
+    view = translate(view, -GetWorldPosition());
     return view;
 }
 
@@ -369,6 +368,11 @@ glm::vec3 Camera3D::ScreenToWorldPosition(int32_t x, int32_t y)
     World* world = GetWorld();
     if (world != nullptr)
     {
+        // Ensure VP matrix reflects the current camera transform.
+        // ComputeMatrices is normally called during rendering, but game
+        // code may call ScreenToWorldPosition during Tick (before render).
+        ComputeMatrices();
+
         int32_t worldIdx = world->GetIndex();
         worldIdx = (worldIdx == -1) ? 0 : worldIdx;
 

@@ -193,6 +193,15 @@ std::string GetDevenvPath()
     if (devenvPath.size() > keySize)
     {
         devenvPath = devenvPath.substr(keySize);
+
+        // Use devenv.com (console wrapper) instead of devenv.exe (GUI) so
+        // that build output including compiler errors is written to stdout.
+        size_t exePos = devenvPath.rfind(".exe");
+        if (exePos != std::string::npos)
+        {
+            devenvPath.replace(exePos, 4, ".com");
+        }
+
         devenvPath.insert(devenvPath.begin(), '\"');
         devenvPath.push_back('\"');
     }

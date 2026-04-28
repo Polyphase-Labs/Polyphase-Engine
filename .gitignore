@@ -3,13 +3,18 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# libgit2 prebuild scratch directory
+Engine/External/libgit2/build/
+
 # Polyphase-specific files
 Local_*/
 Engine/Assets/*/*.oct
+!Engine/Assets/Fonts/*.oct
 Packaged/
 AssetRegistry.txt
 */Generated/EmbeddedAssets.*
 */Generated/EmbeddedScripts.*
+*/Generated/AddonPlugins.cpp
 *.a
 *.so
 *.dol
@@ -313,7 +318,6 @@ __pycache__/
 
 # Vim temporary files
 .*.swp
-/.claude
 
 # Polyphase builds at the root level
 Polyphase.ex*
@@ -346,3 +350,7 @@ Documentation/api/
 Polyphase.exe
 Polyphase.exp
 Polyphase.lib
+*.orig
+/Standalone/Standalone.vcxproj.orig
+/Standalone/Polyphase.ico.bak
+build/

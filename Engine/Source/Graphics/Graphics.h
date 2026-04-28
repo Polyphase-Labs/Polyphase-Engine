@@ -113,6 +113,27 @@ void GFX_DestroyTextMeshCompResource(TextMesh3D* textMeshComp);
 void GFX_UpdateTextMeshCompVertexBuffer(TextMesh3D* textMeshComp, const std::vector<Vertex>& vertices);
 void GFX_DrawTextMeshComp(TextMesh3D* textMeshComp);
 
+// Voxel3D
+class Voxel3D;
+void GFX_CreateVoxel3DResource(Voxel3D* voxel);
+void GFX_DestroyVoxel3DResource(Voxel3D* voxel);
+void GFX_UpdateVoxel3DResource(Voxel3D* voxel, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void GFX_DrawVoxel3D(Voxel3D* voxel);
+
+// Terrain3D
+class Terrain3D;
+void GFX_CreateTerrain3DResource(Terrain3D* terrain);
+void GFX_DestroyTerrain3DResource(Terrain3D* terrain);
+void GFX_UpdateTerrain3DResource(Terrain3D* terrain, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void GFX_DrawTerrain3D(Terrain3D* terrain);
+
+// TileMap2D
+class TileMap2D;
+void GFX_CreateTileMap2DResource(TileMap2D* tileMap);
+void GFX_DestroyTileMap2DResource(TileMap2D* tileMap);
+void GFX_UpdateTileMap2DResource(TileMap2D* tileMap, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void GFX_DrawTileMap2D(TileMap2D* tileMap);
+
 // ParticleComp
 void GFX_CreateParticleCompResource(Particle3D* particleComp);
 void GFX_DestroyParticleCompResource(Particle3D* particleComp);

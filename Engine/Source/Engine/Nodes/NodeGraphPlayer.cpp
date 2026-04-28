@@ -221,6 +221,13 @@ void NodeGraphPlayer::StopGraph()
     mPaused = false;
 }
 
+void NodeGraphPlayer::FireNamedEvent(const char* eventName)
+{
+    if (!mPlaying || mPaused)
+        return;
+    FireEvent(eventName);
+}
+
 void NodeGraphPlayer::FireEvent(const char* eventName)
 {
     if (mRuntimeGraph == nullptr)

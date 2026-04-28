@@ -27,6 +27,9 @@ class SkeletalMesh3D;
 class ShadowMesh3D;
 class InstancedMesh3D;
 class TextMesh3D;
+class Voxel3D;
+class Terrain3D;
+class TileMap2D;
 class Particle3D;
 class Primitive3D;
 class Node3D;
@@ -147,6 +150,27 @@ void DestroyTextMeshCompResource(TextMesh3D* textMeshComp);
 void UpdateTextMeshCompVertexBuffer(TextMesh3D* textMeshComp, const std::vector<Vertex>& vertices);
 void DrawTextMeshComp(TextMesh3D* textMeshComp);
 void BindGeometryDescriptorSet(TextMesh3D* textMeshComp);
+
+// Voxel3D
+void CreateVoxel3DResource(Voxel3D* voxel);
+void DestroyVoxel3DResource(Voxel3D* voxel);
+void UpdateVoxel3DResource(Voxel3D* voxel, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void DrawVoxel3D(Voxel3D* voxel);
+void BindGeometryDescriptorSet(Voxel3D* voxel);
+
+// Terrain3D
+void CreateTerrain3DResource(Terrain3D* terrain);
+void DestroyTerrain3DResource(Terrain3D* terrain);
+void UpdateTerrain3DResource(Terrain3D* terrain, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void DrawTerrain3D(Terrain3D* terrain);
+void BindGeometryDescriptorSet(Terrain3D* terrain);
+
+// TileMap2D
+void CreateTileMap2DResource(TileMap2D* tileMap);
+void DestroyTileMap2DResource(TileMap2D* tileMap);
+void UpdateTileMap2DResource(TileMap2D* tileMap, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices);
+void DrawTileMap2D(TileMap2D* tileMap);
+void BindGeometryDescriptorSet(TileMap2D* tileMap);
 
 // ParticleComp
 void DestroyParticleCompResource(Particle3D* particleComp);

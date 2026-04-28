@@ -138,9 +138,29 @@ bool Window::HandlePropChange(Datum* datum, uint32_t index, const void* newValue
         window->SetBackgroundTexture(*(Texture**)newValue);
         success = true;
     }
+    else if (prop->mName == "Background UV Scale")
+    {
+        window->SetBackgroundUVScale(*static_cast<const glm::vec2*>(newValue));
+        success = true;
+    }
+    else if (prop->mName == "Background UV Offset")
+    {
+        window->SetBackgroundUVOffset(*static_cast<const glm::vec2*>(newValue));
+        success = true;
+    }
     else if (prop->mName == "Title Bar Texture")
     {
         window->SetTitleBarTexture(*(Texture**)newValue);
+        success = true;
+    }
+    else if (prop->mName == "Title Bar UV Scale")
+    {
+        window->SetTitleBarUVScale(*static_cast<const glm::vec2*>(newValue));
+        success = true;
+    }
+    else if (prop->mName == "Title Bar UV Offset")
+    {
+        window->SetTitleBarUVOffset(*static_cast<const glm::vec2*>(newValue));
         success = true;
     }
     else if (prop->mName == "Close Button Texture")
@@ -321,7 +341,23 @@ void Window::GatherProperties(std::vector<Property>& props)
     props.push_back(Property(DatumType::Color, "Title Bar Color", this, &mTitleBarColor, 1, HandlePropChange));
     props.push_back(Property(DatumType::Color, "Background Color", this, &mBackgroundColor, 1, HandlePropChange));
     props.push_back(Property(DatumType::Asset, "Background Texture", this, &mBackgroundTexture, 1, HandlePropChange, int32_t(Texture::GetStaticType())));
+    props.push_back(Property(DatumType::Vector2D, "Background UV Scale", this, &mBackgroundUVScale, 1, HandlePropChange));
+    props.push_back(Property(DatumType::Vector2D, "Background UV Offset", this, &mBackgroundUVOffset, 1, HandlePropChange));
+#if EDITOR
+    static bool sFakeBgCrop = false;
+    props.push_back(Property(DatumType::Bool, "Crop Background Texture", this, &sFakeBgCrop, 1, HandlePropChange));
+    static bool sFakeBgMatchAspect = false;
+    props.push_back(Property(DatumType::Bool, "Match Background Aspect", this, &sFakeBgMatchAspect, 1, HandlePropChange));
+    static bool sFakeBgMatchSize = false;
+    props.push_back(Property(DatumType::Bool, "Match Background Size", this, &sFakeBgMatchSize, 1, HandlePropChange));
+#endif
     props.push_back(Property(DatumType::Asset, "Title Bar Texture", this, &mTitleBarTexture, 1, HandlePropChange, int32_t(Texture::GetStaticType())));
+    props.push_back(Property(DatumType::Vector2D, "Title Bar UV Scale", this, &mTitleBarUVScale, 1, HandlePropChange));
+    props.push_back(Property(DatumType::Vector2D, "Title Bar UV Offset", this, &mTitleBarUVOffset, 1, HandlePropChange));
+#if EDITOR
+    static bool sFakeTbCrop = false;
+    props.push_back(Property(DatumType::Bool, "Crop Title Bar Texture", this, &sFakeTbCrop, 1, HandlePropChange));
+#endif
     props.push_back(Property(DatumType::Asset, "Close Button Texture", this, &mCloseButtonTexture, 1, HandlePropChange, int32_t(Texture::GetStaticType())));
     props.push_back(Property(DatumType::Color, "Close Button Normal Color", this, &mCloseButtonNormalColor, 1, HandlePropChange));
     props.push_back(Property(DatumType::Color, "Close Button Hovered Color", this, &mCloseButtonHoveredColor, 1, HandlePropChange));
@@ -549,6 +585,8 @@ void Window::UpdateLayout()
     {
         mBackground->SetColor(mBackgroundColor);
         mBackground->SetTexture(mBackgroundTexture.Get<Texture>());
+        mBackground->SetUvScale(mBackgroundUVScale);
+        mBackground->SetUvOffset(mBackgroundUVOffset);
     }
 
     // Update title text alignment and size
@@ -585,6 +623,8 @@ void Window::UpdateLayout()
         {
             titleBg->SetColor(mTitleBarColor);
             titleBg->SetTexture(mTitleBarTexture.Get<Texture>());
+            titleBg->SetUvScale(mTitleBarUVScale);
+            titleBg->SetUvOffset(mTitleBarUVOffset);
         }
     }
 }
@@ -908,6 +948,28 @@ Texture* Window::GetBackgroundTexture()
     return mBackgroundTexture.Get<Texture>();
 }
 
+void Window::SetBackgroundUVScale(glm::vec2 scale)
+{
+    mBackgroundUVScale = scale;
+    MarkDirty();
+}
+
+glm::vec2 Window::GetBackgroundUVScale() const
+{
+    return mBackgroundUVScale;
+}
+
+void Window::SetBackgroundUVOffset(glm::vec2 offset)
+{
+    mBackgroundUVOffset = offset;
+    MarkDirty();
+}
+
+glm::vec2 Window::GetBackgroundUVOffset() const
+{
+    return mBackgroundUVOffset;
+}
+
 void Window::SetTitleBarTexture(Texture* texture)
 {
     mTitleBarTexture = texture;
@@ -917,6 +979,28 @@ void Window::SetTitleBarTexture(Texture* texture)
 Texture* Window::GetTitleBarTexture()
 {
     return mTitleBarTexture.Get<Texture>();
+}
+
+void Window::SetTitleBarUVScale(glm::vec2 scale)
+{
+    mTitleBarUVScale = scale;
+    MarkDirty();
+}
+
+glm::vec2 Window::GetTitleBarUVScale() const
+{
+    return mTitleBarUVScale;
+}
+
+void Window::SetTitleBarUVOffset(glm::vec2 offset)
+{
+    mTitleBarUVOffset = offset;
+    MarkDirty();
+}
+
+glm::vec2 Window::GetTitleBarUVOffset() const
+{
+    return mTitleBarUVOffset;
 }
 
 void Window::SetCloseButtonTexture(Texture* texture)
@@ -987,3 +1071,91 @@ Quad* Window::GetBackground()
 {
     return mBackground;
 }
+
+#if EDITOR
+#include "imgui.h"
+#include "TextureCrop/TextureCropEditor.h"
+
+bool Window::DrawCustomProperty(Property& prop)
+{
+    // Background texture crop/match
+    if (prop.mName == "Crop Background Texture")
+    {
+        Texture* tex = mBackgroundTexture.Get<Texture>();
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Crop Background Texture"))
+            {
+                Window* self = this;
+                GetTextureCropEditor()->Open(tex, mBackgroundUVScale, mBackgroundUVOffset,
+                    [self](glm::vec2 scale, glm::vec2 offset) {
+                        self->SetBackgroundUVScale(scale);
+                        self->SetBackgroundUVOffset(offset);
+                    });
+            }
+            GetTextureCropEditor()->DrawPopup();
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Background Aspect")
+    {
+        Texture* tex = mBackgroundTexture.Get<Texture>();
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Background Aspect"))
+            {
+                float texW = static_cast<float>(tex->GetWidth());
+                float texH = static_cast<float>(tex->GetHeight());
+                if (texW > 0.0f && texH > 0.0f)
+                {
+                    float texAR = texW / texH;
+                    float widgetW = GetWidth();
+                    float widgetH = GetHeight();
+                    if (widgetW >= widgetH)
+                        SetDimensions(widgetW, widgetW / texAR);
+                    else
+                        SetDimensions(widgetH * texAR, widgetH);
+                }
+            }
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Background Size")
+    {
+        Texture* tex = mBackgroundTexture.Get<Texture>();
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Background Size"))
+            {
+                SetDimensions(static_cast<float>(tex->GetWidth()),
+                              static_cast<float>(tex->GetHeight()));
+            }
+        }
+        return true;
+    }
+
+    // Title bar texture crop
+    if (prop.mName == "Crop Title Bar Texture")
+    {
+        Texture* tex = mTitleBarTexture.Get<Texture>();
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Crop Title Bar Texture"))
+            {
+                Window* self = this;
+                GetTextureCropEditor()->Open(tex, mTitleBarUVScale, mTitleBarUVOffset,
+                    [self](glm::vec2 scale, glm::vec2 offset) {
+                        self->SetTitleBarUVScale(scale);
+                        self->SetTitleBarUVOffset(offset);
+                    });
+            }
+            GetTextureCropEditor()->DrawPopup();
+        }
+        return true;
+    }
+
+    return false;
+}
+#endif

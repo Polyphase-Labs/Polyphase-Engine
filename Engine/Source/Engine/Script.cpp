@@ -16,6 +16,10 @@
 #include "LuaBindings/World_Lua.h"
 #include "LuaBindings/Property_Lua.h"
 
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+#endif
+
 DEFINE_OBJECT(Script);
 
 std::unordered_map<std::string, ScriptNetFuncMap> Script::sScriptNetFuncMap;
@@ -123,6 +127,8 @@ void Script::UploadScriptProperties()
 {
     for (uint32_t i = 0; i < mScriptProps.size(); ++i)
     {
+        if (mScriptProps[i].mType == DatumType::Function)
+            continue;
         UploadDatum(mScriptProps[i], mScriptProps[i].mName.c_str());
     }
 }
@@ -214,6 +220,15 @@ void Script::GatherScriptProperties()
                             isArray = lua_toboolean(L, -1);
                             lua_pop(L, 1);
 
+#if EDITOR
+                            lua_getfield(L, propIdx, "display_name");
+                            if (lua_isstring(L, -1))
+                            {
+                                newProp.mDisplayName = lua_tostring(L, -1);
+                            }
+                            lua_pop(L, 1);
+#endif
+
                             newProp.mOwner = this;
                             newProp.mExternal = false;
                             newProp.mChangeHandler = HandleScriptPropChange;
@@ -225,9 +240,11 @@ void Script::GatherScriptProperties()
 
                             // Setup initial value and push it onto the outProps vector.
                             // Table datum type is not supported for script props.
+                            // Function type is editor-only (rendered as a button) and has no data.
                             if (newProp.mName != "" &&
                                 type != DatumType::Count &&
-                                type != DatumType::Table)
+                                type != DatumType::Table &&
+                                type != DatumType::Function)
                             {
                                 int32_t count = 1;
                                 int tableIdx = -1;
@@ -262,7 +279,7 @@ void Script::GatherScriptProperties()
                                     lua_getfield(L, isArray ? tableIdx : udIdx, name);
 
                                     if (lua_isnil(L, -1) &&
-                                        type != DatumType::Asset)
+                                        !IsAssetDatumType(type))
                                     {
                                         // Pop nil
                                         lua_pop(L, 1);
@@ -352,6 +369,12 @@ void Script::GatherScriptProperties()
                                         break;
                                     }
                                     case DatumType::Asset:
+                                    case DatumType::Scene:
+                                    case DatumType::Material:
+                                    case DatumType::TileSet:
+                                    case DatumType::TileMap:
+                                    case DatumType::Timeline:
+                                    case DatumType::NodeGraphAsset:
                                     {
                                         Asset* asset = nullptr;
                                         if (!lua_isnil(L, -1))
@@ -382,6 +405,31 @@ void Script::GatherScriptProperties()
                                     case DatumType::Text:
                                     case DatumType::Quad:
                                     case DatumType::Spline3D:
+                                    case DatumType::SpinBox:
+                                    case DatumType::Window:
+                                    case DatumType::DialogWindow:
+                                    case DatumType::InputField:
+                                    case DatumType::ProgressBar:
+                                    case DatumType::CheckBox:
+                                    case DatumType::ListViewWidget:
+                                    case DatumType::ListViewItemWidget:
+                                    case DatumType::DebugResourcesWidget:
+                                    case DatumType::ArrayWidget:
+                                    case DatumType::Button:
+                                    case DatumType::Slider:
+                                    case DatumType::LineEdit:
+                                    case DatumType::Canvas:
+                                    case DatumType::ComboBox:
+                                    case DatumType::Voxel3D:
+                                    case DatumType::Terrain3D:
+                                    case DatumType::TileMap2D:
+                                    case DatumType::NavMesh3D:
+                                    case DatumType::Camera3D:
+                                    case DatumType::DirectionalLight3D:
+                                    case DatumType::Box3D:
+                                    case DatumType::Particle3D:
+                                    case DatumType::TimelinePlayer:
+                                    case DatumType::NodeGraphPlayer:
                                     {
                                         Node* node = nullptr;
                                         if (luaL_testudata(L, -1, NODE_WRAPPER_TABLE_NAME))
@@ -401,8 +449,7 @@ void Script::GatherScriptProperties()
 
                                     case DatumType::Function:
                                     {
-                                        LogError("Function script properties are not supported.");
-                                        OCT_ASSERT(0);
+                                        // Function properties are handled separately (no data).
                                         break;
                                     }
 
@@ -425,6 +472,12 @@ void Script::GatherScriptProperties()
                                     // pop the array table
                                     lua_pop(L, 1);
                                 }
+                            }
+                            else if (newProp.mName != "" && type == DatumType::Function)
+                            {
+                                // Function properties are editor-only buttons with no data.
+                                // Just push the property — clicking it calls the Lua function.
+                                mScriptProps.push_back(newProp);
                             }
                             else
                             {
@@ -544,6 +597,12 @@ void Script::GatherAutoProperties()
                     newProp.PushBack(value.GetColor());
                     break;
                 case DatumType::Asset:
+                case DatumType::Scene:
+                case DatumType::Material:
+                case DatumType::TileSet:
+                case DatumType::TileMap:
+                case DatumType::Timeline:
+                case DatumType::NodeGraphAsset:
                     newProp.PushBack(value.GetAsset());
                     break;
                 case DatumType::Node:
@@ -553,6 +612,30 @@ void Script::GatherAutoProperties()
                 case DatumType::Text:
                 case DatumType::Quad:
                 case DatumType::Spline3D:
+                case DatumType::SpinBox:
+                case DatumType::Window:
+                case DatumType::DialogWindow:
+                case DatumType::InputField:
+                case DatumType::ProgressBar:
+                case DatumType::CheckBox:
+                case DatumType::ListViewWidget:
+                case DatumType::ListViewItemWidget:
+                case DatumType::DebugResourcesWidget:
+                case DatumType::ArrayWidget:
+                case DatumType::Button:
+                case DatumType::Slider:
+                case DatumType::LineEdit:
+                case DatumType::Canvas:
+                case DatumType::Voxel3D:
+                case DatumType::Terrain3D:
+                case DatumType::TileMap2D:
+                case DatumType::NavMesh3D:
+                case DatumType::Camera3D:
+                case DatumType::DirectionalLight3D:
+                case DatumType::Box3D:
+                case DatumType::Particle3D:
+                case DatumType::TimelinePlayer:
+                case DatumType::NodeGraphPlayer:
                     newProp.PushBack(value.GetNode());
                     break;
                 case DatumType::Byte:
@@ -593,6 +676,12 @@ void Script::GatherAutoProperties()
                 newProp.PushBack(autoProp.mDefaultValue.GetColor());
                 break;
             case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
                 newProp.PushBack(autoProp.mDefaultValue.GetAsset());
                 break;
             case DatumType::Node:
@@ -602,6 +691,31 @@ void Script::GatherAutoProperties()
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
                 newProp.PushBack(autoProp.mDefaultValue.GetNode());
                 break;
             case DatumType::Byte:
@@ -773,6 +887,12 @@ void Script::GatherReplicatedData()
                                     break;
                                 }
                                 case DatumType::Asset:
+                                case DatumType::Scene:
+                                case DatumType::Material:
+                                case DatumType::TileSet:
+                                case DatumType::TileMap:
+                                case DatumType::Timeline:
+                                case DatumType::NodeGraphAsset:
                                 {
                                     Asset* asset = nullptr;
                                     if (!lua_isnil(L, -1))
@@ -803,6 +923,30 @@ void Script::GatherReplicatedData()
                                 case DatumType::Text:
                                 case DatumType::Quad:
                                 case DatumType::Spline3D:
+                                case DatumType::SpinBox:
+                                case DatumType::Window:
+                                case DatumType::DialogWindow:
+                                case DatumType::InputField:
+                                case DatumType::ProgressBar:
+                                case DatumType::CheckBox:
+                                case DatumType::ListViewWidget:
+                                case DatumType::ListViewItemWidget:
+                                case DatumType::DebugResourcesWidget:
+                                case DatumType::ArrayWidget:
+                                case DatumType::Button:
+                                case DatumType::Slider:
+                                case DatumType::LineEdit:
+                                case DatumType::Canvas:
+                                case DatumType::Voxel3D:
+                                case DatumType::Terrain3D:
+                                case DatumType::TileMap2D:
+                                case DatumType::NavMesh3D:
+                                case DatumType::Camera3D:
+                                case DatumType::DirectionalLight3D:
+                                case DatumType::Box3D:
+                                case DatumType::Particle3D:
+                                case DatumType::TimelinePlayer:
+                                case DatumType::NodeGraphPlayer:
                                 {
                                     Node* nodePointer = CHECK_NODE(L, -1);
                                     newDatum.PushBack(nodePointer);
@@ -1142,6 +1286,12 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
             break;
         }
         case DatumType::Asset:
+        case DatumType::Scene:
+        case DatumType::Material:
+        case DatumType::TileSet:
+        case DatumType::TileMap:
+        case DatumType::Timeline:
+        case DatumType::NodeGraphAsset:
         {
             Asset* asset = nullptr;
             if (!lua_isnil(L, -1))
@@ -1172,6 +1322,30 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
         case DatumType::Text:
         case DatumType::Quad:
         case DatumType::Spline3D:
+        case DatumType::SpinBox:
+        case DatumType::Window:
+        case DatumType::DialogWindow:
+        case DatumType::InputField:
+        case DatumType::ProgressBar:
+        case DatumType::CheckBox:
+        case DatumType::ListViewWidget:
+        case DatumType::ListViewItemWidget:
+        case DatumType::DebugResourcesWidget:
+        case DatumType::ArrayWidget:
+        case DatumType::Button:
+        case DatumType::Slider:
+        case DatumType::LineEdit:
+        case DatumType::Canvas:
+        case DatumType::Voxel3D:
+        case DatumType::Terrain3D:
+        case DatumType::TileMap2D:
+        case DatumType::NavMesh3D:
+        case DatumType::Camera3D:
+        case DatumType::DirectionalLight3D:
+        case DatumType::Box3D:
+        case DatumType::Particle3D:
+        case DatumType::TimelinePlayer:
+        case DatumType::NodeGraphPlayer:
         {
             Node* node = nullptr;
             if (!lua_isnil(L, -1))
@@ -1191,8 +1365,8 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
 
         case DatumType::Function:
         {
+            // Function properties are editor-only buttons — nothing to download.
             success = false;
-            LogError("Function script properties are not supported.");
             break;
         }
 
@@ -1247,7 +1421,14 @@ void Script::UploadDatum(Datum& datum, const char* varName)
             case DatumType::Vector2D: Vector_Lua::Create(L, datum.GetVector2D(i)); break;
             case DatumType::Vector: Vector_Lua::Create(L, datum.GetVector(i)); break;
             case DatumType::Color: Vector_Lua::Create(L, datum.GetColor(i)); break;
-            case DatumType::Asset: Asset_Lua::Create(L, datum.GetAsset(i)); break;
+            case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
+                Asset_Lua::Create(L, datum.GetAsset(i)); break;
             case DatumType::Byte: lua_pushinteger(L, (int32_t)datum.GetByte(i)); break;
             case DatumType::Short: lua_pushinteger(L, (int32_t)datum.GetShort(i)); break;
             case DatumType::Node:
@@ -1257,13 +1438,41 @@ void Script::UploadDatum(Datum& datum, const char* varName)
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
                 Node_Lua::Create(L, datum.GetNode(i).Get()); break;
 
             case DatumType::Table:
-            case DatumType::Function:
             case DatumType::Count:
                 // These datum types are not supported.
                 OCT_ASSERT(0);
+                break;
+
+            case DatumType::Function:
+                // Function properties are editor-only buttons — nothing to upload.
                 break;
             }
 
@@ -1425,6 +1634,36 @@ bool Script::InvokeNetFunc(const char* name, uint32_t numParams, const Datum** p
     }
 
     return validNetFunc;
+}
+
+void Script::OnSerialMessage(uint32_t serialHandle, const std::string& data)
+{
+#if LUA_ENABLED
+    if (mHandleOnSerialMessage && IsActive())
+    {
+        lua_State* L = GetLua();
+
+        Node_Lua::Create(L, mOwner);
+
+        OCT_ASSERT(lua_isuserdata(L, -1));
+        int udIdx = lua_gettop(L);
+        lua_getfield(L, udIdx, "OnSerialMessage");
+
+        if (lua_isfunction(L, -1))
+        {
+            lua_pushvalue(L, udIdx);
+            lua_pushinteger(L, (lua_Integer)serialHandle);
+            lua_pushlstring(L, data.data(), data.size());
+            LuaFuncCall(3);
+        }
+        else
+        {
+            lua_pop(L, 1);
+        }
+
+        lua_pop(L, 1);
+    }
+#endif
 }
 
 void Script::BeginOverlap(Primitive3D* thisNode, Primitive3D* otherNode)
@@ -1690,6 +1929,18 @@ Datum Script::CallFunctionR(const char* name, const Datum& param0, const Datum& 
 
 void Script::CallFunction(const char* name, uint32_t numParams, const Datum** params, Datum* ret)
 {
+    // NOTE: We deliberately do NOT gate CallFunction on the in-engine Lua
+    // debugger pause state. The pause gate lives only in CallTick (above).
+    //
+    // Why: Awake / Start / signal handlers / Stop / Destroy all flow through
+    // CallFunction, and the engine flags mHasAwoken / mHasStarted to TRUE
+    // *before* calling these. If we skipped them while paused, any node
+    // spawned during the pause window (e.g. via SpawnScene from a script
+    // that called Debugger.Break) would have its init permanently dropped,
+    // leaving signals / state un-set and producing nil-index errors after
+    // Continue. Init/teardown must run regardless of pause; only per-frame
+    // game progress (Tick) is what "freezing the world" means.
+
     if (IsActive())
     {
         ScriptUtils::CallMethod(mOwner, name, numParams, params, ret);
@@ -1854,6 +2105,7 @@ void Script::CreateScriptInstance()
             mHandleBeginOverlap = CheckIfFunctionExists("BeginOverlap");
             mHandleEndOverlap = CheckIfFunctionExists("EndOverlap");
             mHandleOnCollision = CheckIfFunctionExists("OnCollision");
+            mHandleOnSerialMessage = CheckIfFunctionExists("OnSerialMessage");
 
             SetWorld(mOwner->GetWorld());
 
@@ -1949,6 +2201,7 @@ void Script::DestroyScriptInstance()
     mHandleBeginOverlap = false;
     mHandleEndOverlap = false;
     mHandleOnCollision = false;
+    mHandleOnSerialMessage = false;
 #endif
 }
 
@@ -1964,6 +2217,15 @@ void Script::CallTick(float deltaTime)
 #if LUA_ENABLED
 
 #if EDITOR
+    // While the in-engine Lua debugger is paused, freeze all script ticks.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            return;
+        }
+    }
+
     if (IsActive())
     {
         if (IsGameTickEnabled())
@@ -2070,7 +2332,7 @@ void Script::GatherFunctionNames(std::vector<std::string>& outNames) const
             // Filter out known lifecycle/built-in functions
             static const char* sBuiltinFunctions[] = {
                 "Tick", "Create", "Destroy", "BeginPlay", "EndPlay",
-                "BeginOverlap", "EndOverlap", "OnCollision", "GatherProperties",
+                "BeginOverlap", "EndOverlap", "OnCollision", "OnSerialMessage", "GatherProperties",
                 "GatherReplicatedData", "GatherNetFuncs", "EditorTick"
             };
 

@@ -377,6 +377,16 @@ const std::vector<VertexParticle>& Particle3D::GetVertices()
     return mVertices;
 }
 
+void Particle3D::SetBaseVelocity(glm::vec3 velocity)
+{
+    mBaseVelocity = velocity;
+}
+
+glm::vec3 Particle3D::GetBaseVelocity() const
+{
+    return mBaseVelocity;
+}
+
 void Particle3D::SetParticleVelocity(int32_t index, glm::vec3 velocity)
 {
     if (index == -1)
@@ -609,6 +619,8 @@ void Particle3D::SpawnNewParticles(float deltaTime)
                 newParticle.mPosition = mTransform * glm::vec4(newParticle.mPosition, 1.0f);
                 newParticle.mVelocity = mTransform * glm::vec4(newParticle.mVelocity, 0.0f);
             }
+
+            newParticle.mVelocity += mBaseVelocity;
 
             mParticles.push_back(newParticle);
         }

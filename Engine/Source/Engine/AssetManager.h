@@ -28,6 +28,36 @@ struct AsyncLoadRequest
     int32_t mRequeueCount = 0;
 };
 
+#if EDITOR
+// Discovered non-.oct file (e.g. .mp4, .json, .png) tracked for packaging.
+// Raw files are invisible to the runtime asset system; this registry only
+// exists to drive packaging-time copy / embed decisions.
+//
+// mAbsolutePath follows the same convention as AssetStub::mPath:
+//   - engine asset:  "Engine/Assets/<...>"   (relative to CWD; engine source dir is co-located)
+//   - project asset: absolute path under projectDir, e.g. "M:/.../MyProject/Assets/<...>"
+//   - addon asset:   absolute path under projectDir/Packages, e.g. "M:/.../MyProject/Packages/<addon>/Assets/<...>"
+// The packaging code at ActionManager.cpp derives the destination by mirroring
+// saveDir's projectDir-prefix-strip rule: routing engine/project/addon paths
+// follows the same logic as cooked .oct files.
+struct RawAssetEntry
+{
+    std::string mAbsolutePath;
+    bool        mEngineAsset = false;
+    uint32_t    mPlatformMask = PlatformBit_All;
+    bool        mEmbed        = false;
+};
+
+// Result of reading an {asset}.meta sidecar. mExists is false when no sidecar
+// is present on disk; in that case the other fields hold their defaults.
+struct AssetMetaSidecar
+{
+    uint32_t mPlatformMask = PlatformBit_All;
+    bool     mEmbed        = false;
+    bool     mExists       = false;
+};
+#endif
+
 // Name-based lookup (backward compatible)
 POLYPHASE_API Asset* FetchAsset(const std::string& name);
 POLYPHASE_API Asset* LoadAsset(const std::string& name);
@@ -173,8 +203,29 @@ protected:
 public:
     glm::vec4 GetEditorAssetColor(TypeId type);
     void InitAssetColorMap();
+
+    // Raw (non-.oct) asset packaging registry. Populated during DiscoverDirectory.
+    const std::vector<RawAssetEntry>& GetRawAssetEntries() const { return mRawAssetEntries; }
+
+    // Read the {asset}.meta sidecar at <assetPath>.meta. Returns defaults with
+    // mExists=false when the sidecar is missing or unparseable.
+    static AssetMetaSidecar LoadAssetMeta(const std::string& assetPath);
+
+    // Write the {asset}.meta sidecar. If platformMask == PlatformBit_All AND
+    // embed == false, the sidecar is deleted from disk instead of written so
+    // the source tree stays clean for assets at all-defaults.
+    static void SaveAssetMeta(const std::string& assetPath, uint32_t platformMask, bool embed);
+
+    // Persist new packaging flags to disk via SaveAssetMeta AND update in-memory
+    // AssetStub::mPlatformMask/mEmbed (if assetPath matches a known stub) AND
+    // RawAssetEntry::mPlatformMask/mEmbed (if assetPath matches a raw entry).
+    // Use this from the editor inspector so subsequent packaging sees the new
+    // flags without needing a full rediscover.
+    void ApplyAssetMetaFlags(const std::string& assetPath, uint32_t platformMask, bool embed);
+
 protected:
     std::unordered_map<TypeId, glm::vec4> mAssetColorMap;
+    std::vector<RawAssetEntry> mRawAssetEntries;
 #endif
 };
 

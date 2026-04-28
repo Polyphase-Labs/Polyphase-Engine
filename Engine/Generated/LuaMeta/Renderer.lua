@@ -27,6 +27,10 @@ function Renderer.GetScreenResolution(screenIndex) end
 ---@return Vector
 function Renderer.GetActiveScreenResolution() end
 
+---@param screenIndex? integer
+---@return integer, integer, integer, integer
+function Renderer.GetViewportRect(screenIndex) end
+
 ---@return number
 function Renderer.GetGlobalUiScale() end
 
@@ -110,3 +114,22 @@ function Renderer.GetResolutionScale() end
 
 ---@param value Vector
 function Renderer.SetClearColor(value) end
+
+---@return number
+function Renderer.GetRAMUsage() end
+
+---@return number
+function Renderer.GetVRAMUsage() end
+
+---@return number
+function Renderer.GetRAM1Usage() end
+
+---@return number
+function Renderer.GetRAM2Usage() end
+
+---@return number
+function Renderer.GetCPUUsage() end
+
+---@param parent Node
+---@return Node
+function Renderer.AddDebugResourcesWidget(parent) end

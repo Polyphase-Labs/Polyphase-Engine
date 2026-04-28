@@ -37,6 +37,7 @@ Follow the guide for your preferred workflow:
 - **Visual Studio Code** -- See [Compiling (VS Code)](../Development/SetupEnvironment/VSCode.md): Open the project root in VS Code, install the C/C++ Extension Pack, and run the `Polyphase Editor` debug config.
 - **Terminal** -- See [Compiling (Terminal)](../Development/SetupEnvironment/Terminal.md): Build with `make` and run the editor binary directly.
 - **Visual Studio** -- See [Compiling](../Development/SetupEnvironment/Compiling.md): Open `Polyphase.sln`, switch to the `DebugEditor` configuration, and build the `Standalone` project.
+- Make sure to run ``git submodule update --init --recursive`` in your Polyphase directory to make sure the submodules got cloned/updated
 
 ### Option B: Download a Prebuilt Release
 

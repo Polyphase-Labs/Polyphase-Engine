@@ -13,6 +13,7 @@
 #include "AssetManager.h"
 
 #include "Input/Input.h"
+#include "Hotkeys/EditorHotkeyMap.h"
 
 #include "imgui.h"
 
@@ -55,10 +56,11 @@ void InputManager::Update()
 
 void InputManager::UpdateHotkeys()
 {
+    // ctrlDown / altDown are still needed by the PIE safety block below
+    // (Ctrl+Alt+P releases the cursor, Alt+P pauses). Everything else now
+    // routes through EditorHotkeyMap which handles modifier matching itself.
     const bool ctrlDown = IsControlDown();
-    const bool shiftDown = IsShiftDown();
     const bool altDown = IsAltDown();
-    bool modKeyDown = ctrlDown || shiftDown || altDown;
 
     const bool textFieldActive = ImGui::GetIO().WantTextInput;
 
@@ -109,116 +111,116 @@ void InputManager::UpdateHotkeys()
     }
     else if (!popupOpen)
     {
+        EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
         EditorMode editorMode = GetEditorState()->GetEditorMode();
         const bool isScene = (editorMode == EditorMode::Scene) || (editorMode == EditorMode::Scene2D) || (editorMode == EditorMode::Scene3D);
 
-        if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_P))
+        if (hotkeys->IsActionJustTriggered(EditorAction::File_NewProject))
         {
-            if (shiftDown)
-            {
-                ActionManager::Get()->CreateNewProject();
-            }
-            else
-            {
-                ActionManager::Get()->OpenProject();
-            }
-
-            // Fix issue where keys CTRL and P are considered held down still.
+            ActionManager::Get()->CreateNewProject();
+            // Fix issue where Ctrl+Shift+P modifiers feel stuck after the project dialog opens.
             ClearControlDown();
             ClearShiftDown();
-            INP_ClearKey(POLYPHASE_KEY_P);
+            hotkeys->ConsumeBindingKey(EditorAction::File_NewProject);
         }
-        else if (altDown && IsKeyJustDown(POLYPHASE_KEY_P))
+        else if (hotkeys->IsActionJustTriggered(EditorAction::File_OpenProject))
+        {
+            ActionManager::Get()->OpenProject();
+            ClearControlDown();
+            ClearShiftDown();
+            hotkeys->ConsumeBindingKey(EditorAction::File_OpenProject);
+        }
+        else if (hotkeys->IsActionJustTriggered(EditorAction::PIE_Toggle))
         {
             if (GetEditorState()->mPlayTarget == 0) // PlayInEditor (game window)
                 GetEditorState()->mPlayInGameWindow = true;
             GetEditorState()->BeginPlayInEditor();
         }
-        else if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_S))
+        else if (hotkeys->IsActionJustTriggered(EditorAction::File_SaveAllAssets))
         {
             if (isScene)
             {
-                if (IsShiftDown())
-                {
-                    // Save all assets
-                    ActionManager::Get()->ResaveAllAssets();
-                }
-                else
-                {
-                    ActionManager::Get()->SaveScene(false);
-
-                    // Save the edited timeline if one is open
-                    Timeline* editedTimeline = GetEditorState()->mEditedTimelineRef.Get<Timeline>();
-                    if (editedTimeline != nullptr)
-                    {
-                        AssetManager::Get()->SaveAsset(editedTimeline->GetName());
-                    }
-
-                    ClearControlDown();
-                    ClearShiftDown();
-                }
-
-                INP_ClearKey(POLYPHASE_KEY_S);
+                ActionManager::Get()->ResaveAllAssets();
+                hotkeys->ConsumeBindingKey(EditorAction::File_SaveAllAssets);
             }
         }
-        else if (shiftDown && IsKeyJustDown(POLYPHASE_KEY_S) && !textFieldActive)
+        else if (hotkeys->IsActionJustTriggered(EditorAction::File_SaveScene))
+        {
+            if (isScene)
+            {
+                ActionManager::Get()->SaveScene(false);
+
+                // Save the edited timeline if one is open
+                Timeline* editedTimeline = GetEditorState()->mEditedTimelineRef.Get<Timeline>();
+                if (editedTimeline != nullptr)
+                {
+                    AssetManager::Get()->SaveAsset(editedTimeline->GetName());
+                }
+
+                ClearControlDown();
+                ClearShiftDown();
+                hotkeys->ConsumeBindingKey(EditorAction::File_SaveScene);
+            }
+        }
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::File_SaveSelectedAsset))
         {
             ActionManager::Get()->SaveSelectedAsset();
         }
-        else if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_O))
+        else if (hotkeys->IsActionJustTriggered(EditorAction::File_OpenScene))
         {
             ActionManager::Get()->OpenScene();
             ClearControlDown();
-            INP_ClearKey(POLYPHASE_KEY_O);
+            hotkeys->ConsumeBindingKey(EditorAction::File_OpenScene);
         }
-        else if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_I))
+        else if (hotkeys->IsActionJustTriggered(EditorAction::File_ImportAsset))
         {
             ActionManager::Get()->ImportAsset();
             ClearControlDown();
-            INP_ClearKey(POLYPHASE_KEY_I);
+            hotkeys->ConsumeBindingKey(EditorAction::File_ImportAsset);
         }
-        else if (shiftDown && ctrlDown && IsKeyJustDown(POLYPHASE_KEY_Z) && !textFieldActive)
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_Redo))
         {
             ActionManager::Get()->Redo();
         }
-        else if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_Z) && !textFieldActive)
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_Undo))
         {
             ActionManager::Get()->Undo();
         }
-        else if ((altDown || ctrlDown) && IsKeyJustDown(POLYPHASE_KEY_R) && !textFieldActive)
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
         {
             ReloadAllScripts();
         }
 
-        if (ctrlDown &&
-            (GetEditorState()->GetViewport3D()->ShouldHandleInput() || 
-             GetEditorState()->GetViewport2D()->ShouldHandleInput()))
+        // Mode switches require viewport focus to avoid stomping Ctrl+number in text fields.
+        if (GetEditorState()->GetViewport3D()->ShouldHandleInput() ||
+            GetEditorState()->GetViewport2D()->ShouldHandleInput())
         {
-            if (IsKeyJustDown(POLYPHASE_KEY_1))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Mode_Scene))
             {
                 GetEditorState()->SetEditorMode(EditorMode::Scene);
             }
-            else if (IsKeyJustDown(POLYPHASE_KEY_2))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Mode_Scene2D))
             {
                 GetEditorState()->SetEditorMode(EditorMode::Scene2D);
             }
-            else if (IsKeyJustDown(POLYPHASE_KEY_3))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Mode_Scene3D))
             {
                 GetEditorState()->SetEditorMode(EditorMode::Scene3D);
                 GetEditorState()->SetPaintMode(PaintMode::None);
             }
-            else if (IsKeyJustDown(POLYPHASE_KEY_4))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Mode_PaintColor))
             {
                 GetEditorState()->SetEditorMode(EditorMode::Scene3D);
                 GetEditorState()->SetPaintMode(PaintMode::Color);
             }
-            else if (IsKeyJustDown(POLYPHASE_KEY_5))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Mode_PaintInstance))
             {
                 GetEditorState()->SetEditorMode(EditorMode::Scene3D);
                 GetEditorState()->SetPaintMode(PaintMode::Instance);
             }
         }
 
+        // Escape stays hardcoded -- it's a safety key for clearing selection / mode.
         if (IsKeyJustDown(POLYPHASE_KEY_ESCAPE))
         {
             if (GetEditorState()->mNodePropertySelect)
@@ -241,15 +243,16 @@ void InputManager::UpdateHotkeys()
 
     if (!IsPlaying() || GetEditorState()->mEjected)
     {
-        if (!modKeyDown && IsKeyJustDown(POLYPHASE_KEY_T) && !textFieldActive)
+        EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+        if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::UI_ToggleLeftPane))
         {
             GetEditorState()->mShowLeftPane = !GetEditorState()->mShowLeftPane;
         }
-        else if (!modKeyDown && IsKeyJustDown(POLYPHASE_KEY_N) && !textFieldActive)
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::UI_ToggleRightPane))
         {
             GetEditorState()->mShowRightPane = !GetEditorState()->mShowRightPane;
         }
-        else if (altDown && IsKeyJustDown(POLYPHASE_KEY_Z) && !textFieldActive)
+        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::UI_ToggleAll))
         {
             GetEditorState()->mShowInterface = !GetEditorState()->mShowInterface;
         }

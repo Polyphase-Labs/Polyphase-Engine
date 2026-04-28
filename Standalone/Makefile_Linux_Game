@@ -69,7 +69,7 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngineGame -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lBullet -lpthread -lm
+LIBS	:=	-lEngineGame -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lBullet -lpthread -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -139,7 +139,11 @@ MakeEngine:
 
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
-	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_Linux_Game
+	# Recurse via the same makefile we were invoked with. The packager copies this
+	# file to Makefile_TEMP and injects CFLAGS/LIBS/SOURCES for native addons; if we
+	# hard-coded `-f Makefile_Linux_Game` here, the inner compile pass would silently
+	# fall back to the pristine source and ignore all addon-injected flags.
+	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 #---------------------------------------------------------------------------------
 clean:

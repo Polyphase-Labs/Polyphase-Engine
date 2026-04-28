@@ -18,6 +18,15 @@
 
 class Material;
 
+enum class ParticleLoopMode : uint32_t
+{
+    Once,
+    Infinite,
+    Custom,
+
+    Count
+};
+
 struct ParticleParams
 {
     // Spawn Randomized Params
@@ -117,6 +126,7 @@ protected:
     float mBurstWindow = 0.1f;
     uint32_t mMaxParticles = 0;
     uint32_t mLoops = 0;
+    ParticleLoopMode mLoopMode = ParticleLoopMode::Infinite;
     bool mRadialVelocity = false;
     bool mRadialSpawn = false;
     bool mLockedRatio = true;

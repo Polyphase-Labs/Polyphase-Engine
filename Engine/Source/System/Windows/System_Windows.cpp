@@ -8,10 +8,15 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
 
 #include <direct.h>
 #include <chrono>
 #include <psapi.h>
+
+#if API_VULKAN
+#include "Graphics/Vulkan/VramAllocator.h"
+#endif
 #include <Shlobj.h>
 #include <assert.h>
 #include <errno.h>
@@ -31,6 +36,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #define OCT_FULLSCREEN_STYLE_FLAGS (OCT_WINDOWED_STYLE_FLAGS & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU))
 
 // MS-Windows event handling function:
+// Declared in Input_Windows.cpp — sets the HID-enumeration dirty flag so the
+// next INP_Update does an enum pass. Replaces the old 2s periodic enum.
+extern "C" void INP_NotifyDeviceChange();
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if EDITOR
@@ -41,6 +50,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     EngineState* engineState = GetEngineState();
 
     switch (uMsg) {
+    case WM_DEVICECHANGE:
+        // Arrive / remove / generic change — just mark input as dirty. The
+        // input layer does the right amount of re-enumeration on its own.
+        INP_NotifyDeviceChange();
+        break;
     case WM_CLOSE:
         // Do not post quit message, we want the editor to handle the unsaved check.
         // So simply set the quit flag.
@@ -264,6 +278,26 @@ void SYS_Initialize()
     GetModuleFileName(hInst, exeName, 1024);
     HICON icon = ExtractIcon(hInst, exeName, 0);
 
+    // Check for custom project icon
+    const std::string& iconPath = GetEngineConfig()->mIconPath;
+    if (!iconPath.empty())
+    {
+        std::string fullIconPath = GetEngineState()->mProjectDirectory + iconPath;
+        if (SYS_DoesFileExist(fullIconPath.c_str(), false))
+        {
+            HICON customIcon = (HICON)LoadImage(
+                NULL,
+                fullIconPath.c_str(),
+                IMAGE_ICON,
+                0, 0,
+                LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            if (customIcon != NULL)
+            {
+                icon = customIcon;
+            }
+        }
+    }
+
     // Initialize the window class structure:
     win_class.cbSize = sizeof(WNDCLASSEX);
     win_class.style = CS_HREDRAW | CS_VREDRAW;
@@ -389,6 +423,25 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 {
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check if this path was embedded into the exe via the
+    // {asset}.meta `embed: true` flag at packaging time. On hit, copy the
+    // embedded byte array into a malloc'd buffer so SYS_ReleaseFileData's
+    // free() works without a special case.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     FILE* file = fopen(path, "rb");
 
@@ -973,6 +1026,98 @@ std::vector<MemoryStat> SYS_GetMemoryStats()
     return stats;
 }
 
+float SYS_GetRAMUsage()
+{
+    HANDLE procHandle = GetCurrentProcess();
+    PROCESS_MEMORY_COUNTERS counters;
+    GetProcessMemoryInfo(procHandle, &counters, sizeof(PROCESS_MEMORY_COUNTERS));
+    return (float)(counters.WorkingSetSize / (1024.0 * 1024.0));
+}
+
+float SYS_GetVRAMUsage()
+{
+#if API_VULKAN
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetRAM1Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetRAM2Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetCPUUsage()
+{
+    static ULONGLONG sPrevCpuTime = 0;
+    static uint64_t sPrevWallUs = 0;
+    static float sCpuUsage = 0.0f;
+
+    FILETIME ftCreation, ftExit, ftKernel, ftUser;
+    if (!GetProcessTimes(GetCurrentProcess(), &ftCreation, &ftExit, &ftKernel, &ftUser))
+        return sCpuUsage;
+
+    ULARGE_INTEGER kernel, user;
+    kernel.LowPart = ftKernel.dwLowDateTime;
+    kernel.HighPart = ftKernel.dwHighDateTime;
+    user.LowPart = ftUser.dwLowDateTime;
+    user.HighPart = ftUser.dwHighDateTime;
+
+    // Combined CPU time in 100ns intervals
+    ULONGLONG curCpuTime = kernel.QuadPart + user.QuadPart;
+    uint64_t curWallUs = SYS_GetTimeMicroseconds();
+
+    if (sPrevWallUs != 0)
+    {
+        double cpuSeconds = (double)(curCpuTime - sPrevCpuTime) / 10000000.0;
+        double wallSeconds = (double)(curWallUs - sPrevWallUs) / 1000000.0;
+
+        if (wallSeconds > 0.001)
+        {
+            sCpuUsage = (float)(cpuSeconds / wallSeconds * 100.0);
+        }
+    }
+
+    sPrevCpuTime = curCpuTime;
+    sPrevWallUs = curWallUs;
+
+    return sCpuUsage;
+}
+
+float SYS_GetTotalRAM()
+{
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    GlobalMemoryStatusEx(&memInfo);
+    return (float)(memInfo.ullTotalPhys / (1024.0 * 1024.0));
+}
+
+float SYS_GetTotalVRAM()
+{
+#if API_VULKAN
+    // Report allocated as best estimate; no total query without DXGI
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetTotalRAM1()
+{
+    return 0.0f;
+}
+
+float SYS_GetTotalRAM2()
+{
+    return 0.0f;
+}
+
 // Save Game
 bool SYS_ReadSave(const char* saveName, Stream& outStream)
 {
@@ -1184,6 +1329,43 @@ int32_t SYS_GetPlatformTier()
 void SYS_SetWindowTitle(const char* title)
 {
     SetWindowText(GetEngineState()->mSystem.mWindow, title);
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
+    HWND hwnd = GetEngineState()->mSystem.mWindow;
+    if (hwnd == NULL)
+    {
+        return;
+    }
+
+    if (iconPath == nullptr || iconPath[0] == '\0')
+    {
+        // Reset to default (extract from executable)
+        HINSTANCE hInst = GetModuleHandle(NULL);
+        char exeName[1024];
+        GetModuleFileName(hInst, exeName, 1024);
+        HICON defaultIcon = ExtractIcon(hInst, exeName, 0);
+        if (defaultIcon != NULL)
+        {
+            SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)defaultIcon);
+            SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)defaultIcon);
+        }
+        return;
+    }
+
+    HICON icon = (HICON)LoadImage(
+        NULL,
+        iconPath,
+        IMAGE_ICON,
+        0, 0,
+        LR_LOADFROMFILE | LR_DEFAULTSIZE);
+
+    if (icon != NULL)
+    {
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+    }
 }
 
 bool SYS_DoesWindowHaveFocus()

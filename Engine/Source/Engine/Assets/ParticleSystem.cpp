@@ -9,8 +9,35 @@
 FORCE_LINK_DEF(ParticleSystem);
 DEFINE_ASSET(ParticleSystem);
 
+static const char* sLoopModeStrings[] =
+{
+    "Once",
+    "Infinite",
+    "Custom"
+};
+
+static_assert(uint32_t(ParticleLoopMode::Count) == 3, "Update sLoopModeStrings");
+
 bool ParticleSystem::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 {
+    Property* prop = static_cast<Property*>(datum);
+    ParticleSystem* ps = static_cast<ParticleSystem*>(prop->mOwner);
+
+    if (prop->mName == "Loop Mode")
+    {
+        ps->mLoopMode = *(ParticleLoopMode*)newValue;
+
+        switch (ps->mLoopMode)
+        {
+        case ParticleLoopMode::Once:     ps->mLoops = 1; break;
+        case ParticleLoopMode::Infinite: ps->mLoops = 0; break;
+        case ParticleLoopMode::Custom:   break; // Keep current mLoops value
+        default: break;
+        }
+
+        return true;
+    }
+
     return HandleAssetPropChange(datum, index, newValue);
 }
 
@@ -78,6 +105,14 @@ void ParticleSystem::LoadStream(Stream& stream, Platform platform)
 
     mParams.mScaleStart = stream.ReadVec2();
     mParams.mScaleEnd = stream.ReadVec2();
+
+    // Derive loop mode from loaded loops value
+    if (mLoops == 0)
+        mLoopMode = ParticleLoopMode::Infinite;
+    else if (mLoops == 1)
+        mLoopMode = ParticleLoopMode::Once;
+    else
+        mLoopMode = ParticleLoopMode::Custom;
 }
 
 void ParticleSystem::SaveStream(Stream& stream, Platform platform)
@@ -154,7 +189,11 @@ void ParticleSystem::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Integer, "Burst Count", this, &mBurstCount, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Float, "Burst Window", this, &mBurstWindow, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Integer, "Max Particles", this, &mMaxParticles, 1, HandlePropChange));
-    outProps.push_back(Property(DatumType::Integer, "Loops", this, &mLoops, 1, HandlePropChange));
+    outProps.push_back(Property(DatumType::Integer, "Loop Mode", this, &mLoopMode, 1, HandlePropChange, NULL_DATUM, int32_t(ParticleLoopMode::Count), sLoopModeStrings));
+    if (mLoopMode == ParticleLoopMode::Custom)
+    {
+        outProps.push_back(Property(DatumType::Integer, "Loops", this, &mLoops, 1, HandlePropChange));
+    }
     outProps.push_back(Property(DatumType::Bool, "Radial Velocity", this, &mRadialVelocity, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Bool, "Radial Spawn", this, &mRadialSpawn, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Bool, "Locked Ratio", this, &mLockedRatio, 1, HandlePropChange));

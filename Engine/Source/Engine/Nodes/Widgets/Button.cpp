@@ -112,6 +112,17 @@ void Button::GatherProperties(std::vector<Property>& props)
         props.push_back(Property(DatumType::Asset, "Locked Texture", this, &mLockedTexture, 1, HandlePropChange, int32_t(Texture::GetStaticType())));
         props.push_back(Property(DatumType::Color, "Locked Color", this, &mLockedColor, 1, HandlePropChange));
 
+        props.push_back(Property(DatumType::Vector2D, "UV Scale", this, &mUvScale, 1, HandlePropChange));
+        props.push_back(Property(DatumType::Vector2D, "UV Offset", this, &mUvOffset, 1, HandlePropChange));
+#if EDITOR
+        static bool sFakeBtnCrop = false;
+        props.push_back(Property(DatumType::Bool, "Crop Texture", this, &sFakeBtnCrop, 1, HandlePropChange));
+        static bool sFakeBtnMatchAspect = false;
+        props.push_back(Property(DatumType::Bool, "Match Texture Aspect", this, &sFakeBtnMatchAspect, 1, HandlePropChange));
+        static bool sFakeBtnMatchSize = false;
+        props.push_back(Property(DatumType::Bool, "Match Texture Size", this, &sFakeBtnMatchSize, 1, HandlePropChange));
+#endif
+
         props.push_back(Property(DatumType::Bool, "Text State Color", this, &mUseTextStateColor, 1, HandlePropChange));
         props.push_back(Property(DatumType::Bool, "Quad State Color", this, &mUseQuadStateColor, 1, HandlePropChange));
         props.push_back(Property(DatumType::Bool, "Auto Size Text", this, &mAutoSizeText, 1, HandlePropChange));
@@ -316,6 +327,8 @@ void Button::UpdateAppearance()
     }
 
     mQuad->SetTexture(quadTexture);
+    mQuad->SetUvScale(mUvScale);
+    mQuad->SetUvOffset(mUvOffset);
 
     if (mUseQuadStateColor)
     {
@@ -574,3 +587,91 @@ void Button::Activate()
     EmitSignal("Activated", { this });
     CallFunction("OnActivated", { this });
 }
+
+void Button::SetUvScale(glm::vec2 scale)
+{
+    mUvScale = scale;
+    MarkDirty();
+}
+
+glm::vec2 Button::GetUvScale() const
+{
+    return mUvScale;
+}
+
+void Button::SetUvOffset(glm::vec2 offset)
+{
+    mUvOffset = offset;
+    MarkDirty();
+}
+
+glm::vec2 Button::GetUvOffset() const
+{
+    return mUvOffset;
+}
+
+#if EDITOR
+#include "imgui.h"
+#include "TextureCrop/TextureCropEditor.h"
+
+bool Button::DrawCustomProperty(Property& prop)
+{
+    Texture* tex = mNormalTexture.Get<Texture>();
+
+    if (prop.mName == "Crop Texture")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Crop Texture"))
+            {
+                Button* self = this;
+                GetTextureCropEditor()->Open(tex, mUvScale, mUvOffset,
+                    [self](glm::vec2 scale, glm::vec2 offset) {
+                        self->SetUvScale(scale);
+                        self->SetUvOffset(offset);
+                    });
+            }
+            GetTextureCropEditor()->DrawPopup();
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Texture Aspect")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Texture Aspect"))
+            {
+                float texW = static_cast<float>(tex->GetWidth());
+                float texH = static_cast<float>(tex->GetHeight());
+                if (texW > 0.0f && texH > 0.0f)
+                {
+                    float texAR = texW / texH;
+                    float widgetW = GetWidth();
+                    float widgetH = GetHeight();
+                    if (widgetW >= widgetH)
+                        SetDimensions(widgetW, widgetW / texAR);
+                    else
+                        SetDimensions(widgetH * texAR, widgetH);
+                }
+            }
+        }
+        return true;
+    }
+
+    if (prop.mName == "Match Texture Size")
+    {
+        if (tex != nullptr)
+        {
+            if (ImGui::Button("Match Texture Size"))
+            {
+                SetDimensions(static_cast<float>(tex->GetWidth()),
+                              static_cast<float>(tex->GetHeight()));
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+#endif

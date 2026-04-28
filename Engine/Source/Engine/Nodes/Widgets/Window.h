@@ -97,8 +97,16 @@ public:
     // Textures
     void SetBackgroundTexture(Texture* texture);
     Texture* GetBackgroundTexture();
+    void SetBackgroundUVScale(glm::vec2 scale);
+    glm::vec2 GetBackgroundUVScale() const;
+    void SetBackgroundUVOffset(glm::vec2 offset);
+    glm::vec2 GetBackgroundUVOffset() const;
     void SetTitleBarTexture(Texture* texture);
     Texture* GetTitleBarTexture();
+    void SetTitleBarUVScale(glm::vec2 scale);
+    glm::vec2 GetTitleBarUVScale() const;
+    void SetTitleBarUVOffset(glm::vec2 offset);
+    glm::vec2 GetTitleBarUVOffset() const;
     void SetCloseButtonTexture(Texture* texture);
     Texture* GetCloseButtonTexture();
 
@@ -116,6 +124,10 @@ public:
     Button* GetCloseButton();
     Quad* GetResizeHandle();
     Quad* GetBackground();
+
+#if EDITOR
+    virtual bool DrawCustomProperty(Property& prop) override;
+#endif
 
 protected:
 
@@ -150,7 +162,11 @@ protected:
 
     // Textures
     TextureRef mBackgroundTexture;
+    glm::vec2 mBackgroundUVScale = glm::vec2(1.0f, 1.0f);
+    glm::vec2 mBackgroundUVOffset = glm::vec2(0.0f, 0.0f);
     TextureRef mTitleBarTexture;
+    glm::vec2 mTitleBarUVScale = glm::vec2(1.0f, 1.0f);
+    glm::vec2 mTitleBarUVOffset = glm::vec2(0.0f, 0.0f);
     TextureRef mCloseButtonTexture;
 
     // Close Button Colors

@@ -90,7 +90,7 @@
         "xtree": "cpp",
         "xutility": "cpp"
     },
-    "window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}[Branch: main]",
+    "window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}[Branch: version/6.1.1]",
     "workbench.colorCustomizations": {
         "activityBar.background": "#04099E",
         "titleBar.activeBackground": "#050DDD",

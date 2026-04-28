@@ -31,6 +31,11 @@
 #include "Nodes/3D/Capsule3d.h"
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "Nodes/3D/TextMesh3d.h"
+#include "Nodes/3D/Voxel3d.h"
+#include "Nodes/3D/Terrain3d.h"
+#include "Nodes/3D/TileMap2d.h"
+#include "Assets/TileMap.h"
+#include "Assets/TileSet.h"
 #include "World.h"
 
 #include "Assets/Scene.h"
@@ -45,6 +50,7 @@
 #include "Assets/Font.h"
 #include "Assets/NodeGraphAsset.h"
 #include "Assets/DataAsset.h"
+#include "Assets/SpriteAnimation.h"
 #include "UI/UIDocument.h"
 #include "UI/UITypes.h"
 
@@ -56,19 +62,53 @@
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
 #include "Packaging/PackagingWindow.h"
+#include "AppSettings/AppSettingsWindow.h"
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonsWindow.h"
 #include "Addons/NativeAddonManager.h"
 #include "Addons/AddonsMenu.h"
 #include "EditorUIHookManager.h"
 #include "BuildDependencyWindow.h"
+#include "InputMapWindow.h"
+#include "Hotkeys/EditorHotkeyMap.h"
+#include "Hotkeys/EditorHotkeysWindow.h"
+#include "Git/GitWorkspaceWindow.h"
+#include "Git/GitService.h"
+#include "Git/GitRepository.h"
+#include "Git/GitOperationQueue.h"
+#include "Git/GitStatusBarWidget.h"
+#include "Git/Dialogs/GitCloneDialog.h"
+#include "Git/Dialogs/GitOpenDialog.h"
+#include "Git/Dialogs/GitInitDialog.h"
+#include "Git/Dialogs/GitCreateBranchDialog.h"
+#include "Git/Dialogs/GitCheckoutConfirmDialog.h"
+#include "Git/Dialogs/GitCreateTagDialog.h"
+#include "Git/Dialogs/GitDeleteConfirmDialog.h"
+#include "Git/Dialogs/GitPushDialog.h"
+#include "Git/Dialogs/GitPullDialog.h"
+#include "Git/Dialogs/GitFetchDialog.h"
+#include "Git/Dialogs/GitRemoteEditDialog.h"
+#include "Git/Dialogs/GitMergeDialog.h"
+#include "Git/Dialogs/GitCliStatusDialog.h"
+#include "Git/Dialogs/GitOperationProgressDialog.h"
+#include "Git/Dialogs/GitSyncBranchDialog.h"
+#include "PlayerInputEditor.h"
+#include "PlayerInputDebugger.h"
 #include "DebugLog/DebugLogWindow.h"
+#include "CliTerminal/TerminalPanel.h"
+#include "LuaDebugger/LuaDebuggerPanel.h"
 #include "ScriptEditor/ScriptEditorWindow.h"
 #include "ThemeEditor/ThemeEditorWindow.h"
 #include "Preferences/Appearance/Theme/CssThemeParser.h"
 #include "Timeline/TimelinePanel.h"
 #include "NodeGraph/NodeGraphPanel.h"
 #include "Profiling/ProfilingWindow.h"
+#include "InputTester/InputTesterPanel.h"
+#include "TextureAtlas/TextureAtlasViewer.h"
+#include "VoxelSculpt/VoxelSculptManager.h"
+#include "TerrainSculpt/TerrainSculptManager.h"
+#include "TilePaint/TilePaintManager.h"
+#include "TilePaint/TilePicker.h"
 #include "Preferences/General/GeneralModule.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/External/LaunchersModule.h"
@@ -118,10 +158,18 @@
 
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
+#include "AnimationBrowser/AnimationBrowser.h"
 
 
 static const char* GetNodeIcon(Node* node)
 {
+    // Defensive: parent->mChildren has been observed handing out stale pointers
+    // after script hot-reload (a Node gets `delete`d via its Lua wrapper's GC
+    // path without going through Node::Destroy → Attach(nullptr), so the parent
+    // never erases it). Returning a default icon here is a band-aid; root cause
+    // lives in the Node_Lua GC / SharedPtr lifecycle.
+    if (node == nullptr || node->IsDestroyed()) return ICON_STREAMLINE_PLUMP_WORLD_REMIX;
+
     if (node->As<InstancedMesh3D>())          return ICON_INSTANCE_MESH;
     if (node->As<ShadowMesh3D>())             return ICON_SHADOW;
     if (node->As<SkeletalMesh3D>())           return ICON_SKELETON;
@@ -223,6 +271,11 @@ static bool sDuplicateNodeFocus = false;
 static AssetStub* sDuplicateAssetStub = nullptr;
 static bool sNodesDiscovered = false;
 static bool showTheming = false;
+
+// Optional monospace font with extended Unicode coverage, loaded for the
+// CLI Terminal panel only. May remain null if F_RobotoMono16.ttf isn't
+// shipped — callers must check.
+static ImFont* sTerminalFont = nullptr;
 static std::vector<std::string> sNode3dNames;
 static std::vector<std::string> sNodeWidgetNames;
 static std::vector<std::string> sNodeOtherNames;
@@ -290,7 +343,7 @@ static bool sViewportDockActive = false;
 // A known dock label that must exist in a valid layout.
 // If imgui.ini has dock data but this label is missing, the layout is stale.
 // Update kDockLayoutVersion when dock panel names change to force a reset.
-static constexpr uint32_t kDockLayoutVersion = 9;
+static constexpr uint32_t kDockLayoutVersion = 12;
 
 static void ValidateDockLayoutIni()
 {
@@ -650,6 +703,52 @@ static void DrawDockspace()
     ImGui::EndDock();
     ImGui::PopStyleColor();
 
+   
+    {
+        static bool sAnimBrowserForceHiddenOnce = true;
+        if (sAnimBrowserForceHiddenOnce)
+        {
+            GetEditorState()->mShowAnimationBrowser = false;
+            sAnimBrowserForceHiddenOnce = false;
+        }
+    }
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        // If Open() was called this/last frame, re-dock the AnimationBrowser
+        // tab next to CLI Terminal before BeginDock runs. The browser is
+        // force-hidden on the editor's first frame which leaves it Float and
+        // detached from the layout, so without this it would auto-dock to
+        // whatever the dock root happens to be (typically the bottom-left
+        // tab group with Assets/Scripts/Debug Log) instead of following the
+        // CLI Terminal location.
+        if (GetAnimationBrowser()->ConsumePendingDock())
+        {
+            ImGui::DockTo("EditorDock",
+                          ICON_SKELETON "  Animation Browser",
+                          ICON_CONSOLE "  CLI Terminal",
+                          ImGuiDockSlot_Tab);
+            ImGui::SetDockActive("EditorDock", ICON_SKELETON "  Animation Browser");
+        }
+
+        bool animOpen = GetEditorState()->mShowAnimationBrowser;
+        if (ImGui::BeginDock(ICON_SKELETON "  Animation Browser", &animOpen,
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+        {
+            GetAnimationBrowser()->DrawPanel();
+        }
+        ImGui::EndDock();
+        // AND with the current state so a mid-frame close from inside
+        // DrawPanel() (e.g. the in-panel "Close" button calling
+        // AnimationBrowser::Close() which clears mShowAnimationBrowser) isn't
+        // clobbered by the stale animOpen captured at the start of the frame.
+        GetEditorState()->mShowAnimationBrowser =
+            animOpen && GetEditorState()->mShowAnimationBrowser;
+    }
+    ImGui::PopStyleColor();
+
     // --- Node Graph dock ---
     {
         ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
@@ -670,6 +769,71 @@ static void DrawDockspace()
     if (ImGui::BeginDock(ICON_CURVEGRAPH "  Profiling", nullptr, 0))
     {
         GetProfilingWindow()->DrawContent();
+    }
+    ImGui::EndDock();
+    ImGui::PopStyleColor();
+
+    // --- Input Tester dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        bool testerOpen = GetEditorState()->mShowInputTesterPanel;
+        if (testerOpen)
+        {
+            if (ImGui::BeginDock(ICON_FE_GAMEPAD "  Input Tester", &testerOpen, 0))
+            {
+                GetInputTesterPanel()->DrawContent();
+            }
+            ImGui::EndDock();
+        }
+        GetEditorState()->mShowInputTesterPanel =
+            testerOpen && GetEditorState()->mShowInputTesterPanel;
+    }
+    ImGui::PopStyleColor();
+
+    // --- CLI Terminal dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        bool cliOpen = GetTerminalPanel()->mVisible;
+        if (ImGui::BeginDock(ICON_CONSOLE "  CLI Terminal", &cliOpen,
+                             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+        {
+            GetTerminalPanel()->DrawContent();
+        }
+        ImGui::EndDock();
+        GetTerminalPanel()->mVisible = cliOpen;
+    }
+    ImGui::PopStyleColor();
+
+    // --- Lua Debugger dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    {
+        bool debugOpen = GetLuaDebuggerPanel()->mVisible;
+        if (ImGui::BeginDock(ICON_MDI_BUG "  Lua Debugger", &debugOpen, ImGuiWindowFlags_NoScrollbar))
+        {
+            GetLuaDebuggerPanel()->DrawContent();
+        }
+        ImGui::EndDock();
+        GetLuaDebuggerPanel()->mVisible = debugOpen;
+    }
+    ImGui::PopStyleColor();
+
+    // --- Texture Atlas Viewer dock ---
+    {
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
+    }
+    if (ImGui::BeginDock("Texture Atlas Viewer", nullptr, 0))
+    {
+        GetTextureAtlasViewer()->DrawPanel();
     }
     ImGui::EndDock();
     ImGui::PopStyleColor();
@@ -704,6 +868,10 @@ static void DrawDockspace()
             ImGui::DockTo("EditorDock", ICON_IX_VIDEO_CAMERA_FILLED "  Game Preview",ICON_CIB_NINTENDO_3DS "  3DS Preview",  ImGuiDockSlot_Tab);
             ImGui::DockTo("EditorDock", ICON_IC_BASELINE_SHARE "  Node Graph", ICON_ASSETS "  Assets", ImGuiDockSlot_Right, 0.5f);
             ImGui::DockTo("EditorDock", ICON_CURVEGRAPH "  Profiling", ICON_IC_BASELINE_SHARE "  Node Graph", ImGuiDockSlot_Tab);
+            ImGui::DockTo("EditorDock", "Texture Atlas Viewer", ICON_CURVEGRAPH "  Profiling", ImGuiDockSlot_Tab);
+            ImGui::DockTo("EditorDock", ICON_CONSOLE "  CLI Terminal", ICON_STREAMLINE_LOG_SOLID "  Debug Log", ImGuiDockSlot_Tab);
+            ImGui::DockTo("EditorDock", ICON_SKELETON "  Animation Browser", ICON_CONSOLE "  CLI Terminal", ImGuiDockSlot_Tab);
+            ImGui::DockTo("EditorDock", ICON_MDI_BUG "  Lua Debugger", ICON_STREAMLINE_LOG_SOLID "  Debug Log", ImGuiDockSlot_Tab);
 
             // Defer activating the Viewport tab — docks call setActive() on their
             // first BeginDock frame, so we need to wait a couple frames for all
@@ -1822,13 +1990,24 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
     }
     else // 2D
     {
-        SharedPtr<Widget> root = Node::Construct<Widget>();
+        SharedPtr<Canvas> root = Node::Construct<Canvas>();
         root->SetName("Root");
 
-        if (createCamera)
+        // Initialize the Canvas size to the current Build Profile's platform resolution
+        // (the same value Game Preview's "* Profile [Platform]" preset uses), with a
+        // 640x480 fallback when no Build Profile is set.
+        uint32_t canvasW = 640;
+        uint32_t canvasH = 480;
+
+        PackagingSettings* pkgSettings = PackagingSettings::Get();
+        BuildProfile* profile = (pkgSettings != nullptr) ? pkgSettings->GetCurrentTargetProfile() : nullptr;
+        if (profile != nullptr)
         {
-            root->CreateChild<Widget>("Canvas");
+            const char* platformName = nullptr;
+            GamePreview::GetPlatformResolution(profile->mTargetPlatform, canvasW, canvasH, platformName);
         }
+
+        root->SetSize((float)canvasW, (float)canvasH);
 
         Scene* scene = (Scene*)stub->mAsset;
         scene->Capture(root.Get());
@@ -1934,7 +2113,7 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
 
         if (node != nullptr &&
             ImGui::IsItemHovered() &&
-            IsKeyJustDown(POLYPHASE_KEY_DELETE))
+            EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
         {
             am->EXE_EditProperty(owner, ownerType, prop.mName, index, (Node*) nullptr);
         }
@@ -2070,13 +2249,37 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
         dropdownActive = true; // Set to true to ensure dropdown shows
         selectedIndex = 0;
     }
+
+    // Always update filtered items before bounds checks so we use the actual item count
+    filteredItems.clear();
+    for (const auto& suggestion : suggestions)
+    {
+        if (filterFunc(suggestion, inputText))
+        {
+            filteredItems.push_back(suggestion);
+        }
+    }
+
+    // Reset selection state when filter text changes
+    if (inputText != lastInputText)
+    {
+        lastInputText = inputText;
+        selectedIndex = 0;
+        hasSelection = false;
+    }
+    if (hasSelection && selectedIndex >= filteredItems.size() && !filteredItems.empty())
+    {
+        selectedIndex = filteredItems.size() - 1;
+    }
+
     // Hide dropdown when input loses focus (but not if mouse is over dropdown)
-    else if (!isInputActive && !isInputFocused && activeDropdownId == inputId)
+    if (!isInputActive && !isInputFocused && activeDropdownId == inputId)
     {
         // Calculate dropdown bounds to check if mouse is hovering over it
         ImVec2 inputSize = ImVec2(inputRectMax.x - inputRectMin.x, inputRectMax.y - inputRectMin.y);
         const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
-        const float maxDropdownHeight = itemHeight * 4 + ImGui::GetStyle().WindowPadding.y * 2;
+        const size_t visibleItems = std::min(filteredItems.size(), (size_t)4);
+        const float maxDropdownHeight = itemHeight * visibleItems + ImGui::GetStyle().WindowPadding.y * 2;
         ImVec2 dropdownMin = ImVec2(inputRectMin.x, inputRectMin.y + inputSize.y);
         ImVec2 dropdownMax = ImVec2(inputRectMax.x, inputRectMin.y + inputSize.y + maxDropdownHeight);
 
@@ -2097,7 +2300,8 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
         // Calculate dropdown bounds (same calculation as later in the function)
         ImVec2 inputSize = ImVec2(inputRectMax.x - inputRectMin.x, inputRectMax.y - inputRectMin.y);
         const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
-        const float maxDropdownHeight = itemHeight * 4 + ImGui::GetStyle().WindowPadding.y * 2;
+        const size_t visibleItems = std::min(filteredItems.size(), (size_t)4);
+        const float maxDropdownHeight = itemHeight * visibleItems + ImGui::GetStyle().WindowPadding.y * 2;
 
         // Dropdown rect is below the input
         ImVec2 dropdownMin = ImVec2(inputRectMin.x, inputRectMin.y + inputSize.y);
@@ -2111,17 +2315,6 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
         if (outsideInput && outsideDropdown)
         {
             dropdownActive = false;
-        }
-    }
-    
-    // Always update filtered items, don't just update when text changes
-    // This ensures navigation works even with text entered
-    filteredItems.clear();
-    for (const auto& suggestion : suggestions)
-    {
-        if (filterFunc(suggestion, inputText))
-        {
-            filteredItems.push_back(suggestion);
         }
     }
     
@@ -2155,9 +2348,6 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
         
         if (ImGui::Begin(dropdownId, nullptr, flags))
         {
-            // Track if mouse is hovering over this window
-            // mouseOverDropdown = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-
             // Get current key state
             bool upArrowPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow));
             bool downArrowPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow));
@@ -2261,17 +2451,22 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
                 if (isSelected)
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
 
-                bool clicked = ImGui::Selectable(filteredItems[i].c_str(), isSelected);
+                ImGui::Selectable(filteredItems[i].c_str(), isSelected);
+
+                // Use AllowWhenBlockedByActiveItem to detect hover even when
+                // another widget (InputText) holds g.ActiveId
+                bool itemHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
                 // Mouse hover - update selection
-                if (ImGui::IsItemHovered())
+                if (itemHovered)
                 {
                     selectedIndex = i;
                     hasSelection = true;
                 }
 
-                // Mouse click - make selection
-                if (clicked)
+                // Mouse click - manual detection that bypasses Selectable's internal
+                // hover check which fails when InputText holds ActiveId
+                if (itemHovered && ImGui::IsMouseClicked(0))
                 {
                     inputText = filteredItems[i];
                     selectionMade = true;
@@ -2343,7 +2538,7 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
 
         if (asset != nullptr &&
             ImGui::IsItemHovered() &&
-            IsKeyJustDown(POLYPHASE_KEY_DELETE))
+            EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
         {
             if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
             {
@@ -2714,6 +2909,22 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
         if (custom)
         {
+            ImGui::PopID();
+            continue;
+        }
+
+        // Function properties render as editor-only buttons (no data, no label).
+        if (propType == DatumType::Function)
+        {
+            const char* displayText = prop.mDisplayName.empty() ? prop.mName.c_str() : prop.mDisplayName.c_str();
+            if (ImGui::Button(displayText))
+            {
+                Script* script = static_cast<Script*>(prop.mOwner);
+                if (script != nullptr && script->IsActive())
+                {
+                    script->CallFunction(prop.mName.c_str());
+                }
+            }
             ImGui::PopID();
             continue;
         }
@@ -3176,11 +3387,42 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
             {
                 DrawNodeProperty(prop, i, owner, ownerType);
                 break;
             }
             case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
             {
                 DrawAssetProperty(prop, i, owner, ownerType);
                 break;
@@ -3440,6 +3682,18 @@ static void DrawAddNodeMenu(Node* node)
     {
         for (uint32_t i = 0; i < sNode3dNames.size(); ++i)
         {
+            // Terrain3D gets special handling to create companion files
+            if (sNode3dNames[i] == "Terrain3D" || sNode3dNames[i] == "Terrain")
+            {
+                if (ImGui::MenuItem(sNode3dNames[i].c_str()))
+                {
+                    Node* newNode = am->SpawnBasicNode(BASIC_TERRAIN, node, nullptr, false, {});
+                    if (newNode)
+                        GetEditorState()->SetSelectedNode(newNode);
+                }
+                continue;
+            }
+
             if (ImGui::MenuItem(sNode3dNames[i].c_str()))
             {
                 const char* nodeName = sNode3dNames[i].c_str();
@@ -3704,6 +3958,8 @@ static void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
         am->SpawnBasicNode(BASIC_TEXT_MESH, node, selAsset, setFocusPos, spawnPos);
     if (ImGui::MenuItem(BASIC_INSTANCED_MESH))
         am->SpawnBasicNode(BASIC_INSTANCED_MESH, node, selAsset, setFocusPos, spawnPos);
+    if (ImGui::MenuItem(BASIC_TERRAIN))
+        am->SpawnBasicNode(BASIC_TERRAIN, node, selAsset, setFocusPos, spawnPos);
 
     if (ImGui::BeginMenu("Skybox"))
     {
@@ -4034,6 +4290,9 @@ static void DrawScenePanel()
             AlternatingRowBackground();
             bool nodeClicked = ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen();
             bool nodeMiddleClicked = ImGui::IsItemClicked(ImGuiMouseButton_Middle);
+            ImGui::PushID((void*)node);
+            ImGui::OpenPopupOnItemClick("##NodeCtx", ImGuiPopupFlags_MouseButtonRight);
+            ImGui::PopID();
             bool expandChildren = trackingNode || (nodeMiddleClicked && IsControlDown());
             bool collapseChildren = !expandChildren && nodeMiddleClicked;
 
@@ -4257,7 +4516,8 @@ static void DrawScenePanel()
                 GetEditorState()->mTrackSelectedNode = false;
             }
 
-            if (ImGui::BeginPopupContextItem())
+            ImGui::PushID((void*)node);
+            if (ImGui::BeginPopup("##NodeCtx"))
             {
                 bool setTextInputFocus = false;
                 bool closeContextPopup = false;
@@ -4814,6 +5074,7 @@ static void DrawScenePanel()
 
                 ImGui::EndPopup();
             }
+            ImGui::PopID();
 
             if (nodeOpen)
             {
@@ -4827,6 +5088,8 @@ static void DrawScenePanel()
                     Scene* newSubScene = nodeSceneLinked ? node->GetScene() : subScene;
 
                     Node* child = node->GetChild(i);
+                    // Stale-pointer guard: see GetNodeIcon comment. Same root cause.
+                    if (child == nullptr || child->IsDestroyed()) continue;
                     if (!child->mHiddenInTree)
                     {
                         if (collapseChildren)
@@ -4889,7 +5152,9 @@ static void DrawScenePanel()
 
             for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
             {
-                drawTree(node->GetChild(i), newSubScene);
+                Node* child = node->GetChild(i);
+                if (child == nullptr || child->IsDestroyed()) continue;
+                drawTree(child, newSubScene);
             }
         }
     };
@@ -4974,13 +5239,9 @@ static void DrawScenePanel()
     // If no popup is open and we aren't inputting text...
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
         ImGui::IsWindowHovered() &&
-        !ImGui::GetIO().WantTextInput && 
+        !ImGui::GetIO().WantTextInput &&
         !sNodeContextActive)
     {
-        const bool ctrlDown = IsControlDown();
-        const bool shiftDown = IsShiftDown();
-        const bool altDown = IsAltDown();
-
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
         {
             ImGui::OpenPopup("Null Node Context");
@@ -4996,11 +5257,12 @@ static void DrawScenePanel()
             Node* parent = node->GetParent();
             int32_t childIndex = parent->FindChildIndex(node);
 
-            if (IsKeyJustDown(POLYPHASE_KEY_MINUS))
+            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+            if (hotkeys->IsActionJustTriggered(EditorAction::Hier_ReorderUp))
             {
                 am->EXE_AttachNode(node, parent, glm::max<int32_t>(childIndex - 1, 0), -1);
             }
-            else if (IsKeyJustDown(POLYPHASE_KEY_PLUS))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Hier_ReorderDown))
             {
                 am->EXE_AttachNode(node, parent, childIndex + 1, -1);
             }
@@ -5008,11 +5270,12 @@ static void DrawScenePanel()
 
         if (selNodes.size() > 0)
         {
-            if (IsKeyJustDown(POLYPHASE_KEY_DELETE))
+            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+            if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
             {
                 am->EXE_DeleteNodes(selNodes);
             }
-            else if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_D))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Edit_Duplicate))
             {
                 if (selNodes.size() == 1)
                 {
@@ -5027,7 +5290,7 @@ static void DrawScenePanel()
                     am->DuplicateNodes(selNodes);
                 }
             }
-            else if (!ctrlDown && IsKeyJustDown(POLYPHASE_KEY_F2))
+            else if (hotkeys->IsActionJustTriggered(EditorAction::Hier_Rename))
             {
                 ImGui::OpenPopup("Rename Node F2");
                 strncpy(sPopupInputBuffer, selNodes[0]->GetName().c_str(), kPopupInputBufferSize - 1);
@@ -5332,6 +5595,21 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
     }
 
+    if (stub && stub->mType == SkeletalMesh::GetStaticType())
+    {
+        if (ImGui::Selectable("View Animations"))
+        {
+            if (stub->mAsset == nullptr)
+                AssetManager::Get()->LoadAsset(*stub);
+
+            SkeletalMesh* skelMesh = stub->mAsset ? stub->mAsset->As<SkeletalMesh>() : nullptr;
+            if (skelMesh != nullptr)
+            {
+                GetAnimationBrowser()->Open(skelMesh);
+            }
+        }
+    }
+
     if (canInstantiate && ImGui::Selectable("Instantiate"))
     {
         if (stub->mAsset == nullptr)
@@ -5367,6 +5645,43 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         {
             ImGui::OpenPopup("Make Zoo");
             strncpy(sPopupInputBuffer, "SC_Zoo", kPopupInputBufferSize - 1);
+            sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
+            setTextInputFocus = true;
+        }
+    }
+
+    // Create Animation Asset From Selected — available when 2+ Texture assets
+    // are selected. Frames are added in selection order; default asset name is
+    // "Anim_" + first selected texture's base name (T_ prefix stripped if any).
+    {
+        const auto& multiStubs = GetEditorState()->GetSelectedAssetStubs();
+        int textureCount = 0;
+        for (AssetStub* s : multiStubs)
+        {
+            if (s && s->mType == Texture::GetStaticType()) textureCount++;
+        }
+
+        if (textureCount >= 2 && ImGui::Selectable("Create Animation Asset From Selected", false, ImGuiSelectableFlags_DontClosePopups))
+        {
+            std::string defaultName = "Anim_Sprite";
+            for (AssetStub* s : multiStubs)
+            {
+                if (s && s->mType == Texture::GetStaticType())
+                {
+                    std::string base = s->mName;
+                    // Strip the conventional "T_" texture prefix so the default
+                    // ends up like "Anim_Walk" rather than "Anim_T_Walk".
+                    if (base.length() >= 2 && base[0] == 'T' && base[1] == '_')
+                    {
+                        base = base.substr(2);
+                    }
+                    defaultName = "Anim_" + base;
+                    break;
+                }
+            }
+
+            ImGui::OpenPopup("Create Animation From Textures");
+            strncpy(sPopupInputBuffer, defaultName.c_str(), kPopupInputBufferSize - 1);
             sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
             setTextInputFocus = true;
         }
@@ -5533,6 +5848,16 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 sNewAssetType = ParticleSystem::GetStaticType();
                 showPopup = true;
             }
+            if (ImGui::Selectable("Tile Set", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = TileSet::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Tile Map", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = TileMap::GetStaticType();
+                showPopup = true;
+            }
             bool showScenePopup = false;
             if (ImGui::Selectable("Scene", false, ImGuiSelectableFlags_DontClosePopups))
             {
@@ -5556,6 +5881,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = DataAsset::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = SpriteAnimation::GetStaticType();
                 showPopup = true;
             }
 
@@ -5818,6 +6148,10 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     assetName = "MI_Material";
                 else if (sNewAssetType == ParticleSystem::GetStaticType())
                     assetName = "P_Particle";
+                else if (sNewAssetType == TileSet::GetStaticType())
+                    assetName = "TS_TileSet";
+                else if (sNewAssetType == TileMap::GetStaticType())
+                    assetName = "TM_TileMap";
                 else if (sNewAssetType == Timeline::GetStaticType())
                     assetName = "TL_Timeline";
                 else if (sNewAssetType == NodeGraphAsset::GetStaticType())
@@ -5949,6 +6283,70 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     scene->Capture(root.Get());
                     AssetManager::Get()->SaveAsset(*sceneStub);
                     GetEditorState()->OpenEditScene(scene);
+                }
+            }
+
+            ImGui::CloseCurrentPopup();
+            closeContextPopup = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // Create Animation From Textures popup — opened from the multi-Texture
+    // context menu entry above. Builds a Discrete-mode SpriteAnimation with
+    // the selected Texture assets as frames in selection order.
+    if (ImGui::BeginPopup("Create Animation From Textures"))
+    {
+        if (setTextInputFocus)
+        {
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        ImGui::InputText("Asset Name", sPopupInputBuffer, kPopupInputBufferSize);
+
+        const auto& multiStubs = GetEditorState()->GetSelectedAssetStubs();
+        int textureCount = 0;
+        for (AssetStub* s : multiStubs)
+        {
+            if (s && s->mType == Texture::GetStaticType()) textureCount++;
+        }
+        ImGui::Text("%d frame%s in selection order", textureCount, textureCount == 1 ? "" : "s");
+
+        if (ImGui::Button("Create") || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+        {
+            std::vector<Texture*> frames;
+            for (AssetStub* s : multiStubs)
+            {
+                if (s && s->mType == Texture::GetStaticType())
+                {
+                    if (!s->mAsset) AssetManager::Get()->LoadAsset(*s);
+                    Texture* tex = s->mAsset ? s->mAsset->As<Texture>() : nullptr;
+                    if (tex) frames.push_back(tex);
+                }
+            }
+
+            if (!frames.empty())
+            {
+                std::string assetName = sPopupInputBuffer[0] ? sPopupInputBuffer : "Anim_Sprite";
+                AssetStub* newStub = EditorAddUniqueAsset(assetName.c_str(), curDir, SpriteAnimation::GetStaticType(), true);
+                if (newStub != nullptr && newStub->mAsset != nullptr)
+                {
+                    SpriteAnimation* anim = newStub->mAsset->As<SpriteAnimation>();
+                    if (anim != nullptr)
+                    {
+                        anim->SetMode(SpriteFrameSourceMode::Discrete);
+                        anim->SetAnimationName(assetName);
+                        for (Texture* tex : frames)
+                        {
+                            anim->AddFrame(tex);
+                        }
+                        AssetManager::Get()->SaveAsset(*newStub);
+                    }
                 }
             }
 
@@ -6380,6 +6778,16 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
     {
         const std::string& filename = dir->mLooseFiles[i];
 
+        // {asset}.meta sidecars are paired metadata, never their own asset —
+        // never list them in the browser. Discovery already excludes them
+        // from mLooseFiles, but this is a defensive filter for any future
+        // code path that might push them in.
+        const char* metaExt = strrchr(filename.c_str(), '.');
+        if (metaExt != nullptr && strcmp(metaExt, ".meta") == 0)
+        {
+            continue;
+        }
+
         // Filter check
         if (!filterLower.empty())
         {
@@ -6492,6 +6900,50 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 
                     ImGui::EndMenu();
                 }
+            }
+
+            // Packaging submenu — mirrors DrawAssetPackagingSection in the Properties
+            // panel. Loose files can't ride the AssetStub "Properties" path, so wire
+            // the same {file}.meta read/write directly into the right-click menu.
+            if (ImGui::BeginMenu("Packaging"))
+            {
+                AssetMetaSidecar meta = AssetManager::LoadAssetMeta(fullPath);
+                bool changed = false;
+
+                if (ImGui::MenuItem("Embed in shipped exe", nullptr, meta.mEmbed))
+                {
+                    meta.mEmbed = !meta.mEmbed;
+                    changed = true;
+                }
+
+                ImGui::Separator();
+                ImGui::TextDisabled("Include in builds:");
+
+                static const struct { const char* label; uint32_t bit; } kPkgRows[] = {
+                    { "Windows",  PlatformBit_Windows  },
+                    { "Linux",    PlatformBit_Linux    },
+                    { "Android",  PlatformBit_Android  },
+                    { "GameCube", PlatformBit_GameCube },
+                    { "Wii",      PlatformBit_Wii      },
+                    { "3DS",      PlatformBit_N3DS     },
+                };
+                for (const auto& row : kPkgRows)
+                {
+                    bool on = (meta.mPlatformMask & row.bit) != 0;
+                    if (ImGui::MenuItem(row.label, nullptr, on))
+                    {
+                        if (on) meta.mPlatformMask &= ~row.bit;
+                        else    meta.mPlatformMask |=  row.bit;
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    AssetManager::Get()->ApplyAssetMetaFlags(fullPath, meta.mPlatformMask, meta.mEmbed);
+                }
+
+                ImGui::EndMenu();
             }
 
             ImGui::Separator();
@@ -6621,8 +7073,6 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
         ImGui::IsWindowHovered() &&
         !ImGui::GetIO().WantTextInput)
     {
-        const bool ctrlDown = IsControlDown();
-
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
         {
             ImGui::OpenPopup("Null Context");
@@ -6631,22 +7081,24 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
         AssetDir* currentDir = GetEditorState()->GetAssetDirectory();
         if (currentDir != nullptr && !currentDir->mAddonDir)
         {
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_N))
+            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+
+            if (hotkeys->IsActionJustTriggered(EditorAction::Asset_CreateScene))
             {
                 CreateNewAsset(Scene::GetStaticType(), "SC_Scene");
             }
 
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_M))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Asset_CreateMaterial))
             {
                 CreateNewAsset(MaterialLite::GetStaticType(), "M_Material");
             }
 
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_P))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Asset_CreateParticle))
             {
                 CreateNewAsset(ParticleSystem::GetStaticType(), "P_Particle");
             }
 
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_D))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Edit_Duplicate))
             {
                 AssetStub* srcStub = GetEditorState()->GetSelectedAssetStub();
 
@@ -6661,7 +7113,7 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
                 }
             }
 
-            if (IsKeyJustDown(POLYPHASE_KEY_DELETE))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
             {
                 const auto& selectedStubs = GetEditorState()->GetSelectedAssetStubs();
                 if (!selectedStubs.empty())
@@ -6675,7 +7127,7 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
                 }
             }
 
-            if (!ctrlDown && IsKeyJustDown(POLYPHASE_KEY_F2))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Asset_Rename))
             {
                 AssetStub* selStub = GetEditorState()->GetSelectedAssetStub();
                 if (selStub != nullptr && !selStub->mEngineAsset)
@@ -7068,6 +7520,91 @@ static void DrawInstancedMeshExtra(InstancedMesh3D* instMesh)
     }
 }
 
+// Renders the per-asset Packaging section (platform-mask checkboxes + embed
+// flag) sourced from {assetPath}.meta. Live-saves on toggle and updates the
+// in-memory AssetStub flags so the change takes effect immediately without
+// re-running discovery.
+//
+// `assetAbsolutePath` is the path passed to LoadAssetMeta — it should match
+// AssetStub::mPath for cooked .oct assets, or the full disk path for raw files.
+// `stub` may be nullptr for raw files (which have no AssetStub).
+static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, AssetStub* stub)
+{
+    if (assetAbsolutePath.empty())
+        return;
+
+    // Cache the .meta read keyed on path. Re-read whenever selection changes;
+    // re-read after we save so authoritative state == on-disk.
+    static std::string sCachedPath;
+    static AssetMetaSidecar sCachedMeta;
+    if (sCachedPath != assetAbsolutePath)
+    {
+        sCachedPath = assetAbsolutePath;
+        sCachedMeta = AssetManager::LoadAssetMeta(assetAbsolutePath);
+    }
+
+    if (!ImGui::CollapsingHeader("Packaging", ImGuiTreeNodeFlags_DefaultOpen))
+        return;
+
+    // 6 platforms = engine's Platform enum count. Layout in two rows of three.
+    struct PlatformRow { const char* label; uint32_t bit; };
+    static const PlatformRow kRows[] = {
+        { "Windows",  PlatformBit_Windows  },
+        { "Linux",    PlatformBit_Linux    },
+        { "Android",  PlatformBit_Android  },
+        { "GameCube", PlatformBit_GameCube },
+        { "Wii",      PlatformBit_Wii      },
+        { "3DS",      PlatformBit_N3DS     }, // user-facing label; serialised as "N3DS"
+    };
+
+    bool changed = false;
+    uint32_t mask = sCachedMeta.mPlatformMask;
+    bool embed   = sCachedMeta.mEmbed;
+
+    ImGui::Text("Include in builds:");
+    ImGui::Indent();
+    for (int i = 0; i < (int)(sizeof(kRows)/sizeof(kRows[0])); ++i)
+    {
+        if ((i % 3) != 0)
+            ImGui::SameLine();
+
+        bool on = (mask & kRows[i].bit) != 0;
+        ImGui::PushID(i);
+        if (ImGui::Checkbox(kRows[i].label, &on))
+        {
+            if (on) mask |=  kRows[i].bit;
+            else    mask &= ~kRows[i].bit;
+            changed = true;
+        }
+        ImGui::PopID();
+    }
+    ImGui::Unindent();
+
+    if (ImGui::Checkbox("Embed in shipped exe", &embed))
+    {
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Bake this file into the exe via gEmbeddedRawAssets[].\n"
+            "Recommended only for files smaller than ~10 MB; the hex-byte\n"
+            "format used by the embed pipeline blows up compile times for\n"
+            "large files.");
+    }
+
+    if (changed)
+    {
+        // ApplyAssetMetaFlags writes the .meta file AND updates any matching
+        // in-memory AssetStub / RawAssetEntry, so a packaging build run right
+        // after the toggle picks up the new flags without re-discovery.
+        AssetManager::Get()->ApplyAssetMetaFlags(assetAbsolutePath, mask, embed);
+        sCachedMeta.mPlatformMask = mask;
+        sCachedMeta.mEmbed        = embed;
+        sCachedMeta.mExists       = (mask != PlatformBit_All) || embed;
+        (void)stub;
+    }
+}
 
 static void DrawPropertiesPanel()
 {
@@ -7191,6 +7728,18 @@ static void DrawPropertiesPanel()
                     ImGui::NewLine();
                 }
 
+                // Per-asset Packaging section ({asset}.meta sidecar editor) —
+                // appears above the regular property rows so it's discoverable
+                // when the user is configuring an asset for shipping.
+                if (Asset* assetForMeta = obj->As<Asset>())
+                {
+                    AssetStub* stubForMeta = AssetManager::Get()->GetAssetStub(assetForMeta->GetName());
+                    if (stubForMeta != nullptr && !stubForMeta->mPath.empty())
+                    {
+                        DrawAssetPackagingSection(stubForMeta->mPath, stubForMeta);
+                    }
+                }
+
                 std::vector<Property> props;
                 obj->GatherProperties(props);
 
@@ -7224,6 +7773,12 @@ static void DrawPropertiesPanel()
                         ImGui::Text(animations[a].mName.c_str());
                     }
                     ImGui::Unindent();
+
+                    ImGui::NewLine();
+                    if (ImGui::Button("View Animations"))
+                    {
+                        GetAnimationBrowser()->Open(skelMesh);
+                    }
                 }
                 else if (obj->As<SoundWave>())
                 {
@@ -7232,6 +7787,62 @@ static void DrawPropertiesPanel()
                     ImGui::Text("Bits Per Sample: %d", soundWave->GetBitsPerSample());
                     ImGui::Text("Sample Rate: %d", soundWave->GetSampleRate());
                 }
+                else if (obj->As<Voxel3D>())
+                {
+                    if (GetEditorState()->mPaintMode != PaintMode::Voxel)
+                    {
+                        ImGui::NewLine();
+                        if (ImGui::Button("Open In Voxel Sculpt"))
+                        {
+                            GetEditorState()->SetEditorMode(EditorMode::Scene3D);
+                            GetEditorState()->SetPaintMode(PaintMode::Voxel);
+                        }
+                    }
+                }
+                else if (obj->As<Terrain3D>())
+                {
+                    if (GetEditorState()->mPaintMode != PaintMode::Terrain)
+                    {
+                        ImGui::NewLine();
+                        if (ImGui::Button("Open In Terrain Sculpt"))
+                        {
+                            GetEditorState()->SetEditorMode(EditorMode::Scene3D);
+                            GetEditorState()->SetPaintMode(PaintMode::Terrain);
+                        }
+                    }
+                }
+                else if (obj->As<TileMap2D>())
+                {
+                    if (GetEditorState()->mPaintMode != PaintMode::TilePaint)
+                    {
+                        ImGui::NewLine();
+                        if (ImGui::Button("Open In Tile Paint"))
+                        {
+                            GetEditorState()->SetEditorMode(EditorMode::Scene3D);
+                            GetEditorState()->SetPaintMode(PaintMode::TilePaint);
+                        }
+                    }
+                }
+            }
+            else if (!sSelectedLooseFile.empty())
+            {
+                // Raw-file inspector view. Loose files (.mp4, .json, .png, …)
+                // aren't Object-derived so they don't go through GatherProperties,
+                // but they DO carry a {file}.meta sidecar that drives their
+                // packaging behaviour. Show a read-only header + Packaging
+                // section so devs can configure platform-mask + embed without
+                // having to edit JSON by hand.
+                const std::string& filePath = sSelectedLooseFile;
+                size_t lastSlash = filePath.find_last_of("/\\");
+                std::string fileName = (lastSlash == std::string::npos)
+                    ? filePath
+                    : filePath.substr(lastSlash + 1);
+
+                ImGui::Text("Raw file: %s", fileName.c_str());
+                ImGui::TextDisabled("%s", filePath.c_str());
+                ImGui::Separator();
+
+                DrawAssetPackagingSection(filePath, /*stub=*/nullptr);
             }
 
             ImGui::EndTabItem();
@@ -7270,10 +7881,8 @@ static void DrawPropertiesPanel()
         ImGui::IsWindowHovered() &&
         !ImGui::GetIO().WantTextInput)
     {
-        bool ctrlDown = IsControlDown();
-
         // Hotkey for toggling lock.
-        if (IsKeyJustDown(POLYPHASE_KEY_L))
+        if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Inspector_ToggleLock))
         {
             GetEditorState()->LockInspect(!GetEditorState()->IsInspectLocked());
         }
@@ -8214,6 +8823,16 @@ static void DrawMainMenuBar()
                 GetPreferencesWindow()->Open();
             }
 
+            if (ImGui::MenuItem("Editor Hotkeys..."))
+            {
+                GetEditorHotkeysWindow()->Open();
+            }
+
+            if (ImGui::MenuItem("App Settings..."))
+            {
+                GetAppSettingsWindow()->Open();
+            }
+
             // Draw plugin menu items for Edit menu
             {
                 EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
@@ -8227,6 +8846,76 @@ static void DrawMainMenuBar()
         {
             EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
             if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(1);
+        }
+
+        if (ImGui::BeginMenu("Version Control"))
+        {
+            if (ImGui::BeginMenu("Git"))
+            {
+                if (ImGui::MenuItem("Open Git Panel"))
+                {
+                    GetGitWorkspaceWindow()->Open();
+                }
+
+                ImGui::Separator();
+
+                bool repoOpen = GitService::Get() && GitService::Get()->IsRepositoryOpen();
+
+                if (ImGui::MenuItem("Fetch", nullptr, false, repoOpen))
+                {
+                    if (GitService::Get()->GetCurrentRepo())
+                    {
+                        GitOperationRequest req;
+                        req.mKind = GitOperationKind::Fetch;
+                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
+                        req.mCancelToken = CreateCancelToken();
+                        GitService::Get()->GetOperationQueue()->Enqueue(req);
+                    }
+                }
+
+                if (ImGui::MenuItem("Pull...", nullptr, false, repoOpen))
+                {
+                    if (GitService::Get()->GetCurrentRepo())
+                    {
+                        GitOperationRequest req;
+                        req.mKind = GitOperationKind::Pull;
+                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
+                        req.mCancelToken = CreateCancelToken();
+                        GitService::Get()->GetOperationQueue()->Enqueue(req);
+                    }
+                }
+
+                if (ImGui::MenuItem("Push...", nullptr, false, repoOpen))
+                {
+                    GitRepository* pushRepo = GitService::Get()->GetCurrentRepo();
+                    if (pushRepo)
+                    {
+                        GitOperationRequest req;
+                        req.mKind = GitOperationKind::Push;
+                        req.mRepoPath = pushRepo->GetPath();
+                        req.mBranchName = pushRepo->GetCurrentBranch();
+                        std::vector<GitRemoteInfo> pushRemotes = pushRepo->GetRemotes();
+                        if (!pushRemotes.empty())
+                            req.mRemoteName = pushRemotes[0].mName;
+                        req.mCancelToken = CreateCancelToken();
+                        GitService::Get()->GetOperationQueue()->Enqueue(req);
+                    }
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Refresh", nullptr, false, repoOpen))
+                {
+                    if (GitService::Get()->GetCurrentRepo())
+                    {
+                        GitService::Get()->GetCurrentRepo()->RefreshStatus();
+                    }
+                }
+
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMenu();
         }
 
         if (ImGui::BeginMenu("View"))
@@ -8312,8 +9001,14 @@ static void DrawMainMenuBar()
             if (ImGui::MenuItem("Node Graph"))
                 GetEditorState()->mShowNodeGraphPanel = !GetEditorState()->mShowNodeGraphPanel;
 
+            if (ImGui::MenuItem("Animation Browser")) {
+                GetEditorState()->mShowAnimationBrowser = !GetEditorState()->mShowAnimationBrowser;
+            }
             if (ImGui::MenuItem("Profiling"))
                 GetEditorState()->mShowProfilingPanel = !GetEditorState()->mShowProfilingPanel;
+
+            if (ImGui::MenuItem("CLI Terminal"))
+                GetTerminalPanel()->mVisible = !GetTerminalPanel()->mVisible;
 
             ImGui::Separator();
             if (ImGui::MenuItem("Reset Layout"))
@@ -8515,6 +9210,31 @@ static void DrawMainMenuBar()
                 GetBuildDependencyWindow()->Open();
             }
 
+            if (ImGui::MenuItem("Texture Atlas Viewer"))
+            {
+                GetEditorState()->mShowTextureAtlasViewer = !GetEditorState()->mShowTextureAtlasViewer;
+            }
+
+            if (ImGui::MenuItem("Input Map Window"))
+            {
+                GetInputMapWindow()->Open();
+            }
+
+            if (ImGui::MenuItem("Player Input Editor"))
+            {
+                GetPlayerInputEditor()->Open();
+            }
+
+            if (ImGui::MenuItem("Player Input Debugger"))
+            {
+                GetPlayerInputDebugger()->Open();
+            }
+
+            if (ImGui::MenuItem("Input Tester", nullptr, GetEditorState()->mShowInputTesterPanel))
+            {
+                GetEditorState()->mShowInputTesterPanel = !GetEditorState()->mShowInputTesterPanel;
+            }
+
             ImGui::Separator();
 
             // Draw plugin menu items for Developer menu
@@ -8642,9 +9362,9 @@ static void DrawMainMenuBar()
             curMode = int(EditorMode::Count) + int(paintMode) - 1;
         }
 
-        const char* modeStrings[] = { "Scene", "2D", "3D", "Paint Colors", "Paint Instances"};
-        ImGui::SetNextItemWidth(70);
-        ImGui::Combo("##EditorMode", &curMode, modeStrings, 5);
+        const char* modeStrings[] = { "Scene", "2D", "3D", "Paint Colors", "Paint Instances", "Voxel Sculpt", "Terrain Sculpt", "Tile Paint" };
+        ImGui::SetNextItemWidth(80);
+        ImGui::Combo("##EditorMode", &curMode, modeStrings, 8);
 
         if (curMode == 3)
         {
@@ -8655,6 +9375,21 @@ static void DrawMainMenuBar()
         {
             curMode = (int)EditorMode::Scene3D;
             paintMode = PaintMode::Instance;
+        }
+        else if (curMode == 5)
+        {
+            curMode = (int)EditorMode::Scene3D;
+            paintMode = PaintMode::Voxel;
+        }
+        else if (curMode == 6)
+        {
+            curMode = (int)EditorMode::Scene3D;
+            paintMode = PaintMode::Terrain;
+        }
+        else if (curMode == 7)
+        {
+            curMode = (int)EditorMode::Scene3D;
+            paintMode = PaintMode::TilePaint;
         }
         else
         {
@@ -8998,31 +9733,29 @@ static void DrawMainMenuBar()
         // Hotkey Menus
         if (GetEditorState()->GetViewport3D()->ShouldHandleInput())
         {
-            const bool ctrlDown = IsControlDown();
-            bool shiftDown = IsShiftDown();
-            const bool altDown = IsAltDown();
+            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
 
-            if (shiftDown && IsKeyJustDown(POLYPHASE_KEY_Q))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Spawn_Basic3DMenu))
             {
                 ImGui::OpenPopup("Spawn Basic 3D");
             }
 
-            if (shiftDown && IsKeyJustDown(POLYPHASE_KEY_W))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Spawn_BasicWidgetMenu))
             {
                 ImGui::OpenPopup("Spawn Basic Widget");
             }
 
-            if (shiftDown && IsKeyJustDown(POLYPHASE_KEY_A))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Spawn_NodeMenu))
             {
                 ImGui::OpenPopup("Spawn Node");
             }
 
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_N))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Asset_CreateScene))
             {
                 GetEditorState()->OpenEditScene(nullptr);
             }
 
-            if (ctrlDown && IsKeyJustDown(POLYPHASE_KEY_R))
+            if (hotkeys->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
             {
                 ReloadAllScripts();
                 NativeAddonManager* nam = NativeAddonManager::Get();
@@ -9694,13 +10427,23 @@ static void DrawPaintInstancesPanel()
     ImGui::End();
 }
 
+// Editor-only: draw an orange border around each Canvas widget's rect in the
+// Scene2D viewport so the user can see where their UI canvases sit. Replaces
+// the previous engine-config-based design bounds rectangle.
 static void DrawDesignBounds()
 {
-    if(GetFeatureFlagsEditor().mShow2DBorder == false){
+    if (GetFeatureFlagsEditor().mShow2DBorder == false)
+    {
         return;
     }
-    Viewport2D* viewport2d = GetEditorState()->GetViewport2D();
-    if (viewport2d == nullptr)
+
+    World* world = GetWorld(0);
+    if (world == nullptr)
+        return;
+
+    std::vector<Canvas*> canvases;
+    world->FindNodes(canvases);
+    if (canvases.empty())
         return;
 
     ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
@@ -9713,61 +10456,34 @@ static void DrawDesignBounds()
     }
     float invInterfaceScale = 1.0f / interfaceScale;
 
-    // Get the design resolution from engine config
-    float designWidth = (float)GetEngineConfig()->mWindowWidth;
-    float designHeight = (float)GetEngineConfig()->mWindowHeight;
+    Rect viewportRect;
+    viewportRect.mX = 0.0f;
+    viewportRect.mY = 0.0f;
+    viewportRect.mWidth = vp.z;
+    viewportRect.mHeight = vp.w;
 
-    // Get zoom and pan from viewport
-    float zoom = viewport2d->GetZoom();
-    glm::vec2 rootOffset = viewport2d->GetRootOffset();
-
-    // Calculate the design bounds in screen space
-    // The design area starts at rootOffset (pan) and is scaled by zoom
-    float boundsX = rootOffset.x * zoom;
-    float boundsY = rootOffset.y * zoom;
-    float boundsW = designWidth * zoom;
-    float boundsH = designHeight * zoom;
-
-    // Convert to ImGui coordinates (accounting for viewport offset and interface scale)
-    float x = invInterfaceScale * (boundsX + vp.x);
-    float y = invInterfaceScale * (boundsY + vp.y);
-    float w = invInterfaceScale * boundsW;
-    float h = invInterfaceScale * boundsH;
-
-    // Draw outer darkened regions (like Unity's letterboxing)
-    ImColor dimColor(0.0f, 0.0f, 0.0f, 0.4f);
-    float vpLeft = invInterfaceScale * vp.x;
-    float vpTop = invInterfaceScale * vp.y;
-    float vpRight = invInterfaceScale * (vp.x + vp.z);
-    float vpBottom = invInterfaceScale * (vp.y + vp.w);
-
-    // Top region (above canvas)
-    if (y > vpTop)
-    {
-        draw_list->AddRectFilled(ImVec2(vpLeft, vpTop), ImVec2(vpRight, y), dimColor);
-    }
-    // Bottom region (below canvas)
-    if (y + h < vpBottom)
-    {
-        draw_list->AddRectFilled(ImVec2(vpLeft, y + h), ImVec2(vpRight, vpBottom), dimColor);
-    }
-    // Left region (left of canvas, between top and bottom regions)
-    float regionTop = glm::max(y, vpTop);
-    float regionBottom = glm::min(y + h, vpBottom);
-    if (x > vpLeft && regionTop < regionBottom)
-    {
-        draw_list->AddRectFilled(ImVec2(vpLeft, regionTop), ImVec2(x, regionBottom), dimColor);
-    }
-    // Right region (right of canvas, between top and bottom regions)
-    if (x + w < vpRight && regionTop < regionBottom)
-    {
-        draw_list->AddRectFilled(ImVec2(x + w, regionTop), ImVec2(vpRight, regionBottom), dimColor);
-    }
-
-    // Draw the design bounds border
     ImColor boundsColor(1.0f, 0.6f, 0.0f, 0.8f);  // Orange color
     float thickness = 2.0f;
-    draw_list->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), boundsColor, 0.0f, ImDrawFlags_None, thickness);
+
+    for (Canvas* canvas : canvases)
+    {
+        if (canvas == nullptr || !canvas->IsVisible())
+            continue;
+
+        Rect rect = canvas->GetRect();
+
+        if (!rect.OverlapsRect(viewportRect))
+            continue;
+
+        rect.Clamp(viewportRect);
+
+        float x = invInterfaceScale * (rect.mX + vp.x);
+        float y = invInterfaceScale * (rect.mY + vp.y);
+        float w = invInterfaceScale * rect.mWidth;
+        float h = invInterfaceScale * rect.mHeight;
+
+        draw_list->AddRect(ImVec2(x, y), ImVec2(x + w, y + h), boundsColor, 0.0f, ImDrawFlags_None, thickness);
+    }
 }
 
 static void Draw2dSelections()
@@ -10447,6 +11163,56 @@ void EditorImguiInit()
         MergePolyphaseIcons(io.Fonts, 14.0f, iconFontPath.c_str());
     }
 
+    // Terminal panel font: load Roboto Mono with an extended glyph range
+    // covering the Unicode blocks Ink-rendered TUI apps (claude, etc.) use
+    // for layout. Loaded as a separate ImFont so it only applies inside the
+    // terminal panel via PushFont/PopFont.
+    {
+        const std::string termFontPath =
+            SYS_GetAbsolutePath("Engine/Assets/Fonts/F_RobotoMono16.ttf");
+        if (SYS_DoesFileExist(termFontPath.c_str(), false))
+        {
+            // Build the glyph range. Static so the lifetime extends past
+            // AddFontFromFileTTF, which only stores a pointer to it.
+            static const ImWchar kTerminalRanges[] = {
+                0x0020, 0x00FF, // Basic Latin + Latin-1 Supplement
+                0x2010, 0x205F, // General Punctuation (dashes, quotes, ellipsis)
+                0x2190, 0x21FF, // Arrows
+                0x2200, 0x22FF, // Mathematical Operators
+                0x2300, 0x23FF, // Miscellaneous Technical
+                0x2500, 0x257F, // Box Drawing
+                0x2580, 0x259F, // Block Elements (incl. quadrants)
+                0x25A0, 0x25FF, // Geometric Shapes
+                0x2600, 0x26FF, // Miscellaneous Symbols
+                0x2700, 0x27BF, // Dingbats (spinners ✶✷✸✹✺✻ live here)
+                0,
+            };
+
+            ImFontConfig cfg;
+            cfg.OversampleH = 1;
+            cfg.OversampleV = 1;
+            cfg.PixelSnapH = true;
+
+            sTerminalFont = io.Fonts->AddFontFromFileTTF(
+                termFontPath.c_str(), 15.0f, &cfg, kTerminalRanges);
+            if (sTerminalFont == nullptr)
+            {
+                LogWarning("[CLI] Failed to load terminal font from %s",
+                           termFontPath.c_str());
+            }
+            else
+            {
+                LogDebug("[CLI] Terminal font loaded from %s", termFontPath.c_str());
+            }
+        }
+        else
+        {
+            LogWarning("[CLI] Terminal font %s not found; terminal panel will "
+                       "use the editor default font and may render some glyphs "
+                       "as '?'.", termFontPath.c_str());
+        }
+    }
+
     //ImGui::StyleColorsLight();
 
     // Override theme
@@ -10465,6 +11231,7 @@ void EditorImguiInit()
     ControllerServer::Create();
 
     GetScriptEditorWindow()->Init();
+    GetLuaDebuggerPanel()->Init();
 
     ImGui::InitDock();
 
@@ -10472,6 +11239,11 @@ void EditorImguiInit()
     // If dock panel names changed (e.g. icons added), the saved layout won't
     // match and causes crashes.  Delete the file so ImGui starts fresh.
     ValidateDockLayoutIni();
+}
+
+ImFont* GetEditorTerminalFont()
+{
+    return sTerminalFont;
 }
 
 void EditorImguiDraw()
@@ -10517,6 +11289,1595 @@ void EditorImguiDraw()
         {
             DrawPaintInstancesPanel();
         }
+        else if (paintMode == PaintMode::Voxel)
+        {
+            // Voxel sculpt panel
+            ImGui::SetNextWindowPos(ImVec2(210.0f, GetTopBarHeight()));
+            ImGui::SetNextWindowSize(ImVec2(300.0f, 0.0f));
+            ImGui::Begin("Voxel Sculpt", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+
+            VoxelSculptManager* mgr = GetEditorState()->mVoxelSculptManager;
+
+            Node* sel = GetEditorState()->GetSelectedNode();
+            if (sel != nullptr && sel->GetType() == Voxel3D::GetStaticType())
+            {
+                Voxel3D* voxel = static_cast<Voxel3D*>(sel);
+
+                // Get atlas ImTextureID for tile previews
+                static ImTextureID sAtlasTexId = 0;
+                static Texture* sLastAtlasTex = nullptr;
+                Texture* atlasTex = voxel->GetAtlasTexture();
+                if (atlasTex != sLastAtlasTex)
+                {
+                    if (sAtlasTexId != 0)
+                    {
+                        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sAtlasTexId);
+                        sAtlasTexId = 0;
+                    }
+                    if (atlasTex != nullptr)
+                    {
+                        TextureResource* res = atlasTex->GetResource();
+                        if (res != nullptr && res->mImage != nullptr)
+                        {
+                            sAtlasTexId = (ImTextureID)ImGui_ImplVulkan_AddTexture(
+                                res->mImage->GetSampler(),
+                                res->mImage->GetView(),
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        }
+                    }
+                    sLastAtlasTex = atlasTex;
+                }
+
+                uint32_t tilesX = voxel->mAtlasTilesX;
+                uint32_t tilesY = voxel->mAtlasTilesY;
+
+                // Lambda: draw a tile preview button, returns true if clicked
+                auto DrawTileButton = [&](const char* id, int32_t tileIdx, float size) -> bool
+                {
+                    bool clicked = false;
+                    if (sAtlasTexId != 0 && tilesX > 0 && tilesY > 0 && tileIdx >= 0)
+                    {
+                        int col = tileIdx % tilesX;
+                        int row = tileIdx / tilesX;
+                        float u0 = float(col) / float(tilesX);
+                        float v0 = float(row) / float(tilesY);
+                        float u1 = float(col + 1) / float(tilesX);
+                        float v1 = float(row + 1) / float(tilesY);
+
+                        ImGui::PushID(id);
+                        clicked = ImGui::ImageButton(id, sAtlasTexId, ImVec2(size, size), ImVec2(u0, v0), ImVec2(u1, v1));
+                        ImGui::PopID();
+
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("Tile %d (Row %d, Col %d)", tileIdx, row, col);
+                            ImGui::Image(sAtlasTexId, ImVec2(64, 64), ImVec2(u0, v0), ImVec2(u1, v1));
+                            ImGui::EndTooltip();
+                        }
+                    }
+                    else
+                    {
+                        ImGui::PushID(id);
+                        clicked = ImGui::Button("?", ImVec2(size + 8, size + 8));
+                        ImGui::PopID();
+                    }
+                    return clicked;
+                };
+
+                // Lambda: tile picker popup - shows atlas grid, returns selected tile
+                auto DrawTilePickerPopup = [&](const char* popupId, int32_t& tileIdx)
+                {
+                    if (ImGui::BeginPopup(popupId))
+                    {
+                        ImGui::Text("Click a tile:");
+                        if (sAtlasTexId != 0 && tilesX > 0 && tilesY > 0)
+                        {
+                            float tileDrawSize = 24.0f;
+                            float gridW = tilesX * tileDrawSize;
+                            float gridH = tilesY * tileDrawSize;
+                            float maxW = 400.0f;
+                            float maxH = 300.0f;
+
+                            ImGui::BeginChild("TileGrid", ImVec2(glm::min(gridW + 16.0f, maxW), glm::min(gridH + 16.0f, maxH)), true, ImGuiWindowFlags_HorizontalScrollbar);
+
+                            ImVec2 origin = ImGui::GetCursorScreenPos();
+                            ImGui::Image(sAtlasTexId, ImVec2(gridW, gridH));
+                            bool imageHovered = ImGui::IsItemHovered();
+
+                            // Grid overlay
+                            ImDrawList* dl = ImGui::GetWindowDrawList();
+                            for (uint32_t gx = 0; gx <= tilesX; ++gx)
+                                dl->AddLine(ImVec2(origin.x + gx * tileDrawSize, origin.y), ImVec2(origin.x + gx * tileDrawSize, origin.y + gridH), IM_COL32(255,255,255,30));
+                            for (uint32_t gy = 0; gy <= tilesY; ++gy)
+                                dl->AddLine(ImVec2(origin.x, origin.y + gy * tileDrawSize), ImVec2(origin.x + gridW, origin.y + gy * tileDrawSize), IM_COL32(255,255,255,30));
+
+                            // Highlight current
+                            if (tileIdx >= 0 && (uint32_t)tileIdx < tilesX * tilesY)
+                            {
+                                int sc = tileIdx % tilesX;
+                                int sr = tileIdx / tilesX;
+                                dl->AddRect(ImVec2(origin.x + sc * tileDrawSize, origin.y + sr * tileDrawSize),
+                                            ImVec2(origin.x + (sc+1) * tileDrawSize, origin.y + (sr+1) * tileDrawSize),
+                                            IM_COL32(0, 255, 0, 255), 0, 0, 2.0f);
+                            }
+
+                            // Click detection
+                            ImVec2 mp = ImGui::GetMousePos();
+                            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                            {
+                                int clickCol = int((mp.x - origin.x) / tileDrawSize);
+                                int clickRow = int((mp.y - origin.y) / tileDrawSize);
+                                tileIdx = clickRow * tilesX + clickCol;
+                                ImGui::CloseCurrentPopup();
+                            }
+
+                            ImGui::EndChild();
+                        }
+                        else
+                        {
+                            ImGui::Text("No atlas texture set.");
+                        }
+                        ImGui::EndPopup();
+                    }
+                };
+
+                // Mode selector
+                int mode = (int)mgr->mOptions.mMode;
+                ImGui::RadioButton("Add", &mode, 0); ImGui::SameLine();
+                ImGui::RadioButton("Remove", &mode, 1); ImGui::SameLine();
+                ImGui::RadioButton("Paint", &mode, 2);
+                mgr->mOptions.mMode = (VoxelSculptMode)mode;
+
+                // Brush radius
+                ImGui::SliderInt("Radius", &mgr->mOptions.mBrushRadius, 1, 8);
+
+                // Material ID with step buttons (for Add and Paint modes)
+                if (mgr->mOptions.mMode != VoxelSculptMode::Remove)
+                {
+                    int matId = (int)mgr->mOptions.mMaterialId;
+
+                    ImGui::Text("Material:");
+                    ImGui::SameLine();
+                    if (ImGui::Button("<##MatPrev")) { matId--; if (matId < 1) matId = 255; }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(50.0f);
+                    ImGui::InputInt("##MatId", &matId, 0, 0);
+                    ImGui::SameLine();
+                    if (ImGui::Button(">##MatNext")) { matId++; if (matId > 255) matId = 1; }
+
+                    if (matId < 1) matId = 1;
+                    if (matId > 255) matId = 255;
+                    mgr->mOptions.mMaterialId = (uint8_t)matId;
+
+                    // Show current material's tile preview
+                    const VoxelMaterialInfo& curInfo = voxel->GetMaterialInfo(mgr->mOptions.mMaterialId);
+                    if (curInfo.mUseTexture && sAtlasTexId != 0)
+                    {
+                        ImGui::SameLine();
+                        DrawTileButton("##CurMatPreview", curInfo.mAtlasTile[2], 20.0f);
+                    }
+                }
+
+                // Hover info
+                if (mgr->mHoverValid)
+                {
+                    ImGui::Separator();
+                    ImGui::Text("Voxel: %d, %d, %d", mgr->mHoverVoxel.x, mgr->mHoverVoxel.y, mgr->mHoverVoxel.z);
+                }
+
+                // Buttons
+                ImGui::Separator();
+                if (ImGui::Button("Rebuild Mesh"))
+                {
+                    voxel->MarkDirty();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Reset Mesh"))
+                {
+                    voxel->Fill(0);
+                    voxel->MarkDirty();
+                }
+
+                // Material palette editor
+                if (ImGui::CollapsingHeader("Material Palette", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    int numConfigured = 0;
+                    for (int i = 1; i < 256; ++i)
+                    {
+                        if (voxel->GetMaterialInfo(static_cast<VoxelType>(i)).mUseTexture)
+                            numConfigured++;
+                    }
+                    ImGui::Text("Configured: %d materials", numConfigured);
+
+                    for (int i = 1; i <= 16; ++i)
+                    {
+                        ImGui::PushID(i);
+                        const VoxelMaterialInfo& info = voxel->GetMaterialInfo(static_cast<VoxelType>(i));
+
+                        char label[32];
+                        snprintf(label, sizeof(label), "Mat %d", i);
+
+                        bool isOpen = ImGui::TreeNode(label);
+
+                        // Show tile thumbnails on the same line as the tree node
+                        if (info.mUseTexture && sAtlasTexId != 0)
+                        {
+                            ImGui::SameLine();
+                            DrawTileButton("##TopPrev", info.mAtlasTile[0], 16.0f);
+                            ImGui::SameLine();
+                            DrawTileButton("##BotPrev", info.mAtlasTile[1], 16.0f);
+                            ImGui::SameLine();
+                            DrawTileButton("##SidePrev", info.mAtlasTile[2], 16.0f);
+                        }
+
+                        if (isOpen)
+                        {
+                            bool enabled = info.mUseTexture;
+                            if (ImGui::Checkbox("Enabled", &enabled))
+                            {
+                                if (enabled)
+                                    voxel->SetMaterialTexture(static_cast<VoxelType>(i), info.mAtlasTile[0], info.mAtlasTile[1], info.mAtlasTile[2]);
+                                else
+                                    voxel->DisableMaterialTexture(static_cast<VoxelType>(i));
+                            }
+
+                            if (enabled)
+                            {
+                                int top = info.mAtlasTile[0];
+                                int bottom = info.mAtlasTile[1];
+                                int side = info.mAtlasTile[2];
+
+                                // Top tile
+                                ImGui::Text("Top:");
+                                ImGui::SameLine();
+                                if (DrawTileButton("##TopBtn", top, 28.0f))
+                                    ImGui::OpenPopup("##PickTop");
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(50.0f);
+                                ImGui::InputInt("##TopIdx", &top, 0, 0);
+                                DrawTilePickerPopup("##PickTop", top);
+
+                                // Bottom tile
+                                ImGui::Text("Bot:");
+                                ImGui::SameLine();
+                                if (DrawTileButton("##BotBtn", bottom, 28.0f))
+                                    ImGui::OpenPopup("##PickBot");
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(50.0f);
+                                ImGui::InputInt("##BotIdx", &bottom, 0, 0);
+                                DrawTilePickerPopup("##PickBot", bottom);
+
+                                // Side tile
+                                ImGui::Text("Side:");
+                                ImGui::SameLine();
+                                if (DrawTileButton("##SideBtn", side, 28.0f))
+                                    ImGui::OpenPopup("##PickSide");
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(50.0f);
+                                ImGui::InputInt("##SideIdx", &side, 0, 0);
+                                DrawTilePickerPopup("##PickSide", side);
+
+                                if (top != info.mAtlasTile[0] || bottom != info.mAtlasTile[1] || side != info.mAtlasTile[2])
+                                {
+                                    voxel->SetMaterialTexture(static_cast<VoxelType>(i), top, bottom, side);
+                                }
+                            }
+
+                            ImGui::TreePop();
+                        }
+
+                        ImGui::PopID();
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextWrapped("Select a Voxel3D node to begin sculpting.");
+            }
+
+            ImGui::End();
+        }
+        else if (paintMode == PaintMode::Terrain)
+        {
+            // Terrain sculpt panel
+            ImGui::SetNextWindowPos(ImVec2(210.0f, GetTopBarHeight()), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(340.0f, 500.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSizeConstraints(ImVec2(300.0f, 200.0f), ImVec2(600.0f, 1200.0f));
+            ImGui::Begin("Terrain Sculpt", nullptr, 0);
+
+            TerrainSculptManager* mgr = GetEditorState()->mTerrainSculptManager;
+
+            Node* sel = GetEditorState()->GetSelectedNode();
+            if (sel != nullptr && sel->GetType() == Terrain3D::GetStaticType())
+            {
+                Terrain3D* terrain = static_cast<Terrain3D*>(sel);
+
+                // Get atlas ImTextureID for tile previews
+                static ImTextureID sTerrainAtlasTexId = 0;
+                static Texture* sLastTerrainAtlasTex = nullptr;
+                Texture* atlasTex = terrain->mAtlasTexture.Get<Texture>();
+                if (atlasTex != sLastTerrainAtlasTex)
+                {
+                    if (sTerrainAtlasTexId != 0)
+                    {
+                        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sTerrainAtlasTexId);
+                        sTerrainAtlasTexId = 0;
+                    }
+                    if (atlasTex != nullptr)
+                    {
+                        TextureResource* res = atlasTex->GetResource();
+                        if (res != nullptr && res->mImage != nullptr)
+                        {
+                            sTerrainAtlasTexId = (ImTextureID)ImGui_ImplVulkan_AddTexture(
+                                res->mImage->GetSampler(),
+                                res->mImage->GetView(),
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        }
+                    }
+                    sLastTerrainAtlasTex = atlasTex;
+                }
+
+                uint32_t tilesX = terrain->mAtlasTilesX;
+                uint32_t tilesY = terrain->mAtlasTilesY;
+
+                // Lambda: draw a tile preview image for a given tile index
+                auto DrawSlotTilePreview = [&](int32_t tileIdx, float size)
+                {
+                    if (sTerrainAtlasTexId != 0 && tilesX > 0 && tilesY > 0 && tileIdx >= 0)
+                    {
+                        int col = tileIdx % tilesX;
+                        int row = tileIdx / tilesX;
+                        float u0 = float(col) / float(tilesX);
+                        float v0 = float(row) / float(tilesY);
+                        float u1 = float(col + 1) / float(tilesX);
+                        float v1 = float(row + 1) / float(tilesY);
+                        ImGui::Image(sTerrainAtlasTexId, ImVec2(size, size), ImVec2(u0, v0), ImVec2(u1, v1));
+                    }
+                    else
+                    {
+                        ImGui::Dummy(ImVec2(size, size));
+                    }
+                };
+
+                // Mode selection
+                const char* brushTypeNames[] =
+                {
+                    ICON_TERRAIN_RAISE " Raise",
+                    ICON_TERRAIN_LOWER " Lower",
+                    ICON_TERRAIN_FLATTEN " Flatten",
+                    ICON_TERRAIN_SMOOTH " Smooth",
+                    ICON_HEROICONS_PAINT_BRUSH_20_SOLID " Paint Material"
+                };
+
+                int mode = (int)mgr->mOptions.mMode;
+                if (mode < 0 || mode >= (int)TerrainSculptMode::Count)
+                {
+                    mode = (int)TerrainSculptMode::Raise;
+                }
+
+                ImGui::Text(ICON_HEROICONS_PAINT_BRUSH_20_SOLID " Brush");
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::Combo("##BrushType", &mode, brushTypeNames, IM_ARRAYSIZE(brushTypeNames));
+                mgr->mOptions.mMode = (TerrainSculptMode)mode;
+
+                ImGui::Separator();
+
+                // Brush settings
+                ImGui::SliderFloat("Radius", &mgr->mOptions.mBrushRadius, 0.5f, 50.0f);
+                ImGui::SliderFloat("Strength", &mgr->mOptions.mBrushStrength, 0.01f, 1.0f);
+                ImGui::SliderFloat("Falloff", &mgr->mOptions.mBrushFalloff, 0.0f, 1.0f);
+
+                if (mgr->mOptions.mMode == TerrainSculptMode::Flatten)
+                {
+                    ImGui::SliderFloat("Target Height", &mgr->mOptions.mFlattenHeight, -10.0f, 10.0f);
+                }
+
+                // Brush mask
+                ImGui::Separator();
+                ImGui::Text("Brush Mask");
+                Texture* maskTex = mgr->mOptions.mBrushMask.Get<Texture>();
+                if (maskTex != nullptr)
+                {
+                    // Show preview of the mask texture
+                    static ImTextureID sBrushMaskTexId = 0;
+                    static Texture* sLastBrushMaskTex = nullptr;
+                    if (maskTex != sLastBrushMaskTex)
+                    {
+                        if (sBrushMaskTexId != 0)
+                        {
+                            ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sBrushMaskTexId);
+                            sBrushMaskTexId = 0;
+                        }
+                        TextureResource* res = maskTex->GetResource();
+                        if (res != nullptr && res->mImage != nullptr)
+                        {
+                            sBrushMaskTexId = (ImTextureID)ImGui_ImplVulkan_AddTexture(
+                                res->mImage->GetSampler(),
+                                res->mImage->GetView(),
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        }
+                        sLastBrushMaskTex = maskTex;
+                    }
+
+                    if (sBrushMaskTexId != 0)
+                    {
+                        ImGui::Image(sBrushMaskTexId, ImVec2(48, 48));
+                        ImGui::SameLine();
+                    }
+                    ImGui::BeginGroup();
+                    ImGui::Text("%s", maskTex->GetName().c_str());
+                    if (ImGui::Button("Clear##BrushMask"))
+                    {
+                        mgr->mOptions.mBrushMask = nullptr;
+                        if (sBrushMaskTexId != 0)
+                        {
+                            ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sBrushMaskTexId);
+                            sBrushMaskTexId = 0;
+                        }
+                        sLastBrushMaskTex = nullptr;
+                    }
+                    ImGui::EndGroup();
+                }
+                else
+                {
+                    ImGui::Text("(circular falloff)");
+                }
+
+                // Drop target: drag a Texture asset from the Assets panel onto this area
+                ImGui::Button("Drop Brush Mask Here##BrushMaskDrop", ImVec2(-1, 0));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
+                    {
+                        AssetStub* droppedStub = *(AssetStub**)payload->Data;
+                        if (droppedStub != nullptr && droppedStub->mType == Texture::GetStaticType())
+                        {
+                            Texture* droppedTex = static_cast<Texture*>(LoadAsset(droppedStub->mName));
+                            if (droppedTex != nullptr)
+                            {
+                                mgr->mOptions.mBrushMask = droppedTex;
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                // Stamp brush mask onto entire terrain as heightmap
+                if (maskTex != nullptr)
+                {
+                    if (ImGui::Button("Stamp as Height"))
+                    {
+                        terrain->SetHeightFromTexture(maskTex);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Add Height"))
+                    {
+                        // Additively blend the mask texture onto existing heights
+                        if (!maskTex->GetPixels().empty())
+                        {
+                            uint32_t texW = maskTex->GetWidth();
+                            uint32_t texH = maskTex->GetHeight();
+                            float strength = mgr->mOptions.mBrushStrength;
+                            for (int32_t iz = 0; iz < terrain->mResolutionZ; ++iz)
+                            {
+                                for (int32_t ix = 0; ix < terrain->mResolutionX; ++ix)
+                                {
+                                    float u = (float)ix / (terrain->mResolutionX - 1);
+                                    float v = (float)iz / (terrain->mResolutionZ - 1);
+                                    uint32_t px = std::min((uint32_t)(u * (texW - 1)), texW - 1);
+                                    uint32_t py = std::min((uint32_t)(v * (texH - 1)), texH - 1);
+                                    uint32_t idx = (py * texW + px) * 4;
+                                    if (idx < maskTex->GetPixels().size())
+                                    {
+                                        float texVal = maskTex->GetPixels()[idx] / 255.0f;
+                                        float curH = terrain->GetHeight(ix, iz);
+                                        terrain->SetHeight(ix, iz, curH + texVal * strength);
+                                    }
+                                }
+                            }
+                            terrain->MarkDirty();
+                        }
+                    }
+                    if (terrain->mUseMaterialSlots)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Stamp as Splat"))
+                        {
+                            // Stamp the mask as splatmap weight for the active paint slot
+                            if (!maskTex->GetPixels().empty())
+                            {
+                                uint32_t texW = maskTex->GetWidth();
+                                uint32_t texH = maskTex->GetHeight();
+                                int32_t slot = mgr->mOptions.mPaintSlot;
+                                for (int32_t iz = 0; iz < terrain->mResolutionZ; ++iz)
+                                {
+                                    for (int32_t ix = 0; ix < terrain->mResolutionX; ++ix)
+                                    {
+                                        float u = (float)ix / (terrain->mResolutionX - 1);
+                                        float v = (float)iz / (terrain->mResolutionZ - 1);
+                                        uint32_t px = std::min((uint32_t)(u * (texW - 1)), texW - 1);
+                                        uint32_t py = std::min((uint32_t)(v * (texH - 1)), texH - 1);
+                                        uint32_t idx = (py * texW + px) * 4;
+                                        if (idx < maskTex->GetPixels().size())
+                                        {
+                                            float texVal = maskTex->GetPixels()[idx] / 255.0f;
+                                            if (texVal > 0.01f)
+                                            {
+                                                terrain->SetMaterialWeight(ix, iz, slot, texVal);
+                                                // Normalize other slots
+                                                float totalOther = 0.0f;
+                                                for (int32_t s = 0; s < Terrain3D::MAX_MATERIAL_SLOTS; ++s)
+                                                    if (s != slot) totalOther += terrain->GetMaterialWeight(ix, iz, s);
+                                                if (totalOther > 0.0f)
+                                                {
+                                                    float scale = (1.0f - texVal) / totalOther;
+                                                    for (int32_t s = 0; s < Terrain3D::MAX_MATERIAL_SLOTS; ++s)
+                                                        if (s != slot)
+                                                            terrain->SetMaterialWeight(ix, iz, s, terrain->GetMaterialWeight(ix, iz, s) * scale);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                terrain->MarkDirty();
+                                terrain->BakeAndSaveMap();
+                            }
+                        }
+                    }
+                }
+
+                // Material painting options
+                if (mgr->mOptions.mMode == TerrainSculptMode::PaintMaterial)
+                {
+                    ImGui::Separator();
+                    ImGui::Text("Material Slot");
+                    for (int32_t s = 0; s < Terrain3D::MAX_MATERIAL_SLOTS; ++s)
+                    {
+                        ImGui::PushID(s);
+                        DrawSlotTilePreview(terrain->mSlotAtlasTile[s], 24.0f);
+                        ImGui::SameLine();
+                        char label[16];
+                        snprintf(label, sizeof(label), "Slot %d", s);
+                        ImGui::RadioButton(label, &mgr->mOptions.mPaintSlot, s);
+                        if (s < Terrain3D::MAX_MATERIAL_SLOTS - 1) ImGui::SameLine();
+                        ImGui::PopID();
+                    }
+                }
+
+                // Slot tile assignment
+                if (terrain->mUseMaterialSlots && terrain->mEnableAtlasTexturing)
+                {
+                    ImGui::Separator();
+                    if (ImGui::CollapsingHeader("Material Slot Tiles", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        for (int32_t s = 0; s < Terrain3D::MAX_MATERIAL_SLOTS; ++s)
+                        {
+                            ImGui::PushID(s + 100);
+                            DrawSlotTilePreview(terrain->mSlotAtlasTile[s], 32.0f);
+                            ImGui::SameLine();
+                            char label[32];
+                            snprintf(label, sizeof(label), "Slot %d Tile", s);
+                            ImGui::SetNextItemWidth(80.0f);
+                            if (ImGui::InputInt(label, &terrain->mSlotAtlasTile[s], 1, 1))
+                            {
+                                int32_t maxTile = (int32_t)(tilesX * tilesY) - 1;
+                                if (terrain->mSlotAtlasTile[s] < 0) terrain->mSlotAtlasTile[s] = 0;
+                                if (terrain->mSlotAtlasTile[s] > maxTile) terrain->mSlotAtlasTile[s] = maxTile;
+                                terrain->MarkDirty();
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                }
+
+                // Auto-generate splatmap from elevation/slope rules
+                if (terrain->mUseMaterialSlots)
+                {
+                    ImGui::Separator();
+                    if (ImGui::CollapsingHeader("Auto-Generate Splatmap"))
+                    {
+                        const char* slotLabels[] = { "Slot 0", "Slot 1", "Slot 2", "Slot 3" };
+                        for (int32_t s = 0; s < Terrain3D::MAX_MATERIAL_SLOTS; ++s)
+                        {
+                            ImGui::PushID(s);
+                            DrawSlotTilePreview(terrain->mSlotAtlasTile[s], 20.0f);
+                            ImGui::SameLine();
+                            if (ImGui::TreeNode(slotLabels[s]))
+                            {
+                                Terrain3D::SlotRule& rule = terrain->mSlotRules[s];
+                                ImGui::SliderFloat("Height Min", &rule.mHeightMin, 0.0f, 1.0f);
+                                ImGui::SliderFloat("Height Max", &rule.mHeightMax, 0.0f, 1.0f);
+                                ImGui::SliderFloat("Slope Min", &rule.mSlopeMin, 0.0f, 90.0f, "%.0f deg");
+                                ImGui::SliderFloat("Slope Max", &rule.mSlopeMax, 0.0f, 90.0f, "%.0f deg");
+                                ImGui::SliderFloat("Blend", &rule.mBlend, 0.0f, 0.5f);
+                                ImGui::SliderFloat("Strength", &rule.mStrength, 0.0f, 2.0f);
+                                ImGui::TreePop();
+                            }
+                            ImGui::PopID();
+                        }
+
+                        if (ImGui::Button("Generate Splatmap"))
+                        {
+                            terrain->GenerateSplatmapFromRules();
+                            terrain->BakeAndSaveMap();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Generate (Preview)"))
+                        {
+                            terrain->GenerateSplatmapFromRules();
+                            if (terrain->mBakeSplatmap)
+                                terrain->BakeSplatmapTexture();
+                        }
+
+                        ImGui::TextWrapped("Height: 0=lowest, 1=highest. Slope: 0=flat, 90=cliff.");
+                    }
+                }
+
+                // Mountain preset generator
+                if (terrain->mUseMaterialSlots)
+                {
+                    if (ImGui::CollapsingHeader("Mountain Generate Splatmap"))
+                    {
+                        static int32_t mtSlotGround = 0;
+                        static int32_t mtSlotMountainSide = 1;
+                        static int32_t mtSlotMountainTop = 2;
+                        static int32_t mtSlotPeak = 3;
+
+                        static float mtGroundMax = 0.35f;
+                        static float mtSideMinSlope = 25.0f;
+                        static float mtTopMin = 0.55f;
+                        static float mtPeakMin = 0.8f;
+                        static float mtBlend = 0.12f;
+
+                        // Ground
+                        DrawSlotTilePreview(terrain->mSlotAtlasTile[mtSlotGround], 20.0f);
+                        ImGui::SameLine();
+                        if (ImGui::TreeNode("Ground (flat lowlands)"))
+                        {
+                            ImGui::SliderInt("Slot##Ground", &mtSlotGround, 0, 3);
+                            ImGui::SliderFloat("Max Height##Ground", &mtGroundMax, 0.0f, 1.0f);
+                            ImGui::TreePop();
+                        }
+
+                        // Mountain Side
+                        DrawSlotTilePreview(terrain->mSlotAtlasTile[mtSlotMountainSide], 20.0f);
+                        ImGui::SameLine();
+                        if (ImGui::TreeNode("Mountain Side (steep slopes)"))
+                        {
+                            ImGui::SliderInt("Slot##Side", &mtSlotMountainSide, 0, 3);
+                            ImGui::SliderFloat("Min Slope##Side", &mtSideMinSlope, 5.0f, 60.0f, "%.0f deg");
+                            ImGui::TreePop();
+                        }
+
+                        // Mountain Top
+                        DrawSlotTilePreview(terrain->mSlotAtlasTile[mtSlotMountainTop], 20.0f);
+                        ImGui::SameLine();
+                        if (ImGui::TreeNode("Mountain Top (high flat areas)"))
+                        {
+                            ImGui::SliderInt("Slot##Top", &mtSlotMountainTop, 0, 3);
+                            ImGui::SliderFloat("Min Height##Top", &mtTopMin, 0.2f, 1.0f);
+                            ImGui::TreePop();
+                        }
+
+                        // Peak
+                        DrawSlotTilePreview(terrain->mSlotAtlasTile[mtSlotPeak], 20.0f);
+                        ImGui::SameLine();
+                        if (ImGui::TreeNode("Peak (highest points)"))
+                        {
+                            ImGui::SliderInt("Slot##Peak", &mtSlotPeak, 0, 3);
+                            ImGui::SliderFloat("Min Height##Peak", &mtPeakMin, 0.5f, 1.0f);
+                            ImGui::TreePop();
+                        }
+
+                        ImGui::SliderFloat("Blend##Mt", &mtBlend, 0.0f, 0.3f);
+
+                        if (ImGui::Button("Generate Mountain"))
+                        {
+                            // Ground: low elevation, flat
+                            terrain->mSlotRules[mtSlotGround] = { 0.0f, mtGroundMax, 0.0f, mtSideMinSlope, mtBlend, 1.0f };
+                            // Mountain Side: steep slopes at any elevation
+                            terrain->mSlotRules[mtSlotMountainSide] = { 0.0f, 1.0f, mtSideMinSlope, 90.0f, mtBlend, 1.2f };
+                            // Mountain Top: high elevation, moderate slopes
+                            terrain->mSlotRules[mtSlotMountainTop] = { mtTopMin, mtPeakMin, 0.0f, mtSideMinSlope + 10.0f, mtBlend, 1.0f };
+                            // Peak: highest points, any slope
+                            terrain->mSlotRules[mtSlotPeak] = { mtPeakMin, 1.0f, 0.0f, 90.0f, mtBlend, 1.5f };
+
+                            terrain->GenerateSplatmapFromRules();
+                            terrain->BakeAndSaveMap();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Preview Mountain"))
+                        {
+                            terrain->mSlotRules[mtSlotGround] = { 0.0f, mtGroundMax, 0.0f, mtSideMinSlope, mtBlend, 1.0f };
+                            terrain->mSlotRules[mtSlotMountainSide] = { 0.0f, 1.0f, mtSideMinSlope, 90.0f, mtBlend, 1.2f };
+                            terrain->mSlotRules[mtSlotMountainTop] = { mtTopMin, mtPeakMin, 0.0f, mtSideMinSlope + 10.0f, mtBlend, 1.0f };
+                            terrain->mSlotRules[mtSlotPeak] = { mtPeakMin, 1.0f, 0.0f, 90.0f, mtBlend, 1.5f };
+
+                            terrain->GenerateSplatmapFromRules();
+                            if (terrain->mBakeSplatmap)
+                                terrain->BakeSplatmapTexture();
+                        }
+                    }
+                }
+
+                // Terrain config
+                ImGui::Separator();
+                ImGui::Text("Terrain Config");
+                ImGui::Text("Resolution: %d x %d", terrain->mResolutionX, terrain->mResolutionZ);
+                ImGui::Text("World Size: %.1f x %.1f", terrain->mWorldWidth, terrain->mWorldDepth);
+                ImGui::Text("Height Scale: %.2f", terrain->mHeightScale);
+
+                // Actions
+                ImGui::Separator();
+                if (ImGui::Button("Flatten All"))
+                {
+                    terrain->FlattenAll(0.0f);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Rebuild Mesh"))
+                {
+                    terrain->RebuildMesh();
+                }
+                if (terrain->mEnableAtlasTexturing && terrain->mBakeSplatmap)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Bake Splatmap"))
+                    {
+                        terrain->BakeSplatmapTexture();
+                    }
+                }
+
+                if (terrain->mEnableAtlasTexturing && terrain->mUseMaterialSlots)
+                {
+                    if (ImGui::Button("Bake & Save Map"))
+                    {
+                        terrain->BakeAndSaveMap();
+                    }
+                    ImGui::SameLine();
+                }
+                if (ImGui::Button("Save Heightmap"))
+                {
+                    terrain->BakeAndSaveHeightmap();
+                }
+
+                // Warn if no baked map is saved
+                if (terrain->mEnableAtlasTexturing && terrain->mUseMaterialSlots &&
+                    terrain->mBakedMapTexture.Get<Texture>() == nullptr)
+                {
+                    ImGui::Separator();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("No Baked Map saved. The terrain material won't display in PIE or runtime builds. Click \"Bake & Save Map\" to export.");
+                    ImGui::PopStyleColor();
+                }
+
+                // Debug splatmap toggle
+                ImGui::Separator();
+                if (ImGui::Checkbox("Debug Splatmap", &terrain->mDebugSplatmap))
+                {
+                    terrain->MarkDirty();
+                }
+                if (terrain->mDebugSplatmap)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(R=Slot0 G=Slot1 B=Slot2 A=Slot3)");
+                }
+
+                // Hover info
+                if (mgr->mHoverValid)
+                {
+                    ImGui::Separator();
+                    ImGui::Text("Grid: [%d, %d]", mgr->mHoverGridX, mgr->mHoverGridZ);
+                    ImGui::Text("Height: %.3f", terrain->GetHeight(mgr->mHoverGridX, mgr->mHoverGridZ));
+                    if (terrain->mUseMaterialSlots)
+                    {
+                        ImGui::Text("Weights: %.0f%% %.0f%% %.0f%% %.0f%%",
+                            terrain->GetMaterialWeight(mgr->mHoverGridX, mgr->mHoverGridZ, 0) * 100.0f,
+                            terrain->GetMaterialWeight(mgr->mHoverGridX, mgr->mHoverGridZ, 1) * 100.0f,
+                            terrain->GetMaterialWeight(mgr->mHoverGridX, mgr->mHoverGridZ, 2) * 100.0f,
+                            terrain->GetMaterialWeight(mgr->mHoverGridX, mgr->mHoverGridZ, 3) * 100.0f);
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextWrapped("Select a Terrain3D node to begin sculpting.");
+            }
+
+            ImGui::End();
+        }
+        else if (paintMode == PaintMode::TilePaint)
+        {
+            // Tile paint panel — Phase 2: tile palette grid, layer panel, fill tools, tag editing.
+            ImGui::SetNextWindowPos(ImVec2(210.0f, GetTopBarHeight()), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(360.0f, 720.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 400.0f), ImVec2(720.0f, 1600.0f));
+            ImGui::Begin("Tile Paint", nullptr, 0);
+
+            TilePaintManager* mgr = GetEditorState()->mTilePaintManager;
+            Node* sel = GetEditorState()->GetSelectedNode();
+            if (sel != nullptr && sel->GetType() == TileMap2D::GetStaticType())
+            {
+                TileMap2D* tileMapNode = static_cast<TileMap2D*>(sel);
+                TileMap* tileMap = tileMapNode->GetTileMap();
+                TileSet* tileSet = (tileMap != nullptr) ? tileMap->GetTileSet() : nullptr;
+
+                // Tool selection
+                ImGui::TextUnformatted("Tool:");
+                struct TileToolEntry { TileSculptMode mode; const char* icon; const char* name; };
+                static const TileToolEntry kTileTools[] = {
+                    { TileSculptMode::Pencil,    ICON_MDI_PENCIL,                  "Pencil"    },
+                    { TileSculptMode::Eraser,    ICON_MDI_ERASER,                  "Eraser"    },
+                    { TileSculptMode::Picker,    ICON_BOXICONS_EYEDROPPER_FILLED,  "Picker"    },
+                    { TileSculptMode::RectFill,  ICON_RECTFILL,                    "Rect Fill" },
+                    { TileSculptMode::FloodFill, ICON_RI_PAINT_FILL,               "Flood Fill"},
+                    { TileSculptMode::Line,      ICON_LINEICONS_VECTOR_NODES_7,    "Line"      },
+                    { TileSculptMode::NineBox,   ICON_9POINT,                      "9 Box"     },
+                    { TileSculptMode::Select,    ICON_RI_CURSOR_FILL,              "Select"    },
+                    { TileSculptMode::Autotile,  ICON_FLUENT_MDL2_FIVE_TILE_GRID,  "Autotile"  },
+                };
+
+                const TileToolEntry* current = &kTileTools[0];
+                for (const TileToolEntry& e : kTileTools)
+                {
+                    if (e.mode == mgr->mOptions.mMode) { current = &e; break; }
+                }
+
+                char previewLabel[64];
+                snprintf(previewLabel, sizeof(previewLabel), "%s %s", current->icon, current->name);
+                if (ImGui::BeginCombo("##TileTool", previewLabel))
+                {
+                    for (const TileToolEntry& e : kTileTools)
+                    {
+                        char itemLabel[64];
+                        snprintf(itemLabel, sizeof(itemLabel), "%s %s", e.icon, e.name);
+                        bool selected = (e.mode == mgr->mOptions.mMode);
+                        if (ImGui::Selectable(itemLabel, selected))
+                        {
+                            mgr->mOptions.mMode = e.mode;
+                        }
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                // Cache the atlas descriptor via the shared TilePicker helper
+                Texture* atlasTex = (tileSet != nullptr) ? tileSet->GetTexture() : nullptr;
+                void* atlasImId = TilePicker::GetOrCreateImTextureID("TilePaintPanel", atlasTex);
+                int32_t tilesX = (tileSet != nullptr) ? tileSet->GetAtlasGridSize().x : 0;
+                int32_t tilesY = (tileSet != nullptr) ? tileSet->GetAtlasGridSize().y : 0;
+
+                // Selected tile preview
+                ImGui::Separator();
+                ImGui::Text("Selected Tile: %d", mgr->mOptions.mSelectedTileIndex);
+                ImGui::SameLine();
+                TilePicker::DrawTileButton("##SelTilePreview", atlasImId,
+                    mgr->mOptions.mSelectedTileIndex, tilesX, tilesY, 32.0f);
+
+                // Tile palette grid
+                if (ImGui::CollapsingHeader(ICON_FLUENT_MDL2_PICTURE_TILE " Tile Palette", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    int32_t pickedIdx = mgr->mOptions.mSelectedTileIndex;
+                    if (TilePicker::DrawInlineTileGrid("##TilePalette", atlasImId,
+                            tilesX, tilesY, pickedIdx, 22.0f, 720.0f, 240.0f))
+                    {
+                        mgr->mOptions.mSelectedTileIndex = pickedIdx;
+                    }
+                }
+
+                // Layer panel
+                if (tileMap != nullptr && ImGui::CollapsingHeader(ICON_LAYERS " Layers", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    int32_t numLayers = tileMap->GetNumLayers();
+                    if (mgr->mOptions.mActiveLayer >= numLayers)
+                        mgr->mOptions.mActiveLayer = numLayers - 1;
+                    if (mgr->mOptions.mActiveLayer < 0)
+                        mgr->mOptions.mActiveLayer = 0;
+
+                    for (int32_t li = 0; li < numLayers; ++li)
+                    {
+                        TileMapLayer* layer = tileMap->GetLayer(li);
+                        if (layer == nullptr) continue;
+
+                        ImGui::PushID(li);
+
+                        bool isActive = (mgr->mOptions.mActiveLayer == li);
+                        if (ImGui::RadioButton("##Active", isActive))
+                        {
+                            mgr->mOptions.mActiveLayer = li;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Active layer");
+                        ImGui::SameLine();
+
+                        bool visible = layer->mVisible;
+                        if (ImGui::Checkbox("##Vis", &visible))
+                        {
+                            layer->mVisible = visible;
+                            tileMapNode->MarkDirty();
+                            tileMap->SetDirtyFlag();
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Visible");
+                        ImGui::SameLine();
+
+                        bool locked = layer->mLocked;
+                        if (ImGui::Checkbox("##Lock", &locked))
+                        {
+                            layer->mLocked = locked;
+                            tileMap->SetDirtyFlag();
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Locked");
+                        ImGui::SameLine();
+
+                        char nameBuf[64];
+                        strncpy(nameBuf, layer->mName.c_str(), sizeof(nameBuf) - 1);
+                        nameBuf[sizeof(nameBuf) - 1] = '\0';
+                        ImGui::SetNextItemWidth(140.0f);
+                        if (ImGui::InputText("##Name", nameBuf, sizeof(nameBuf)))
+                        {
+                            layer->mName = nameBuf;
+                            tileMap->SetDirtyFlag();
+                        }
+                        ImGui::SameLine();
+
+                        if (ImGui::SmallButton("X") && numLayers > 1)
+                        {
+                            // We need a public way to remove layers from the asset.
+                            // For now, just hide it; full delete lands when layer
+                            // remove API is added to the asset.
+                            layer->mVisible = false;
+                        }
+
+                        ImGui::PopID();
+                    }
+
+                    if (ImGui::Button(ICON_MDI_ANIMATION_PLUS " Layer"))
+                    {
+                        // Cheap version: append by setting a far-future cell index
+                        // through the EnsureLayer pathway. Replace with a public
+                        // AddLayer() API once metadata authoring lands.
+                        TileCell empty;
+                        tileMap->SetCell(0, 0, empty, numLayers);
+                        tileMapNode->MarkDirty();
+                        tileMap->SetDirtyFlag();
+                    }
+                }
+
+                // 9-Box Brushes (Phase 3)
+                if (tileSet != nullptr && ImGui::CollapsingHeader( ICON_9POINT " 9-Box Brushes"))
+                {
+                    auto& brushes = tileSet->GetNineBoxBrushesMutable();
+
+                    if (ImGui::Button("+ New Brush"))
+                    {
+                        int32_t newIdx = tileSet->AddNineBoxBrush(ICON_HEROICONS_PAINT_BRUSH_20_SOLID);
+                        mgr->mOptions.mActiveNineBoxIndex = newIdx;
+                        tileSet->SetDirtyFlag();
+                    }
+
+                    ImGui::SameLine();
+                    ImGui::Text("(%d defined)", int(brushes.size()));
+
+                    int32_t removeBrushIdx = -1;
+                    for (size_t bi = 0; bi < brushes.size(); ++bi)
+                    {
+                        NineBoxBrushDef& brush = brushes[bi];
+                        ImGui::PushID(int(bi));
+
+                        bool active = (mgr->mOptions.mActiveNineBoxIndex == int32_t(bi));
+                        if (ImGui::RadioButton("##ActiveBrush", active))
+                        {
+                            mgr->mOptions.mActiveNineBoxIndex = int32_t(bi);
+                        }
+                        ImGui::SameLine();
+
+                        char nameBuf[64];
+                        strncpy(nameBuf, brush.mName.c_str(), sizeof(nameBuf) - 1);
+                        nameBuf[sizeof(nameBuf) - 1] = '\0';
+                        ImGui::SetNextItemWidth(140.0f);
+                        if (ImGui::InputText("##BrushName", nameBuf, sizeof(nameBuf)))
+                        {
+                            brush.mName = nameBuf;
+                            tileSet->SetDirtyFlag();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X")) removeBrushIdx = int32_t(bi);
+
+                        // 3x3 grid of slot pickers
+                        int32_t* slots[9] = {
+                            &brush.mTopLeft, &brush.mTop, &brush.mTopRight,
+                            &brush.mLeft,    &brush.mCenter, &brush.mRight,
+                            &brush.mBottomLeft, &brush.mBottom, &brush.mBottomRight
+                        };
+                        const char* slotPopupIds[9] = {
+                            "##PickTL", "##PickTM", "##PickTR",
+                            "##PickML", "##PickMM", "##PickMR",
+                            "##PickBL", "##PickBM", "##PickBR"
+                        };
+
+                        for (int32_t row = 0; row < 3; ++row)
+                        {
+                            for (int32_t col = 0; col < 3; ++col)
+                            {
+                                int32_t slotIdx = row * 3 + col;
+                                ImGui::PushID(slotIdx);
+                                if (TilePicker::DrawTileButton("##slot", atlasImId,
+                                        *slots[slotIdx], tilesX, tilesY, 28.0f))
+                                {
+                                    ImGui::OpenPopup(slotPopupIds[slotIdx]);
+                                }
+                                int32_t pickedSlot = *slots[slotIdx];
+                                TilePicker::DrawTilePickerPopup(slotPopupIds[slotIdx],
+                                    atlasImId, tilesX, tilesY, pickedSlot);
+                                if (pickedSlot != *slots[slotIdx])
+                                {
+                                    *slots[slotIdx] = pickedSlot;
+                                    tileSet->SetDirtyFlag();
+                                }
+                                ImGui::PopID();
+                                if (col < 2) ImGui::SameLine();
+                            }
+                        }
+
+                        ImGui::PopID();
+                        ImGui::Separator();
+                    }
+
+                    if (removeBrushIdx >= 0)
+                    {
+                        tileSet->RemoveNineBoxBrush(removeBrushIdx);
+                        if (mgr->mOptions.mActiveNineBoxIndex >= int32_t(brushes.size()))
+                            mgr->mOptions.mActiveNineBoxIndex = int32_t(brushes.size()) - 1;
+                        tileSet->SetDirtyFlag();
+                    }
+
+                }
+
+                // Autotile Brushes (Phase 4)
+                if (tileSet != nullptr && ImGui::CollapsingHeader(ICON_FLUENT_MDL2_FIVE_TILE_GRID " Autotile Brushes"))
+                {
+                    auto& sets = tileSet->GetAutotileSetsMutable();
+                    if (ImGui::Button("+ New Autotile"))
+                    {
+                        int32_t newIdx = tileSet->AddAutotileSet("Autotile");
+                        mgr->mOptions.mActiveAutotileIndex = newIdx;
+                        tileSet->SetDirtyFlag();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("(%d defined)", int(sets.size()));
+
+                    int32_t removeAutoIdx = -1;
+                    for (size_t ai = 0; ai < sets.size(); ++ai)
+                    {
+                        AutotileSet& set = sets[ai];
+                        ImGui::PushID(int(ai));
+
+                        bool active = (mgr->mOptions.mActiveAutotileIndex == int32_t(ai));
+                        if (ImGui::RadioButton("##ActiveAuto", active))
+                            mgr->mOptions.mActiveAutotileIndex = int32_t(ai);
+                        ImGui::SameLine();
+
+                        char nameBuf[64];
+                        strncpy(nameBuf, set.mName.c_str(), sizeof(nameBuf) - 1);
+                        nameBuf[sizeof(nameBuf) - 1] = '\0';
+                        ImGui::SetNextItemWidth(140.0f);
+                        if (ImGui::InputText("##AutoName", nameBuf, sizeof(nameBuf)))
+                        {
+                            set.mName = nameBuf;
+                            tileSet->SetDirtyFlag();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X")) removeAutoIdx = int32_t(ai);
+
+                        // Member tags
+                        ImGui::TextUnformatted( "Member Tags:");
+                        int32_t removeMemberTag = -1;
+                        for (size_t t = 0; t < set.mMemberTags.size(); ++t)
+                        {
+                            ImGui::PushID(int(t) + 1000);
+                            char tagBuf[64];
+                            strncpy(tagBuf, set.mMemberTags[t].c_str(), sizeof(tagBuf) - 1);
+                            tagBuf[sizeof(tagBuf) - 1] = '\0';
+                            ImGui::SetNextItemWidth(160.0f);
+                            if (ImGui::InputText("##MemTag", tagBuf, sizeof(tagBuf)))
+                            {
+                                set.mMemberTags[t] = tagBuf;
+                                tileSet->SetDirtyFlag();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("X")) removeMemberTag = int32_t(t);
+                            ImGui::PopID();
+                        }
+                        if (removeMemberTag >= 0)
+                        {
+                            set.mMemberTags.erase(set.mMemberTags.begin() + removeMemberTag);
+                            tileSet->SetDirtyFlag();
+                        }
+                        if (ImGui::Button("+ Add Member Tag"))
+                        {
+                            set.mMemberTags.push_back("");
+                            tileSet->SetDirtyFlag();
+                        }
+
+                        // Rules
+                        ImGui::TextUnformatted(ICON_MAGE_SCALE_UP " Rules:");
+                        int32_t removeRuleIdx = -1;
+                        for (size_t ri = 0; ri < set.mRules.size(); ++ri)
+                        {
+                            AutotileRule& rule = set.mRules[ri];
+                            ImGui::PushID(int(ri) + 2000);
+
+                            // 3x3 tri-state grid. Slot indices in the layout
+                            // skip the center cell entirely.
+                            //   slot[0]=NW slot[1]=N slot[2]=NE
+                            //   slot[3]=W   center  slot[4]=E
+                            //   slot[5]=SW slot[6]=S slot[7]=SE
+                            const int32_t kSlotForGrid[9] = { 0, 1, 2, 3, -1, 4, 5, 6, 7 };
+                            const char* kStateLabel[3] = { "?", "1", "0" }; // DontCare, MustBe, MustNot
+
+                            for (int32_t row = 0; row < 3; ++row)
+                            {
+                                for (int32_t col = 0; col < 3; ++col)
+                                {
+                                    int32_t gridIdx = row * 3 + col;
+                                    int32_t slot = kSlotForGrid[gridIdx];
+                                    ImGui::PushID(gridIdx);
+                                    if (slot < 0)
+                                    {
+                                        ImGui::Button("*", ImVec2(28, 28));
+                                    }
+                                    else
+                                    {
+                                        AutotileNeighborState st = rule.mNeighbors[slot];
+                                        if (ImGui::Button(kStateLabel[int(st)], ImVec2(28, 28)))
+                                        {
+                                            int next = (int(st) + 1) % int(AutotileNeighborState::Count);
+                                            rule.mNeighbors[slot] = AutotileNeighborState(next);
+                                            tileSet->SetDirtyFlag();
+                                        }
+                                        if (ImGui::IsItemHovered())
+                                        {
+                                            const char* tip = (st == AutotileNeighborState::DontCare) ? "Don't care"
+                                                              : (st == AutotileNeighborState::MustBeSelf) ? "Must be self"
+                                                              : "Must NOT be self";
+                                            ImGui::SetTooltip("%s", tip);
+                                        }
+                                    }
+                                    ImGui::PopID();
+                                    if (col < 2) ImGui::SameLine();
+                                }
+                            }
+
+                            // Result tile
+                            int32_t resultTile = rule.mResultTiles.empty() ? -1 : rule.mResultTiles[0];
+                            ImGui::Text("Result:");
+                            ImGui::SameLine();
+                            if (TilePicker::DrawTileButton("##RuleResult", atlasImId,
+                                    resultTile, tilesX, tilesY, 32.0f))
+                            {
+                                ImGui::OpenPopup("##PickRuleResult");
+                            }
+                            int32_t pickedResult = resultTile;
+                            TilePicker::DrawTilePickerPopup("##PickRuleResult", atlasImId,
+                                tilesX, tilesY, pickedResult);
+                            if (pickedResult != resultTile)
+                            {
+                                if (rule.mResultTiles.empty())
+                                    rule.mResultTiles.push_back(pickedResult);
+                                else
+                                    rule.mResultTiles[0] = pickedResult;
+                                tileSet->SetDirtyFlag();
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("X##RemoveRule")) removeRuleIdx = int32_t(ri);
+
+                            ImGui::PopID();
+                            ImGui::Separator();
+                        }
+                        if (removeRuleIdx >= 0)
+                        {
+                            set.mRules.erase(set.mRules.begin() + removeRuleIdx);
+                            tileSet->SetDirtyFlag();
+                        }
+                        if (ImGui::Button("+ Add Rule"))
+                        {
+                            set.mRules.push_back(AutotileRule{});
+                            tileSet->SetDirtyFlag();
+                        }
+
+                        ImGui::PopID();
+                        ImGui::Separator();
+                    }
+                    if (removeAutoIdx >= 0)
+                    {
+                        tileSet->RemoveAutotileSet(removeAutoIdx);
+                        if (mgr->mOptions.mActiveAutotileIndex >= int32_t(sets.size()))
+                            mgr->mOptions.mActiveAutotileIndex = int32_t(sets.size()) - 1;
+                        tileSet->SetDirtyFlag();
+                    }
+                }
+
+                // Selection / Clipboard / Transforms (Phase 3)
+                if (ImGui::CollapsingHeader(ICON_UIWIDGET " Selection & Clipboard"))
+                {
+                    if (mgr->HasSelection())
+                    {
+                        glm::ivec2 mn = mgr->GetSelectionMin();
+                        glm::ivec2 mx = mgr->GetSelectionMax();
+                        ImGui::Text("Selection: (%d,%d) -> (%d,%d)  (%d cells)",
+                            mn.x, mn.y, mx.x, mx.y, int(mgr->mSelectedCells.size()));
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("No selection. Use Select tool to drag a rect.");
+                    }
+                    ImGui::TextDisabled("Shift+drag = add to selection. Ctrl+drag = remove.");
+
+                    if (ImGui::Button(ICON_CLAPPERBOARD_OPEN))     mgr->DoCopy();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copy");
+                    ImGui::SameLine();
+                    if (ImGui::Button(ICON_MINGCUTE_SCISSORS_FILL))      mgr->DoCut();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut");
+                    ImGui::SameLine();
+                    if (ImGui::Button(ICON_MDI_CONTENT_PASTE))    mgr->DoPasteAtCursor();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paste");
+                    ImGui::SameLine();
+                    if (ImGui::Button(ICON_ZONDICONS_TRASH))    mgr->ClearSelection();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear");
+
+                    bool hasClip = mgr->HasClipboard();
+                    if (!hasClip) ImGui::BeginDisabled();
+                    if (ImGui::Button(ICON_OCTICON_MIRROR_Y))   mgr->DoFlipClipboardX();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Flip X");
+                    ImGui::SameLine();                
+
+                    if (ImGui::Button(ICON_OCTICON_MIRROR_Y ))   mgr->DoFlipClipboardY();
+
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Flip Y");
+                    ImGui::SameLine();
+                    if (ImGui::Button(ICON_BOXICONS_SHAPE_ROTATE_CW)) mgr->DoRotateClipboard90();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rotate 90");
+                    if (!hasClip) ImGui::EndDisabled();
+
+                    ImGui::TextDisabled(hasClip ? "Clipboard ready (paste at cursor)." : "Clipboard empty.");
+
+                    // 9-Box Fill — apply the active 9-box brush to the
+                    // currently-selected rectangle. Requires both an active
+                    // selection AND an active 9-box brush in the panel.
+                    ImGui::Spacing();
+                    bool canApply9Box = mgr->HasSelection() &&
+                                        tileSet != nullptr &&
+                                        mgr->mOptions.mActiveNineBoxIndex >= 0 &&
+                                        mgr->mOptions.mActiveNineBoxIndex < int32_t(tileSet->GetNineBoxBrushes().size());
+                    if (!canApply9Box) ImGui::BeginDisabled();
+                    if (ImGui::Button(ICON_9POINT " Fill Selection With 9-Box Brush"))
+                    {
+                        mgr->DoApply9BoxToSelection();
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Replace every cell in the (possibly freeform) selection with the appropriate corner/edge/center tile from the active 9-box brush.\nWorks on rectangles, L-shapes, paths, and other irregular shapes.");
+                    if (!canApply9Box) ImGui::EndDisabled();
+                    if (!canApply9Box)
+                    {
+                        if (!mgr->HasSelection())
+                            ImGui::TextDisabled("Need a marquee selection (use Select tool).");
+                        else
+                            ImGui::TextDisabled("Need an active 9-box brush (in 9-Box Brushes panel).");
+                    }
+                }
+
+                // View overlays (Phase 3 + Phase 4 cell grid)
+                if (ImGui::CollapsingHeader(ICON_MDI_EYE " View"))
+                {
+                    ImGui::Checkbox(ICON_BXS_GRID " Cell Grid",         &mgr->mOptions.mShowCellGrid);
+                    ImGui::Checkbox( ICON_FLUENT_MDL2_CUBE_SHAPE " Collision Overlay", &mgr->mOptions.mShowCollisionOverlay);
+                    ImGui::Checkbox(ICON_FLUENT_TAG_24_FILLED " Tag Overlay",       &mgr->mOptions.mShowTagOverlay);
+                    if (mgr->mOptions.mShowTagOverlay)
+                    {
+                        char tagBuf[64];
+                        strncpy(tagBuf, mgr->mOptions.mTagOverlayName.c_str(), sizeof(tagBuf) - 1);
+                        tagBuf[sizeof(tagBuf) - 1] = '\0';
+                        if (ImGui::InputText("Highlight Tag", tagBuf, sizeof(tagBuf)))
+                        {
+                            mgr->mOptions.mTagOverlayName = tagBuf;
+                        }
+                    }
+                }
+
+                // Status / hover info
+                ImGui::Separator();
+                if (mgr->mHoverValid)
+                {
+                    ImGui::Text("Cell: %d, %d", mgr->mHoverCell.x, mgr->mHoverCell.y);
+                    int32_t cx = TileMap::FloorDivChunk(mgr->mHoverCell.x);
+                    int32_t cy = TileMap::FloorDivChunk(mgr->mHoverCell.y);
+                    ImGui::Text("Chunk: %d, %d", cx, cy);
+                    if (tileMap != nullptr)
+                    {
+                        int32_t hoverTile = tileMap->GetTile(mgr->mHoverCell.x, mgr->mHoverCell.y, mgr->mOptions.mActiveLayer);
+                        ImGui::Text("Tile under cursor: %d", hoverTile);
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled("Hover over the tile map to begin painting.");
+                }
+
+                // Selected-tile metadata editor (Phase 2: tags + collision flag)
+                if (tileSet != nullptr && mgr->mOptions.mSelectedTileIndex >= 0 &&
+                    mgr->mOptions.mSelectedTileIndex < tileSet->GetNumTiles() &&
+                    ImGui::CollapsingHeader("Tile Metadata"))
+                {
+                    TileDefinition* def = tileSet->GetTileDefMutable(mgr->mOptions.mSelectedTileIndex);
+                    if (def != nullptr)
+                    {
+                        // Find All Uses (Phase 3)
+                        if (ImGui::Button("Find All Uses"))
+                        {
+                            if (tileMap != nullptr)
+                            {
+                                int32_t count = tileMap->CountTileUses(
+                                    mgr->mOptions.mSelectedTileIndex,
+                                    mgr->mOptions.mActiveLayer);
+                                LogDebug("Tile %d is used by %d cells on layer %d",
+                                    mgr->mOptions.mSelectedTileIndex,
+                                    count,
+                                    mgr->mOptions.mActiveLayer);
+                            }
+                        }
+
+                        char nameBuf[64];
+                        strncpy(nameBuf, def->mName.c_str(), sizeof(nameBuf) - 1);
+                        nameBuf[sizeof(nameBuf) - 1] = '\0';
+                        if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
+                        {
+                            def->mName = nameBuf;
+                            tileSet->SetDirtyFlag();
+                        }
+
+                        bool hasCol = def->mHasCollision;
+                        if (ImGui::Checkbox("Has Collision", &hasCol))
+                        {
+                            def->mHasCollision = hasCol;
+                            if (hasCol && def->mCollisionType == TileCollisionType::None)
+                                def->mCollisionType = TileCollisionType::FullSolid;
+                            tileSet->SetDirtyFlag();
+                        }
+
+                        if (def->mHasCollision)
+                        {
+                            const char* colTypeNames[] = { "None", "Full Solid", "Box", "Boxes", "Slope", "Polygon" };
+                            int colType = int(def->mCollisionType);
+                            if (ImGui::Combo("Type", &colType, colTypeNames, IM_ARRAYSIZE(colTypeNames)))
+                            {
+                                def->mCollisionType = TileCollisionType(colType);
+                                tileSet->SetDirtyFlag();
+                            }
+                        }
+
+                        ImGui::TextUnformatted("Tags:");
+                        int32_t removeIdx = -1;
+                        for (size_t t = 0; t < def->mTags.size(); ++t)
+                        {
+                            ImGui::PushID(int(t));
+                            char tagBuf[64];
+                            strncpy(tagBuf, def->mTags[t].c_str(), sizeof(tagBuf) - 1);
+                            tagBuf[sizeof(tagBuf) - 1] = '\0';
+                            ImGui::SetNextItemWidth(180.0f);
+                            if (ImGui::InputText("##Tag", tagBuf, sizeof(tagBuf)))
+                            {
+                                def->mTags[t] = tagBuf;
+                                tileSet->SetDirtyFlag();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("X"))
+                            {
+                                removeIdx = int32_t(t);
+                            }
+                            ImGui::PopID();
+                        }
+                        if (removeIdx >= 0)
+                        {
+                            def->mTags.erase(def->mTags.begin() + removeIdx);
+                            tileSet->SetDirtyFlag();
+                        }
+                        if (ImGui::Button("+ Add Tag"))
+                        {
+                            def->mTags.push_back("");
+                            tileSet->SetDirtyFlag();
+                        }
+                    }
+                }
+
+                if (tileSet == nullptr)
+                {
+                    ImGui::Separator();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("This TileMap2D has no TileSet bound. Assign a TileMap asset whose TileSet has a Texture.");
+                    ImGui::PopStyleColor();
+                }
+
+                // ----- Tile preview overlay (Phase 4) ----------------------
+                // Draw the selected tile as a semi-transparent ImGui sprite
+                // at every cell that would be painted, so the user can see
+                // exactly what their stroke will produce before committing.
+                if (mgr->mHoverValid && tileSet != nullptr && atlasImId != 0)
+                {
+                    Camera3D* cam = GetWorld(0)->GetActiveCamera();
+                    if (cam != nullptr)
+                    {
+                        glm::vec2 uv0, uv1;
+                        bool haveUVs = tileSet->GetTileUVs(mgr->mOptions.mSelectedTileIndex, uv0, uv1);
+
+                        // Project the 4 corners of a cell to screen space and
+                        // call ImDrawList::AddImageQuad. Returns whether all 4
+                        // corners are in front of the camera.
+                        auto drawCellSprite = [&](int32_t cx, int32_t cy, ImU32 tint)
+                        {
+                            if (!haveUVs) return;
+
+                            glm::vec2 bl = tileMapNode->CellToWorld({ cx,     cy     });
+                            glm::vec2 tr = tileMapNode->CellToWorld({ cx + 1, cy + 1 });
+                            float z = tileMapNode->GetWorldPosition().z;
+
+                            glm::vec3 sBL = cam->WorldToScreenPosition(glm::vec3(bl.x, bl.y, z));
+                            glm::vec3 sBR = cam->WorldToScreenPosition(glm::vec3(tr.x, bl.y, z));
+                            glm::vec3 sTR = cam->WorldToScreenPosition(glm::vec3(tr.x, tr.y, z));
+                            glm::vec3 sTL = cam->WorldToScreenPosition(glm::vec3(bl.x, tr.y, z));
+
+                            // Reject corners behind the camera (z component <= 0).
+                            if (sBL.z <= 0.0f || sBR.z <= 0.0f || sTR.z <= 0.0f || sTL.z <= 0.0f)
+                                return;
+
+                            ImDrawList* dl = ImGui::GetForegroundDrawList();
+                            dl->AddImageQuad(
+                                (ImTextureID)atlasImId,
+                                ImVec2(sTL.x, sTL.y),
+                                ImVec2(sTR.x, sTR.y),
+                                ImVec2(sBR.x, sBR.y),
+                                ImVec2(sBL.x, sBL.y),
+                                ImVec2(uv0.x, uv0.y),
+                                ImVec2(uv1.x, uv0.y),
+                                ImVec2(uv1.x, uv1.y),
+                                ImVec2(uv0.x, uv1.y),
+                                tint);
+                        };
+
+                        ImU32 ghostTint = IM_COL32(255, 255, 255, 170);
+                        TileSculptMode m = mgr->mOptions.mMode;
+
+                        // Single-cell preview at the hover for any "draw a tile" tool.
+                        if (m == TileSculptMode::Pencil ||
+                            m == TileSculptMode::Eraser ||
+                            m == TileSculptMode::FloodFill ||
+                            m == TileSculptMode::RectFill ||
+                            m == TileSculptMode::Line ||
+                            m == TileSculptMode::NineBox ||
+                            m == TileSculptMode::Autotile)
+                        {
+                            // Eraser shows a faint red instead of the tile sprite.
+                            if (m == TileSculptMode::Eraser)
+                            {
+                                ImDrawList* dl = ImGui::GetForegroundDrawList();
+                                glm::vec2 bl = tileMapNode->CellToWorld({ mgr->mHoverCell.x,     mgr->mHoverCell.y     });
+                                glm::vec2 tr = tileMapNode->CellToWorld({ mgr->mHoverCell.x + 1, mgr->mHoverCell.y + 1 });
+                                float z = tileMapNode->GetWorldPosition().z;
+                                glm::vec3 sBL = cam->WorldToScreenPosition(glm::vec3(bl.x, bl.y, z));
+                                glm::vec3 sTR = cam->WorldToScreenPosition(glm::vec3(tr.x, tr.y, z));
+                                if (sBL.z > 0.0f && sTR.z > 0.0f)
+                                {
+                                    dl->AddRectFilled(
+                                        ImVec2(std::min(sBL.x, sTR.x), std::min(sBL.y, sTR.y)),
+                                        ImVec2(std::max(sBL.x, sTR.x), std::max(sBL.y, sTR.y)),
+                                        IM_COL32(255, 80, 80, 90));
+                                }
+                            }
+                            else
+                            {
+                                drawCellSprite(mgr->mHoverCell.x, mgr->mHoverCell.y, ghostTint);
+                            }
+                        }
+
+                        // Drag-preview for RectFill: ghost-fill the entire rect.
+                        if (mgr->mPreviewActive && m == TileSculptMode::RectFill)
+                        {
+                            int32_t minX = std::min(mgr->mDragStartCell.x, mgr->mHoverCell.x);
+                            int32_t maxX = std::max(mgr->mDragStartCell.x, mgr->mHoverCell.x);
+                            int32_t minY = std::min(mgr->mDragStartCell.y, mgr->mHoverCell.y);
+                            int32_t maxY = std::max(mgr->mDragStartCell.y, mgr->mHoverCell.y);
+                            int32_t cellCount = (maxX - minX + 1) * (maxY - minY + 1);
+                            if (cellCount <= 1024)  // bound the preview cost
+                            {
+                                for (int32_t cy = minY; cy <= maxY; ++cy)
+                                    for (int32_t cx = minX; cx <= maxX; ++cx)
+                                        drawCellSprite(cx, cy, ghostTint);
+                            }
+                        }
+
+                        // Drag-preview for Line: Bresenham trace.
+                        if (mgr->mPreviewActive && m == TileSculptMode::Line)
+                        {
+                            int32_t x0 = mgr->mDragStartCell.x;
+                            int32_t y0 = mgr->mDragStartCell.y;
+                            int32_t x1 = mgr->mHoverCell.x;
+                            int32_t y1 = mgr->mHoverCell.y;
+                            int32_t dx = std::abs(x1 - x0);
+                            int32_t dy = -std::abs(y1 - y0);
+                            int32_t sx = (x0 < x1) ? 1 : -1;
+                            int32_t sy = (y0 < y1) ? 1 : -1;
+                            int32_t err = dx + dy;
+                            int32_t safety = 0;
+                            while (safety++ < 1024)
+                            {
+                                drawCellSprite(x0, y0, ghostTint);
+                                if (x0 == x1 && y0 == y1) break;
+                                int32_t e2 = 2 * err;
+                                if (e2 >= dy) { err += dy; x0 += sx; }
+                                if (e2 <= dx) { err += dx; y0 += sy; }
+                            }
+                        }
+
+                        // Pencil/Eraser drag-paint: ghost the interpolated
+                        // path from the previous frame's cell to the current
+                        // hover cell. The actual paint is committed by
+                        // TilePaintManager via the same Bresenham trace, so
+                        // the preview overlays the cells that will be
+                        // painted on this frame for clear visual feedback.
+                        if (mgr->mStrokeActive && mgr->mLastStrokeCellValid &&
+                            (m == TileSculptMode::Pencil || m == TileSculptMode::Eraser))
+                        {
+                            int32_t x0 = mgr->mLastStrokeCell.x;
+                            int32_t y0 = mgr->mLastStrokeCell.y;
+                            int32_t x1 = mgr->mHoverCell.x;
+                            int32_t y1 = mgr->mHoverCell.y;
+                            int32_t dx = std::abs(x1 - x0);
+                            int32_t dy = -std::abs(y1 - y0);
+                            int32_t sx = (x0 < x1) ? 1 : -1;
+                            int32_t sy = (y0 < y1) ? 1 : -1;
+                            int32_t err = dx + dy;
+                            int32_t safety = 0;
+                            ImU32 dragTint = (m == TileSculptMode::Eraser)
+                                ? IM_COL32(255, 80, 80, 140)
+                                : IM_COL32(255, 255, 255, 200);
+                            while (safety++ < 256)
+                            {
+                                if (m == TileSculptMode::Eraser)
+                                {
+                                    ImDrawList* dl = ImGui::GetForegroundDrawList();
+                                    glm::vec2 bl = tileMapNode->CellToWorld({ x0,     y0     });
+                                    glm::vec2 tr = tileMapNode->CellToWorld({ x0 + 1, y0 + 1 });
+                                    float z = tileMapNode->GetWorldPosition().z;
+                                    glm::vec3 sBL = cam->WorldToScreenPosition(glm::vec3(bl.x, bl.y, z));
+                                    glm::vec3 sTR = cam->WorldToScreenPosition(glm::vec3(tr.x, tr.y, z));
+                                    if (sBL.z > 0.0f && sTR.z > 0.0f)
+                                    {
+                                        dl->AddRectFilled(
+                                            ImVec2(std::min(sBL.x, sTR.x), std::min(sBL.y, sTR.y)),
+                                            ImVec2(std::max(sBL.x, sTR.x), std::max(sBL.y, sTR.y)),
+                                            dragTint);
+                                    }
+                                }
+                                else
+                                {
+                                    drawCellSprite(x0, y0, dragTint);
+                                }
+                                if (x0 == x1 && y0 == y1) break;
+                                int32_t e2 = 2 * err;
+                                if (e2 >= dy) { err += dy; x0 += sx; }
+                                if (e2 <= dx) { err += dx; y0 += sy; }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextWrapped("Select a TileMap2D node to begin painting.");
+            }
+
+            ImGui::End();
+        }
 
         if (GetEditorState()->GetEditorMode() == EditorMode::Scene2D)
         {
@@ -10538,7 +12899,28 @@ void EditorImguiDraw()
 
         GetPreferencesWindow()->Draw();
         GetPackagingWindow()->Draw();
+        GetAppSettingsWindow()->Draw();
         GetBuildDependencyWindow()->Draw();
+        GetInputMapWindow()->Draw();
+        GetEditorHotkeysWindow()->Draw();
+        GetGitWorkspaceWindow()->Draw();
+        GetGitCloneDialog()->Draw();
+        GetGitOpenDialog()->Draw();
+        GetGitInitDialog()->Draw();
+        GetGitCreateBranchDialog()->Draw();
+        GetGitCheckoutConfirmDialog()->Draw();
+        GetGitCreateTagDialog()->Draw();
+        GetGitDeleteConfirmDialog()->Draw();
+        GetGitPushDialog()->Draw();
+        GetGitPullDialog()->Draw();
+        GetGitFetchDialog()->Draw();
+        GetGitRemoteEditDialog()->Draw();
+        GetGitMergeDialog()->Draw();
+        GetGitCliStatusDialog()->Draw();
+        GetGitOperationProgressDialog()->Draw();
+        GetGitSyncBranchDialog()->Draw();
+        GetPlayerInputEditor()->Draw();
+        GetPlayerInputDebugger()->Draw();
         ActionManager::Get()->DrawBuildModal();
         GetProjectSelectWindow()->Draw();
         GetAddonsWindow()->Draw();
@@ -10585,6 +12967,8 @@ void EditorImguiPreShutdown()
         ImGui::GetIO().IniFilename = nullptr;
     }
     GetScriptEditorWindow()->Shutdown();
+    GetTerminalPanel()->Shutdown();
+    GetLuaDebuggerPanel()->Shutdown();
     ImGui::ShutdownDock();
     UnregisterLogCallback(DebugLogWindow::LogCallback);
     ControllerServer::Destroy();
@@ -10631,10 +13015,29 @@ bool EditorImguiIsViewportHovered()
         return false;
 
     ImVec2 mp = ImGui::GetIO().MousePos;
-    return (mp.x >= sViewportDockPos.x &&
-            mp.x <  sViewportDockPos.x + sViewportDockSize.x &&
-            mp.y >= sViewportDockPos.y &&
-            mp.y <  sViewportDockPos.y + sViewportDockSize.y);
+    bool inRect = (mp.x >= sViewportDockPos.x &&
+                   mp.x <  sViewportDockPos.x + sViewportDockSize.x &&
+                   mp.y >= sViewportDockPos.y &&
+                   mp.y <  sViewportDockPos.y + sViewportDockSize.y);
+
+    if (!inRect)
+        return false;
+
+    // If any ImGui window other than the main viewport dock is hovered (a floating
+    // popup, OR another docked editor panel that overlaps the viewport rect — e.g.
+    // Animation Browser tabbed inside the viewport node), the main viewport should
+    // not consume input. Only the actual "Viewport##EditorDock" window owns input.
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if (ctx != nullptr && ctx->HoveredWindow != nullptr)
+    {
+        const char* name = ctx->HoveredWindow->Name;
+        if (name == nullptr || strstr(name, "Viewport##EditorDock") == nullptr)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool EditorIsInterfaceVisible()

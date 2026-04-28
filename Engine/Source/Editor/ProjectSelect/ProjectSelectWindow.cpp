@@ -10,8 +10,17 @@
 #include "Engine.h"
 #include "System/System.h"
 #include "Log.h"
+#include "Git/GitProcessRunner.h"
+#include "Git/GitService.h"
+#include "Git/GitRepository.h"
+#include "Git/Dialogs/GitRemoteEditDialog.h"
 
 #include "imgui.h"
+
+#include <fstream>
+#include <sstream>
+#include <thread>
+#include <algorithm>
 
 static ProjectSelectWindow sProjectSelectWindow;
 
@@ -25,6 +34,10 @@ ProjectSelectWindow::ProjectSelectWindow()
     memset(mProjectNameBuffer, 0, sizeof(mProjectNameBuffer));
     memset(mProjectPathBuffer, 0, sizeof(mProjectPathBuffer));
     memset(mGitHubUrlBuffer, 0, sizeof(mGitHubUrlBuffer));
+    memset(mCloneHttpsUrl, 0, sizeof(mCloneHttpsUrl));
+    memset(mCloneSshRepoPath, 0, sizeof(mCloneSshRepoPath));
+    memset(mCloneProjectName, 0, sizeof(mCloneProjectName));
+    memset(mCloneLocation, 0, sizeof(mCloneLocation));
 }
 
 ProjectSelectWindow::~ProjectSelectWindow()
@@ -55,6 +68,11 @@ void ProjectSelectWindow::Open()
     }
 #endif
     strncpy(mProjectPathBuffer, defaultPath.c_str(), sizeof(mProjectPathBuffer) - 1);
+    strncpy(mCloneLocation, defaultPath.c_str(), sizeof(mCloneLocation) - 1);
+    mCloneInProgress = false;
+    mCloneDone = false;
+    mCloneResult.clear();
+    mCloneResultLevel = 0;
 }
 
 void ProjectSelectWindow::Close()
@@ -117,6 +135,13 @@ void ProjectSelectWindow::Draw()
             {
                 mSelectedTab = 1;
                 DrawCreateProject();
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Clone From Git"))
+            {
+                mSelectedTab = 3;
+                DrawCloneFromGit();
                 ImGui::EndTabItem();
             }
 
@@ -283,6 +308,10 @@ void ProjectSelectWindow::DrawCreateProject()
     }
 
     ImGui::Spacing();
+
+    ImGui::Checkbox("Init Git Repo", &mInitGitRepo);
+
+    ImGui::Spacing();
     ImGui::Spacing();
 
     // Create button
@@ -312,6 +341,296 @@ void ProjectSelectWindow::DrawCreateProject()
     ImGui::Text("Or create an addon:");
     ImGui::Spacing();
     DrawAddonsCreateItems_ProjectSelect();
+}
+
+// ---------------------------------------------------------------------------
+// SSH config parsing (reused from GitRemoteEditDialog pattern)
+// ---------------------------------------------------------------------------
+
+struct CloneSshHost
+{
+    std::string mHost;
+    std::string mHostName;
+    std::string mUser;
+};
+
+static std::vector<CloneSshHost> sCloneSshHosts;
+static bool sCloneSshParsed = false;
+
+static void ParseCloneSshConfig()
+{
+    if (sCloneSshParsed) return;
+    sCloneSshParsed = true;
+    sCloneSshHosts.clear();
+
+    std::string configPath;
+#if PLATFORM_WINDOWS
+    char* userProfile = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&userProfile, &len, "USERPROFILE") == 0 && userProfile)
+    {
+        configPath = std::string(userProfile) + "\\.ssh\\config";
+        free(userProfile);
+    }
+#else
+    const char* homeDir = getenv("HOME");
+    if (homeDir)
+        configPath = std::string(homeDir) + "/.ssh/config";
+#endif
+    if (configPath.empty()) return;
+
+    std::ifstream file(configPath);
+    if (!file.is_open()) return;
+
+    CloneSshHost current;
+    bool inEntry = false;
+    std::string line;
+    while (std::getline(file, line))
+    {
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos) continue;
+        std::string trimmed = line.substr(start);
+        if (trimmed[0] == '#') continue;
+
+        std::istringstream iss(trimmed);
+        std::string key, value;
+        iss >> key >> value;
+        if (key.empty() || value.empty()) continue;
+
+        std::string keyLower = key;
+        std::transform(keyLower.begin(), keyLower.end(), keyLower.begin(), ::tolower);
+
+        if (keyLower == "host")
+        {
+            if (inEntry && !current.mHost.empty() && current.mHostName == "github.com")
+                sCloneSshHosts.push_back(current);
+            current = CloneSshHost();
+            current.mHost = value;
+            inEntry = true;
+        }
+        else if (keyLower == "hostname" && inEntry) current.mHostName = value;
+        else if (keyLower == "user" && inEntry) current.mUser = value;
+    }
+    if (inEntry && !current.mHost.empty() && current.mHostName == "github.com")
+        sCloneSshHosts.push_back(current);
+}
+
+void ProjectSelectWindow::DrawCloneFromGit()
+{
+    ParseCloneSshConfig();
+
+    ImGui::Spacing();
+    ImGui::Text("Clone a Git repository and create a new project from it.");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // --- URL Mode tabs ---
+    ImGui::Text("Repository URL:");
+    ImGui::RadioButton("HTTPS", &mCloneUrlMode, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("SSH", &mCloneUrlMode, 1);
+    ImGui::Spacing();
+
+    // Computed clone URL
+    std::string cloneUrl;
+
+    if (mCloneUrlMode == 0)
+    {
+        // HTTPS
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##CloneHttpsUrl", "https://github.com/user/repo.git", mCloneHttpsUrl, sizeof(mCloneHttpsUrl));
+        cloneUrl = mCloneHttpsUrl;
+    }
+    else
+    {
+        // SSH host dropdown
+        if (!sCloneSshHosts.empty())
+        {
+            ImGui::Text("SSH Host:");
+            ImGui::SetNextItemWidth(-1);
+
+            const char* preview = (mCloneSshHostIndex >= 0 && mCloneSshHostIndex < (int)sCloneSshHosts.size())
+                ? sCloneSshHosts[mCloneSshHostIndex].mHost.c_str()
+                : "Select SSH host...";
+
+            if (ImGui::BeginCombo("##CloneSshHost", preview))
+            {
+                for (int i = 0; i < (int)sCloneSshHosts.size(); ++i)
+                {
+                    const auto& entry = sCloneSshHosts[i];
+                    std::string label = entry.mHost + " (" + entry.mHostName + ")";
+                    if (ImGui::Selectable(label.c_str(), mCloneSshHostIndex == i))
+                        mCloneSshHostIndex = i;
+                }
+                ImGui::EndCombo();
+            }
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.2f, 1.0f), "No GitHub SSH hosts found in ~/.ssh/config");
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("Repository Path:");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##CloneSshPath", "user/repo.git", mCloneSshRepoPath, sizeof(mCloneSshRepoPath));
+
+        // Build SSH URL
+        if (mCloneSshHostIndex >= 0 && mCloneSshHostIndex < (int)sCloneSshHosts.size())
+        {
+            const auto& host = sCloneSshHosts[mCloneSshHostIndex];
+            std::string user = host.mUser.empty() ? "git" : host.mUser;
+            cloneUrl = user + "@" + host.mHost + ":" + mCloneSshRepoPath;
+            ImGui::TextDisabled("URL: %s", cloneUrl.c_str());
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // --- Project settings ---
+    ImGui::Text("Project Name:");
+    ImGui::SetNextItemWidth(400);
+    ImGui::InputText("##CloneProjectName", mCloneProjectName, sizeof(mCloneProjectName));
+
+    ImGui::Spacing();
+
+    ImGui::Text("Location:");
+    ImGui::SetNextItemWidth(330);
+    ImGui::InputText("##CloneLocation", mCloneLocation, sizeof(mCloneLocation));
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...##CloneBrowse", ImVec2(60, 0)))
+    {
+        std::string selectedPath = SYS_SelectFolderDialog();
+        if (!selectedPath.empty())
+            strncpy(mCloneLocation, selectedPath.c_str(), sizeof(mCloneLocation) - 1);
+    }
+
+    ImGui::Spacing();
+
+    ImGui::Text("Project Type:");
+    ImGui::RadioButton("Lua##CloneType", &mCloneProjectType, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("C++##CloneType", &mCloneProjectType, 1);
+
+    ImGui::Spacing();
+
+    // Result display
+    if (!mCloneResult.empty())
+    {
+        ImVec4 color;
+        if (mCloneResultLevel == 0)
+            color = ImVec4(0.3f, 0.9f, 0.3f, 1.0f);
+        else if (mCloneResultLevel == 1)
+            color = ImVec4(0.9f, 0.7f, 0.2f, 1.0f);
+        else
+            color = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%s", mCloneResult.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    if (mCloneInProgress)
+    {
+        ImGui::TextDisabled("Cloning repository...");
+    }
+
+    ImGui::Spacing();
+
+    // --- Clone + Create button ---
+    float buttonWidth = 180.0f;
+    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - buttonWidth) * 0.5f);
+
+    bool canClone = !cloneUrl.empty()
+        && strlen(mCloneProjectName) > 0
+        && strlen(mCloneLocation) > 0
+        && !mCloneInProgress
+        && !mCloneDone;
+
+    if (!canClone) ImGui::BeginDisabled();
+
+    if (ImGui::Button("Clone & Create Project", ImVec2(buttonWidth, 40)))
+    {
+        mCloneInProgress = true;
+        mCloneDone = false;
+        mCloneResult.clear();
+        mCloneResultLevel = 0;
+
+        std::string url = cloneUrl;
+        std::string projectName = mCloneProjectName;
+        std::string location = mCloneLocation;
+        bool isCpp = (mCloneProjectType == 1);
+        // For SSH, also capture the HTTPS-equivalent URL for the remote
+        // (the clone URL IS the remote URL — git sets origin automatically)
+
+        std::thread cloneThread([this, url, projectName, location, isCpp]()
+        {
+            std::string destPath = location + "/" + projectName;
+
+            // Clone
+            std::string output;
+            GitCancelToken token = CreateCancelToken();
+            int32_t exitCode = GitProcessRunner::Run(
+                ".",
+                {"git", "clone", "--progress", url, destPath},
+                [&output](const std::string& line) { output += line + "\n"; },
+                [&output](const std::string& line) { output += line + "\n"; },
+                token
+            );
+
+            if (exitCode != 0)
+            {
+                mCloneResult = "Clone failed:\n" + output;
+                mCloneResultLevel = 2;
+                mCloneInProgress = false;
+                mCloneDone = true;
+                return;
+            }
+
+            mCloneResult = "Clone successful. Creating project...";
+            mCloneResultLevel = 0;
+            mCloneInProgress = false;
+            mCloneDone = true;
+
+            // The project creation and opening must happen on the main thread.
+            // We'll set a flag and let the next Draw() pick it up.
+        });
+        cloneThread.detach();
+    }
+
+    if (!canClone) ImGui::EndDisabled();
+
+    // After clone completes, create the project
+    if (mCloneDone && mCloneResultLevel == 0)
+    {
+        std::string destPath = std::string(mCloneLocation) + "/" + mCloneProjectName;
+        bool isCpp = (mCloneProjectType == 1);
+
+        // Create the project structure in the cloned directory
+        ActionManager::Get()->CreateNewProject(destPath.c_str(), isCpp);
+
+        if (!GetEngineState()->mProjectPath.empty())
+        {
+            // Open the git repo in the Git panel
+            GitService* gitService = GitService::Get();
+            if (gitService)
+            {
+                gitService->OpenRepository(destPath);
+            }
+
+            mCloneResult = "Project created and opened!";
+            mCloneResultLevel = 0;
+            Close();
+        }
+        else
+        {
+            mCloneResult = "Clone succeeded but project creation failed.";
+            mCloneResultLevel = 2;
+        }
+        mCloneDone = false; // Prevent re-entry
+    }
 }
 
 void ProjectSelectWindow::DrawTemplates()
@@ -494,11 +813,11 @@ void ProjectSelectWindow::OnOpenProject(const std::string& path)
 
 void ProjectSelectWindow::OnBrowseProject()
 {
-    std::vector<std::string> paths = SYS_OpenFileDialog();
+    std::string selectedFolder = SYS_SelectFolderDialog();
 
-    if (paths.size() > 0 && !paths[0].empty())
+    if (!selectedFolder.empty())
     {
-        ActionManager::Get()->OpenProject(paths[0].c_str());
+        ActionManager::Get()->OpenProject(selectedFolder.c_str());
     }
 
     // Close if a project was opened
@@ -518,6 +837,36 @@ void ProjectSelectWindow::OnCreateNewProject()
     // Close if project was created successfully
     if (!GetEngineState()->mProjectPath.empty())
     {
+        if (mInitGitRepo)
+        {
+            GitService* gitService = GitService::Get();
+            if (gitService != nullptr)
+            {
+                if (gitService->InitRepository(projectPath, "main"))
+                {
+                    GitRepository* repo = gitService->GetCurrentRepo();
+                    if (repo != nullptr)
+                    {
+                        std::vector<std::string> toStage;
+                        for (const GitStatusEntry& entry : repo->GetStatus())
+                        {
+                            toStage.push_back(entry.mPath);
+                        }
+                        if (!toStage.empty())
+                        {
+                            repo->StageFiles(toStage);
+                            repo->RefreshStatus();
+                        }
+                        repo->Commit("Initial commit", "", false);
+                    }
+                }
+                else
+                {
+                    LogError("Failed to init git repo at %s", projectPath.c_str());
+                }
+            }
+        }
+
         Close();
     }
 }

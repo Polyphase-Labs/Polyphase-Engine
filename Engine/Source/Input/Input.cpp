@@ -1,9 +1,23 @@
 #include "Input/Input.h"
+#include "Input/InputMap.h"
 
 #include "Engine.h"
 #include "Log.h"
 
 #include "Assertion.h"
+
+// Mouse/pointer disable only takes effect during PIE so it doesn't break editor interaction
+static bool IsMouseDisabledForGame()
+{
+    InputMap* inputMap = InputMap::Get();
+    return inputMap != nullptr && !inputMap->IsMouseEnabled() && IsPlaying();
+}
+
+static bool IsPointerDisabledForGame()
+{
+    InputMap* inputMap = InputMap::Get();
+    return inputMap != nullptr && !inputMap->IsPointerEnabled() && IsPlaying();
+}
 
 // Platform Agnostic
 void INP_SetKey(int32_t key)
@@ -212,6 +226,9 @@ void INP_SetScrollWheelDelta(int32_t delta)
 
 bool INP_IsMouseButtonDown(int32_t button)
 {
+    if (IsMouseDisabledForGame())
+        return false;
+
     if (button >= 0 && button < MOUSE_BUTTON_COUNT)
     {
         return GetEngineState()->mInput.mMouseButtons[button];
@@ -222,6 +239,9 @@ bool INP_IsMouseButtonDown(int32_t button)
 
 bool INP_IsMouseButtonJustDown(int32_t button)
 {
+    if (IsMouseDisabledForGame())
+        return false;
+
     if (button >= 0 && button < MOUSE_BUTTON_COUNT)
     {
         InputState& input = GetEngineState()->mInput;
@@ -233,6 +253,9 @@ bool INP_IsMouseButtonJustDown(int32_t button)
 
 bool INP_IsMouseButtonJustUp(int32_t button)
 {
+    if (IsMouseDisabledForGame())
+        return false;
+
     if (button >= 0 && button < MOUSE_BUTTON_COUNT)
     {
         InputState& input = GetEngineState()->mInput;
@@ -244,6 +267,9 @@ bool INP_IsMouseButtonJustUp(int32_t button)
 
 int32_t INP_GetScrollWheelDelta()
 {
+    if (IsMouseDisabledForGame())
+        return 0;
+
     return GetEngineState()->mInput.mScrollWheelDelta;
 }
 
@@ -305,8 +331,9 @@ bool INP_IsTouchDown(int32_t touch)
 
 bool INP_IsPointerDown(int32_t pointer)
 {
-    // If either the left mouse button is down or the specified
-    // touch index is down, then return 1.
+    if (IsPointerDisabledForGame())
+        return false;
+
     if (pointer >= 0 && pointer < INPUT_MAX_TOUCHES)
     {
         InputState& input = GetEngineState()->mInput;
@@ -318,8 +345,9 @@ bool INP_IsPointerDown(int32_t pointer)
 
 bool INP_IsPointerJustUp(int32_t pointer)
 {
-    // If either the left mouse button is down or the specified
-    // touch index is down, then return 1.
+    if (IsPointerDisabledForGame())
+        return false;
+
     if (pointer >= 0 && pointer < INPUT_MAX_TOUCHES)
     {
         InputState& input = GetEngineState()->mInput;
@@ -331,8 +359,9 @@ bool INP_IsPointerJustUp(int32_t pointer)
 
 bool INP_IsPointerJustDown(int32_t pointer)
 {
-    // If either the left mouse button is down or the specified
-    // touch index is down, then return 1.
+    if (IsPointerDisabledForGame())
+        return false;
+
     if (pointer >= 0 && pointer < INPUT_MAX_TOUCHES)
     {
         InputState& input = GetEngineState()->mInput;
@@ -362,6 +391,13 @@ void INP_SetTouchPosition(int32_t touchX, int32_t touchY, int32_t touch)
 
 void INP_GetMousePosition(int32_t& mouseX, int32_t& mouseY)
 {
+    if (IsMouseDisabledForGame())
+    {
+        mouseX = 0;
+        mouseY = 0;
+        return;
+    }
+
     // First pointer location is for mouse.
     InputState& input = GetEngineState()->mInput;
     mouseX = input.mPointerX[0];
@@ -401,6 +437,13 @@ void INP_GetTouchPositionNormalized(float& touchX, float& touchY, int32_t touch)
 
 void INP_GetPointerPosition(int32_t& pointerX, int32_t& pointerY, int32_t pointer)
 {
+    if (IsPointerDisabledForGame())
+    {
+        pointerX = 0;
+        pointerY = 0;
+        return;
+    }
+
     INP_GetTouchPosition(pointerX,
         pointerY,
         pointer);
@@ -408,6 +451,13 @@ void INP_GetPointerPosition(int32_t& pointerX, int32_t& pointerY, int32_t pointe
 
 void INP_GetPointerPositionNormalized(float& pointerX, float& pointerY, int32_t  pointer)
 {
+    if (IsPointerDisabledForGame())
+    {
+        pointerX = 0.0f;
+        pointerY = 0.0f;
+        return;
+    }
+
     INP_GetTouchPositionNormalized(pointerX,
         pointerY,
         pointer);
@@ -415,6 +465,13 @@ void INP_GetPointerPositionNormalized(float& pointerX, float& pointerY, int32_t 
 
 void INP_GetMouseDelta(int32_t& deltaX, int32_t& deltaY)
 {
+    if (IsMouseDisabledForGame())
+    {
+        deltaX = 0;
+        deltaY = 0;
+        return;
+    }
+
     deltaX = GetEngineState()->mInput.mMouseDeltaX;
     deltaY = GetEngineState()->mInput.mMouseDeltaY;
 }
@@ -422,51 +479,87 @@ void INP_GetMouseDelta(int32_t& deltaX, int32_t& deltaY)
 bool INP_IsGamepadButtonDown(int32_t gamepadButton, int32_t gamepadIndex)
 {
     InputState& input = GetEngineState()->mInput;
+    bool physicalDown = false;
+
     if ((gamepadIndex >= 0 && gamepadIndex < INPUT_MAX_GAMEPADS) &&
         (gamepadButton >= 0 && gamepadButton < GAMEPAD_BUTTON_COUNT))
     {
-        return input.mGamepads[gamepadIndex].mButtons[gamepadButton];
+        physicalDown = input.mGamepads[gamepadIndex].mButtons[gamepadButton];
     }
 
-    return false;
+    // Keyboard fallback via InputMap (gamepad index 0 only)
+    InputMap* inputMap = InputMap::Get();
+    if (!physicalDown && inputMap != nullptr && gamepadIndex == 0)
+    {
+        physicalDown = inputMap->IsButtonDownViaKeyboard((GamepadButtonCode)gamepadButton);
+    }
+
+    return physicalDown;
 }
 
 bool INP_IsGamepadButtonJustDown(int32_t gamepadButton, int32_t gamepadIndex)
 {
     InputState& input = GetEngineState()->mInput;
+    bool physicalJustDown = false;
+
     if ((gamepadIndex >= 0 && gamepadIndex < INPUT_MAX_GAMEPADS) &&
         (gamepadButton >= 0 && gamepadButton < GAMEPAD_BUTTON_COUNT))
     {
-        return input.mGamepads[gamepadIndex].mButtons[gamepadButton] &&
+        physicalJustDown = input.mGamepads[gamepadIndex].mButtons[gamepadButton] &&
             !input.mPrevGamepads[gamepadIndex].mButtons[gamepadButton];
     }
 
-    return false;
+    // Keyboard fallback via InputMap (gamepad index 0 only)
+    InputMap* inputMap = InputMap::Get();
+    if (!physicalJustDown && inputMap != nullptr && gamepadIndex == 0)
+    {
+        physicalJustDown = inputMap->IsButtonJustDownViaKeyboard((GamepadButtonCode)gamepadButton);
+    }
+
+    return physicalJustDown;
 }
 
 bool INP_IsGamepadButtonJustUp(int32_t gamepadButton, int32_t gamepadIndex)
 {
     InputState& input = GetEngineState()->mInput;
+    bool physicalJustUp = false;
+
     if ((gamepadIndex >= 0 && gamepadIndex < INPUT_MAX_GAMEPADS) &&
         (gamepadButton >= 0 && gamepadButton < GAMEPAD_BUTTON_COUNT))
     {
-        return !input.mGamepads[gamepadIndex].mButtons[gamepadButton] &&
+        physicalJustUp = !input.mGamepads[gamepadIndex].mButtons[gamepadButton] &&
             input.mPrevGamepads[gamepadIndex].mButtons[gamepadButton];
     }
 
-    return false;
+    // Keyboard fallback via InputMap (gamepad index 0 only)
+    InputMap* inputMap = InputMap::Get();
+    if (!physicalJustUp && inputMap != nullptr && gamepadIndex == 0)
+    {
+        physicalJustUp = inputMap->IsButtonJustUpViaKeyboard((GamepadButtonCode)gamepadButton);
+    }
+
+    return physicalJustUp;
 }
 
 float INP_GetGamepadAxisValue(int32_t gamepadAxis, int32_t gamepadIndex)
 {
     InputState& input = GetEngineState()->mInput;
+    float physical = 0.0f;
+
     if ((gamepadIndex >= 0 && gamepadIndex < INPUT_MAX_GAMEPADS) &&
         (gamepadAxis >= 0 && gamepadAxis < GAMEPAD_AXIS_COUNT))
     {
-        return input.mGamepads[gamepadIndex].mAxes[gamepadAxis];
+        physical = input.mGamepads[gamepadIndex].mAxes[gamepadAxis];
     }
 
-    return 0.0f;
+    // Keyboard/mouse fallback via InputMap (gamepad index 0 only)
+    InputMap* inputMap = InputMap::Get();
+    if (inputMap != nullptr && gamepadIndex == 0 && physical == 0.0f)
+    {
+        physical = inputMap->GetAxisValueFromMapping((GamepadAxisCode)gamepadAxis);
+    }
+
+    return physical;
 }
 
 GamepadType INP_GetGamepadType(int32_t gamepadIndex)

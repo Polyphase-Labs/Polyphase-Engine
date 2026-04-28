@@ -2,8 +2,11 @@
 
 #include "Nodes/Widgets/Canvas.h"
 #include "Nodes/Widgets/Text.h"
+#include <deque>
 
-enum class StatDisplayMode
+class Poly;
+
+enum class StatDisplayMode : uint8_t
 {
     None,
     FrameText,
@@ -14,6 +17,7 @@ enum class StatDisplayMode
     AllStatText,
     Memory,
     Network,
+    FrameGraph,
 
     Count
 };
@@ -25,6 +29,13 @@ public:
     DECLARE_NODE(StatsOverlay, Canvas);
 
     StatsOverlay();
+    virtual ~StatsOverlay();
+
+    virtual void GatherProperties(std::vector<Property>& outProps) override;
+
+    // Every live StatsOverlay registers itself here so the Renderer can tell
+    // if a scene-placed one exists before showing its own fallback.
+    static const std::vector<StatsOverlay*>& GetAllInstances();
 
     virtual void Tick(float deltaTime) override;
     virtual void EditorTick(float deltaTime) override;
@@ -40,4 +51,11 @@ public:
     std::vector<Text*> mStatKeyTexts;
     std::vector<Text*> mStatValueTexts;
     StatDisplayMode mDisplayMode = StatDisplayMode::AllStatText;
+    bool mTextChildrenInitialized = false;
+
+    // Frame-graph mode state.
+    Poly* mGraphPoly = nullptr;          // transient child, rebuilt each load
+    std::deque<float> mFrameTimeHistory; // ring of recent frame times (ms)
+    uint32_t mFrameGraphSamples = 120;   // how many samples to keep / draw
+    float mFrameGraphMaxMs = 33.33f;     // vertical scale; set to expected worst-case
 };

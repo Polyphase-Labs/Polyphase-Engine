@@ -36,7 +36,7 @@ BUILD		:=	Intermediate/3DS
 SOURCES		:=	Source \
 				Generated
 DATA		:=	Data
-INCLUDES	:=	../Engine/Include ../Engine/Include/Engine ../External ../External/Bullet
+INCLUDES	:=	../Engine/Include ../Engine/Include/Engine ../External ../External/Bullet ../Engine/External/PolyVox/include
 GRAPHICS	:=	Graphics
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	$(CURDIR)/Build/3DS/romfs
@@ -191,7 +191,7 @@ CleanStaleDeps:
 
 #---------------------------------------------------------------------------------
 all: CleanStaleDeps $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_3DS
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 MakeEngine:
 	@$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_3DS

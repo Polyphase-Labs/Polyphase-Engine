@@ -8,12 +8,14 @@
 #include "Input/Input.h"
 #include "Constants.h"
 #include "InputDevices.h"
+#include "EmbeddedFile.h"
 
 #include <gccore.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <cstring>
 #include <fat.h>
 
 #define ENABLE_LIBOGC_CONSOLE 0
@@ -94,7 +96,11 @@ void SYS_Shutdown()
 
 void SYS_Update()
 {
-    GetEngineState()->mQuit = !SYS_MainLoop();
+    // sRunning is flipped to false by the Reset/Power button callbacks
+    // (libogc IRQ + Wii hooks at the top of this file). The SYS_MainLoop
+    // wrapper that used to return sRunning was removed in 922fe79b but the
+    // caller wasn't updated — read sRunning directly.
+    GetEngineState()->mQuit = !sRunning;
 }
 
 // Files
@@ -121,6 +127,24 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before SD-card / FAT
+    // fallback. Especially relevant on GameCube/Wii where SD card I/O is
+    // slow — embedded files load instantly from RAM. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     FILE* file = fopen(path, "rb");
 
@@ -441,6 +465,81 @@ std::vector<MemoryStat> SYS_GetMemoryStats()
     }
 
     return stats;
+}
+
+float SYS_GetRAMUsage()
+{
+    uint64_t freeBytes = SYS_GetArena1Size();
+#if PLATFORM_WII
+    freeBytes += SYS_GetArena2Size();
+#endif
+    return (float)(freeBytes / (1024.0 * 1024.0));
+}
+
+float SYS_GetVRAMUsage()
+{
+    return 0.0f;
+}
+
+float SYS_GetRAM1Usage()
+{
+    return (float)(SYS_GetArena1Size() / (1024.0 * 1024.0));
+}
+
+float SYS_GetRAM2Usage()
+{
+#if PLATFORM_WII
+    return (float)(SYS_GetArena2Size() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetCPUUsage()
+{
+    // No per-process CPU query on GC/Wii; estimate from frame time vs 60fps budget
+    static uint64_t sPrevUs = 0;
+    static float sCpuUsage = 0.0f;
+
+    uint64_t curUs = SYS_GetTimeMicroseconds();
+    if (sPrevUs != 0)
+    {
+        double frameMs = (double)(curUs - sPrevUs) / 1000.0;
+        // 16.67ms = 100% of a 60fps frame budget
+        sCpuUsage = (float)(frameMs / 16.667 * 100.0);
+        if (sCpuUsage > 200.0f) sCpuUsage = 200.0f;
+    }
+    sPrevUs = curUs;
+
+    return sCpuUsage;
+}
+
+float SYS_GetTotalRAM()
+{
+#if PLATFORM_WII
+    return 88.0f; // 24MB MEM1 + 64MB MEM2
+#else
+    return 40.0f; // 24MB main + 16MB aux
+#endif
+}
+
+float SYS_GetTotalVRAM()
+{
+    return 3.0f; // Embedded GPU memory
+}
+
+float SYS_GetTotalRAM1()
+{
+    return 24.0f; // MEM1 / 1T-SRAM
+}
+
+float SYS_GetTotalRAM2()
+{
+#if PLATFORM_WII
+    return 64.0f; // MEM2 / GDDR3
+#else
+    return 16.0f; // Aux DRAM
+#endif
 }
 
 static bool IsMemoryCardMounted()
@@ -789,7 +888,11 @@ int32_t SYS_GetPlatformTier()
 
 void SYS_SetWindowTitle(const char* title)
 {
-    
+
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
 }
 
 bool SYS_DoesWindowHaveFocus()

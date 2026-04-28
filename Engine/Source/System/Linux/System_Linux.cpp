@@ -8,6 +8,9 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
+
+#include <cstring>
 
 #include <chrono>
 #include <malloc.h>
@@ -19,6 +22,10 @@
 #include <signal.h>
 #include <limits.h>
 #include <unistd.h>
+
+#if API_VULKAN
+#include "Graphics/Vulkan/VramAllocator.h"
+#endif
 
 #if EDITOR
 #include "imgui.h"
@@ -547,6 +554,23 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
     outData = nullptr;
     outSize = 0;
 
+    // VFS shim: check the embedded raw-asset table before opening from disk.
+    // See SystemUtils.cpp::SYS_LookupEmbeddedRawAsset for details.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
+
     FILE* file = fopen(path, "rb");
 
     if (file != nullptr)
@@ -987,6 +1011,129 @@ std::vector<MemoryStat> SYS_GetMemoryStats()
     return {};
 }
 
+float SYS_GetRAMUsage()
+{
+    float ramMB = 0.0f;
+    FILE* file = fopen("/proc/self/status", "r");
+    if (file != nullptr)
+    {
+        char line[256];
+        while (fgets(line, sizeof(line), file))
+        {
+            if (strncmp(line, "VmRSS:", 6) == 0)
+            {
+                long rssKB = 0;
+                sscanf(line + 6, "%ld", &rssKB);
+                ramMB = (float)(rssKB / 1024.0);
+                break;
+            }
+        }
+        fclose(file);
+    }
+    return ramMB;
+}
+
+float SYS_GetVRAMUsage()
+{
+#if API_VULKAN
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetRAM1Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetRAM2Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetCPUUsage()
+{
+    static long sPrevUtime = 0;
+    static long sPrevStime = 0;
+    static uint64_t sPrevWallUs = 0;
+    static float sCpuUsage = 0.0f;
+
+    long utime = 0;
+    long stime = 0;
+
+    FILE* file = fopen("/proc/self/stat", "r");
+    if (file != nullptr)
+    {
+        char buf[1024];
+        if (fgets(buf, sizeof(buf), file))
+        {
+            char* afterComm = strrchr(buf, ')');
+            if (afterComm != nullptr)
+            {
+                afterComm += 2;
+                char state;
+                int ppid, pgrp, session, ttyNr, tpgid;
+                unsigned int flags;
+                long unsigned minflt, cminflt, majflt, cmajflt;
+
+                sscanf(afterComm, "%c %d %d %d %d %d %u %lu %lu %lu %lu %ld %ld",
+                    &state, &ppid, &pgrp, &session, &ttyNr, &tpgid,
+                    &flags, &minflt, &cminflt, &majflt, &cmajflt, &utime, &stime);
+            }
+        }
+        fclose(file);
+    }
+
+    uint64_t wallUs = SYS_GetTimeMicroseconds();
+
+    if (sPrevWallUs != 0)
+    {
+        long cpuTicksDelta = (utime - sPrevUtime) + (stime - sPrevStime);
+        double cpuSecondsDelta = (double)cpuTicksDelta / sysconf(_SC_CLK_TCK);
+        double wallSecondsDelta = (double)(wallUs - sPrevWallUs) / 1000000.0;
+
+        if (wallSecondsDelta > 0.0)
+        {
+            sCpuUsage = (float)(100.0 * cpuSecondsDelta / wallSecondsDelta);
+        }
+    }
+
+    sPrevUtime = utime;
+    sPrevStime = stime;
+    sPrevWallUs = wallUs;
+
+    return sCpuUsage;
+}
+
+float SYS_GetTotalRAM()
+{
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long pageSize = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && pageSize > 0)
+        return (float)((double)pages * pageSize / (1024.0 * 1024.0));
+    return 0.0f;
+}
+
+float SYS_GetTotalVRAM()
+{
+#if API_VULKAN
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetTotalRAM1()
+{
+    return 0.0f;
+}
+
+float SYS_GetTotalRAM2()
+{
+    return 0.0f;
+}
+
 // Save Game
 bool SYS_ReadSave(const char* saveName, Stream& outStream)
 {
@@ -1211,6 +1358,10 @@ void SYS_SetWindowTitle(const char* title)
     xcb_change_property(system.mXcbConnection, XCB_PROP_MODE_REPLACE,
         system.mXcbWindow, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
         strlen(title), title);
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
 }
 
 bool SYS_DoesWindowHaveFocus()

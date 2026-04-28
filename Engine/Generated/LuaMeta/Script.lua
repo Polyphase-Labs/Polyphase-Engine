@@ -14,7 +14,7 @@ function Script.Run(filename) end
 function Script.Inherit(arg1, className) end
 
 ---@param arg1 table
----@return any
+---@return table
 function Script.New(arg1) end
 
 function Script.GarbageCollect() end

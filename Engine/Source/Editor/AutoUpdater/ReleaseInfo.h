@@ -7,6 +7,17 @@
 #include <cstdint>
 
 /**
+ * @brief Pre-release type classification for version strings.
+ */
+enum class PreReleaseType
+{
+    None = 0,   // Stable release (highest precedence)
+    RC,         // Release Candidate
+    Beta,       // Beta (includes "beata" typo variant)
+    Alpha       // Alpha (lowest precedence)
+};
+
+/**
  * @brief Represents a downloadable asset from a GitHub release.
  */
 struct ReleaseAsset
@@ -27,6 +38,7 @@ struct ReleaseInfo
     std::string mBody;              // Changelog/release notes (markdown)
     std::string mHtmlUrl;           // URL to GitHub release page
     std::string mPublishedAt;       // ISO timestamp
+    bool mPrerelease = false;       // Whether this is a GitHub pre-release
     std::vector<ReleaseAsset> mAssets;
 
     /**
@@ -50,6 +62,14 @@ struct ReleaseInfo
     bool IsNewerThan(const std::string& currentVersion) const;
 
     /**
+     * @brief Compare this release version against the current version with cutting edge support.
+     * @param currentVersion The current version string
+     * @param cuttingEdgeEnabled If true, pre-release versions are considered newer
+     * @return true if this release is newer than currentVersion
+     */
+    bool IsNewerThan(const std::string& currentVersion, bool cuttingEdgeEnabled) const;
+
+    /**
      * @brief Get the appropriate download asset for the current platform.
      * @return Pointer to the asset, or nullptr if not found
      */
@@ -64,6 +84,20 @@ struct ReleaseInfo
      * @return true if parsing succeeded
      */
     static bool ParseVersion(const std::string& version, int& outMajor, int& outMinor, int& outPatch);
+
+    /**
+     * @brief Parse version string into full components including build and pre-release info.
+     * @param version Version string like "6.1.1.1" or "6.1.1-beta.5"
+     * @param outMajor Output major version
+     * @param outMinor Output minor version
+     * @param outPatch Output patch version
+     * @param outBuild Output build number (4th component, 0 if absent)
+     * @param outPreReleaseType Output pre-release type (None if stable)
+     * @param outPreReleaseNum Output pre-release number (0 if absent)
+     * @return true if parsing succeeded
+     */
+    static bool ParseVersion(const std::string& version, int& outMajor, int& outMinor, int& outPatch,
+                             int& outBuild, PreReleaseType& outPreReleaseType, int& outPreReleaseNum);
 };
 
 #endif // EDITOR

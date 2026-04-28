@@ -19,6 +19,7 @@
 #include "Nodes/Widgets/Widget.h"
 #include "Nodes/Widgets/Text.h"
 #include "Engine.h"
+#include "LuaDebugger/LuaDebugger.h"
 #include "Renderer.h"
 #include "NodePath.h"
 #include "Grid.h"
@@ -35,6 +36,9 @@
 #include "Viewport3d.h"
 #include "Viewport2d.h"
 #include "PaintManager.h"
+#include "VoxelSculpt/VoxelSculptManager.h"
+#include "TerrainSculpt/TerrainSculptManager.h"
+#include "TilePaint/TilePaintManager.h"
 #include "Script.h"
 #include "Addons/AddonCreator.h"
 #include "Input/Input.h"
@@ -66,6 +70,9 @@ void EditorState::Init()
     mViewport3D = new Viewport3D();
     mViewport2D = new Viewport2D();
     mPaintManager = new PaintManager();
+    mVoxelSculptManager = new VoxelSculptManager();
+    mTerrainSculptManager = new TerrainSculptManager();
+    mTilePaintManager = new TilePaintManager();
 
     mOverlayText = Node::Construct<Text>();
     mOverlayText->SetName("Overlay Text");
@@ -102,6 +109,15 @@ void EditorState::Shutdown()
 
     delete mPaintManager;
     mPaintManager = nullptr;
+
+    delete mVoxelSculptManager;
+    mVoxelSculptManager = nullptr;
+
+    delete mTerrainSculptManager;
+    mTerrainSculptManager = nullptr;
+
+    delete mTilePaintManager;
+    mTilePaintManager = nullptr;
 
     if (mTimelinePreviewInstance != nullptr)
     {
@@ -233,13 +249,72 @@ void EditorState::SetPaintMode(PaintMode paintMode)
 {
     if (mPaintMode != paintMode)
     {
+        PaintMode previousMode = mPaintMode;
         mPaintMode = paintMode;
 
         if (mPaintMode == PaintMode::None)
         {
-            // Make sure cursor is visible and unlocked 
+            // Make sure cursor is visible and unlocked
             INP_ShowCursor(true);
             INP_LockCursor(false);
+        }
+
+        // Tile-paint mode forces an orthographic top-down editor camera so
+        // tiles align cleanly with the cursor. The previous projection AND
+        // camera transform are stashed and restored when the user leaves
+        // tile paint.
+        if (paintMode == PaintMode::TilePaint && previousMode != PaintMode::TilePaint)
+        {
+            if (mEditorCamera != nullptr)
+            {
+                mTilePaintPrevWasPerspective =
+                    (mEditorCamera->GetProjectionMode() == ProjectionMode::PERSPECTIVE);
+                mTilePaintProjectionStashed = true;
+
+                // Stash the existing transform so we can put it back on exit.
+                mTilePaintPrevCameraPosition = mEditorCamera->GetWorldPosition();
+                mTilePaintPrevCameraRotation = mEditorCamera->GetWorldRotationQuat();
+                mTilePaintTransformStashed = true;
+
+                if (mTilePaintPrevWasPerspective)
+                {
+                    mEditorCamera->SetProjectionMode(ProjectionMode::ORTHOGRAPHIC);
+                    ApplyEditorCameraSettings();
+                }
+
+                // Snap to a top-down view above the currently-selected
+                // TileMap2D so the user immediately sees the tilemap from
+                // above. Default editor camera forward is -Z (Polyphase
+                // convention), so a zero-rotation transform with the camera
+                // at +Z above the tilemap is a clean top-down view.
+                Node* sel = GetSelectedNode();
+                glm::vec3 anchor = { 0.0f, 0.0f, 0.0f };
+                if (sel != nullptr && sel->IsNode3D())
+                {
+                    Node3D* selNode3D = static_cast<Node3D*>(sel);
+                    anchor = selNode3D->GetWorldPosition();
+                }
+                mEditorCamera->SetWorldPosition(glm::vec3(anchor.x, anchor.y, anchor.z + 50.0f));
+                mEditorCamera->SetWorldRotation(glm::vec3(0.0f, 0.0f, 0.0f));
+            }
+        }
+        else if (previousMode == PaintMode::TilePaint && paintMode != PaintMode::TilePaint)
+        {
+            if (mEditorCamera != nullptr)
+            {
+                if (mTilePaintProjectionStashed && mTilePaintPrevWasPerspective)
+                {
+                    mEditorCamera->SetProjectionMode(ProjectionMode::PERSPECTIVE);
+                    ApplyEditorCameraSettings();
+                }
+                if (mTilePaintTransformStashed)
+                {
+                    mEditorCamera->SetWorldPosition(mTilePaintPrevCameraPosition);
+                    mEditorCamera->SetWorldRotation(mTilePaintPrevCameraRotation);
+                }
+            }
+            mTilePaintProjectionStashed = false;
+            mTilePaintTransformStashed = false;
         }
     }
 }
@@ -422,6 +497,21 @@ void EditorState::HandleNodeDestroy(Node* node)
     if (mPaintManager)
     {
         mPaintManager->HandleNodeDestroy(node);
+    }
+
+    if (mVoxelSculptManager)
+    {
+        mVoxelSculptManager->HandleNodeDestroy(node);
+    }
+
+    if (mTerrainSculptManager)
+    {
+        mTerrainSculptManager->HandleNodeDestroy(node);
+    }
+
+    if (mTilePaintManager)
+    {
+        mTilePaintManager->HandleNodeDestroy(node);
     }
 }
 
@@ -723,6 +813,15 @@ void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
         return;
+
+    // Clear any stale Lua debugger pause/skip state left over from the
+    // previous PIE run -- otherwise a "skip-once" armed by Continue last
+    // time would silently swallow the first Debugger.Break/Snapshot of
+    // this run, producing the "every other PIE skips" pattern.
+    if (LuaDebugger::Get() != nullptr)
+    {
+        LuaDebugger::Get()->ResetTransientState();
+    }
 
     mSavedEditorClearColor = Renderer::Get()->GetClearColor();
     Renderer::Get()->SetClearColor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));

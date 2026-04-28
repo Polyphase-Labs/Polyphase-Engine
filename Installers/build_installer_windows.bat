@@ -58,7 +58,7 @@ echo.
 
 REM --- Step 1: Initialize submodules ---
 echo [1/5] Initializing git submodules...
-git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Plugins/Blender/polyshade-gameengine-connect
+git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Plugins/Blender/polyshade-gameengine-connect
 if errorlevel 1 (
     echo ERROR: Submodule init failed.
     exit /b 1

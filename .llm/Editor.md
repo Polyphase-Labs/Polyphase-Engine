@@ -100,9 +100,60 @@ Cleanup: `RemoveAllHooks(hookId)` removes all hooks for a given addon.
 
 Hierarchical module system. Each module: `Render()`, `LoadSettings()`, `SaveSettings()`.
 
-Modules: General (autosave, debug flags), Appearance > Theme (CSS themes, font) + Viewport, External > Editors + Launchers, Packaging > Docker.
+Modules: General (autosave, debug flags), Appearance > Theme (CSS themes, font) + Viewport, External > Editors + Launchers, Packaging > Docker, Input (gamepad emulation), Editor Hotkeys (rebindable editor shortcuts).
 
 `PreferencesManager::Get()->RegisterModule(module)`, `LoadAllSettings()`, `SaveAllSettings()`.
+
+## Editor Hotkey System
+
+Every rebindable editor hotkey routes through a central registry so users can remap shortcuts and viewport movement keys. Game code in PIE never sees keys the editor owns when input is in editor scope.
+
+### Files (all under `Engine/Source/Editor/`)
+
+| File | Role |
+|------|------|
+| `Hotkeys/EditorAction.h/.cpp` | `enum class EditorAction` + `struct KeyBinding` + static metadata table (display name, category, description, default binding, stable serialize key, symbolic key-name conversion). |
+| `Hotkeys/EditorHotkeyMap.h/.cpp` | Singleton (`Create/Destroy/Get`). Query API, PIE-aware gate, preset save/load/delete, JSON serialization, conflict detection, file-based import/export. |
+| `Hotkeys/EditorHotkeysWindow.h/.cpp` | ImGui remap dialog. Preset bar, search, category-collapsing rows, capture overlay with timeout, conflict warnings. Opened from **Edit > Editor Hotkeys...** or the Preferences module. |
+| `Preferences/EditorHotkeys/EditorHotkeysModule.h/.cpp` | `PreferencesModule` subclass that persists the binding map through `LoadSettings`/`SaveSettings`. Registered in `PreferencesManager::Create()`. |
+
+### Query API contract
+
+```cpp
+EditorHotkeyMap* h = EditorHotkeyMap::Get();
+if (h->IsActionJustTriggered(EditorAction::Debug_Wireframe))  { ... }   // one-shot, menus/toggles
+if (h->IsActionDown(EditorAction::Camera_Forward))            { ... }   // continuous, camera movement
+if (h->IsActionJustReleased(EditorAction::Some_Action))       { ... }   // release-edge
+h->ConsumeBindingKey(EditorAction::File_SaveScene);                     // explicit consume helper
+```
+
+`IsActionJustTriggered` does **not** auto-consume the key — instead the gate below stops the editor from reading at all during captured PIE. Some callers (Ctrl+S, Ctrl+P) call `ConsumeBindingKey` after handling to mirror the legacy "clear stuck modifier" behavior.
+
+### PIE hand-off rule
+
+`EditorHotkeyMap::AreEditorHotkeysActive()` is `true` iff one of:
+1. Not in PIE (`!mPlayInEditor`)
+2. PIE running but ejected (`mEjected` — toggled by F8)
+3. PIE running but the cursor is not captured by the game preview (`!mGamePreviewCaptured` — toggled by Ctrl+Alt+P or by clicking outside the Game Preview window)
+
+When the gate is `false` every editor hotkey query returns `false`, so the editor goes silent and game code in PIE owns the keyboard. Clicking back into the Game Preview re-captures the cursor (`GamePreview.cpp:604-609`) which closes the gate again.
+
+### Hardcoded exceptions (NOT routed through `EditorAction`)
+
+- **PIE safety keys:** Escape / F8 / Alt+P / F10 / Ctrl+Alt+P inside `InputManager.cpp::UpdateHotkeys()`. These are always-on safety controls during PIE and must work even if the user has rebound everything else.
+- **Transform axis-lock:** X / Y / Z while inside an active rotate/scale mode at `Viewport3d.cpp::HandleAxisLocking()`. These are semantic — pressing X means lock to the X axis, that's not a "hotkey".
+- **Modal Enter/Escape:** Confirm/cancel keys inside ImGui dialogs (`EditorImgui.cpp:1308`, `1418`, `1499`) are dialog UI, not editor hotkeys.
+
+### Preset storage and sharing
+
+JSON presets live in:
+
+- **Windows:** `%APPDATA%/PolyphaseEditor/HotkeyPresets/*.json`
+- **Linux:** `~/.config/PolyphaseEditor/HotkeyPresets/*.json`
+
+The preset bar in the remap window supports save / load / delete plus import-from-file and export-to-file (any path) and an "Open Presets Folder" button for sharing presets between users.
+
+Bindings serialize by **symbolic key name** (`"Z"`, `"Numpad 5"`, `"F11"`) — not by numeric `POLYPHASE_KEY_*` value — because the codes differ across Windows/Linux/Android/3DS. This makes presets fully portable.
 
 ## Packaging System
 

@@ -8,12 +8,14 @@
 #include "Input/Input.h"
 #include "InputDevices.h"
 #include "Constants.h"
+#include "EmbeddedFile.h"
 
 #include <3ds.h>
 #include <citro3d.h>
 
 #include <unistd.h>
 #include <malloc.h>
+#include <cstring>
 
 #define ENABLE_SYSTEM_CONSOLE 0
 
@@ -128,6 +130,25 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 
     outData = nullptr;
     outSize = 0;
+
+    // VFS shim: check the embedded raw-asset table before romfs/disk lookup.
+    // Embedded files take precedence over both romfs:/ and bare paths so a
+    // dev who flags `embed: true` always gets the in-exe copy, never a stale
+    // SD-card copy. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
 
     // First try romfs path
     std::string romfsPath = path;
@@ -460,6 +481,65 @@ std::vector<MemoryStat> SYS_GetMemoryStats()
     return stats;
 }
 
+float SYS_GetRAMUsage()
+{
+    return (float)(linearSpaceFree() / (1024.0 * 1024.0));
+}
+
+float SYS_GetVRAMUsage()
+{
+    return (float)(vramSpaceFree() / (1024.0 * 1024.0));
+}
+
+float SYS_GetRAM1Usage()
+{
+    return (float)(linearSpaceFree() / (1024.0 * 1024.0));
+}
+
+float SYS_GetRAM2Usage()
+{
+    return (float)(vramSpaceFree() / (1024.0 * 1024.0));
+}
+
+float SYS_GetCPUUsage()
+{
+    // No per-process CPU query on 3DS; estimate from frame time vs 60fps budget
+    static uint64_t sPrevUs = 0;
+    static float sCpuUsage = 0.0f;
+
+    uint64_t curUs = SYS_GetTimeMicroseconds();
+    if (sPrevUs != 0)
+    {
+        double frameMs = (double)(curUs - sPrevUs) / 1000.0;
+        // 16.67ms = 100% of a 60fps frame budget
+        sCpuUsage = (float)(frameMs / 16.667 * 100.0);
+        if (sCpuUsage > 200.0f) sCpuUsage = 200.0f;
+    }
+    sPrevUs = curUs;
+
+    return sCpuUsage;
+}
+
+float SYS_GetTotalRAM()
+{
+    return 128.0f; // New 3DS FCRAM
+}
+
+float SYS_GetTotalVRAM()
+{
+    return 6.0f; // 3DS dedicated VRAM
+}
+
+float SYS_GetTotalRAM1()
+{
+    return 128.0f; // FCRAM
+}
+
+float SYS_GetTotalRAM2()
+{
+    return 6.0f; // VRAM
+}
+
 bool SYS_ReadSave(const char* saveName, Stream& outStream)
 {
     bool success = false;
@@ -669,6 +749,10 @@ int32_t SYS_GetPlatformTier()
 void SYS_SetWindowTitle(const char* title)
 {
 
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
 }
 
 bool SYS_DoesWindowHaveFocus()

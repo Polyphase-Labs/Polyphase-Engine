@@ -4,6 +4,7 @@ if(PLATFORM_NAME MATCHES "Linux")
     find_package(PkgConfig)
     pkg_check_modules(PKG_CONFIG_DEPS REQUIRED IMPORTED_TARGET
         alsa
+        libpulse
         ogg
         vorbis
         vorbisenc
@@ -76,11 +77,13 @@ target_include_directories(${TARGET} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/Engine
     ${BULLET_PHYSICS_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../External/Assimp/contrib/rapidjson
+    ${CMAKE_CURRENT_SOURCE_DIR}/../External/libgit2/include
 )
 target_link_libraries(${TARGET} PUBLIC
     ${COMMON_DEPS}
     assimp::assimp
     imguizmo
+    git2
 )
 target_compile_definitions(${TARGET} PUBLIC
     ${PLATFORM_DEFINITIONS}

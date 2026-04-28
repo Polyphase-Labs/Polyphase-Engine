@@ -252,6 +252,100 @@ void BindDatumType()
     lua_pushinteger(L, (int)DatumType::Short);
     lua_setfield(L, tableIdx, "Short");
 
+    // Widget subtypes
+    lua_pushinteger(L, (int)DatumType::SpinBox);
+    lua_setfield(L, tableIdx, "SpinBox");
+
+    lua_pushinteger(L, (int)DatumType::Window);
+    lua_setfield(L, tableIdx, "Window");
+
+    lua_pushinteger(L, (int)DatumType::DialogWindow);
+    lua_setfield(L, tableIdx, "DialogWindow");
+
+    lua_pushinteger(L, (int)DatumType::InputField);
+    lua_setfield(L, tableIdx, "InputField");
+
+    lua_pushinteger(L, (int)DatumType::ProgressBar);
+    lua_setfield(L, tableIdx, "ProgressBar");
+
+    lua_pushinteger(L, (int)DatumType::CheckBox);
+    lua_setfield(L, tableIdx, "CheckBox");
+
+    lua_pushinteger(L, (int)DatumType::ListViewWidget);
+    lua_setfield(L, tableIdx, "ListViewWidget");
+
+    lua_pushinteger(L, (int)DatumType::ListViewItemWidget);
+    lua_setfield(L, tableIdx, "ListViewItemWidget");
+
+    lua_pushinteger(L, (int)DatumType::DebugResourcesWidget);
+    lua_setfield(L, tableIdx, "DebugResourcesWidget");
+
+    lua_pushinteger(L, (int)DatumType::ArrayWidget);
+    lua_setfield(L, tableIdx, "ArrayWidget");
+
+    lua_pushinteger(L, (int)DatumType::Button);
+    lua_setfield(L, tableIdx, "Button");
+
+    lua_pushinteger(L, (int)DatumType::Slider);
+    lua_setfield(L, tableIdx, "Slider");
+
+    lua_pushinteger(L, (int)DatumType::LineEdit);
+    lua_setfield(L, tableIdx, "LineEdit");
+
+    lua_pushinteger(L, (int)DatumType::Canvas);
+    lua_setfield(L, tableIdx, "Canvas");
+
+    lua_pushinteger(L, (int)DatumType::ComboBox);
+    lua_setfield(L, tableIdx, "ComboBox");
+
+    // Node3D subtypes
+    lua_pushinteger(L, (int)DatumType::Voxel3D);
+    lua_setfield(L, tableIdx, "Voxel3D");
+
+    lua_pushinteger(L, (int)DatumType::Terrain3D);
+    lua_setfield(L, tableIdx, "Terrain3D");
+
+    lua_pushinteger(L, (int)DatumType::TileMap2D);
+    lua_setfield(L, tableIdx, "TileMap2D");
+
+    lua_pushinteger(L, (int)DatumType::NavMesh3D);
+    lua_setfield(L, tableIdx, "NavMesh3D");
+
+    lua_pushinteger(L, (int)DatumType::Camera3D);
+    lua_setfield(L, tableIdx, "Camera3D");
+
+    lua_pushinteger(L, (int)DatumType::DirectionalLight3D);
+    lua_setfield(L, tableIdx, "DirectionalLight3D");
+
+    lua_pushinteger(L, (int)DatumType::Box3D);
+    lua_setfield(L, tableIdx, "Box3D");
+
+    lua_pushinteger(L, (int)DatumType::Particle3D);
+    lua_setfield(L, tableIdx, "Particle3D");
+
+    // Node subtypes
+    lua_pushinteger(L, (int)DatumType::TimelinePlayer);
+    lua_setfield(L, tableIdx, "TimelinePlayer");
+
+    lua_pushinteger(L, (int)DatumType::NodeGraphPlayer);
+    lua_setfield(L, tableIdx, "NodeGraphPlayer");
+
+    // Asset subtypes
+    lua_pushinteger(L, (int)DatumType::Material);
+    lua_setfield(L, tableIdx, "Material");
+
+    lua_pushinteger(L, (int)DatumType::TileSet);
+    lua_setfield(L, tableIdx, "TileSet");
+
+    lua_pushinteger(L, (int)DatumType::TileMap);
+    lua_setfield(L, tableIdx, "TileMap");
+
+    lua_pushinteger(L, (int)DatumType::Timeline);
+    lua_setfield(L, tableIdx, "Timeline");
+
+    lua_pushinteger(L, (int)DatumType::NodeGraphAsset);
+    lua_setfield(L, tableIdx, "NodeGraphAsset");
+
     lua_pushinteger(L, (int)DatumType::Count);
     lua_setfield(L, tableIdx, "Count");
 

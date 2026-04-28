@@ -19,7 +19,7 @@ jobs:
 
       - name: Initialize submodules
         run: |
-          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Plugins/Blender/polyshade-gameengine-connect
+          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
       - name: Install Vulkan SDK
@@ -42,6 +42,20 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Prebuild libgit2
+        shell: cmd
+        run: |
+          cd Engine\External\libgit2
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DBUILD_EXAMPLES=OFF -DUSE_SSH=OFF -DUSE_BUNDLED_ZLIB=ON -DREGEX_BACKEND=builtin
+          cmake --build build --config Release
+          cmake --build build --config Debug
+          if not exist "..\..\External\lib\Lib" mkdir "..\..\External\lib\Lib"
+          copy /Y "build\Release\git2.lib" "..\..\External\lib\Lib\git2.lib"
+          copy /Y "build\Debug\git2.lib" "..\..\External\lib\Lib\git2d.lib"
+
+      - name: Generate Standalone embedded asset stubs
+        run: python Tools/generate_embedded_stubs.py
 
       - name: Build Engine (ReleaseEditor x64)
         run: msbuild Polyphase.sln /p:Configuration=ReleaseEditor /p:Platform=x64 /m
@@ -71,7 +85,7 @@ jobs:
 
       - name: Initialize submodules
         run: |
-          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Plugins/Blender/polyshade-gameengine-connect
+          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
       - name: Install Vulkan SDK
@@ -94,12 +108,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libxcb1-dev libasound2-dev libx11-dev \
-            dpkg-dev
+            libpulse-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev \
+            pkg-config dpkg-dev cmake
+          # libpulse-dev: streaming audio backend (engine)
+          # libav*-dev / libsw*-dev: FFmpeg backend used by the VideoPlayer addon
+          # pkg-config: addon build scripts resolve FFmpeg via pkg-config on Linux
+
+      - name: Prebuild libgit2
+        run: bash Tools/prebuild_libgit2.sh
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Generate Standalone embedded asset stubs
+        run: python3 Tools/generate_embedded_stubs.py
 
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)

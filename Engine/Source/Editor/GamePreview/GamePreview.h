@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "imgui.h"
+#include "EngineTypes.h"
 
 class Image;
 class Buffer;
@@ -38,6 +39,11 @@ public:
     void RemoveResolutionPreset(const std::string& name);
     const std::vector<ResolutionPreset>& GetAddonPresets() const { return mAddonPresets; }
 
+    // Returns the canonical preview resolution for a target platform.
+    // Used by Game Preview's "Target Platform" preset and the Canvas inspector's
+    // "Set Size To Build Profile Resolution" button.
+    static void GetPlatformResolution(Platform platform, uint32_t& outWidth, uint32_t& outHeight, const char*& outName);
+
 private:
     bool mEnabled = true;
     int32_t mSelectedPresetIndex = 0;
@@ -60,6 +66,15 @@ private:
     // Addon presets (populated by hooks)
     std::vector<ResolutionPreset> mAddonPresets;
 
+    // Custom user presets (persisted to editor preferences)
+    std::vector<ResolutionPreset> mCustomPresets;
+    bool mCustomPresetsLoaded = false;
+
+    // UI state for add-preset popup
+    char mNewPresetName[128] = {};
+    int32_t mNewPresetWidth = 1280;
+    int32_t mNewPresetHeight = 720;
+
     // Cached camera list
     std::vector<Camera3D*> mCachedCameras;
 
@@ -80,6 +95,8 @@ private:
     void DestroyRenderTargets();
     void RefreshCameraList();
     void CaptureScreenshot();
+    void LoadCustomPresets();
+    void SaveCustomPresets();
     ResolutionPreset GetCurrentPreset();
     std::vector<ResolutionPreset> GetAllPresets();
 };

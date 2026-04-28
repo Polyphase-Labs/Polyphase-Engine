@@ -110,7 +110,7 @@ export OUTPUT	:=	$(OUTPUT_DIR)/$(TARGET)
 #---------------------------------------------------------------------------------
 $(BUILD): MakeEngine OutputDir
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_GCN
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 OutputDir:
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)

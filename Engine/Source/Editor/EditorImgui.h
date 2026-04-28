@@ -17,6 +17,15 @@ typedef void(*FileBrowserCallbackFP)(const std::vector<std::string>& filePaths);
 
 void EditorImguiInit();
 void EditorImguiDraw();
+
+/**
+ * Returns the monospace terminal font (Roboto Mono with extended Unicode
+ * coverage) loaded at editor init for the CLI Terminal panel. May return
+ * nullptr if the font file was missing — callers should handle that case
+ * gracefully and fall back to the current font.
+ */
+ImFont* GetEditorTerminalFont();
+
 void EditorImguiShutdown();
 void EditorImguiPreShutdown();
 

@@ -19,10 +19,10 @@ public:
     static void Destroy();
     static AddonManager* Get();
 
-    /** @brief Directory for addon cache: {AppData}/OctaveEditor/AddonCache/ */
+    /** @brief Directory for addon cache: {AppData}/PolyphaseEditor/AddonCache/ */
     std::string GetAddonCacheDirectory();
 
-    /** @brief Settings file: {AppData}/OctaveEditor/addons.json */
+    /** @brief Settings file: {AppData}/PolyphaseEditor/addons.json */
     std::string GetSettingsPath();
 
     /** @brief Installed addons file in project: {ProjectDir}/Settings/installed_addons.json */

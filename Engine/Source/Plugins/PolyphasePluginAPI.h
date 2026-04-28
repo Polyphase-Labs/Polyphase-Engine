@@ -10,7 +10,14 @@
 
 #include <stdint.h>
 
-// Platform-specific export/import macros
+// Platform-specific export/import macros.
+// Legacy scaffolds ship with OCTAVE_PLUGIN_EXPORT defined (the pre-rename alias);
+// accept either name here so those projects select dllexport correctly. Without this,
+// the plugin entry point is treated as dllimport and its definition hits C2491.
+#if defined(OCTAVE_PLUGIN_EXPORT) && !defined(POLYPHASE_PLUGIN_EXPORT)
+    #define POLYPHASE_PLUGIN_EXPORT
+#endif
+
 #ifdef _WIN32
     #ifdef POLYPHASE_PLUGIN_EXPORT
         #define POLYPHASE_PLUGIN_API __declspec(dllexport)
@@ -98,7 +105,9 @@ typedef int (*PolyphasePlugin_GetDescFunc)(PolyphasePluginDesc* outDesc);
 // Backwards-compatibility aliases (deprecated, will be removed in a future version)
 #ifndef POLYPHASE_NO_LEGACY_MACROS
     #define OCTAVE_PLUGIN_API          POLYPHASE_PLUGIN_API
-    #define OCTAVE_PLUGIN_EXPORT       POLYPHASE_PLUGIN_EXPORT
+    #ifndef OCTAVE_PLUGIN_EXPORT
+        #define OCTAVE_PLUGIN_EXPORT   POLYPHASE_PLUGIN_EXPORT
+    #endif
     #define OCTAVE_PLUGIN_API_VERSION  POLYPHASE_PLUGIN_API_VERSION
     #define OCTAVE_PLUGIN_ENTRY        POLYPHASE_PLUGIN_ENTRY
     #define OctavePluginDesc           PolyphasePluginDesc

@@ -12,14 +12,20 @@
 #include "General/GeneralModule.h"
 #include "Appearance/AppearanceModule.h"
 #include "Appearance/Viewport/ViewportModule.h"
+#include "Appearance/Viewport/TilemapGrid/TilemapGridModule.h"
 #include "Appearance/Theme/ThemeModule.h"
 #include "External/ExternalModule.h"
 #include "External/LaunchersModule.h"
 #include "External/EditorsModule.h"
+#include "External/CliModule.h"
 #include "Packaging/PackagingModule.h"
 #include "Packaging/DockerModule.h"
 #include "Network/NetworkModule.h"
 #include "Updates/UpdatesModule.h"
+#include "Updates/CuttingEdgeModule.h"
+#include "Input/InputMapModule.h"
+#include "EditorHotkeys/EditorHotkeysModule.h"
+#include "Git/GitPreferencesModule.h"
 
 PreferencesManager* PreferencesManager::sInstance = nullptr;
 
@@ -35,13 +41,18 @@ void PreferencesManager::Create()
     // Appearance module with sub-modules
     AppearanceModule* appearance = new AppearanceModule();
     appearance->AddSubModule(new ThemeModule());
-    appearance->AddSubModule(new ViewportModule());
+    {
+        ViewportModule* viewport = new ViewportModule();
+        viewport->AddSubModule(new TilemapGridModule());
+        appearance->AddSubModule(viewport);
+    }
     sInstance->RegisterModule(appearance);
 
     // External module with sub-modules
     ExternalModule* external = new ExternalModule();
     external->AddSubModule(new LaunchersModule());
     external->AddSubModule(new EditorsModule());
+    external->AddSubModule(new CliModule());
     sInstance->RegisterModule(external);
 
     // Packaging module with sub-modules
@@ -52,8 +63,19 @@ void PreferencesManager::Create()
     // Network module
     sInstance->RegisterModule(new NetworkModule());
 
-    // Updates module
-    sInstance->RegisterModule(new UpdatesModule());
+    // Updates module with sub-modules
+    UpdatesModule* updates = new UpdatesModule();
+    updates->AddSubModule(new CuttingEdgeModule());
+    sInstance->RegisterModule(updates);
+
+    // Input mapping module
+    sInstance->RegisterModule(new InputMapModule());
+
+    // Editor hotkey bindings module
+    sInstance->RegisterModule(new EditorHotkeysModule());
+
+    // Git version control module
+    sInstance->RegisterModule(new GitPreferencesModule());
 
     // Load all settings on startup
     sInstance->LoadAllSettings();

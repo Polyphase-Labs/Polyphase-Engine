@@ -12,6 +12,7 @@
 #include "imgui.h"
 #include "./ImGuizmo/ImGuizmo.h"
 #include "EditorImgui.h"
+#include "Hotkeys/EditorHotkeyMap.h"
 
 Viewport2D::Viewport2D()
 {
@@ -171,7 +172,6 @@ void Viewport2D::HandleDefaultControls()
         const bool controlDown = IsControlDown();
         const bool shiftDown = IsShiftDown();
         const bool altDown = IsAltDown();
-        const bool cmdKeyDown = (controlDown || shiftDown || altDown);
 
         if (IsMouseButtonJustDown(MOUSE_RIGHT) ||
             IsMouseButtonJustDown(MOUSE_MIDDLE))
@@ -235,56 +235,52 @@ void Viewport2D::HandleDefaultControls()
             }
         }
 
-        const bool spaceDown = IsKeyDown(POLYPHASE_KEY_SPACE);
+        EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
 
         if (GetEditorState()->GetSelectedWidget() != nullptr)
         {
-            // Space+G/R/S for gizmo operation (matching 3D behavior)
-            if (spaceDown && !controlDown && !altDown)
+            // Space+G/R/S sets the ImGuizmo operation only.
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_TranslateImGuizmo))
             {
-                if (IsKeyJustDown(POLYPHASE_KEY_G))
-                {
-                    GetEditorState()->mGizmoOperation = ImGuizmo::TRANSLATE;
-                }
-                if (IsKeyJustDown(POLYPHASE_KEY_R))
-                {
-                    GetEditorState()->mGizmoOperation = ImGuizmo::ROTATE;
-                }
-                if (IsKeyJustDown(POLYPHASE_KEY_S))
-                {
-                    GetEditorState()->mGizmoOperation = ImGuizmo::SCALE;
-                }
+                GetEditorState()->mGizmoOperation = ImGuizmo::TRANSLATE;
             }
-            // G/R/S without Space for legacy cursor-locked transform mode
-            else if (!controlDown && !altDown)
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_RotateImGuizmo))
             {
-                if (IsKeyJustDown(POLYPHASE_KEY_G))
-                {
-                    SetWidgetControlMode(WidgetControlMode::Translate);
-                    SavePreTransforms();
-                }
+                GetEditorState()->mGizmoOperation = ImGuizmo::ROTATE;
+            }
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_ScaleImGuizmo))
+            {
+                GetEditorState()->mGizmoOperation = ImGuizmo::SCALE;
+            }
 
-                if (IsKeyJustDown(POLYPHASE_KEY_R))
-                {
-                    SetWidgetControlMode(WidgetControlMode::Rotate);
-                    SavePreTransforms();
-                }
+            // Plain G/R/S enters cursor-locked transform mode.
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_Translate))
+            {
+                SetWidgetControlMode(WidgetControlMode::Translate);
+                SavePreTransforms();
+            }
 
-                if (IsKeyJustDown(POLYPHASE_KEY_S))
-                {
-                    SetWidgetControlMode(WidgetControlMode::Scale);
-                    SavePreTransforms();
-                }
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_Rotate))
+            {
+                SetWidgetControlMode(WidgetControlMode::Rotate);
+                SavePreTransforms();
+            }
+
+            if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_Scale))
+            {
+                SetWidgetControlMode(WidgetControlMode::Scale);
+                SavePreTransforms();
             }
         }
 
-        if (IsKeyJustDown(POLYPHASE_KEY_F) ||
+        // Reset viewport on Focus key (or Numpad . as a secondary).
+        if (hotkeys->IsActionJustTriggered(EditorAction::View_FocusSelection) ||
             IsKeyJustDown(POLYPHASE_KEY_DECIMAL))
         {
             ResetViewport();
         }
 
-        if (controlDown && IsKeyJustDown(POLYPHASE_KEY_D))
+        if (hotkeys->IsActionJustTriggered(EditorAction::Edit_Duplicate))
         {
             // Duplicate node
             const std::vector<Node*>& selectedNodes = GetEditorState()->GetSelectedNodes();
@@ -301,16 +297,16 @@ void Viewport2D::HandleDefaultControls()
             }
         }
 
-        if (IsKeyJustDown(POLYPHASE_KEY_DELETE))
+        if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
         {
             ActionManager::Get()->DeleteSelectedNodes();
         }
 
-        if (altDown && IsKeyJustDown(POLYPHASE_KEY_A))
+        if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeselectAll))
         {
             GetEditorState()->SetSelectedNode(nullptr);
         }
-        if (controlDown && IsKeyJustDown(POLYPHASE_KEY_A))
+        if (hotkeys->IsActionJustTriggered(EditorAction::Edit_SelectAll))
         {
             std::vector<Node*> nodes = GetWorld(0)->GatherNodes();
 

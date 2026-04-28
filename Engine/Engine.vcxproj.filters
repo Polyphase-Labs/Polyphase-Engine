@@ -78,6 +78,18 @@
     <Filter Include="Source Files\System\Android">
       <UniqueIdentifier>{357599d0-a3f2-48cb-8918-ad140e561af9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Serial">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Windows">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Linux">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Serial\Stub">
+      <UniqueIdentifier>{a1b2c3d4-0001-4001-8001-000000000004}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Engine\Nodes">
       <UniqueIdentifier>{0c1dc114-d792-49eb-bb9d-a0f98b94f95d}</UniqueIdentifier>
     </Filter>
@@ -135,11 +147,20 @@
     <Filter Include="Source Files\Editor\DebugLog">
       <UniqueIdentifier>{d3a5c7b2-1f4e-4a8b-9c6d-e2f0b8a1d5c3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\LuaDebugger">
+      <UniqueIdentifier>{f7b9d2c4-8e1a-4b6f-93a5-c0e2d4f6a8b1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\CliTerminal">
+      <UniqueIdentifier>{e8c11a47-4b9d-4f6c-8a72-1d53b6e9c204}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Editor\SecondScreenPreview">
       <UniqueIdentifier>{b4c6d8e0-2a3f-4b5c-8d7e-f9a1b3c5d7e9}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Editor\GamePreview">
       <UniqueIdentifier>{c5d7e9f1-3b5a-4c8d-9e0f-a2b4c6d8e0f2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\AnimationBrowser">
+      <UniqueIdentifier>{d6e8f0a2-4c6b-5d9e-af10-b3c5d7e9f1a3}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Editor\Timeline">
       <UniqueIdentifier>{a7c3e1b5-9d2f-4e6a-8b0c-f1d4a6e8c2b7}</UniqueIdentifier>
@@ -162,6 +183,24 @@
     <Filter Include="Source Files\Editor\Profiling">
       <UniqueIdentifier>{b6ac0ac8-f99c-4795-bf56-fb0e576e5242}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\InputTester">
+      <UniqueIdentifier>{c7bd1bd9-0aad-4896-cf67-fc1f687f6353}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\TextureAtlas">
+      <UniqueIdentifier>{d7bc1bd9-a00d-4896-cf67-gc1f687f6353}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\TextureCrop">
+      <UniqueIdentifier>{e8cd2ce0-b11e-5907-dg78-hd2g798g7464}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\VoxelSculpt">
+      <UniqueIdentifier>{e8cd2ce0-b11e-5907-dg78-hd2g798g7464}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\TerrainSculpt">
+      <UniqueIdentifier>{a1b2c3d4-e5f6-7890-abcd-ef1234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\TilePaint">
+      <UniqueIdentifier>{c5d6e7f8-9012-3456-789a-bcdef0123456}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Editor\NodeEditor">
       <UniqueIdentifier>{b2c3d4e5-6f7a-8b9c-0d1e-f2a3b4c5d6e7}</UniqueIdentifier>
     </Filter>
@@ -182,6 +221,24 @@
     </Filter>
     <Filter Include="Source Files\Editor\Preferences\Updates">
       <UniqueIdentifier>{b9c0d1e2-3f4a-5b6c-7d8e-f9a0b1c2d3e4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Preferences\Input">
+      <UniqueIdentifier>{c0d1e2f3-4a5b-6c7d-8e9f-a0b1c2d3e4f5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Preferences\EditorHotkeys">
+      <UniqueIdentifier>{d1e2f3a4-5b6c-7d8e-9fa0-b1c2d3e4f5a6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Hotkeys">
+      <UniqueIdentifier>{e2f3a4b5-6c7d-8e9f-a0b1-c2d3e4f5a6b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Git">
+      <UniqueIdentifier>{a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Git\Dialogs">
+      <UniqueIdentifier>{b2c3d4e5-f6a7-8b9c-0d1e-f2a3b4c5d6e7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\Preferences\Git">
+      <UniqueIdentifier>{c3d4e5f6-a7b8-9c0d-1e2f-a3b4c5d6e7f8}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Editor\AutoUpdater">
       <UniqueIdentifier>{c0d1e2f3-4a5b-6c7d-8e9f-a0b1c2d3e4f5}</UniqueIdentifier>
@@ -263,6 +320,15 @@
     <ClCompile Include="Source\Engine\World.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Input\InputMap.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Input\InputActionsAsset.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Input\PlayerInputSystem.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Input\InputUtils.cpp">
       <Filter>Source Files\Input</Filter>
     </ClCompile>
@@ -338,6 +404,39 @@
     <ClCompile Include="Source\Network\Linux\Network_Linux.cpp">
       <Filter>Source Files\Network\Linux</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp">
+      <Filter>Source Files\Serial\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp">
+      <Filter>Source Files\Serial\Linux</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp">
+      <Filter>Source Files\Serial\Stub</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Serial\Serial.h">
+      <Filter>Source Files\Serial</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Serial\SerialTypes.h">
+      <Filter>Source Files\Serial</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\SerialManager.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Engine\SerialManager.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\LuaBindings\Serial_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClCompile Include="Source\Engine\Datum.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
@@ -380,6 +479,9 @@
     <ClCompile Include="Source\LuaBindings\Input_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\LuaBindings\PlayerInput_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\Asset_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
@@ -393,6 +495,9 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Log_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Debugger_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Maths_Lua.cpp">
@@ -443,10 +548,22 @@
     <ClCompile Include="Source\Engine\Assets\SoundWave.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\SpriteAnimation.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Assets\StaticMesh.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Assets\Texture.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\TextureAtlasUtil.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\TileSet.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\TileMap.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Assets\TinyLLMAsset.cpp">
@@ -497,13 +614,28 @@
     <ClCompile Include="Source\LuaBindings\Stream_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SaveData_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\System_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\TimerManager.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\TweenManager.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Easing.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\TimerManager_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Tween_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Easing_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\ScriptUtils.cpp">
@@ -564,6 +696,9 @@
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\Widgets\StatsOverlay.cpp">
+      <Filter>Source Files\Engine\Nodes\Widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\Widgets\DebugResourcesWidget.cpp">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\Widgets\Text.cpp">
@@ -680,6 +815,15 @@
     <ClCompile Include="Source\Engine\Nodes\3D\TextMesh3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\3D\Voxel3d.cpp">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\3D\Terrain3d.cpp">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\3D\TileMap2d.cpp">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\Node3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
@@ -731,6 +875,15 @@
     <ClCompile Include="Source\LuaBindings\TextMesh3d_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Voxel3d_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\TileMap2d_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Terrain3d_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\Node3d_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
@@ -755,11 +908,20 @@
     <ClCompile Include="Source\Editor\DebugLog\DebugLogWindow.cpp">
       <Filter>Source Files\Editor\DebugLog</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebugger.cpp">
+      <Filter>Source Files\Editor\LuaDebugger</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.cpp">
+      <Filter>Source Files\Editor\LuaDebugger</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.cpp">
       <Filter>Source Files\Editor\SecondScreenPreview</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp">
       <Filter>Source Files\Editor\GamePreview</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp">
+      <Filter>Source Files\Editor\AnimationBrowser</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\EditorImgui.cpp">
       <Filter>Source Files\Editor</Filter>
@@ -846,6 +1008,9 @@
       <Filter>Source Files\Graphics\Vulkan</Filter>
     </ClCompile>
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\BlurPass.cpp">
+      <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.cpp">
       <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
     </ClCompile>
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.cpp">
@@ -1031,6 +1196,15 @@
     <ClCompile Include="Source\LuaBindings\Spline3d_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\SpriteAnimator.cpp">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SpriteAnimation_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SpriteAnimator_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Appearance\AppearanceModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
     </ClCompile>
@@ -1064,6 +1238,9 @@
     <ClCompile Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Appearance\Viewport\TilemapGrid\TilemapGridModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServer.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
     </ClCompile>
@@ -1075,6 +1252,99 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Updates\UpdatesModule.cpp">
       <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.cpp">
+      <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Input\InputMapModule.cpp">
+      <Filter>Source Files\Editor\Preferences\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.cpp">
+      <Filter>Source Files\Editor\Preferences\EditorHotkeys</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Hotkeys\EditorAction.cpp">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeyMap.cpp">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeysWindow.cpp">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitService.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitRepository.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitOperationQueue.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitProcessRunner.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitProgressParser.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitCliProbe.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitErrorMap.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitWorkspaceWindow.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\GitStatusBarWidget.cpp">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCloneDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitOpenDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitInitDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCreateBranchDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCheckoutConfirmDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCreateTagDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitDeleteConfirmDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitPushDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitPullDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitFetchDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitRemoteEditDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitMergeDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCliStatusDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitOperationProgressDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitSyncBranchDialog.cpp">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Git\GitPreferencesModule.cpp">
+      <Filter>Source Files\Editor\Preferences\Git</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\AutoUpdater\AutoUpdater.cpp">
       <Filter>Source Files\Editor\AutoUpdater</Filter>
@@ -1118,10 +1388,22 @@
     <ClCompile Include="Source\Editor\BuildDependencyWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\InputMapWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\PlayerInputEditor.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\PlayerInputDebugger.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Packaging\PackagingSettings.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\ProjectSelect\ProjectSelectWindow.cpp">
@@ -1138,6 +1420,48 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\External\EditorsModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\External\CliModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalOutputBuffer.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\CommandHistory.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\ShellPresets.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_Windows.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_WindowsConPTY.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\AnsiStripper.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_Posix.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcessFactory.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_LinuxPty.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalParserRegistry.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\ClaudeCodeParser.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalSession.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalPanel.cpp">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Packaging\DockerModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
@@ -1180,6 +1504,30 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\Profiling\ProfilingWindow.cpp">
       <Filter>Source Files\Editor\Profiling</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\InputTester\InputTesterPanel.cpp">
+      <Filter>Source Files\Editor\InputTester</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TextureAtlas\TextureAtlasViewer.cpp">
+      <Filter>Source Files\Editor\TextureAtlas</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp">
+      <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp">
+      <Filter>Source Files\Editor\TextureCrop</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\VoxelSculpt\VoxelSculptManager.cpp">
+      <Filter>Source Files\Editor\VoxelSculpt</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TerrainSculpt\TerrainSculptManager.cpp">
+      <Filter>Source Files\Editor\TerrainSculpt</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TilePaint\TilePaintManager.cpp">
+      <Filter>Source Files\Editor\TilePaint</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TilePaint\TilePicker.cpp">
+      <Filter>Source Files\Editor\TilePaint</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Assets\NodeGraphAsset.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
@@ -1377,10 +1725,22 @@
     <ClInclude Include="Source\Engine\Assets\SoundWave.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\SpriteAnimation.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Assets\StaticMesh.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\Texture.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\TextureAtlasUtil.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\TileSet.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\TileMap.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\TinyLLMAsset.h">
@@ -1413,6 +1773,9 @@
     <ClInclude Include="Source\Engine\Nodes\Widgets\StatsOverlay.h">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\Widgets\DebugResourcesWidget.h">
+      <Filter>Source Files\Engine\Nodes\Widgets</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Widgets\Text.h">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
@@ -1435,6 +1798,9 @@
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\NodeGraphPlayer.h">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\SpriteAnimator.h">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Timeline\TimelineTrack.h">
@@ -1492,6 +1858,12 @@
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\TimerManager.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\TweenManager.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Easing.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Utilities.h">
@@ -1671,6 +2043,15 @@
     <ClInclude Include="Source\Input\InputTypes.h">
       <Filter>Source Files\Input</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Input\InputMap.h">
+      <Filter>Source Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Input\InputActionsAsset.h">
+      <Filter>Source Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Input\PlayerInputSystem.h">
+      <Filter>Source Files\Input</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Input\InputUtils.h">
       <Filter>Source Files\Input</Filter>
     </ClInclude>
@@ -1722,7 +2103,13 @@
     <ClInclude Include="Source\LuaBindings\Input_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\PlayerInput_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\Log_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Debugger_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\LuaTypeCheck.h">
@@ -1779,6 +2166,9 @@
     <ClInclude Include="Source\LuaBindings\Stream_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SaveData_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\System_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
@@ -1792,6 +2182,12 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\TimerManager_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Tween_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Easing_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\Vector_Lua.h">
@@ -1860,6 +2256,15 @@
     <ClInclude Include="Source\Engine\Nodes\3D\TextMesh3d.h">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\3D\Voxel3d.h">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\3D\Terrain3d.h">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\3D\TileMap2d.h">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\Node3d.h">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
@@ -1911,6 +2316,15 @@
     <ClInclude Include="Source\LuaBindings\TextMesh3d_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Voxel3d_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\TileMap2d_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Terrain3d_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\Node3d_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
@@ -1935,11 +2349,20 @@
     <ClInclude Include="Source\Editor\DebugLog\DebugLogWindow.h">
       <Filter>Source Files\Editor\DebugLog</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebugger.h">
+      <Filter>Source Files\Editor\LuaDebugger</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.h">
+      <Filter>Source Files\Editor\LuaDebugger</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.h">
       <Filter>Source Files\Editor\SecondScreenPreview</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\GamePreview\GamePreview.h">
       <Filter>Source Files\Editor\GamePreview</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\AnimationBrowser\AnimationBrowser.h">
+      <Filter>Source Files\Editor\AnimationBrowser</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorImgui.h">
       <Filter>Source Files\Editor</Filter>
@@ -2002,6 +2425,9 @@
       <Filter>Source Files\Graphics\Vulkan</Filter>
     </ClInclude>
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\BlurPass.h">
+      <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.h">
       <Filter>Source Files\Graphics\Vulkan\PostProcess</Filter>
     </ClInclude>
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.h">
@@ -2169,6 +2595,12 @@
     <ClInclude Include="Source\LuaBindings\Spline3d_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SpriteAnimation_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SpriteAnimator_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Appearance\AppearanceModule.h">
       <Filter>Source Files\Editor\Preferences</Filter>
     </ClInclude>
@@ -2202,6 +2634,9 @@
     <ClInclude Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.h">
       <Filter>Source Files\Editor\Preferences</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Appearance\Viewport\TilemapGrid\TilemapGridModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServer.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>
     </ClInclude>
@@ -2216,6 +2651,105 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Updates\UpdatesModule.h">
       <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.h">
+      <Filter>Source Files\Editor\Preferences\Updates</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Input\InputMapModule.h">
+      <Filter>Source Files\Editor\Preferences\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.h">
+      <Filter>Source Files\Editor\Preferences\EditorHotkeys</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Hotkeys\EditorAction.h">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeyMap.h">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeysWindow.h">
+      <Filter>Source Files\Editor\Hotkeys</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitTypes.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitService.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitRepository.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitOperationQueue.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitOperationRequest.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitProcessRunner.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitProgressParser.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitCliProbe.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitErrorMap.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitWorkspaceWindow.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\GitStatusBarWidget.h">
+      <Filter>Source Files\Editor\Git</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCloneDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitOpenDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitInitDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCreateBranchDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCheckoutConfirmDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCreateTagDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitDeleteConfirmDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitPushDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitPullDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitFetchDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitRemoteEditDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitMergeDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCliStatusDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitOperationProgressDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitSyncBranchDialog.h">
+      <Filter>Source Files\Editor\Git\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Git\GitPreferencesModule.h">
+      <Filter>Source Files\Editor\Preferences\Git</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\AutoUpdater\AutoUpdater.h">
       <Filter>Source Files\Editor\AutoUpdater</Filter>
@@ -2259,10 +2793,22 @@
     <ClInclude Include="Source\Editor\BuildDependencyWindow.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\InputMapWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\PlayerInputEditor.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\PlayerInputDebugger.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\PackagingSettings.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ProjectSelect\ProjectSelectWindow.h">
@@ -2282,6 +2828,51 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\External\EditorsModule.h">
       <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\External\CliModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\ITerminalProcess.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\ITerminalOutputParser.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_LinuxPty.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalParserRegistry.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\ClaudeCodeParser.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalOutputBuffer.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\CommandHistory.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\ShellPresets.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_Windows.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_WindowsConPTY.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\AnsiStripper.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_Posix.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalSession.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalPanel.h">
+      <Filter>Source Files\Editor\CliTerminal</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Packaging\DockerModule.h">
       <Filter>Source Files\Editor\Preferences</Filter>
@@ -2321,6 +2912,30 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Profiling\ProfilingWindow.h">
       <Filter>Source Files\Editor\Profiling</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\InputTester\InputTesterPanel.h">
+      <Filter>Source Files\Editor\InputTester</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TextureAtlas\TextureAtlasViewer.h">
+      <Filter>Source Files\Editor\TextureAtlas</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h">
+      <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h">
+      <Filter>Source Files\Editor\TextureCrop</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\VoxelSculpt\VoxelSculptManager.h">
+      <Filter>Source Files\Editor\VoxelSculpt</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TerrainSculpt\TerrainSculptManager.h">
+      <Filter>Source Files\Editor\TerrainSculpt</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TilePaint\TilePaintManager.h">
+      <Filter>Source Files\Editor\TilePaint</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TilePaint\TilePicker.h">
+      <Filter>Source Files\Editor\TilePaint</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\NodeGraphAsset.h">
       <Filter>Source Files\Engine\Assets</Filter>

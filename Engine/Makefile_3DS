@@ -39,6 +39,7 @@ SOURCES		:=	Source \
 				Source/Engine/Nodes/3D \
 				Source/Engine/Nodes/Widgets \
 				Source/Engine/Assets \
+				Source/Engine/Animation \
 				Source/Engine/NodeGraph \
 				Source/Engine/NodeGraph/Nodes \
 				Source/Engine/NodeGraph/Domains \
@@ -56,6 +57,7 @@ SOURCES		:=	Source \
 				Source/Audio/3DS \
 				Source/Network \
 				Source/Network/3DS \
+				Source/Serial/Stub \
 				Source/LuaBindings \
 				../External/Lua \
 				../External/Vorbis \
@@ -64,7 +66,7 @@ SOURCES		:=	Source \
 				../External/recastnavigation/Detour/Source/ \
 				Shaders/PICA200
 DATA		:=	Data
-INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua ../External/recastnavigation/Recast/Include ../External/recastnavigation/Detour/Include
+INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua ../External/recastnavigation/Recast/Include ../External/recastnavigation/Detour/Include ../External/Assimp/contrib/rapidjson External/PolyVox/include
 GRAPHICS	:=	Graphics
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs
@@ -85,7 +87,7 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__
 
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)

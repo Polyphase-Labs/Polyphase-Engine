@@ -2,7 +2,7 @@ name: Deploy Docs
 
 on:
   push:
-    branches: [main, development/jj, development/chore/rebranding/*]
+    branches: [main, development/jj, development/chore/rebranding/*, version/*]
   workflow_dispatch:
 
 permissions:

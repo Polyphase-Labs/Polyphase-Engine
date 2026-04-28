@@ -10,7 +10,7 @@
  * @brief Singleton manager for project templates.
  *
  * Handles discovery, installation, and removal of project templates.
- * Templates are stored in {AppData}/OctaveEditor/Templates/
+ * Templates are stored in {AppData}/PolyphaseEditor/Templates/
  */
 class TemplateManager
 {
@@ -19,10 +19,10 @@ public:
     static void Destroy();
     static TemplateManager* Get();
 
-    /** @brief Get the templates directory: {AppData}/OctaveEditor/Templates/ */
+    /** @brief Get the templates directory: {AppData}/PolyphaseEditor/Templates/ */
     std::string GetTemplatesDirectory();
 
-    /** @brief Get the settings file path: {AppData}/OctaveEditor/templates.json */
+    /** @brief Get the settings file path: {AppData}/PolyphaseEditor/templates.json */
     std::string GetSettingsPath();
 
     /** @brief Load templates from disk */

@@ -297,6 +297,12 @@ int Input_Lua::GetGamepadType(lua_State* L)
     case GamepadType::WiiClassic:
         ret = "WiiClassic";
         break;
+    case GamepadType::DualShock4:
+        ret = "DualShock4";
+        break;
+    case GamepadType::DualSense:
+        ret = "DualSense";
+        break;
 
     default:
         ret = "Unknown";

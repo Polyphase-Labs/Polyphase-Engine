@@ -3,6 +3,8 @@
 
 extern uint32_t gNumEmbeddedAssets;
 extern EmbeddedFile gEmbeddedAssets[];
+extern uint32_t gNumEmbeddedRawAssets;
+extern EmbeddedFile gEmbeddedRawAssets[];
 
 extern const char gEmbeddedConfig_Data[];
 

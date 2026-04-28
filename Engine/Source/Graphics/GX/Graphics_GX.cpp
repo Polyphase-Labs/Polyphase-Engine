@@ -25,6 +25,9 @@
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "Nodes/3D/TextMesh3d.h"
+#include "Nodes/3D/Voxel3d.h"
+#include "Nodes/3D/Terrain3d.h"
+#include "Nodes/3D/TileMap2d.h"
 
 #include "Assertion.h"
 #include <stdlib.h>
@@ -937,6 +940,365 @@ void GFX_DrawTextMeshComp(TextMesh3D* textMeshComp)
         GX_SetTevSwapMode(1, GX_TEV_SWAP0, GX_TEV_SWAP0);
         GX_SetTevSwapMode(2, GX_TEV_SWAP0, GX_TEV_SWAP0);
     }
+}
+
+// Voxel3D
+void GFX_CreateVoxel3DResource(Voxel3D* voxel)
+{
+    // Resources are allocated lazily in GFX_UpdateVoxel3DResource
+}
+
+void GFX_DestroyVoxel3DResource(Voxel3D* voxel)
+{
+    Voxel3DResource* resource = voxel->GetResource();
+
+    if (resource->mDisplayList != nullptr)
+    {
+        free(resource->mDisplayList);
+        resource->mDisplayList = nullptr;
+        resource->mDisplayListSize = 0;
+    }
+
+    if (resource->mVertexData != nullptr)
+    {
+        free(resource->mVertexData);
+        resource->mVertexData = nullptr;
+        resource->mVertexDataSize = 0;
+    }
+}
+
+void GFX_UpdateVoxel3DResource(Voxel3D* voxel, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    if (vertices.empty() || indices.empty())
+        return;
+
+    Voxel3DResource* resource = voxel->GetResource();
+
+    // Free old display list — it references the old vertex arrays by index
+    if (resource->mDisplayList != nullptr)
+    {
+        free(resource->mDisplayList);
+        resource->mDisplayList = nullptr;
+        resource->mDisplayListSize = 0;
+    }
+
+    // (Re)allocate vertex buffer if size changed
+    uint32_t numVertices = (uint32_t)vertices.size();
+    uint32_t newVertexDataSize = numVertices * sizeof(VertexColor);
+    if (resource->mVertexDataSize < newVertexDataSize)
+    {
+        if (resource->mVertexData != nullptr)
+        {
+            free(resource->mVertexData);
+        }
+        resource->mVertexData = memalign(32, newVertexDataSize);
+        resource->mVertexDataSize = newVertexDataSize;
+    }
+
+    memcpy(resource->mVertexData, vertices.data(), newVertexDataSize);
+    DCFlushRange(resource->mVertexData, newVertexDataSize);
+
+    // Build display list — stores vertex index references for GX_CallDispList
+    uint32_t numIndices = (uint32_t)indices.size();
+    uint32_t numTriangles = numIndices / 3;
+
+    // Each vertex entry in the display list: pos(2) + nrm(2) + clr(2) + tex0(2) + tex1(2) = 10 bytes
+    uint32_t gxBeginSize = 3;
+    uint32_t elemSize = 2 + 2 + 2 + 2 + 2;
+    uint32_t allocSize = gxBeginSize + (elemSize * numIndices);
+    allocSize = (allocSize + 0x1f) & (~0x1f); // 32-byte aligned
+    allocSize += 64; // pipe flush padding
+
+    resource->mDisplayList = memalign(32, allocSize);
+    DCInvalidateRange(resource->mDisplayList, allocSize);
+
+    GX_BeginDispList(resource->mDisplayList, allocSize);
+    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, numIndices);
+
+    for (uint32_t i = 0; i < numTriangles; ++i)
+    {
+        GX_Position1x16(uint16_t(indices[i * 3 + 0]));
+        GX_Normal1x16(uint16_t(indices[i * 3 + 0]));
+        GX_Color1x16(uint16_t(indices[i * 3 + 0]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 0]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 0]));
+
+        GX_Position1x16(uint16_t(indices[i * 3 + 1]));
+        GX_Normal1x16(uint16_t(indices[i * 3 + 1]));
+        GX_Color1x16(uint16_t(indices[i * 3 + 1]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 1]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 1]));
+
+        GX_Position1x16(uint16_t(indices[i * 3 + 2]));
+        GX_Normal1x16(uint16_t(indices[i * 3 + 2]));
+        GX_Color1x16(uint16_t(indices[i * 3 + 2]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 2]));
+        GX_TexCoord1x16(uint16_t(indices[i * 3 + 2]));
+    }
+
+    GX_End();
+
+    resource->mDisplayListSize = GX_EndDispList();
+    OCT_ASSERT(resource->mDisplayListSize != 0);
+}
+
+void GFX_DrawVoxel3D(Voxel3D* voxel)
+{
+    Voxel3DResource* resource = voxel->GetResource();
+
+    if (resource->mDisplayList == nullptr || resource->mDisplayListSize == 0)
+        return;
+
+    uint8_t* vertBytes = (uint8_t*)resource->mVertexData;
+    uint32_t vertexSize = sizeof(VertexColor);
+
+    // Set up vertex descriptor — colored mesh layout (pos, nrm, clr, tex0, tex1)
+    GX_ClearVtxDesc();
+    GX_SetVtxDesc(GX_VA_POS,  GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_NRM,  GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_CLR0, GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_TEX0, GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_TEX1, GX_INDEX16);
+
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS,  GX_POS_XYZ, GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM,  GX_NRM_XYZ, GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST,  GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST,  GX_F32,    0);
+
+    GX_SetArray(GX_VA_POS,  vertBytes + offsetof(VertexColor, mPosition),  vertexSize);
+    GX_SetArray(GX_VA_NRM,  vertBytes + offsetof(VertexColor, mNormal),    vertexSize);
+    GX_SetArray(GX_VA_CLR0, vertBytes + offsetof(VertexColor, mColor),     vertexSize);
+    GX_SetArray(GX_VA_TEX0, vertBytes + offsetof(VertexColor, mTexcoord0), vertexSize);
+    GX_SetArray(GX_VA_TEX1, vertBytes + offsetof(VertexColor, mTexcoord1), vertexSize);
+
+    GX_InvVtxCache();
+
+    MaterialLite* material = Material::AsLite(voxel->GetMaterial());
+    if (material == nullptr)
+    {
+        material = Renderer::Get()->GetDefaultMaterial();
+        OCT_ASSERT(material != nullptr);
+    }
+
+    BindMaterial(material, true, false);
+
+    Mtx model;
+    Mtx view;
+    Mtx modelView;
+
+    glm::mat4 modelSrc = glm::transpose(voxel->GetRenderTransform());
+    glm::mat4 viewSrc  = glm::transpose(gGxContext.mWorld->GetActiveCamera()->GetViewMatrix());
+
+    memcpy(model, &modelSrc, sizeof(float) * 4 * 3);
+    memcpy(view,  &viewSrc,  sizeof(float) * 4 * 3);
+    guMtxConcat(view, model, modelView);
+
+    GX_LoadPosMtxImm(modelView, GX_PNMTX0);
+
+    Mtx modelViewInv;
+    guMtxInverse(modelView, modelViewInv);
+    guMtxTranspose(modelViewInv, modelView);
+    GX_LoadNrmMtxImm(modelView, GX_PNMTX0);
+
+    SetupLightMask(material->GetShadingModel(), voxel->GetLightingChannels(), false);
+    SetupLightingChannels();
+
+    GX_CallDispList(resource->mDisplayList, resource->mDisplayListSize);
+
+    if (material->GetVertexColorMode() == VertexColorMode::TextureBlend)
+    {
+        GX_SetTevSwapMode(0, GX_TEV_SWAP0, GX_TEV_SWAP0);
+        GX_SetTevSwapMode(1, GX_TEV_SWAP0, GX_TEV_SWAP0);
+        GX_SetTevSwapMode(2, GX_TEV_SWAP0, GX_TEV_SWAP0);
+    }
+}
+
+// Terrain3D — same VertexColor pipeline as Voxel3D
+void GFX_CreateTerrain3DResource(Terrain3D* terrain)
+{
+    // Resources are allocated lazily in GFX_UpdateTerrain3DResource
+}
+
+void GFX_DestroyTerrain3DResource(Terrain3D* terrain)
+{
+    Terrain3DResource* resource = terrain->GetResource();
+
+    if (resource->mDisplayList != nullptr)
+    {
+        free(resource->mDisplayList);
+        resource->mDisplayList = nullptr;
+        resource->mDisplayListSize = 0;
+    }
+
+    if (resource->mVertexData != nullptr)
+    {
+        free(resource->mVertexData);
+        resource->mVertexData = nullptr;
+        resource->mVertexDataSize = 0;
+    }
+}
+
+void GFX_UpdateTerrain3DResource(Terrain3D* terrain, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    if (vertices.empty() || indices.empty())
+        return;
+
+    Terrain3DResource* resource = terrain->GetResource();
+
+    // Free old display list
+    if (resource->mDisplayList != nullptr)
+    {
+        free(resource->mDisplayList);
+        resource->mDisplayList = nullptr;
+        resource->mDisplayListSize = 0;
+    }
+
+    // Copy vertex data
+    uint32_t numVertices = (uint32_t)vertices.size();
+    uint32_t vertexDataSize = numVertices * sizeof(VertexColor);
+    if (resource->mVertexData == nullptr || resource->mVertexDataSize < vertexDataSize)
+    {
+        if (resource->mVertexData != nullptr)
+            free(resource->mVertexData);
+        resource->mVertexData = memalign(32, vertexDataSize);
+        resource->mVertexDataSize = vertexDataSize;
+    }
+    memcpy(resource->mVertexData, vertices.data(), vertexDataSize);
+    DCFlushRange(resource->mVertexData, vertexDataSize);
+
+    // Build display list with batching for GX_Begin's uint16 vertex count limit.
+    // GX_Begin takes a uint16_t count, so max 65535 vertices per batch.
+    // We batch in multiples of 3 (triangles) to avoid splitting a triangle.
+    uint32_t numIndices = (uint32_t)indices.size();
+    uint32_t numTriangles = numIndices / 3;
+    const uint32_t kMaxIndicesPerBatch = 65535 - (65535 % 3); // 65535 rounded down to multiple of 3
+
+    // Estimate: 3 bytes per GX_Begin + 10 bytes per index entry + padding per batch
+    uint32_t numBatches = (numIndices + kMaxIndicesPerBatch - 1) / kMaxIndicesPerBatch;
+    uint32_t gxBeginSize = 3;
+    uint32_t elemSize = 2 + 2 + 2 + 2 + 2; // pos + nrm + clr + tex0 + tex1 = 10 bytes
+    uint32_t allocSize = numBatches * gxBeginSize + (elemSize * numIndices);
+    allocSize = (allocSize + 0x1f) & (~0x1f);
+    allocSize += 64; // pipe flush padding
+
+    resource->mDisplayList = memalign(32, allocSize);
+    DCInvalidateRange(resource->mDisplayList, allocSize);
+
+    GX_BeginDispList(resource->mDisplayList, allocSize);
+
+    uint32_t offset = 0;
+    while (offset < numIndices)
+    {
+        uint32_t batchCount = numIndices - offset;
+        if (batchCount > kMaxIndicesPerBatch)
+            batchCount = kMaxIndicesPerBatch;
+
+        GX_Begin(GX_TRIANGLES, GX_VTXFMT0, (uint16_t)batchCount);
+        for (uint32_t i = 0; i < batchCount; ++i)
+        {
+            uint16_t idx = (uint16_t)indices[offset + i];
+            GX_Position1x16(idx);
+            GX_Normal1x16(idx);
+            GX_Color1x16(idx);
+            GX_TexCoord1x16(idx);
+            GX_TexCoord1x16(idx);
+        }
+        GX_End();
+        offset += batchCount;
+    }
+
+    resource->mDisplayListSize = GX_EndDispList();
+    OCT_ASSERT(resource->mDisplayListSize != 0);
+}
+
+void GFX_DrawTerrain3D(Terrain3D* terrain)
+{
+    Terrain3DResource* resource = terrain->GetResource();
+
+    if (resource->mDisplayList == nullptr || resource->mDisplayListSize == 0)
+        return;
+
+    uint8_t* vertBytes = (uint8_t*)resource->mVertexData;
+    uint32_t vertexSize = sizeof(VertexColor);
+
+    GX_ClearVtxDesc();
+    GX_SetVtxDesc(GX_VA_POS,  GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_NRM,  GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_CLR0, GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_TEX0, GX_INDEX16);
+    GX_SetVtxDesc(GX_VA_TEX1, GX_INDEX16);
+
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS,  GX_POS_XYZ, GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM,  GX_NRM_XYZ, GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST,  GX_F32,    0);
+    GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST,  GX_F32,    0);
+
+    GX_SetArray(GX_VA_POS,  vertBytes + offsetof(VertexColor, mPosition),  vertexSize);
+    GX_SetArray(GX_VA_NRM,  vertBytes + offsetof(VertexColor, mNormal),    vertexSize);
+    GX_SetArray(GX_VA_CLR0, vertBytes + offsetof(VertexColor, mColor),     vertexSize);
+    GX_SetArray(GX_VA_TEX0, vertBytes + offsetof(VertexColor, mTexcoord0), vertexSize);
+    GX_SetArray(GX_VA_TEX1, vertBytes + offsetof(VertexColor, mTexcoord1), vertexSize);
+
+    GX_InvVtxCache();
+
+    MaterialLite* material = Material::AsLite(terrain->GetMaterial());
+    if (material == nullptr)
+    {
+        material = Renderer::Get()->GetDefaultMaterial();
+        OCT_ASSERT(material != nullptr);
+    }
+
+    BindMaterial(material, true, false);
+
+    Mtx model;
+    Mtx view;
+    Mtx modelView;
+
+    glm::mat4 modelSrc = glm::transpose(terrain->GetRenderTransform());
+    glm::mat4 viewSrc  = glm::transpose(gGxContext.mWorld->GetActiveCamera()->GetViewMatrix());
+
+    memcpy(model, &modelSrc, sizeof(float) * 4 * 3);
+    memcpy(view,  &viewSrc,  sizeof(float) * 4 * 3);
+    guMtxConcat(view, model, modelView);
+
+    GX_LoadPosMtxImm(modelView, GX_PNMTX0);
+
+    Mtx modelViewInv;
+    guMtxInverse(modelView, modelViewInv);
+    guMtxTranspose(modelViewInv, modelView);
+    GX_LoadNrmMtxImm(modelView, GX_PNMTX0);
+
+    SetupLightMask(material->GetShadingModel(), terrain->GetLightingChannels(), false);
+    SetupLightingChannels();
+
+    GX_CallDispList(resource->mDisplayList, resource->mDisplayListSize);
+
+    if (material->GetVertexColorMode() == VertexColorMode::TextureBlend)
+    {
+        GX_SetTevSwapMode(0, GX_TEV_SWAP0, GX_TEV_SWAP0);
+        GX_SetTevSwapMode(1, GX_TEV_SWAP0, GX_TEV_SWAP0);
+        GX_SetTevSwapMode(2, GX_TEV_SWAP0, GX_TEV_SWAP0);
+    }
+}
+
+// TileMap2D — Phase 1 stubs. The XY-plane render path will land in a later
+// phase that's tuned for the GX fixed-function pipeline.
+void GFX_CreateTileMap2DResource(TileMap2D* tileMap)
+{
+}
+
+void GFX_DestroyTileMap2DResource(TileMap2D* tileMap)
+{
+}
+
+void GFX_UpdateTileMap2DResource(TileMap2D* tileMap, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+}
+
+void GFX_DrawTileMap2D(TileMap2D* tileMap)
+{
 }
 
 // ParticleComp

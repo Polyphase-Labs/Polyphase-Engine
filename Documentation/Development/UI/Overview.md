@@ -179,13 +179,13 @@ widget:SetOpacityFloat(0.5)
 
 Widgets support 2D transforms:
 
-- **Pivot** — the point around which rotation and scale are applied, as a ratio of the widget's dimensions (default `(0.5, 0.5)` = center).
+- **Pivot** — the point on the widget (as a ratio of its dimensions) that sits at the anchor + offset position. Also acts as the rotation center. Default is `(0, 0)` (top-left). Setting `(0.5, 0.5)` makes the widget's center sit on its anchor point — combine with `Anchor = Mid` and `Offset = (0, 0)` to center a widget in its parent. Matches Unity `RectTransform` pivot semantics.
 - **Rotation** — rotation in degrees.
 - **Scale** — 2D scale factor.
 
 ```cpp
 // C++
-widget->SetPivot({0.5f, 0.5f}); // rotate/scale around center
+widget->SetPivot({0.5f, 0.5f}); // center pivot — widget's center sits on anchor+offset, rotation pivots around center
 widget->SetRotation(45.0f);      // 45 degrees
 widget->SetScale({2.0f, 2.0f}); // double size
 

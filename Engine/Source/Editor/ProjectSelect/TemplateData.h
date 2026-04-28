@@ -28,6 +28,14 @@ struct NativeModuleMetadata
     std::string mExportDefine;         // Optional custom export macro (e.g., "INVENTORY_RUNTIME_EXPORTS")
     uint32_t mPluginApiVersion = 1;
     std::vector<std::string> mDependencies;  // IDs of other native addons this depends on
+
+    // Optional extras for addons that bundle third-party libraries (e.g. FFmpeg).
+    // All relative paths resolve against the addon's package root (folder containing package.json).
+    std::vector<std::string> mExtraDefines;     // e.g. ["POLYPHASE_WITH_FFMPEG=1"]
+    std::vector<std::string> mExtraIncludeDirs; // e.g. ["External/ffmpeg/include"]
+    std::vector<std::string> mExtraLibDirs;     // e.g. ["External/ffmpeg/lib"]
+    std::vector<std::string> mExtraLibs;        // e.g. ["avformat.lib", "avcodec.lib", ...]
+    std::vector<std::string> mCopyBinaries;     // Dirs whose contents get copied next to the addon DLL post-build (e.g. ["External/ffmpeg/bin"])
 };
 
 /**

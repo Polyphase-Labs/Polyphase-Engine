@@ -79,6 +79,10 @@ public:
     VertexUI* GetBorderVertices();
     uint32_t GetBorderNumVertices() const;
 
+#if EDITOR
+    virtual bool DrawCustomProperty(Property& prop) override;
+#endif
+
 protected:
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);

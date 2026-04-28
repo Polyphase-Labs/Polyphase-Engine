@@ -27,6 +27,8 @@ class Camera3D;
 class Viewport3D;
 class Viewport2D;
 class PaintManager;
+class VoxelSculptManager;
+class TilePaintManager;
 struct SubSceneOverride;
 
 enum class ControlMode
@@ -66,6 +68,9 @@ enum class PaintMode
     None,
     Color,
     Instance,
+    Voxel,
+    Terrain,
+    TilePaint,
 
     Count
 };
@@ -164,6 +169,18 @@ struct EditorState
     std::vector<RecentScene> mRecentScenes;
     PaintMode mPaintMode = PaintMode::None;
     PaintManager* mPaintManager = nullptr;
+    VoxelSculptManager* mVoxelSculptManager = nullptr;
+    class TerrainSculptManager* mTerrainSculptManager = nullptr;
+    TilePaintManager* mTilePaintManager = nullptr;
+
+    // Tile-paint mode stashes the editor camera's previous projection AND
+    // transform so it can switch to a top-down orthographic view of the
+    // currently-selected TileMap2D and restore the original camera on exit.
+    bool mTilePaintProjectionStashed = false;
+    bool mTilePaintPrevWasPerspective = true;
+    bool mTilePaintTransformStashed = false;
+    glm::vec3 mTilePaintPrevCameraPosition = { 0.0f, 0.0f, 0.0f };
+    glm::quat mTilePaintPrevCameraRotation = { 1.0f, 0.0f, 0.0f, 0.0f };
     bool mNodePropertySelect = false;
     int32_t mNodePropertySelectIndex = 0;
     std::string mNodePropertySelectName = "";
@@ -198,6 +215,18 @@ struct EditorState
 
     // Profiling Panel state
     bool mShowProfilingPanel = false;
+
+    // Input Tester Panel state
+    bool mShowInputTesterPanel = false;
+
+    // Texture Atlas Viewer state
+    bool mShowTextureAtlasViewer = false;
+
+    // Git Panel state
+    bool mShowGitPanel = false;
+
+    // Animation Browser Panel state
+    bool mShowAnimationBrowser = false;
     TimelineRef mEditedTimelineRef;
     TimelineInstance* mTimelinePreviewInstance = nullptr;
     float mTimelinePlayheadTime = 0.0f;

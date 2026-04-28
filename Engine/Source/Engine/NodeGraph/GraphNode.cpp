@@ -178,8 +178,42 @@ GraphPin& GraphNode::AddOutputPin(const char* name, DatumType type)
     case DatumType::Text:     pin.mValue = Datum((Node*)nullptr); break;
     case DatumType::Quad:     pin.mValue = Datum((Node*)nullptr); break;
     case DatumType::Audio3D:  pin.mValue = Datum((Node*)nullptr); break;
-    case DatumType::Scene:    pin.mValue = Datum((Asset*)nullptr); break;
     case DatumType::Spline3D: pin.mValue = Datum((Node*)nullptr); break;
+    // Widget subtypes
+    case DatumType::SpinBox:            pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Window:             pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::DialogWindow:       pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::InputField:         pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ProgressBar:        pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::CheckBox:           pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ListViewWidget:     pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ListViewItemWidget: pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::DebugResourcesWidget: pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ArrayWidget:        pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Button:             pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Slider:             pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::LineEdit:           pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Canvas:             pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::ComboBox:           pin.mValue = Datum((Node*)nullptr); break;
+    // Node3D subtypes
+    case DatumType::Voxel3D:            pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Terrain3D:          pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::TileMap2D:          pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::NavMesh3D:          pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Camera3D:           pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::DirectionalLight3D: pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Box3D:              pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::Particle3D:         pin.mValue = Datum((Node*)nullptr); break;
+    // Node subtypes
+    case DatumType::TimelinePlayer:     pin.mValue = Datum((Node*)nullptr); break;
+    case DatumType::NodeGraphPlayer:    pin.mValue = Datum((Node*)nullptr); break;
+    // Asset subtypes
+    case DatumType::Scene:              pin.mValue = Datum((Asset*)nullptr); break;
+    case DatumType::Material:           pin.mValue = Datum((Asset*)nullptr); break;
+    case DatumType::TileSet:            pin.mValue = Datum((Asset*)nullptr); break;
+    case DatumType::TileMap:            pin.mValue = Datum((Asset*)nullptr); break;
+    case DatumType::Timeline:           pin.mValue = Datum((Asset*)nullptr); break;
+    case DatumType::NodeGraphAsset:     pin.mValue = Datum((Asset*)nullptr); break;
     case DatumType::Execution: pin.mName = "    "; break;
     default: break;
     }

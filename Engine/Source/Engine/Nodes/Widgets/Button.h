@@ -80,6 +80,15 @@ public:
     Text* GetText();
     Quad* GetQuad();
 
+    void SetUvScale(glm::vec2 scale);
+    glm::vec2 GetUvScale() const;
+    void SetUvOffset(glm::vec2 offset);
+    glm::vec2 GetUvOffset() const;
+
+#if EDITOR
+    virtual bool DrawCustomProperty(Property& prop) override;
+#endif
+
     static Button* GetSelectedButton();
     static void SetSelectedButton(Button* button);
 
@@ -100,6 +109,9 @@ protected:
     glm::vec4 mLockedColor = { 0.2f, 0.2f, 0.2f, 1.0f };
 
     ButtonState mState = ButtonState::Normal;
+
+    glm::vec2 mUvScale = glm::vec2(1.0f, 1.0f);
+    glm::vec2 mUvOffset = glm::vec2(0.0f, 0.0f);
 
     bool mUseTextStateColor = false;
     bool mUseQuadStateColor = true;

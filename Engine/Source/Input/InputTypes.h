@@ -8,6 +8,8 @@
 #if PLATFORM_WINDOWS
 #include <windows.h>
 #include <Xinput.h>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
 #elif PLATFORM_DOLPHIN
 #include <gccore.h>
 #elif PLATFORM_3DS
@@ -22,6 +24,8 @@ enum class GamepadType
     GameCube,
     Wiimote,
     WiiClassic,
+    DualShock4,
+    DualSense,
 
     Count
 };
@@ -125,6 +129,20 @@ struct InputState
     XINPUT_STATE mXinputStates[INPUT_MAX_GAMEPADS] = { };
     XINPUT_STATE mXinputPrevStates[INPUT_MAX_GAMEPADS] = { };
     bool mActiveControllers[INPUT_MAX_GAMEPADS] = { };
+
+    // DirectInput state (for non-XInput, non-Sony controllers)
+    IDirectInput8* mDirectInput = nullptr;
+    IDirectInputDevice8* mDInputDevices[INPUT_MAX_GAMEPADS] = { };
+    DIJOYSTATE2 mDInputStates[INPUT_MAX_GAMEPADS] = { };
+    GUID mDInputDeviceGUIDs[INPUT_MAX_GAMEPADS] = { };
+    bool mDInputSlotUsed[INPUT_MAX_GAMEPADS] = { };
+
+    // Raw HID state (for Sony DualSense/DualShock via HID API)
+    HANDLE mHidDevices[INPUT_MAX_GAMEPADS] = { };
+    bool mHidSlotUsed[INPUT_MAX_GAMEPADS] = { };
+    uint8_t mHidReportBuf[INPUT_MAX_GAMEPADS][128] = { };
+    OVERLAPPED mHidOverlapped[INPUT_MAX_GAMEPADS] = { };
+    bool mHidReadPending[INPUT_MAX_GAMEPADS] = { };
 #endif
 };
 

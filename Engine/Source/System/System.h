@@ -42,18 +42,19 @@ std::string SYS_SaveFileDialog();
 std::string SYS_SelectFolderDialog();
 std::string SYS_GetFileName(const std::string& path);
 
-// Threading
-ThreadObject* SYS_CreateThread(ThreadFuncFP func, void* arg);
-void SYS_JoinThread(ThreadObject* thread);
-void SYS_DestroyThread(ThreadObject* thread);
-MutexObject* SYS_CreateMutex();
-void SYS_LockMutex(MutexObject* mutex);
-void SYS_UnlockMutex(MutexObject* mutex);
-void SYS_DestroyMutex(MutexObject* mutex);
-void SYS_Sleep(uint32_t milliseconds);
+// Threading — exported so native addons can use them without relinking the engine's
+// implementation. See AsyncMediaPump in the VideoPlayer addon for a reference consumer.
+POLYPHASE_API ThreadObject* SYS_CreateThread(ThreadFuncFP func, void* arg);
+POLYPHASE_API void SYS_JoinThread(ThreadObject* thread);
+POLYPHASE_API void SYS_DestroyThread(ThreadObject* thread);
+POLYPHASE_API MutexObject* SYS_CreateMutex();
+POLYPHASE_API void SYS_LockMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_UnlockMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_DestroyMutex(MutexObject* mutex);
+POLYPHASE_API void SYS_Sleep(uint32_t milliseconds);
 
 // Time
-uint64_t SYS_GetTimeMicroseconds();
+POLYPHASE_API uint64_t SYS_GetTimeMicroseconds();
 
 // Process
 void SYS_Exec(const char* cmd, std::string* output = nullptr);
@@ -76,6 +77,15 @@ bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStder
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment);
 void SYS_AlignedFree(void* pointer);
 std::vector<MemoryStat> SYS_GetMemoryStats();
+float SYS_GetRAMUsage();
+float SYS_GetVRAMUsage();
+float SYS_GetRAM1Usage();
+float SYS_GetRAM2Usage();
+float SYS_GetCPUUsage();
+float SYS_GetTotalRAM();
+float SYS_GetTotalVRAM();
+float SYS_GetTotalRAM1();
+float SYS_GetTotalRAM2();
 
 // Save / Memcard
 bool SYS_ReadSave(const char* saveName, Stream& outStream);
@@ -95,6 +105,7 @@ void SYS_Alert(const char* message);
 void SYS_UpdateConsole();
 int32_t SYS_GetPlatformTier();
 void SYS_SetWindowTitle(const char* title);
+void SYS_SetWindowIcon(const char* iconPath);
 bool SYS_DoesWindowHaveFocus();
 void SYS_SetScreenOrientation(ScreenOrientation orientation);
 ScreenOrientation SYS_GetScreenOrientation();

@@ -132,12 +132,12 @@ function Primitive3D:GetLightingChannels() end
 function Primitive3D:SetLightingChannels(value) end
 
 ---@param pos Vector
----@return number
+---@return table
 function Primitive3D:SweepToWorldPosition(pos) end
 
----@return number
+---@return table
 function Primitive3D:GetBounds() end
 
 ---@param pos Vector
----@return number
+---@return table
 function Primitive3D:SweepToPosition(pos) end

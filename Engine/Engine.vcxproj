@@ -256,7 +256,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -278,7 +278,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow;$(ProjectDir)External/libgit2/include</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;ASIO_STANDALONE;ASIO_NO_DEPRECATED;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -288,7 +288,7 @@
       <SubSystem>Windows</SubSystem>
     </Link>
     <Lib>
-      <AdditionalDependencies>spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2d.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin32;$(SolutionDir)Engine/External/lib/Lib/;$(VULKAN_SDK)/Lib32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
     <ProjectReference>
@@ -300,7 +300,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -325,7 +325,7 @@
       <WarningLevel>EnableWarnings</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_ANDROID=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_ANDROID_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <TreatWarningAsError>false</TreatWarningAsError>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -349,7 +349,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/Imgui;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/zep/include;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/Imgui;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/zep/include;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow;$(ProjectDir)External/libgit2/include</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;ASIO_STANDALONE;ASIO_NO_DEPRECATED;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <TreatWarningAsError>true</TreatWarningAsError>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -376,7 +376,7 @@
       <WarningLevel>EnableWarnings</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_ANDROID=1;API_VULKAN=1;EDITOR=1;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_ANDROID_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <TreatWarningAsError>false</TreatWarningAsError>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -403,7 +403,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -429,7 +429,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)/Include;$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow;$(ProjectDir)External/libgit2/include</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;ASIO_STANDALONE;ASIO_NO_DEPRECATED;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
@@ -441,7 +441,7 @@
       <SubSystem>Windows</SubSystem>
     </Link>
     <Lib>
-      <AdditionalDependencies>spirv-cross-core.lib;shaderc_combined.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>spirv-cross-core.lib;shaderc_combined.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin32;$(SolutionDir)Engine/External/lib/Lib/;$(VULKAN_SDK)/Lib32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
     <ProjectReference>
@@ -455,8 +455,8 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -479,7 +479,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_ANDROID=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_ANDROID_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -502,7 +502,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/Imgui;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/zep/include;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;$(ProjectDir)../External/Imgui;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/;$(ProjectDir)../External/zep/include;$(ProjectDir)../External/asio;$(ProjectDir)../External/Crow;$(ProjectDir)External/libgit2/include</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;ASIO_STANDALONE;ASIO_NO_DEPRECATED;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -527,7 +527,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Include;$(ProjectDir)Include/Engine;$(ProjectDir)../External;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Include/Editor;$(ProjectDir)../External/Lua;$(AndroidSdk)/ndk/$(AndroidNdkVersion)/sources/android/native_app_glue;$(ProjectDir)../External/Vorbis</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>PLATFORM_ANDROID=1;API_VULKAN=1;EDITOR=1;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_ANDROID_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -545,8 +545,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NET_PLATFORM_STEAM=1;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=1;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
@@ -695,8 +695,11 @@
     <ClCompile Include="Source\Editor\BuildCache.cpp" />
     <ClCompile Include="Source\Editor\CustomImgui.cpp" />
     <ClCompile Include="Source\Editor\DebugLog\DebugLogWindow.cpp" />
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebugger.cpp" />
+    <ClCompile Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.cpp" />
     <ClCompile Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.cpp" />
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp" />
+    <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp" />
     <ClCompile Include="Source\Editor\EditorImgui.cpp" />
     <ClCompile Include="Source\Editor\EditorMain.cpp" />
     <ClCompile Include="Source\Editor\EditorState.cpp" />
@@ -713,6 +716,7 @@
     <ClCompile Include="Source\Editor\Preferences\General\GeneralModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Appearance\AppearanceModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\Appearance\Viewport\TilemapGrid\TilemapGridModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Appearance\Theme\EditorTheme.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Appearance\Theme\ThemeModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Appearance\Theme\CssThemeParser.cpp" />
@@ -721,6 +725,37 @@
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Network\NetworkModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Updates\UpdatesModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\Input\InputMapModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.cpp" />
+    <ClCompile Include="Source\Editor\Hotkeys\EditorAction.cpp" />
+    <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeyMap.cpp" />
+    <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeysWindow.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitService.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitRepository.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitOperationQueue.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitProcessRunner.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitProgressParser.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitCliProbe.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitErrorMap.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitWorkspaceWindow.cpp" />
+    <ClCompile Include="Source\Editor\Git\GitStatusBarWidget.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCloneDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitOpenDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitInitDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCreateBranchDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCheckoutConfirmDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCreateTagDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitDeleteConfirmDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitPushDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitPullDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitFetchDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitRemoteEditDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitMergeDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitCliStatusDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitOperationProgressDialog.cpp" />
+    <ClCompile Include="Source\Editor\Git\Dialogs\GitSyncBranchDialog.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\Git\GitPreferencesModule.cpp" />
     <ClCompile Include="Source\Editor\AutoUpdater\AutoUpdater.cpp" />
     <ClCompile Include="Source\Editor\AutoUpdater\AutoUpdaterWindow.cpp" />
     <ClCompile Include="Source\Editor\AutoUpdater\HttpClient_Windows.cpp" />
@@ -734,20 +769,46 @@
     <ClCompile Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.cpp" />
     <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\BuildDependencyWindow.cpp" />
+    <ClCompile Include="Source\Editor\InputMapWindow.cpp" />
+    <ClCompile Include="Source\Editor\PlayerInputEditor.cpp" />
+    <ClCompile Include="Source\Editor\PlayerInputDebugger.cpp" />
     <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingSettings.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp" />
+    <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp" />
     <ClCompile Include="Source\Editor\ProjectSelect\ProjectSelectWindow.cpp" />
     <ClCompile Include="Source\Editor\ProjectSelect\TemplateManager.cpp" />
     <ClCompile Include="Source\Editor\Preferences\External\ExternalModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\External\LaunchersModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\External\EditorsModule.cpp" />
+    <ClCompile Include="Source\Editor\Preferences\External\CliModule.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalOutputBuffer.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\CommandHistory.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\ShellPresets.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_Windows.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_WindowsConPTY.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_Posix.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcess_LinuxPty.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalProcessFactory.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalParserRegistry.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\ClaudeCodeParser.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\AnsiStripper.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalSession.cpp" />
+    <ClCompile Include="Source\Editor\CliTerminal\TerminalPanel.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Packaging\DockerModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Packaging\PackagingModule.cpp" />
     <ClCompile Include="Source\Editor\Timeline\TimelinePanel.cpp" />
     <ClCompile Include="Source\Editor\Timeline\TimelineActions.cpp" />
     <ClCompile Include="Source\Editor\NodeGraph\NodeGraphPanel.cpp" />
     <ClCompile Include="Source\Editor\Profiling\ProfilingWindow.cpp" />
+    <ClCompile Include="Source\Editor\InputTester\InputTesterPanel.cpp" />
+    <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp" />
+    <ClCompile Include="Source\Editor\TextureAtlas\TextureAtlasViewer.cpp" />
+    <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp" />
+    <ClCompile Include="Source\Editor\VoxelSculpt\VoxelSculptManager.cpp" />
+    <ClCompile Include="Source\Editor\TerrainSculpt\TerrainSculptManager.cpp" />
+    <ClCompile Include="Source\Editor\TilePaint\TilePaintManager.cpp" />
+    <ClCompile Include="Source\Editor\TilePaint\TilePicker.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\ThemeEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\CssGenerator.cpp" />
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp" />
@@ -766,8 +827,12 @@
     <ClCompile Include="Source\Engine\Assets\Scene.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalMesh.cpp" />
     <ClCompile Include="Source\Engine\Assets\SoundWave.cpp" />
+    <ClCompile Include="Source\Engine\Assets\SpriteAnimation.cpp" />
     <ClCompile Include="Source\Engine\Assets\StaticMesh.cpp" />
     <ClCompile Include="Source\Engine\Assets\Texture.cpp" />
+    <ClCompile Include="Source\Engine\Assets\TextureAtlasUtil.cpp" />
+    <ClCompile Include="Source\Engine\Assets\TileSet.cpp" />
+    <ClCompile Include="Source\Engine\Assets\TileMap.cpp" />
     <ClCompile Include="Source\Engine\Assets\TinyLLMAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\TinyLLMTokenizerAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\Timeline.cpp" />
@@ -789,9 +854,12 @@
     <ClCompile Include="Source\Engine\NetFunc.cpp" />
     <ClCompile Include="Source\Engine\NetMsg.cpp" />
     <ClCompile Include="Source\Engine\NetworkManager.cpp" />
+    <ClCompile Include="Source\Engine\SerialManager.cpp" />
     <ClCompile Include="Source\Engine\WindowManager.cpp" />
     <ClCompile Include="Source\Engine\ToolTipManager.cpp" />
     <ClCompile Include="Source\Engine\NodePath.cpp" />
+    <ClCompile Include="Source\Engine\Animation\SpriteAnimPlayback.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\AnimatedSprite3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Audio3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Box3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Camera3d.cpp" />
@@ -811,6 +879,9 @@
     <ClCompile Include="Source\Engine\Nodes\3D\StaticMesh3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\TestSpinner.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\TextMesh3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\Voxel3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\Terrain3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\TileMap2d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Node3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Node.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\ArrayWidget.cpp" />
@@ -833,7 +904,9 @@
     <ClCompile Include="Source\Engine\Nodes\Widgets\Poly.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\PolyRect.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Quad.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\Widgets\AnimatedWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\StatsOverlay.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\Widgets\DebugResourcesWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Text.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Widget.cpp" />
     <ClCompile Include="Source\Engine\UI\UITypes.cpp" />
@@ -842,6 +915,7 @@
     <ClCompile Include="Source\Engine\UI\UIDocument.cpp" />
     <ClCompile Include="Source\Engine\Nodes\TimelinePlayer.cpp" />
     <ClCompile Include="Source\Engine\Nodes\NodeGraphPlayer.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\SpriteAnimator.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineTrack.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineClip.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineInstance.cpp" />
@@ -876,6 +950,7 @@
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\AnimationNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\FSMNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\SceneGraphNodes.cpp" />
+    <ClCompile Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\InputNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\FunctionNodes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\Nodes\VariableNodes.cpp" />
@@ -900,6 +975,8 @@
     <ClCompile Include="Source\Engine\Stream.cpp" />
     <ClCompile Include="Source\Engine\TableDatum.cpp" />
     <ClCompile Include="Source\Engine\TimerManager.cpp" />
+    <ClCompile Include="Source\Engine\TweenManager.cpp" />
+    <ClCompile Include="Source\Engine\Easing.cpp" />
     <ClCompile Include="Source\Engine\Utilities.cpp" />
     <ClCompile Include="Source\Engine\World.cpp" />
     <ClCompile Include="Source\Graphics\C3D\C3dUtils.cpp" />
@@ -910,6 +987,7 @@
     <ClCompile Include="Source\Graphics\GX\GxUtils.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcessChain.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\BlurPass.cpp" />
+    <ClCompile Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\PostProcess\TonemapPass.cpp" />
     <ClCompile Include="Source\Graphics\Vulkan\RenderPassCache.cpp" />
@@ -935,6 +1013,9 @@
     <ClCompile Include="Source\Input\Android\Input_Android.cpp" />
     <ClCompile Include="Source\Input\Dolphin\Input_Dolphin.cpp" />
     <ClCompile Include="Source\Input\Input.cpp" />
+    <ClCompile Include="Source\Input\InputMap.cpp" />
+    <ClCompile Include="Source\Input\InputActionsAsset.cpp" />
+    <ClCompile Include="Source\Input\PlayerInputSystem.cpp" />
     <ClCompile Include="Source\Input\InputUtils.cpp" />
     <ClCompile Include="Source\Input\Linux\Input_Linux.cpp" />
     <ClCompile Include="Source\Input\Windows\Input_Windows.cpp" />
@@ -969,8 +1050,10 @@
     <ClCompile Include="Source\LuaBindings\DirectionalLight3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Font_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Input_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\PlayerInput_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Light3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Log_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Debugger_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaBindings.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaTypeCheck.cpp" />
     <ClCompile Include="Source\LuaBindings\LuaUtils.cpp" />
@@ -982,6 +1065,7 @@
     <ClCompile Include="Source\LuaBindings\Mesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Misc_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Particle3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ParticleSystemInstance_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ParticleSystem_Lua.cpp" />
@@ -1003,15 +1087,25 @@
     <ClCompile Include="Source\LuaBindings\SoundWave_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Sphere3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Spline3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SpriteAnimation_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SpriteAnimator_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\AnimatedWidget_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\AnimatedSprite3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\StaticMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\StaticMesh_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Stream_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SaveData_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\System_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\TinyLLM_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\TextMesh3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Voxel3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Terrain3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\TileMap2d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Texture_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Text_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\TimerManager_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Tween_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Easing_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Node3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Vector_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Widget_Lua.cpp" />
@@ -1028,6 +1122,11 @@
     <ClCompile Include="Source\Network\NetPlatformEpic.cpp" />
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp" />
     <ClCompile Include="Source\Network\Windows\Network_Windows.cpp" />
+    <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp" />
+    <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp" />
+    <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp" />
+    <ClInclude Include="Source\Serial\Serial.h" />
+    <ClInclude Include="Source\Serial\SerialTypes.h" />
     <ClCompile Include="Source\System\3DS\System_3DS.cpp" />
     <ClCompile Include="Source\System\Android\System_Android.cpp" />
     <ClCompile Include="Source\System\Dolphin\System_Dolphin.cpp" />
@@ -1079,8 +1178,26 @@
     <ClInclude Include="Source\Editor\BuildCache.h" />
     <ClInclude Include="Source\Editor\CustomImgui.h" />
     <ClInclude Include="Source\Editor\DebugLog\DebugLogWindow.h" />
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebugger.h" />
+    <ClInclude Include="Source\Editor\LuaDebugger\LuaDebuggerPanel.h" />
+    <ClInclude Include="Source\Editor\Preferences\External\CliModule.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\ITerminalProcess.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalOutputBuffer.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\CommandHistory.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\ShellPresets.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_Windows.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_WindowsConPTY.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_Posix.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalProcess_LinuxPty.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\ITerminalOutputParser.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalParserRegistry.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\ClaudeCodeParser.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\AnsiStripper.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalSession.h" />
+    <ClInclude Include="Source\Editor\CliTerminal\TerminalPanel.h" />
     <ClInclude Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.h" />
     <ClInclude Include="Source\Editor\GamePreview\GamePreview.h" />
+    <ClInclude Include="Source\Editor\AnimationBrowser\AnimationBrowser.h" />
     <ClInclude Include="Source\Editor\EditorConstants.h" />
     <ClInclude Include="Source\Editor\EditorIcons.h" />
     <ClInclude Include="Source\Editor\EditorIconRegistry.h" />
@@ -1101,6 +1218,7 @@
     <ClInclude Include="Source\Editor\Preferences\General\GeneralModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Appearance\AppearanceModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.h" />
+    <ClInclude Include="Source\Editor\Preferences\Appearance\Viewport\TilemapGrid\TilemapGridModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Appearance\Theme\EditorTheme.h" />
     <ClInclude Include="Source\Editor\Preferences\Appearance\Theme\ThemeModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Appearance\Theme\CssThemeParser.h" />
@@ -1110,6 +1228,39 @@
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerTypes.h" />
     <ClInclude Include="Source\Editor\Preferences\Network\NetworkModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Updates\UpdatesModule.h" />
+    <ClInclude Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.h" />
+    <ClInclude Include="Source\Editor\Preferences\Input\InputMapModule.h" />
+    <ClInclude Include="Source\Editor\Preferences\EditorHotkeys\EditorHotkeysModule.h" />
+    <ClInclude Include="Source\Editor\Hotkeys\EditorAction.h" />
+    <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeyMap.h" />
+    <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeysWindow.h" />
+    <ClInclude Include="Source\Editor\Git\GitTypes.h" />
+    <ClInclude Include="Source\Editor\Git\GitService.h" />
+    <ClInclude Include="Source\Editor\Git\GitRepository.h" />
+    <ClInclude Include="Source\Editor\Git\GitOperationQueue.h" />
+    <ClInclude Include="Source\Editor\Git\GitOperationRequest.h" />
+    <ClInclude Include="Source\Editor\Git\GitProcessRunner.h" />
+    <ClInclude Include="Source\Editor\Git\GitProgressParser.h" />
+    <ClInclude Include="Source\Editor\Git\GitCliProbe.h" />
+    <ClInclude Include="Source\Editor\Git\GitErrorMap.h" />
+    <ClInclude Include="Source\Editor\Git\GitWorkspaceWindow.h" />
+    <ClInclude Include="Source\Editor\Git\GitStatusBarWidget.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCloneDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitOpenDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitInitDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCreateBranchDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCheckoutConfirmDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCreateTagDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitDeleteConfirmDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitPushDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitPullDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitFetchDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitRemoteEditDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitMergeDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitCliStatusDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitOperationProgressDialog.h" />
+    <ClInclude Include="Source\Editor\Git\Dialogs\GitSyncBranchDialog.h" />
+    <ClInclude Include="Source\Editor\Preferences\Git\GitPreferencesModule.h" />
     <ClInclude Include="Source\Editor\AutoUpdater\AutoUpdater.h" />
     <ClInclude Include="Source\Editor\AutoUpdater\AutoUpdaterWindow.h" />
     <ClInclude Include="Source\Editor\AutoUpdater\HttpClient.h" />
@@ -1123,9 +1274,13 @@
     <ClInclude Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.h" />
     <ClInclude Include="Source\Editor\ScriptEditor\ScriptEditorWindow.h" />
     <ClInclude Include="Source\Editor\BuildDependencyWindow.h" />
+    <ClInclude Include="Source\Editor\InputMapWindow.h" />
+    <ClInclude Include="Source\Editor\PlayerInputEditor.h" />
+    <ClInclude Include="Source\Editor\PlayerInputDebugger.h" />
     <ClInclude Include="Source\Editor\Packaging\BuildProfile.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingSettings.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h" />
+    <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\ProjectSelectWindow.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\TemplateData.h" />
     <ClInclude Include="Source\Editor\ProjectSelect\TemplateManager.h" />
@@ -1138,6 +1293,14 @@
     <ClInclude Include="Source\Editor\Timeline\TimelineActions.h" />
     <ClInclude Include="Source\Editor\NodeGraph\NodeGraphPanel.h" />
     <ClInclude Include="Source\Editor\Profiling\ProfilingWindow.h" />
+    <ClInclude Include="Source\Editor\InputTester\InputTesterPanel.h" />
+    <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h" />
+    <ClInclude Include="Source\Editor\TextureAtlas\TextureAtlasViewer.h" />
+    <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h" />
+    <ClInclude Include="Source\Editor\VoxelSculpt\VoxelSculptManager.h" />
+    <ClInclude Include="Source\Editor\TerrainSculpt\TerrainSculptManager.h" />
+    <ClInclude Include="Source\Editor\TilePaint\TilePaintManager.h" />
+    <ClInclude Include="Source\Editor\TilePaint\TilePicker.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\ThemeEditorWindow.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />
@@ -1161,8 +1324,12 @@
     <ClInclude Include="Source\Engine\Assets\Scene.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalMesh.h" />
     <ClInclude Include="Source\Engine\Assets\SoundWave.h" />
+    <ClInclude Include="Source\Engine\Assets\SpriteAnimation.h" />
     <ClInclude Include="Source\Engine\Assets\StaticMesh.h" />
     <ClInclude Include="Source\Engine\Assets\Texture.h" />
+    <ClInclude Include="Source\Engine\Assets\TextureAtlasUtil.h" />
+    <ClInclude Include="Source\Engine\Assets\TileSet.h" />
+    <ClInclude Include="Source\Engine\Assets\TileMap.h" />
     <ClInclude Include="Source\Engine\Assets\TinyLLMAsset.h" />
     <ClInclude Include="Source\Engine\Assets\TinyLLMTokenizerAsset.h" />
     <ClInclude Include="Source\Engine\Assets\Timeline.h" />
@@ -1189,9 +1356,12 @@
     <ClInclude Include="Source\Engine\NetFunc.h" />
     <ClInclude Include="Source\Engine\NetMsg.h" />
     <ClInclude Include="Source\Engine\NetworkManager.h" />
+    <ClInclude Include="Source\Engine\SerialManager.h" />
     <ClInclude Include="Source\Engine\WindowManager.h" />
     <ClInclude Include="Source\Engine\ToolTipManager.h" />
     <ClInclude Include="Source\Engine\NodePath.h" />
+    <ClInclude Include="Source\Engine\Animation\SpriteAnimPlayback.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\AnimatedSprite3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Audio3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Box3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Camera3d.h" />
@@ -1211,6 +1381,9 @@
     <ClInclude Include="Source\Engine\Nodes\3D\StaticMesh3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\TestSpinner.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\TextMesh3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\Voxel3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\Terrain3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\TileMap2d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Node3d.h" />
     <ClInclude Include="Source\Engine\Nodes\Node.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\ArrayWidget.h" />
@@ -1234,6 +1407,7 @@
     <ClInclude Include="Source\Engine\Nodes\Widgets\PolyRect.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Quad.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\StatsOverlay.h" />
+    <ClInclude Include="Source\Engine\Nodes\Widgets\DebugResourcesWidget.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Text.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Widget.h" />
     <ClInclude Include="Source\Engine\UI\UITypes.h" />
@@ -1242,6 +1416,7 @@
     <ClInclude Include="Source\Engine\UI\UIDocument.h" />
     <ClInclude Include="Source\Engine\Nodes\TimelinePlayer.h" />
     <ClInclude Include="Source\Engine\Nodes\NodeGraphPlayer.h" />
+    <ClInclude Include="Source\Engine\Nodes\SpriteAnimator.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineTrack.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineClip.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineInstance.h" />
@@ -1279,6 +1454,7 @@
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\AnimationNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\FSMNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\SceneGraphNodes.h" />
+    <ClInclude Include="Source\Engine\NodeGraph\Nodes\SerialGraphNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\InputNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\FunctionNodes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\Nodes\VariableNodes.h" />
@@ -1305,6 +1481,8 @@
     <ClInclude Include="Source\Engine\Stream.h" />
     <ClInclude Include="Source\Engine\TableDatum.h" />
     <ClInclude Include="Source\Engine\TimerManager.h" />
+    <ClInclude Include="Source\Engine\TweenManager.h" />
+    <ClInclude Include="Source\Engine\Easing.h" />
     <ClInclude Include="Source\Engine\Utilities.h" />
     <ClInclude Include="Source\Engine\Vertex.h" />
     <ClInclude Include="Source\Engine\World.h" />
@@ -1319,6 +1497,7 @@
     <ClInclude Include="Source\Graphics\GX\GxUtils.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcessChain.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\BlurPass.h" />
+    <ClInclude Include="Source\Graphics\Vulkan\PostProcess\FxaaPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\PostProcessPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\PostProcess\TonemapPass.h" />
     <ClInclude Include="Source\Graphics\Vulkan\RenderPassCache.h" />
@@ -1343,6 +1522,9 @@
     <ClInclude Include="Source\Input\Input.h" />
     <ClInclude Include="Source\Input\InputConstants.h" />
     <ClInclude Include="Source\Input\InputTypes.h" />
+    <ClInclude Include="Source\Input\InputMap.h" />
+    <ClInclude Include="Source\Input\InputActionsAsset.h" />
+    <ClInclude Include="Source\Input\PlayerInputSystem.h" />
     <ClInclude Include="Source\Input\InputUtils.h" />
     <ClInclude Include="Source\LuaBindings\AssetManager_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Asset_Lua.h" />
@@ -1377,8 +1559,10 @@
     <ClInclude Include="Source\LuaBindings\Engine_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Font_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Input_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\PlayerInput_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Light3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Log_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Debugger_Lua.h" />
     <ClInclude Include="Source\LuaBindings\LuaTypeCheck.h" />
     <ClInclude Include="Source\LuaBindings\LuaUtils.h" />
     <ClInclude Include="Source\LuaBindings\MaterialInstance_Lua.h" />
@@ -1387,6 +1571,7 @@
     <ClInclude Include="Source\LuaBindings\Mesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Misc_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Network_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Serial_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Particle3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ParticleSystemInstance_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ParticleSystem_Lua.h" />
@@ -1408,15 +1593,25 @@
     <ClInclude Include="Source\LuaBindings\SoundWave_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Sphere3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Spline3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SpriteAnimation_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SpriteAnimator_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\AnimatedWidget_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\AnimatedSprite3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\StaticMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\StaticMesh_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Stream_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SaveData_Lua.h" />
     <ClInclude Include="Source\LuaBindings\System_Lua.h" />
     <ClInclude Include="Source\LuaBindings\TextMesh3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Voxel3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Terrain3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\TileMap2d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Texture_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Text_Lua.h" />
     <ClInclude Include="Source\LuaBindings\TinyLLM_Lua.h" />
     <ClInclude Include="Source\LuaBindings\TimerManager_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Tween_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Easing_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Node3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Vector_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Widget_Lua.h" />

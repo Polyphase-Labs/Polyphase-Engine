@@ -41,7 +41,8 @@ public:
 #if EDITOR
     void RenderSecondScreen(World* world, class Image* colorTarget, class Image* depthTarget,
                             uint32_t width, uint32_t height, class Camera3D* cameraOverride = nullptr,
-                            int32_t targetScreen = -1);
+                            int32_t targetScreen = -1,
+                            bool drawAccumulatedDebugDraws = true);
 #endif
     ~Renderer();
     void Initialize();

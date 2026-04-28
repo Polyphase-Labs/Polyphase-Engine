@@ -13,7 +13,7 @@
 
 #include "Nodes/Widgets/StatsOverlay.h"
 
-#define EMBEDDED_ENABLED (PLATFORM_DOLPHIN || PLATFORM_3DS)
+#define EMBEDDED_ENABLED (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS)
 
 #if EMBEDDED_ENABLED
 #include "../Generated/EmbeddedAssets.h"

@@ -21,6 +21,9 @@
 #include "AssetManager.h"
 #include "UI/UIDocument.h"
 
+#include "LuaDebugger/LuaDebugger.h"
+#include "Hotkeys/EditorHotkeyMap.h"
+
 #include "imgui.h"
 #include "imgui_dock.h"
 #include "EditorIcons.h"
@@ -157,6 +160,26 @@ void ScriptEditorWindow::DrawContent()
         else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false))
         {
             DoNew();
+        }
+
+        // F9: toggle Lua breakpoint at the cursor's line in the active buffer.
+        if (EditorHotkeyMap::Get() != nullptr &&
+            EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Debug_LuaToggleBreakpoint))
+        {
+            ZepBuffer* curBuf = zep->GetActiveBuffer();
+            ZepTabWindow* tabWin = zep->GetActiveTabWindow();
+            ZepWindow* win = tabWin ? tabWin->GetActiveWindow() : nullptr;
+            if (curBuf != nullptr && win != nullptr)
+            {
+                auto cursorIt = win->GetBufferCursor();
+                long zeroBasedLine = curBuf->GetBufferLine(cursorIt);
+                int line = (int)(zeroBasedLine + 1);
+                std::string filePath = curBuf->GetFilePath().string();
+                if (LuaDebugger::Get() != nullptr && !filePath.empty() && line > 0)
+                {
+                    LuaDebugger::Get()->ToggleBreakpoint(filePath, line);
+                }
+            }
         }
     }
 

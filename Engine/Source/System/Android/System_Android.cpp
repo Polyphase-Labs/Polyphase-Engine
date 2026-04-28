@@ -7,13 +7,19 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "EmbeddedFile.h"
 
 #include <chrono>
 #include <malloc.h>
 #include <stdlib.h>
 #include <string>
+#include <cstring>
 #include <assert.h>
 #include <signal.h>
+
+#if API_VULKAN
+#include "Graphics/Vulkan/VramAllocator.h"
+#endif
 
 #include <android/input.h>
 #include <android/window.h>
@@ -452,6 +458,23 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
     outData = nullptr;
     outSize = 0;
 
+    // VFS shim: check the embedded raw-asset table before falling back to
+    // either AAssetManager (apk-bundled) or libc fopen. See SystemUtils.cpp.
+    {
+        uint32_t embeddedSize = 0;
+        const char* embeddedData = SYS_LookupEmbeddedRawAsset(path, embeddedSize);
+        if (embeddedData != nullptr)
+        {
+            uint32_t copySize = (maxSize > 0 && uint32_t(maxSize) < embeddedSize)
+                ? uint32_t(maxSize)
+                : embeddedSize;
+            outData = (char*)malloc(copySize);
+            outSize = copySize;
+            memcpy(outData, embeddedData, copySize);
+            return;
+        }
+    }
+
     if (isAsset)
     {
         AAsset* asset = nullptr;
@@ -830,6 +853,93 @@ std::vector<MemoryStat> SYS_GetMemoryStats()
     return {};
 }
 
+float SYS_GetRAMUsage()
+{
+    float ramMB = 0.0f;
+    FILE* file = fopen("/proc/self/status", "r");
+    if (file != nullptr)
+    {
+        char line[256];
+        while (fgets(line, sizeof(line), file))
+        {
+            if (strncmp(line, "VmRSS:", 6) == 0)
+            {
+                long rssKB = 0;
+                sscanf(line + 6, "%ld", &rssKB);
+                ramMB = (float)(rssKB / 1024.0);
+                break;
+            }
+        }
+        fclose(file);
+    }
+    return ramMB;
+}
+
+float SYS_GetVRAMUsage()
+{
+#if API_VULKAN
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetRAM1Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetRAM2Usage()
+{
+    return 0.0f;
+}
+
+float SYS_GetCPUUsage()
+{
+    return 0.0f;
+}
+
+float SYS_GetTotalRAM()
+{
+    float ramMB = 0.0f;
+    FILE* file = fopen("/proc/meminfo", "r");
+    if (file != nullptr)
+    {
+        char line[256];
+        while (fgets(line, sizeof(line), file))
+        {
+            if (strncmp(line, "MemTotal:", 9) == 0)
+            {
+                long totalKB = 0;
+                sscanf(line + 9, "%ld", &totalKB);
+                ramMB = (float)(totalKB / 1024.0);
+                break;
+            }
+        }
+        fclose(file);
+    }
+    return ramMB;
+}
+
+float SYS_GetTotalVRAM()
+{
+#if API_VULKAN
+    return (float)(VramAllocator::GetNumAllocatedBytes() / (1024.0 * 1024.0));
+#else
+    return 0.0f;
+#endif
+}
+
+float SYS_GetTotalRAM1()
+{
+    return 0.0f;
+}
+
+float SYS_GetTotalRAM2()
+{
+    return 0.0f;
+}
+
 // Save Game
 bool SYS_ReadSave(const char* saveName, Stream& outStream)
 {
@@ -994,7 +1104,11 @@ int32_t SYS_GetPlatformTier()
 
 void SYS_SetWindowTitle(const char* title)
 {
-    
+
+}
+
+void SYS_SetWindowIcon(const char* iconPath)
+{
 }
 
 bool SYS_DoesWindowHaveFocus()

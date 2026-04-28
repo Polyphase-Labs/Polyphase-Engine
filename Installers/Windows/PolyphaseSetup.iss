@@ -103,6 +103,9 @@ Source: "..\..\dist\Editor\Polyphase.sln"; DestDir: "{app}"; Flags: ignoreversio
 ; --- Core: .vscode (for C++ project creation) ---
 Source: "..\..\dist\Editor\.vscode\*"; DestDir: "{app}\.vscode"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist; Components: core
 
+; --- SDK: Engine External (PolyVox, etc.) ---
+Source: "..\..\dist\Editor\Engine\External\*"; DestDir: "{app}\Engine\External"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist; Components: sdk
+
 ; --- SDK: Engine Source ---
 Source: "..\..\dist\Editor\Engine\Source\*"; DestDir: "{app}\Engine\Source"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
 Source: "..\..\dist\Editor\Engine\Engine.vcxproj"; DestDir: "{app}\Engine"; Flags: ignoreversion skipifsourcedoesntexist; Components: sdk

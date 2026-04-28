@@ -447,11 +447,12 @@ void CopyPropertyValues(std::vector<Property>& dstProps, const std::vector<Prope
             {
                 dstProp->ResizeVector(srcProp->GetCount());
             }
-            else
+            else if (dstProp->mCount != srcProp->mCount)
             {
-                OCT_ASSERT(dstProp->mCount == srcProp->mCount);
+                // Count mismatch on a non-vector property — skip copy and keep default.
+                continue;
             }
-            
+
             dstProp->SetValue(srcProp->mData.vp, 0, srcProp->mCount);
 
             // Copy extra data (needed for node paths).
@@ -586,11 +587,22 @@ void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePt
         {
             Property* defaultProp = FindProperty(defaultProps, extProps[i].mName);
 
+            // Function properties are editor-only buttons with no data — skip serialization.
+            if (extProps[i].mType == DatumType::Function)
+            {
+                continue;
+            }
+
             // Skip Asset properties where both values are transient. Transient assets
             // (e.g. inline MaterialLite overrides) can't be serialized by reference — they
             // get written as null. Their data is already preserved through ExtraData/LoadStream,
             // so saving them as property overrides would incorrectly null out the asset on load.
-            if (extProps[i].mType == DatumType::Asset && defaultProp != nullptr)
+            // Vector-of-asset properties (e.g. SpriteAnimator's Animations) skip this check —
+            // GetAsset() asserts when the vector is empty, and the transient-shortcut here is
+            // only meaningful for single-asset slots like inline material overrides anyway.
+            if (extProps[i].mType == DatumType::Asset && defaultProp != nullptr
+                && !extProps[i].IsVector() && !defaultProp->IsVector()
+                && extProps[i].GetCount() > 0 && defaultProp->GetCount() > 0)
             {
                 Asset* curAsset = extProps[i].GetAsset();
                 Asset* defAsset = defaultProp->GetAsset();

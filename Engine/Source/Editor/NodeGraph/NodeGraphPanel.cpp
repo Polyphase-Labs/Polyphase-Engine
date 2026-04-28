@@ -110,9 +110,7 @@ static ImColor GetPinColor(DatumType type)
 
 static bool IsNodeRefType(DatumType type)
 {
-    return type == DatumType::Node || type == DatumType::Node3D || type == DatumType::Widget ||
-           type == DatumType::Text || type == DatumType::Quad || type == DatumType::Audio3D ||
-           type == DatumType::Spline3D;
+    return IsNodeDatumType(type);
 }
 
 static void DrawPinIcon(DatumType type, bool connected)
@@ -147,7 +145,7 @@ static void DrawPinIcon(DatumType type, bool connected)
         else
             drawList->AddQuad(top, right, bottom, left, color, 2.0f);
     }
-    else if (type == DatumType::Scene || type == DatumType::Asset)
+    else if (IsAssetDatumType(type))
     {
         // Square shape for asset/scene pins
         ImVec2 tl(center.x - radius * 0.7f, center.y - radius * 0.7f);
@@ -327,10 +325,41 @@ static void DrawInputPinWidget(GraphPin& pin, GraphNode* ownerNode = nullptr, ui
     case DatumType::Text:
     case DatumType::Quad:
     case DatumType::Audio3D:
+    case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer:
         ImGui::TextDisabled("%s", GetDatumTypeName(pin.mDataType));
         break;
     case DatumType::Scene:
     case DatumType::Asset:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
         ImGui::TextDisabled("%s", GetDatumTypeName(pin.mDataType));
         break;
     default:
@@ -381,10 +410,41 @@ static void DrawOutputPinValue(const GraphPin& pin)
     case DatumType::Text:
     case DatumType::Quad:
     case DatumType::Audio3D:
+    case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer:
         ImGui::TextDisabled("%s", GetDatumTypeName(pin.mDataType));
         break;
     case DatumType::Scene:
     case DatumType::Asset:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
         ImGui::TextDisabled("%s", GetDatumTypeName(pin.mDataType));
         break;
     default:

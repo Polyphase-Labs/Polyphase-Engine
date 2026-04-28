@@ -11,6 +11,8 @@
 
 #include "Nodes/3D/InstancedMesh3d.h"
 
+#include "Hotkeys/EditorHotkeyMap.h"
+
 constexpr uint8_t kMeshColGroup = 0x02;
 constexpr uint8_t kInstanceColGroup = 0x04;
 constexpr uint8_t kPaintSphereColGroup = 0x80;
@@ -294,7 +296,7 @@ void PaintManager::UpdateDynamicsWorld()
 
 void PaintManager::UpdateHotkeys()
 {
-    if (IsKeyJustDown(POLYPHASE_KEY_E))
+    if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Paint_ToggleErase))
     {
         mInstanceOptions.mErase = !mInstanceOptions.mErase;
     }
@@ -321,7 +323,7 @@ void PaintManager::UpdatePaintReticle()
 
     if (!mAdjustRadius && !mAdjustOpacity)
     {
-        if (IsKeyJustDown(POLYPHASE_KEY_F))
+        if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Paint_BrushAdjust))
         {
             if (IsShiftDown())
             {

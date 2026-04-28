@@ -145,7 +145,8 @@ private:
     bool mDownloadCompleteThisFrame = false;
 
     // GitHub API config
-    static constexpr const char* kGitHubApiUrl = "https://api.github.com/repos/polyphase-engine/polyphase-engine/releases/latest";
+    static constexpr const char* kGitHubApiUrl = "https://api.github.com/repos/polyphase-labs/polyphase-engine/releases/latest";
+    static constexpr const char* kGitHubApiAllReleasesUrl = "https://api.github.com/repos/polyphase-labs/polyphase-engine/releases";
 };
 
 #endif // EDITOR

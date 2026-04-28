@@ -39,6 +39,25 @@ enum class Platform : int
     Count
 };
 
+// Bitmask form of Platform for per-asset platform-mask flags.
+// Values must mirror Platform's index order: PlatformBit::X == (1u << int(Platform::X)).
+enum PlatformBit : uint32_t
+{
+    PlatformBit_Windows  = 1u << int(Platform::Windows),
+    PlatformBit_Linux    = 1u << int(Platform::Linux),
+    PlatformBit_Android  = 1u << int(Platform::Android),
+    PlatformBit_GameCube = 1u << int(Platform::GameCube),
+    PlatformBit_Wii      = 1u << int(Platform::Wii),
+    PlatformBit_N3DS     = 1u << int(Platform::N3DS),
+
+    PlatformBit_All      = (1u << int(Platform::Count)) - 1u,
+};
+
+inline uint32_t GetPlatformBit(Platform p)
+{
+    return (p >= Platform::Windows && p < Platform::Count) ? (1u << int(p)) : 0u;
+}
+
 class StaticMesh;
 class Material;
 
@@ -154,6 +173,7 @@ enum class LightingDomain : uint8_t
 enum class PostProcessPassId : uint8_t
 {
     Blur,
+    Fxaa,
     Tonemap,
 
     Count
@@ -303,6 +323,8 @@ struct EngineConfig
 
     float mEditorInterfaceScale = 1.0f;
     int32_t mColorScale = 2;
+
+    std::string mIconPath;
 
     // Headless mode configuration
     bool mHeadless = false;

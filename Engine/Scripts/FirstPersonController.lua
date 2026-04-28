@@ -2,6 +2,8 @@
 --   Root (Primitive3D)
 --     Camera (Camera3D)
 --     Controller (Node, with this script)
+--
+-- Wii: Nunchuck stick = move, Wiimote IR pointer delta = look, A or Nunchuck-Z = jump
 
 FirstPersonController = {}
 
@@ -25,6 +27,8 @@ function FirstPersonController:Create()
     self.enableJump = true
     self.enableTankControls = false
     self.mouseSensitivity = 0.05
+    self.enableWiiLook = false
+    self.wiiLookSensitivity = 3.0
 
     -- State
     self.moveDir = Vec()
@@ -34,6 +38,7 @@ function FirstPersonController:Create()
     self.grounded = false
     self.extVelocity = Vec()
     self.moveVelocity = Vec()
+    self.prevWiiPointer = nil
 
 end
 
@@ -55,7 +60,9 @@ function FirstPersonController:GatherProperties()
         { name = "enableControl", type = DatumType.Bool },
         { name = "enableJump", type = DatumType.Bool },
         { name = "enableTankControls", type = DatumType.Bool },
+        { name = "enableWiiLook", type = DatumType.Bool },
         { name = "mouseSensitivity", type = DatumType.Float },
+        { name = "wiiLookSensitivity", type = DatumType.Float },
     }
 
 end
@@ -75,6 +82,9 @@ function FirstPersonController:Start()
     if (not self.camera) then
         self.camera = self.collider:FindChild("Camera", true)
     end
+
+    -- Lock X and Z rotation so the physics body stays upright
+    self.collider:SetAngularFactor(Vec(0, 0, 0))
 
 end
 
@@ -102,6 +112,7 @@ function FirstPersonController:UpdateInput(deltaTime)
     if (self.enableControl) then
 
         local tank = self.enableTankControls
+        local isWiimote = (Input.GetGamepadType(1) == "Wiimote")
 
         -- moveDir
         self.moveDir = Vec()
@@ -125,6 +136,7 @@ function FirstPersonController:UpdateInput(deltaTime)
         local leftAxisY = Input.GetGamepadAxis(Gamepad.AxisLY)
 
         -- Only add analog stick input beyond a deadzone limit
+        -- On Wii: Nunchuck stick is already mapped to AxisLX/LY
         if (math.abs(leftAxisX) > 0.1 and not tank) then
             self.moveDir.x = self.moveDir.x + leftAxisX
         end
@@ -141,17 +153,42 @@ function FirstPersonController:UpdateInput(deltaTime)
         -- lookDelta
         self.lookVec.x, self.lookVec.y = Input.GetMouseDelta()
         self.lookVec = self.lookVec * self.mouseSensitivity
-        local gamepadLook = Vec()
-        local rightAxisX = Input.GetGamepadAxis(tank and Gamepad.AxisLX or Gamepad.AxisRX)
-        local rightAxisY = Input.GetGamepadAxis(Gamepad.AxisRY)
-        local rightAxisDeadZone = tank and 0.3 or 0.1
-        if (math.abs(rightAxisX) > rightAxisDeadZone) then
-            gamepadLook.x = rightAxisX
+
+        if isWiimote and self.enableWiiLook then
+            -- Use IR pointer delta for look. GetPointerPositionNormalized returns
+            -- x,y in [0,1]. We track the previous position and use the frame delta
+            -- so moving the pointer right/up = look right/up.
+            -- IsPointerDown tells us if the IR dot is on-screen this frame.
+            if Input.IsPointerDown(1) then
+                local px, py = Input.GetPointerPositionNormalized(1)
+                if self.prevWiiPointer then
+                    local dx = px - self.prevWiiPointer.x
+                    local dy = py - self.prevWiiPointer.y
+                    self.lookVec.x = self.lookVec.x + dx * self.wiiLookSensitivity
+                    self.lookVec.y = self.lookVec.y + dy * self.wiiLookSensitivity
+                end
+                self.prevWiiPointer = { x = px, y = py }
+            else
+                -- IR off-screen: discard previous position so we don't get a
+                -- jump when the pointer comes back on-screen
+                self.prevWiiPointer = nil
+            end
+        else
+            self.prevWiiPointer = nil
+
+            -- Standard gamepad right stick look
+            local gamepadLook = Vec()
+            local rightAxisX = Input.GetGamepadAxis(tank and Gamepad.AxisLX or Gamepad.AxisRX)
+            local rightAxisY = Input.GetGamepadAxis(Gamepad.AxisRY)
+            local rightAxisDeadZone = tank and 0.3 or 0.1
+            if (math.abs(rightAxisX) > rightAxisDeadZone) then
+                gamepadLook.x = rightAxisX
+            end
+            if (math.abs(rightAxisY) > 0.1) then
+                gamepadLook.y = -rightAxisY
+            end
+            self.lookVec = self.lookVec + gamepadLook
         end
-        if (math.abs(rightAxisY) > 0.1) then
-            gamepadLook.y = -rightAxisY
-        end
-        self.lookVec = self.lookVec + gamepadLook
 
     else
         self.moveDir = Vec()
@@ -162,7 +199,10 @@ end
 
 function FirstPersonController:UpdateJump(deltaTime)
 
-    local jumpPressed = Input.IsKeyPressed(Key.Space) or Input.IsGamepadPressed(Gamepad.A)
+    -- On Wii: A button or Nunchuck Z button jumps (both map to Gamepad.A and Gamepad.Z respectively)
+    local jumpPressed = Input.IsKeyPressed(Key.Space)
+        or Input.IsGamepadPressed(Gamepad.A)
+        or Input.IsGamepadPressed(Gamepad.Z)
 
     self.jumpTimer = math.max(self.jumpTimer - deltaTime, 0.0)
 

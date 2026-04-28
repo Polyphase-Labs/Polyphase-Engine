@@ -26,6 +26,7 @@ struct World_Lua
 
     static int SpawnNode(lua_State* L);
     static int SpawnScene(lua_State* L);
+    static int DespawnScene(lua_State* L);
     static int GetRootNode(lua_State* L);
     static int SetRootNode(lua_State* L);
     static int DestroyRootNode(lua_State* L);

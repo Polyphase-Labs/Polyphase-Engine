@@ -58,6 +58,7 @@ struct LocalBuildState
     std::string mProjectName;
     std::string mExeSrc;
     std::string mExtension;
+    int64_t mExeMTimeBeforeBuild{0};  // stat mtime of mExeSrc before compile, used to detect silent link.exe failures
     bool mStandalone{false};
     bool mNeedCompile{true};
     bool mUseSteam{false};
@@ -71,6 +72,10 @@ struct LocalBuildState
     bool mRunAfterBuild{false};
     bool mRunOnDevice{false};
     bool mForceRebuild{false};
+    // Snapshot of mForceRebuild captured in BuildData before it's cleared, so BuildPhase1
+    // can still tell whether the user requested a force rebuild when it decides whether
+    // to reuse the prebuilt Polyphase.exe.
+    bool mForceCompile{false};
 
     void Reset()
     {
@@ -93,6 +98,7 @@ struct LocalBuildState
         mProjectName.clear();
         mExeSrc.clear();
         mExtension.clear();
+        mExeMTimeBeforeBuild = 0;
         mStandalone = false;
         mNeedCompile = true;
         mUseSteam = false;
@@ -104,6 +110,7 @@ struct LocalBuildState
         mRunAfterBuild = false;
         mRunOnDevice = false;
         mForceRebuild = false;
+        mForceCompile = false;
 #if PLATFORM_LINUX
         mProcessId = 0;
 #elif PLATFORM_WINDOWS
@@ -170,6 +177,9 @@ public:
     void EXE_UnlinkScene(Node* node);
     void EXE_ResetScene(Node* node);
     void EXE_SetInstanceColors(const std::vector<ActionSetInstanceColorsData>& data);
+    void EXE_SetVoxels(class Voxel3D* voxel, const std::vector<struct VoxelChange>& changes);
+    void EXE_SetTerrainHeights(class Terrain3D* terrain, const std::vector<struct TerrainHeightChange>& changes);
+    void EXE_PaintTiles(class TileMap2D* tileMapNode, const std::vector<struct TilePaintChange>& changes);
     void EXE_SetInstanceData(InstancedMesh3D* instMesh, int32_t startIndex, const std::vector<MeshInstanceData>& data);
 
     /**
@@ -221,8 +231,20 @@ protected:
     static ActionManager* sInstance;
     ActionManager();
 
+    // Raw (non-.oct) file entry to embed into gEmbeddedRawAssets[].
+    // mLookupKey is the canonical VFS lookup path the runtime will use
+    // (projectDir-relative, forward slashes, e.g. "Assets/intro.mp4" or
+    // "Packages/videoplayer/Assets/test.mp4").
+    struct EmbeddedRawAssetEntry
+    {
+        std::string mAbsolutePath;
+        std::string mLookupKey;
+        bool        mEngineAsset = false;
+    };
+
     void GenerateEmbeddedAssetFiles(
         std::vector<std::pair<AssetStub*, std::string> >& assets,
+        std::vector<EmbeddedRawAssetEntry>& rawAssets,
         const char* headerPath,
         const char* sourcePath);
 
@@ -622,4 +644,46 @@ protected:
     TypeId mNewParentType;
     ArrayOrientation mArrayOrientation = ArrayOrientation::Vertical;
     bool mFirstExecute = true;
+};
+
+struct VoxelChange;
+class Voxel3D;
+
+class ActionSetVoxels : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(SetVoxels);
+    ActionSetVoxels(Voxel3D* voxel, const std::vector<VoxelChange>& changes);
+
+protected:
+    Voxel3D* mVoxel = nullptr;
+    std::vector<VoxelChange> mChanges;
+};
+
+struct TerrainHeightChange;
+class Terrain3D;
+
+class ActionSetTerrainHeights : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(SetTerrainHeights);
+    ActionSetTerrainHeights(Terrain3D* terrain, const std::vector<TerrainHeightChange>& changes);
+
+protected:
+    Terrain3D* mTerrain = nullptr;
+    std::vector<TerrainHeightChange> mChanges;
+};
+
+struct TilePaintChange;
+class TileMap2D;
+
+class ActionPaintTiles : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(PaintTiles);
+    ActionPaintTiles(TileMap2D* tileMapNode, const std::vector<TilePaintChange>& changes);
+
+protected:
+    TileMap2D* mTarget = nullptr;
+    std::vector<TilePaintChange> mChanges;
 };

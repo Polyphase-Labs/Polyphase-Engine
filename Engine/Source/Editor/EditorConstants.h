@@ -24,3 +24,4 @@
 #define DRAGDROP_DIR "DND_DIR"
 #define DRAGDROP_SCRIPT "DND_SCRIPT"
 #define BASIC_SPLINE "Spline"
+#define BASIC_TERRAIN "Terrain"

@@ -21,7 +21,7 @@ function StaticMesh:GetNumVertices() end
 ---@return boolean
 function StaticMesh:HasVertexColor() end
 
----@return integer
+---@return table
 function StaticMesh:GetVertices() end
 
 ---@return integer

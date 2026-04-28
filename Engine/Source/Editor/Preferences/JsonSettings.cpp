@@ -18,17 +18,53 @@ namespace JsonSettings
 
 static std::string sPreferencesDir;
 
+static void MigrateFromLegacyDirectory()
+{
+    static bool sMigrationChecked = false;
+    if (sMigrationChecked)
+        return;
+    sMigrationChecked = true;
+
+#if PLATFORM_WINDOWS
+    const char* appData = getenv("APPDATA");
+    if (appData == nullptr)
+        return;
+    std::string oldDir = std::string(appData) + "/OctaveEditor";
+    std::string newDir = std::string(appData) + "/PolyphaseEditor";
+#else
+    const char* home = getenv("HOME");
+    if (home == nullptr)
+        return;
+    std::string oldDir = std::string(home) + "/.config/OctaveEditor";
+    std::string newDir = std::string(home) + "/.config/PolyphaseEditor";
+#endif
+
+    if (DoesDirExist(oldDir.c_str()) && !DoesDirExist(newDir.c_str()))
+    {
+        if (SYS_Rename(oldDir.c_str(), newDir.c_str()))
+        {
+            LogDebug("Migrated editor data from %s to %s", oldDir.c_str(), newDir.c_str());
+        }
+        else
+        {
+            LogWarning("Failed to migrate editor data from %s to %s", oldDir.c_str(), newDir.c_str());
+        }
+    }
+}
+
 std::string GetPreferencesDirectory()
 {
     if (sPreferencesDir.empty())
     {
-        // Build the path to AppData/Roaming/OctaveEditor/Preferences on Windows
-        // or ~/.config/OctaveEditor/Preferences on Linux
+        MigrateFromLegacyDirectory();
+
+        // Build the path to AppData/Roaming/PolyphaseEditor/Preferences on Windows
+        // or ~/.config/PolyphaseEditor/Preferences on Linux
 #if PLATFORM_WINDOWS
         const char* appData = getenv("APPDATA");
         if (appData != nullptr)
         {
-            sPreferencesDir = std::string(appData) + "/OctaveEditor/Preferences";
+            sPreferencesDir = std::string(appData) + "/PolyphaseEditor/Preferences";
         }
         else
         {
@@ -36,14 +72,14 @@ std::string GetPreferencesDirectory()
             const char* userProfile = getenv("USERPROFILE");
             if (userProfile != nullptr)
             {
-                sPreferencesDir = std::string(userProfile) + "/AppData/Roaming/OctaveEditor/Preferences";
+                sPreferencesDir = std::string(userProfile) + "/AppData/Roaming/PolyphaseEditor/Preferences";
             }
         }
 #else
         const char* home = getenv("HOME");
         if (home != nullptr)
         {
-            sPreferencesDir = std::string(home) + "/.config/OctaveEditor/Preferences";
+            sPreferencesDir = std::string(home) + "/.config/PolyphaseEditor/Preferences";
         }
 #endif
 
@@ -66,7 +102,7 @@ void EnsurePreferencesDirectory()
     const char* appData = getenv("APPDATA");
     if (appData != nullptr)
     {
-        std::string polyphaseDir = std::string(appData) + "/OctaveEditor";
+        std::string polyphaseDir = std::string(appData) + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());
@@ -81,7 +117,7 @@ void EnsurePreferencesDirectory()
         {
             SYS_CreateDirectory(configDir.c_str());
         }
-        std::string polyphaseDir = configDir + "/OctaveEditor";
+        std::string polyphaseDir = configDir + "/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());
@@ -97,6 +133,11 @@ void EnsurePreferencesDirectory()
 
 bool LoadFromFile(const std::string& path, rapidjson::Document& doc)
 {
+    if (!SYS_DoesFileExist(path.c_str(), false))
+    {
+        return false;
+    }
+
     Stream stream;
     if (!stream.ReadFile(path.c_str(), false))
     {

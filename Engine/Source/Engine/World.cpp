@@ -13,6 +13,7 @@
 #include "Assets/StaticMesh.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/NavMesh3d.h"
+#include "Nodes/3D/Terrain3d.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/Audio3d.h"
@@ -316,6 +317,57 @@ namespace
                         }
                     }
                 }
+
+                const int baseVert = (int)(outVerts.size() / 3);
+                outVerts.push_back(a.x); outVerts.push_back(a.y); outVerts.push_back(a.z);
+                outVerts.push_back(b.x); outVerts.push_back(b.y); outVerts.push_back(b.z);
+                outVerts.push_back(c.x); outVerts.push_back(c.y); outVerts.push_back(c.z);
+
+                outTris.push_back(baseVert + 0);
+                outTris.push_back(baseVert + 1);
+                outTris.push_back(baseVert + 2);
+            }
+        }
+
+        // Gather triangles from Terrain3D nodes
+        std::vector<Terrain3D*> terrains;
+        world->FindNodes<Terrain3D>(terrains);
+
+        for (Terrain3D* terrain : terrains)
+        {
+            if (terrain == nullptr || terrain->GetNumIndices() == 0)
+                continue;
+
+            const auto& vertices = terrain->GetVertices();
+            const auto& indices = terrain->GetIndices();
+            const uint32_t numVertices = terrain->GetNumVertices();
+            const uint32_t numIndices = terrain->GetNumIndices();
+            const glm::mat4 transform = terrain->GetTransform();
+
+            // Transform terrain vertices to world space
+            std::vector<glm::vec3> worldVerts;
+            worldVerts.resize(numVertices);
+            for (uint32_t i = 0; i < numVertices; ++i)
+            {
+                glm::vec4 wp = transform * glm::vec4(vertices[i].mPosition, 1.0f);
+                worldVerts[i] = glm::vec3(wp.x, wp.y, wp.z);
+            }
+
+            for (uint32_t i = 0; i + 2 < numIndices; i += 3)
+            {
+                const uint32_t ia = (uint32_t)indices[i + 0];
+                const uint32_t ib = (uint32_t)indices[i + 1];
+                const uint32_t ic = (uint32_t)indices[i + 2];
+                if (ia >= numVertices || ib >= numVertices || ic >= numVertices)
+                    continue;
+
+                const glm::vec3& a = worldVerts[ia];
+                const glm::vec3& b = worldVerts[ib];
+                const glm::vec3& c = worldVerts[ic];
+                const glm::vec3 centroid = (a + b + c) / 3.0f;
+
+                if (!pointInsideAnyBounds(centroid))
+                    continue;
 
                 const int baseVert = (int)(outVerts.size() / 3);
                 outVerts.push_back(a.x); outVerts.push_back(a.y); outVerts.push_back(a.z);
@@ -1730,6 +1782,14 @@ Node* World::SpawnScene(Scene* scene, glm::vec3 position)
     return newNode.Get();
 }
 
+void World::DespawnScene(Node* sceneRoot)
+{
+    if (sceneRoot != nullptr)
+    {
+        sceneRoot->DestroyDeferred();
+    }
+}
+
 Particle3D* World::SpawnParticle(ParticleSystem* sys, glm::vec3 position)
 {
     Particle3D* ret = nullptr;
@@ -1741,6 +1801,18 @@ Particle3D* World::SpawnParticle(ParticleSystem* sys, glm::vec3 position)
         ret->SetPosition(position);
         ret->EnableEmission(true);
         ret->EnableAutoDestroy(true);
+    }
+
+    return ret;
+}
+
+Particle3D* World::SpawnParticle(ParticleSystem* sys, glm::vec3 position, glm::vec3 velocity)
+{
+    Particle3D* ret = SpawnParticle(sys, position);
+
+    if (ret != nullptr)
+    {
+        ret->SetBaseVelocity(velocity);
     }
 
     return ret;

@@ -3,15 +3,24 @@
 #include "Renderer.h"
 #include "World.h"
 #include "InputDevices.h"
+#include "Input/PlayerInputSystem.h"
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
+#if EDITOR
+#include "LuaDebugger/LuaDebugger.h"
+
+#if EDITOR
+#include "Editor/Addons/NativeAddonManager.h"
+#endif
+#endif
 #include "Assets/Scene.h"
 #include "Assets/Timeline.h"
 #include "Assets/NodeGraphAsset.h"
 #include "Assets/TinyLLMAsset.h"
 #include "Assets/TinyLLMTokenizerAsset.h"
 #include "TinyLLMManager.h"
+#include "TweenManager.h"
 #include "Timeline/TimelineTrack.h"
 #include "Timeline/TimelineClip.h"
 #include "Timeline/Tracks/TransformTrack.h"
@@ -30,6 +39,7 @@
 #include "Nodes/NodeGraphPlayer.h"
 #include "AssetManager.h"
 #include "NetworkManager.h"
+#include "SerialManager.h"
 #include "WindowManager.h"
 #include "ToolTipManager.h"
 #include "AudioManager.h"
@@ -188,11 +198,16 @@ void ForceLinkage()
     FORCE_LINK_CALL(Capsule3D);
     FORCE_LINK_CALL(ShadowMesh3D);
     FORCE_LINK_CALL(TextMesh3D);
+    FORCE_LINK_CALL(Voxel3D);
+    FORCE_LINK_CALL(Terrain3D);
+    FORCE_LINK_CALL(TileMap2D);
     FORCE_LINK_CALL(InstancedMesh3D);
     FORCE_LINK_CALL(TimelinePlayer);
     FORCE_LINK_CALL(NodeGraphPlayer);
     FORCE_LINK_CALL(Spline3D);
     FORCE_LINK_CALL(NavMesh3D);
+    FORCE_LINK_CALL(SpriteAnimator);
+    FORCE_LINK_CALL(AnimatedSprite3D);
 
     // Asset Types
     FORCE_LINK_CALL(Scene);
@@ -204,8 +219,11 @@ void ForceLinkage()
     FORCE_LINK_CALL(ParticleSystemInstance);
     FORCE_LINK_CALL(SkeletalMesh);
     FORCE_LINK_CALL(SoundWave);
+    FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);
     FORCE_LINK_CALL(Texture);
+    FORCE_LINK_CALL(TileSet);
+    FORCE_LINK_CALL(TileMap);
     FORCE_LINK_CALL(TinyLLMAsset);
     FORCE_LINK_CALL(TinyLLMTokenizerAsset);
     FORCE_LINK_CALL(Font);
@@ -236,6 +254,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(AnimationNodes);
     FORCE_LINK_CALL(FSMNodes);
     FORCE_LINK_CALL(SceneGraphNodes);
+    FORCE_LINK_CALL(SerialGraphNodes);
     FORCE_LINK_CALL(InputNodes);
     FORCE_LINK_CALL(FunctionNodes);
     FORCE_LINK_CALL(GizmoNodes);
@@ -246,6 +265,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(Canvas);
     FORCE_LINK_CALL(Console);
     FORCE_LINK_CALL(Quad);
+    FORCE_LINK_CALL(AnimatedWidget);
     FORCE_LINK_CALL(PolyRect);
     FORCE_LINK_CALL(Poly);
     FORCE_LINK_CALL(StatsOverlay);
@@ -365,8 +385,10 @@ bool Initialize()
     Renderer::Create();
     AssetManager::Create();
     NetworkManager::Create();
+    SerialManager::Create();
     WindowManager::Create();
     ToolTipManager::Create();
+    TweenManager::Create();
     TinyLLMManager::Create();
 
 #if EDITOR
@@ -464,6 +486,10 @@ bool Initialize()
             SCOPED_STAT("AUD_Initialize");
             AUD_Initialize();
         }
+
+#if !EDITOR
+        PlayerInputSystem::Create();
+#endif
     }
 
     {
@@ -483,6 +509,7 @@ bool Initialize()
         renderer->Initialize();
     }
     NetworkManager::Get()->Initialize();
+    SerialManager::Get()->Initialize();
 
 #if EDITOR
     // Initialize FileWatcher for script hot-reloading
@@ -517,6 +544,13 @@ bool Initialize()
         sEngineState.mLua = luaL_newstate();
         luaL_openlibs(sEngineState.mLua);
 
+        // Lua GC tuning: the default incremental collector lets the heap grow to
+        // ~2x before collecting and collects aggressively when it runs — that
+        // produces periodic big spikes. Reducing pause and raising stepmul makes
+        // GC run more often in smaller increments, distributing the cost.
+        lua_gc(sEngineState.mLua, LUA_GCSETPAUSE, 120);
+        lua_gc(sEngineState.mLua, LUA_GCSETSTEPMUL, 300);
+
 #if OCT_LUA_DEBUGGING
         luaopen_socket_core(sEngineState.mLua);
         lua_setglobal(sEngineState.mLua, "socket");
@@ -534,6 +568,14 @@ bool Initialize()
         // Run Startup.lua if it exists.
         ScriptUtils::RunScript("EngineStartup.lua");
         ScriptUtils::RunScript("Startup.lua");
+
+#if EDITOR
+        // Install in-engine Lua debugger AFTER Startup so LuaPanda (if used)
+        // has had a chance to install its own hook -- our Install() detects
+        // that and skips with a warning rather than fighting over lua_sethook.
+        LuaDebugger::Create();
+        LuaDebugger::Get()->Install(sEngineState.mLua);
+#endif
     }
 #endif
 
@@ -650,8 +692,14 @@ bool Update()
         AUD_Update();
     }
 
-    INP_Update();
-    SYS_Update();
+    {
+        SCOPED_FRAME_STAT("INP");
+        INP_Update();
+    }
+    {
+        SCOPED_FRAME_STAT("SYS");
+        SYS_Update();
+    }
 
     if (sEngineState.mQuit)
     {
@@ -659,9 +707,27 @@ bool Update()
     }
 
     sClock.Update();
-    AudioManager::Update(sClock.DeltaTime());
+    {
+        SCOPED_FRAME_STAT("AudioMgr");
+        AudioManager::Update(sClock.DeltaTime());
+    }
 
-    NetworkManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    {
+        SCOPED_FRAME_STAT("NetPre");
+        NetworkManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    }
+
+    {
+        SCOPED_FRAME_STAT("SerialPre");
+        SerialManager::Get()->PreTickUpdate(sClock.DeltaTime());
+    }
+
+    // Update PlayerInputSystem after raw input and clock
+    if (PlayerInputSystem::Get() != nullptr)
+    {
+        SCOPED_FRAME_STAT("PlayerInput");
+        PlayerInputSystem::Get()->Update(sClock.DeltaTime());
+    }
 
     // Limit delta time in World::Update(). Prevent crazy issues.
     float realDeltaTime = sClock.DeltaTime();
@@ -675,13 +741,28 @@ bool Update()
     }
 
 #if EDITOR
-    if (IsPlayingInEditor() && 
+    if (IsPlayingInEditor() &&
         GetEditorState()->IsPlayInEditorPaused())
     {
         gameDeltaTime = 0.0f;
     }
 
-    GetEditorState()->Update(realDeltaTime);
+    // Freeze the world (physics, animations, particles, audio playback) while
+    // the in-engine Lua debugger is paused. Same mechanism as PIE pause: set
+    // game delta time to 0 so World::Update / physics / anim sampling all see
+    // no time passing. Lua Tick is independently gated in Script::CallTick.
+    {
+        LuaDebugger* dbg = LuaDebugger::Get();
+        if (dbg != nullptr && dbg->IsPaused())
+        {
+            gameDeltaTime = 0.0f;
+        }
+    }
+
+    {
+        SCOPED_FRAME_STAT("EditorState");
+        GetEditorState()->Update(realDeltaTime);
+    }
 #endif
 
     bool doFrameStep = sEngineState.mFrameStep;
@@ -698,21 +779,32 @@ bool Update()
 
     Button::StaticUpdate();
 
-    GetTimerManager()->Update(gameDeltaTime);
+    {
+        SCOPED_FRAME_STAT("Timers");
+        GetTimerManager()->Update(gameDeltaTime);
+    }
+    {
+        SCOPED_FRAME_STAT("Tween");
+        GetTweenManager()->Update(gameDeltaTime);
+    }
 
 #if EDITOR
     GetGamePreview()->BeginInputRemap();
     GetSecondScreenPreview()->BeginInputRemap();
 #endif
 
-    for (uint32_t i = 0; i < sWorlds.size(); ++i)
     {
-        sWorlds[i]->Update(gameDeltaTime);
+        SCOPED_FRAME_STAT("Worlds");
+        for (uint32_t i = 0; i < sWorlds.size(); ++i)
+        {
+            sWorlds[i]->Update(gameDeltaTime);
+        }
     }
 
     // Update tooltip system after widgets
     if (ToolTipManager::Get() != nullptr)
     {
+        SCOPED_FRAME_STAT("ToolTip");
         ToolTipManager::Get()->Tick(realDeltaTime);
     }
 
@@ -731,21 +823,34 @@ bool Update()
     // Tick all runtime plugins
     if (RuntimePluginManager::Get())
     {
+        SCOPED_FRAME_STAT("Plugins");
         RuntimePluginManager::Get()->TickAllPlugins(gameDeltaTime);
     }
 
-    NetworkManager::Get()->PostTickUpdate(realDeltaTime);
-
-#if EDITOR
-    EditorImguiDraw();
-#endif
-
-    for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
     {
-        Renderer::Get()->Render(sWorlds[i], i);
+        SCOPED_FRAME_STAT("NetPost");
+        NetworkManager::Get()->PostTickUpdate(realDeltaTime);
     }
 
-    AssetManager::Get()->Update(realDeltaTime);
+#if EDITOR
+    {
+        SCOPED_FRAME_STAT("EditorUI");
+        EditorImguiDraw();
+    }
+#endif
+
+    {
+        SCOPED_FRAME_STAT("Render");
+        for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
+        {
+            Renderer::Get()->Render(sWorlds[i], i);
+        }
+    }
+
+    {
+        SCOPED_FRAME_STAT("AssetMgr");
+        AssetManager::Get()->Update(realDeltaTime);
+    }
 
     END_FRAME_STAT("Frame");
 
@@ -768,6 +873,7 @@ void Shutdown()
 #endif
 
     NetworkManager::Get()->Shutdown();
+    SerialManager::Get()->Shutdown();
 
     for (uint32_t i = 0; i < sWorlds.size(); ++i)
     {
@@ -784,6 +890,9 @@ void Shutdown()
     RuntimePluginManager::Destroy();
 
 #if LUA_ENABLED
+#if EDITOR
+    LuaDebugger::Destroy();
+#endif
     lua_close(sEngineState.mLua);
     sEngineState.mLua = nullptr;
 #endif
@@ -793,11 +902,17 @@ void Shutdown()
 #endif
 
     TinyLLMManager::Destroy();
+    TweenManager::Destroy();
     ToolTipManager::Destroy();
     WindowManager::Destroy();
     NetworkManager::Destroy();
+    SerialManager::Destroy();
     Renderer::Destroy();
     AssetManager::Destroy();
+
+#if !EDITOR
+    PlayerInputSystem::Destroy();
+#endif
 
     NET_Shutdown();
     if (!IsHeadless())
@@ -924,6 +1039,21 @@ void LoadProject(const std::string& path, bool discoverAssets)
     std::string configPath = sEngineState.mProjectDirectory + "Config.ini";
     ReadEngineConfig(configPath);
 
+#if EDITOR
+    // Load native addons BEFORE discovering assets. Addon DLLs register custom node types
+    // via DEFINE_NODE's static initializers; if scenes deserialize first, those node types
+    // are unknown and get replaced with their nearest registered parent class (e.g.
+    // VideoPlayer3D -> Node3D), silently corrupting the scene's type layout.
+    if (!IsHeadless())
+    {
+        NativeAddonManager* nam = NativeAddonManager::Get();
+        if (nam != nullptr)
+        {
+            nam->ReloadAllNativeAddons();
+        }
+    }
+#endif
+
     if (discoverAssets &&
         sEngineState.mProjectName != "")
     {
@@ -952,6 +1082,13 @@ void LoadProject(const std::string& path, bool discoverAssets)
     }
 #endif
 
+#if !EDITOR
+    if (PlayerInputSystem::Get() != nullptr)
+    {
+        PlayerInputSystem::Get()->LoadProjectActions();
+    }
+#endif
+
 #if EDITOR
     // Start watching the Scripts directory for hot-reloading
     if (GetFileWatcher() && sEngineState.mProjectDirectory != "")
@@ -970,6 +1107,72 @@ void LoadProject(const std::string& path, bool discoverAssets)
         if (scriptsExists)
         {
             GetFileWatcher()->WatchDirectory(scriptsDir, true);
+        }
+    }
+#endif
+
+#if EDITOR
+    // Auto-create .luarc.json for Lua IntelliSense if it doesn't exist
+    if (sEngineState.mProjectDirectory != "")
+    {
+        std::string luarcPath = sEngineState.mProjectDirectory + ".luarc.json";
+        if (!SYS_DoesFileExist(luarcPath.c_str(), false))
+        {
+            std::string polyphasePath = SYS_GetPolyphasePath();
+            std::string luaMetaPath = polyphasePath + "Engine/Generated/LuaMeta";
+
+            if (!DoesDirExist(luaMetaPath.c_str()))
+            {
+                polyphasePath = SYS_GetCurrentDirectoryPath();
+                luaMetaPath = polyphasePath + "Engine/Generated/LuaMeta";
+            }
+
+            if (DoesDirExist(luaMetaPath.c_str()))
+            {
+                std::replace(luaMetaPath.begin(), luaMetaPath.end(), '\\', '/');
+
+                FILE* luarcFile = fopen(luarcPath.c_str(), "w");
+                if (luarcFile != nullptr)
+                {
+                    fprintf(luarcFile,
+                        "{\n"
+                        "    \"runtime\": {\n"
+                        "        \"version\": \"Lua 5.3\"\n"
+                        "    },\n"
+                        "    \"workspace\": {\n"
+                        "        \"library\": [\n"
+                        "            \"%s\"\n"
+                        "        ]\n"
+                        "    },\n"
+                        "    \"diagnostics\": {\n"
+                        "        \"globals\": [\n"
+                        "            \"self\"\n"
+                        "        ]\n"
+                        "    }\n"
+                        "}\n",
+                        luaMetaPath.c_str());
+                    fclose(luarcFile);
+                    luarcFile = nullptr;
+                }
+            }
+        }
+    }
+
+    // Auto-create .gitignore if it doesn't exist
+    {
+        std::string gitignorePath = sEngineState.mProjectDirectory + ".gitignore";
+        if (!SYS_DoesFileExist(gitignorePath.c_str(), false))
+        {
+            FILE* gitignoreFile = fopen(gitignorePath.c_str(), "w");
+            if (gitignoreFile != nullptr)
+            {
+                fprintf(gitignoreFile,
+                    "Packaged/\n"
+                    "Generated/\n"
+                    "Intermediate/\n");
+                fclose(gitignoreFile);
+                gitignoreFile = nullptr;
+            }
         }
     }
 #endif
@@ -1209,6 +1412,7 @@ void WriteEngineConfig(std::string path)
         fprintf(configIni, "EditorInterfaceScale=%f\n", sEngineConfig.mEditorInterfaceScale);
         fprintf(configIni, "ScriptHotReload=%d\n", sEngineConfig.mScriptHotReload);
         fprintf(configIni, "ColorScale=%d\n", sEngineConfig.mColorScale);
+        fprintf(configIni, "Icon=%s\n", sEngineConfig.mIconPath.c_str());
 
         fclose(configIni);
         configIni = nullptr;
@@ -1319,6 +1523,8 @@ void ReadEngineConfig(std::string path)
                 sEngineConfig.mScriptHotReload = strToBool(value);
             else if (keyStr == "ColorScale")
                 sEngineConfig.mColorScale = atoi(value);
+            else if (keyStr == "Icon")
+                sEngineConfig.mIconPath = value;
 
             strcpy(key, "");
             strcpy(value, "");

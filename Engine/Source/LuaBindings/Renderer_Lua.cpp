@@ -10,7 +10,10 @@
 #include "LuaBindings/Material_Lua.h"
 #include "LuaBindings/StaticMesh_Lua.h"
 #include "LuaBindings/Widget_Lua.h"
+#include "LuaBindings/Node_Lua.h"
 #include "Nodes/Widgets/StatsOverlay.h"
+#include "Nodes/Widgets/DebugResourcesWidget.h"
+#include "System/System.h"
 
 
 #if LUA_ENABLED
@@ -110,6 +113,19 @@ int Renderer_Lua::GetActiveScreenResolution(lua_State* L)
 
     Vector_Lua::Create(L, res);
     return 1;
+}
+
+int Renderer_Lua::GetViewportRect(lua_State* L)
+{
+    int32_t screenIndex = -1;
+    if (!lua_isnone(L, 1)) { screenIndex = CHECK_INDEX(L, 1); }
+
+    Renderer* renderer = Renderer::Get();
+    lua_pushinteger(L, renderer->GetViewportX(screenIndex));
+    lua_pushinteger(L, renderer->GetViewportY(screenIndex));
+    lua_pushinteger(L, renderer->GetViewportWidth(screenIndex));
+    lua_pushinteger(L, renderer->GetViewportHeight(screenIndex));
+    return 4;
 }
 
 int Renderer_Lua::GetGlobalUiScale(lua_State* L)
@@ -348,6 +364,58 @@ int Renderer_Lua::SetClearColor(lua_State* L)
     return 0;
 }
 
+int Renderer_Lua::GetRAMUsage(lua_State* L)
+{
+    lua_pushnumber(L, SYS_GetRAMUsage());
+    return 1;
+}
+
+int Renderer_Lua::GetVRAMUsage(lua_State* L)
+{
+    lua_pushnumber(L, SYS_GetVRAMUsage());
+    return 1;
+}
+
+int Renderer_Lua::GetRAM1Usage(lua_State* L)
+{
+    lua_pushnumber(L, SYS_GetRAM1Usage());
+    return 1;
+}
+
+int Renderer_Lua::GetRAM2Usage(lua_State* L)
+{
+    lua_pushnumber(L, SYS_GetRAM2Usage());
+    return 1;
+}
+
+int Renderer_Lua::GetCPUUsage(lua_State* L)
+{
+    lua_pushnumber(L, SYS_GetCPUUsage());
+    return 1;
+}
+
+int Renderer_Lua::AddDebugResourcesWidget(lua_State* L)
+{
+    // Args: parent (Widget), showMultipleRAM (bool), showFPS (bool), showVRAM (bool)
+    Node* parent = CHECK_NODE(L, 1);
+
+    bool showMultipleRAM = lua_isnoneornil(L, 2) ? true : lua_toboolean(L, 2);
+    bool showFPS = lua_isnoneornil(L, 3) ? true : lua_toboolean(L, 3);
+    bool showVRAM = lua_isnoneornil(L, 4) ? true : lua_toboolean(L, 4);
+
+    DebugResourcesWidget* widget = parent->CreateChild<DebugResourcesWidget>();
+
+    if (widget != nullptr)
+    {
+        widget->SetShowMultipleRAM(showMultipleRAM);
+        widget->SetShowFPS(showFPS);
+        widget->SetShowVRAM(showVRAM);
+    }
+
+    Node_Lua::Create(L, widget);
+    return 1;
+}
+
 void Renderer_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -370,6 +438,8 @@ void Renderer_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, GetScreenResolution);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetActiveScreenResolution);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetViewportRect);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetGlobalUiScale);
 
@@ -420,6 +490,18 @@ void Renderer_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, GetResolutionScale);
 
     REGISTER_TABLE_FUNC(L, tableIdx, SetClearColor);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetRAMUsage);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetVRAMUsage);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetRAM1Usage);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetRAM2Usage);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetCPUUsage);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, AddDebugResourcesWidget);
 
     lua_setglobal(L, RENDERER_LUA_NAME);
 

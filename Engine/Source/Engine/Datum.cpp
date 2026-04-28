@@ -268,9 +268,43 @@ uint32_t Datum::GetDataTypeSize() const
         case DatumType::Text: size = sizeof(WeakPtr<Node>); break;
         case DatumType::Quad: size = sizeof(WeakPtr<Node>); break;
         case DatumType::Audio3D: size = sizeof(WeakPtr<Node>); break;
-        case DatumType::Scene: size = sizeof(AssetRef); break;
-        case DatumType::PointCloud: size = sizeof(PointCloud*); break;
         case DatumType::Spline3D: size = sizeof(WeakPtr<Node>); break;
+        // Widget subtypes
+        case DatumType::SpinBox: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Window: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::DialogWindow: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::InputField: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ProgressBar: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::CheckBox: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ListViewWidget: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ListViewItemWidget: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::DebugResourcesWidget: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ArrayWidget: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Button: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Slider: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::LineEdit: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Canvas: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::ComboBox: size = sizeof(WeakPtr<Node>); break;
+        // Node3D subtypes
+        case DatumType::Voxel3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Terrain3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::TileMap2D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::NavMesh3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Camera3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::DirectionalLight3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Box3D: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::Particle3D: size = sizeof(WeakPtr<Node>); break;
+        // Node subtypes
+        case DatumType::TimelinePlayer: size = sizeof(WeakPtr<Node>); break;
+        case DatumType::NodeGraphPlayer: size = sizeof(WeakPtr<Node>); break;
+        // Asset subtypes
+        case DatumType::Scene: size = sizeof(AssetRef); break;
+        case DatumType::Material: size = sizeof(AssetRef); break;
+        case DatumType::TileSet: size = sizeof(AssetRef); break;
+        case DatumType::TileMap: size = sizeof(AssetRef); break;
+        case DatumType::Timeline: size = sizeof(AssetRef); break;
+        case DatumType::NodeGraphAsset: size = sizeof(AssetRef); break;
+        case DatumType::PointCloud: size = sizeof(PointCloud*); break;
         case DatumType::Execution: size = 0; break;
 
         case DatumType::Count: size = 0; break;
@@ -420,6 +454,31 @@ void Datum::ReadStream(Stream& stream, uint32_t version, bool net, bool external
                 case DatumType::Text:
                 case DatumType::Quad:
                 case DatumType::Spline3D:
+                case DatumType::SpinBox:
+                case DatumType::Window:
+                case DatumType::DialogWindow:
+                case DatumType::InputField:
+                case DatumType::ProgressBar:
+                case DatumType::CheckBox:
+                case DatumType::ListViewWidget:
+                case DatumType::ListViewItemWidget:
+                case DatumType::DebugResourcesWidget:
+                case DatumType::ArrayWidget:
+                case DatumType::Button:
+                case DatumType::Slider:
+                case DatumType::LineEdit:
+                case DatumType::Canvas:
+                case DatumType::ComboBox:
+                case DatumType::Voxel3D:
+                case DatumType::Terrain3D:
+                case DatumType::TileMap2D:
+                case DatumType::NavMesh3D:
+                case DatumType::Camera3D:
+                case DatumType::DirectionalLight3D:
+                case DatumType::Box3D:
+                case DatumType::Particle3D:
+                case DatumType::TimelinePlayer:
+                case DatumType::NodeGraphPlayer:
                 {
                     if (net)
                     {
@@ -476,6 +535,31 @@ void Datum::WriteStream(Stream& stream, bool net) const
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
             {
                 // Node Datums are only serialized over the network.
                 // If this Datum is a Property, then a nodepath will stored in the
@@ -568,7 +652,8 @@ void Datum::SetColor(const glm::vec4& value, uint32_t index)
 
 void Datum::SetAsset(const Asset* value, uint32_t index)
 {
-    PreSet(index, DatumType::Asset); 
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsAssetDatumType(mType));
     if (mOwner == nullptr || !mChangeHandler || !mChangeHandler(this, index, const_cast<Asset**>(&value)))
         mData.as[index] = value;
 }
@@ -632,7 +717,13 @@ void Datum::SetValue(const void* value, uint32_t index, uint32_t count)
             case DatumType::String: SetString(*(reinterpret_cast<const std::string*>(value) + i),     index + i); break;
             case DatumType::Vector2D: SetVector2D(*(reinterpret_cast<const glm::vec2*>(value) + i),   index + i); break;
             case DatumType::Vector: SetVector(*(reinterpret_cast<const glm::vec3*>(value) + i),       index + i); break;
-            case DatumType::Asset: SetAsset((reinterpret_cast<const AssetRef*>(value) + i)->Get(),    index + i); break;
+            case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset: SetAsset((reinterpret_cast<const AssetRef*>(value) + i)->Get(),    index + i); break;
             case DatumType::Byte: SetByte(*(reinterpret_cast<const uint8_t*>(value) + i),             index + i); break;
             case DatumType::Table: SetTableDatum(*(reinterpret_cast<const TableDatum*>(value) + i),   index + i); break;
             case DatumType::Node:
@@ -641,7 +732,32 @@ void Datum::SetValue(const void* value, uint32_t index, uint32_t count)
             case DatumType::Widget:
             case DatumType::Text:
             case DatumType::Quad:
-            case DatumType::Spline3D: SetNode(*(reinterpret_cast<const WeakPtr<Node>*>(value) + i),       index + i); break;
+            case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer: SetNode(*(reinterpret_cast<const WeakPtr<Node>*>(value) + i),       index + i); break;
             case DatumType::Short: SetShort(*(reinterpret_cast<const int16_t*>(value) + i),           index + i); break;
             case DatumType::Function: SetFunction(*(reinterpret_cast<const ScriptFunc*>(value) + i),  index + i); break;
             case DatumType::Count: break;
@@ -661,7 +777,13 @@ void Datum::SetValueRaw(const void* value, uint32_t index)
     case DatumType::String: mData.s[index] = *reinterpret_cast<const std::string*>(value); break;
     case DatumType::Vector2D: mData.v2[index] = *reinterpret_cast<const glm::vec2*>(value); break;
     case DatumType::Vector: mData.v3[index] = *reinterpret_cast<const glm::vec3*>(value); break;
-    case DatumType::Asset: mData.as[index] = *reinterpret_cast<const Asset* const*>(value); break;
+    case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset: mData.as[index] = *reinterpret_cast<const Asset* const*>(value); break;
     case DatumType::Byte: mData.by[index] = *reinterpret_cast<const uint8_t*>(value); break;
     case DatumType::Table: mData.t[index] = *reinterpret_cast<const TableDatum*>(value); break;
     case DatumType::Node:
@@ -670,7 +792,32 @@ void Datum::SetValueRaw(const void* value, uint32_t index)
     case DatumType::Widget:
     case DatumType::Text:
     case DatumType::Quad:
-    case DatumType::Spline3D: mData.n[index] = *reinterpret_cast<const WeakPtr<Node>*>(value); break;
+    case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer: mData.n[index] = *reinterpret_cast<const WeakPtr<Node>*>(value); break;
     case DatumType::Short: mData.sh[index] = *reinterpret_cast<const int16_t*>(value); break;
     case DatumType::Function: mData.fn[index] = *reinterpret_cast<const ScriptFunc*>(value); break;
 
@@ -805,7 +952,8 @@ const glm::vec4& Datum::GetColor(uint32_t index) const
 
 Asset* Datum::GetAsset(uint32_t index) const
 {
-    PreGet(index, DatumType::Asset);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsAssetDatumType(mType));
     return mData.as[index].Get();
 }
 
@@ -890,7 +1038,8 @@ glm::vec4& Datum::GetColorRef(uint32_t index)
 
 AssetRef& Datum::GetAssetRef(uint32_t index)
 {
-    PreGet(index, DatumType::Asset);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsAssetDatumType(mType));
     return mData.as[index];
 }
 
@@ -902,7 +1051,8 @@ uint8_t& Datum::GetByteRef(uint32_t index)
 
 WeakPtr<Node>& Datum::GetNodeRef(uint32_t index)
 {
-    PreGet(index, DatumType::Node);
+    OCT_ASSERT(index < mCount);
+    OCT_ASSERT(IsNodeDatumType(mType));
     return mData.n[index];
 }
 
@@ -1049,7 +1199,12 @@ void Datum::PushBack(Asset* value)
 
 void Datum::PushBack(const AssetRef& value)
 {
-    PrePushBack(DatumType::Asset);
+    DatumType pushType = DatumType::Asset;
+    if (IsAssetDatumType(mType) && mType != DatumType::Asset)
+    {
+        pushType = mType;
+    }
+    PrePushBack(pushType);
     new (mData.as + mCount) AssetRef(value);
     mCount++;
 }
@@ -1080,9 +1235,7 @@ void Datum::PushBack(const WeakPtr<Node>& value)
     // Node subtypes (Node3D, Audio3D, Widget, etc.) all use WeakPtr<Node> storage.
     // Preserve the datum's existing subtype if it's already set.
     DatumType pushType = DatumType::Node;
-    if (mType == DatumType::Node3D || mType == DatumType::Audio3D ||
-        mType == DatumType::Widget || mType == DatumType::Text ||
-        mType == DatumType::Quad || mType == DatumType::Spline3D)
+    if (IsNodeDatumType(mType) && mType != DatumType::Node)
     {
         pushType = mType;
     }
@@ -1920,6 +2073,12 @@ void Datum::DeepCopy(const Datum& src, bool forceInternalStorage)
                 PushBack(*(src.mData.v4 + i));
                 break;
             case DatumType::Asset:
+            case DatumType::Scene:
+            case DatumType::Material:
+            case DatumType::TileSet:
+            case DatumType::TileMap:
+            case DatumType::Timeline:
+            case DatumType::NodeGraphAsset:
                 PushBack(*(src.mData.as + i));
                 break;
             case DatumType::Byte:
@@ -1935,6 +2094,31 @@ void Datum::DeepCopy(const Datum& src, bool forceInternalStorage)
             case DatumType::Text:
             case DatumType::Quad:
             case DatumType::Spline3D:
+            case DatumType::SpinBox:
+            case DatumType::Window:
+            case DatumType::DialogWindow:
+            case DatumType::InputField:
+            case DatumType::ProgressBar:
+            case DatumType::CheckBox:
+            case DatumType::ListViewWidget:
+            case DatumType::ListViewItemWidget:
+            case DatumType::DebugResourcesWidget:
+            case DatumType::ArrayWidget:
+            case DatumType::Button:
+            case DatumType::Slider:
+            case DatumType::LineEdit:
+            case DatumType::Canvas:
+            case DatumType::ComboBox:
+            case DatumType::Voxel3D:
+            case DatumType::Terrain3D:
+            case DatumType::TileMap2D:
+            case DatumType::NavMesh3D:
+            case DatumType::Camera3D:
+            case DatumType::DirectionalLight3D:
+            case DatumType::Box3D:
+            case DatumType::Particle3D:
+            case DatumType::TimelinePlayer:
+            case DatumType::NodeGraphPlayer:
                 PushBack(*(src.mData.n + i));
                 break;
             case DatumType::Short:
@@ -2107,6 +2291,12 @@ void Datum::ConstructData(DatumData& dataUnion, uint32_t index)
         dataUnion.v4[index] = {0.0f, 0.0f, 0.0f, 0.0f};
         break;
     case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
         new (dataUnion.as + index) AssetRef();
         break;
     case DatumType::Byte:
@@ -2122,6 +2312,31 @@ void Datum::ConstructData(DatumData& dataUnion, uint32_t index)
     case DatumType::Text:
     case DatumType::Quad:
     case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer:
         new (dataUnion.n + index) WeakPtr<Node>();
         break;
     case DatumType::Short:
@@ -2148,6 +2363,12 @@ void Datum::DestructData(DatumData& dataUnion, uint32_t index)
         dataUnion.s[index].std::string::~string();
         break;
     case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
         dataUnion.as[index].AssetRef::~AssetRef();
         break;
     case DatumType::Node:
@@ -2157,6 +2378,31 @@ void Datum::DestructData(DatumData& dataUnion, uint32_t index)
     case DatumType::Text:
     case DatumType::Quad:
     case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer:
         dataUnion.n[index].WeakPtr<Node>::~WeakPtr<Node>();
         break;
     case DatumType::Table:
@@ -2189,6 +2435,12 @@ void Datum::CopyData(DatumData& dst, uint32_t dstIndex, DatumData& src, uint32_t
         dst.s[dstIndex] = src.s[srcIndex];
         break;
     case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
         dst.as[dstIndex] = src.as[srcIndex];
         break;
     case DatumType::Table:

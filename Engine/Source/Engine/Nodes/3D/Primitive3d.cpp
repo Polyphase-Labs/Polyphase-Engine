@@ -636,7 +636,10 @@ void Primitive3D::SyncRigidBodyMass()
 
     float rigidBodyMass = mPhysicsEnabled ? mMass : 0.0f;
 
-    if (shape && shape->getShapeType() != EMPTY_SHAPE_PROXYTYPE)
+    // Only calculate inertia for dynamic bodies (mass > 0).
+    // Static bodies (mass = 0) don't need inertia, and some shapes
+    // like btBvhTriangleMeshShape don't support calculateLocalInertia.
+    if (rigidBodyMass > 0.0f && shape && shape->getShapeType() != EMPTY_SHAPE_PROXYTYPE)
     {
         shape->calculateLocalInertia(rigidBodyMass, localInertia);
     }

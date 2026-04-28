@@ -6,6 +6,10 @@
 
 #if EDITOR
 #include "imgui.h"
+#include "ActionManager.h"
+#include "Packaging/PackagingSettings.h"
+#include "Packaging/BuildProfile.h"
+#include "GamePreview/GamePreview.h"
 #endif
 
 static const char* AnchorModeToString(AnchorMode mode)
@@ -149,6 +153,7 @@ void Canvas::EditorTick(float deltaTime)
 }
 
 static bool sRegenerate = false;
+static bool sSetSizeToBuildProfile = false;
 
 void Canvas::GatherProperties(std::vector<Property>& outProps)
 {
@@ -158,6 +163,7 @@ void Canvas::GatherProperties(std::vector<Property>& outProps)
 
     outProps.push_back(Property(DatumType::Asset, "UI Document", this, &mUIDocumentRef, 1, Canvas::HandlePropChange, int32_t(UIDocument::GetStaticType())));
     outProps.push_back(Property(DatumType::Bool, "Regenerate Preview", this, &sRegenerate));
+    outProps.push_back(Property(DatumType::Bool, "Set Size To Build Profile Resolution", this, &sSetSizeToBuildProfile));
 }
 
 bool Canvas::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
@@ -278,6 +284,27 @@ bool Canvas::DrawCustomProperty(Property& prop)
         if (ImGui::Button("Regenerate Preview"))
         {
             GenerateEditorPreview();
+        }
+        return true;
+    }
+
+    if (prop.mName == "Set Size To Build Profile Resolution")
+    {
+        if (ImGui::Button("Set Size To Build Profile Resolution"))
+        {
+            uint32_t w = 640;
+            uint32_t h = 480;
+
+            PackagingSettings* pkgSettings = PackagingSettings::Get();
+            BuildProfile* profile = (pkgSettings != nullptr) ? pkgSettings->GetCurrentTargetProfile() : nullptr;
+            if (profile != nullptr)
+            {
+                const char* platformName = nullptr;
+                GamePreview::GetPlatformResolution(profile->mTargetPlatform, w, h, platformName);
+            }
+
+            glm::vec2 newSize((float)w, (float)h);
+            ActionManager::Get()->EXE_EditProperty(this, PropertyOwnerType::Node, "Size", 0, newSize);
         }
         return true;
     }

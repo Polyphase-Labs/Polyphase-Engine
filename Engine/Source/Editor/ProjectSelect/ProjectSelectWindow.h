@@ -31,6 +31,7 @@ public:
 private:
     void DrawRecentProjects();
     void DrawCreateProject();
+    void DrawCloneFromGit();
     void DrawTemplates();
     void DrawAddTemplatePopup();
 
@@ -53,7 +54,21 @@ private:
     char mProjectNameBuffer[256] = {};
     char mProjectPathBuffer[512] = {};
     int mProjectType = 0;  // 0 = Lua, 1 = C++
+    bool mInitGitRepo = false;
     int mSelectedTemplateIndex = -1;
+
+    // Clone From Git state
+    int mCloneUrlMode = 0;  // 0 = HTTPS, 1 = SSH
+    char mCloneHttpsUrl[512] = {};
+    char mCloneSshRepoPath[256] = {};
+    char mCloneProjectName[256] = {};
+    char mCloneLocation[512] = {};
+    int mCloneProjectType = 0;  // 0 = Lua, 1 = C++
+    int mCloneSshHostIndex = -1;
+    bool mCloneInProgress = false;
+    bool mCloneDone = false;
+    std::string mCloneResult;
+    int mCloneResultLevel = 0;
 
     // Recent projects removal tracking
     std::vector<std::string> mProjectsToRemove;

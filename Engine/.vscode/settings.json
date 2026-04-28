@@ -1,0 +1,8 @@
+{
+	"workbench.colorCustomizations": {
+		"activityBar.background": "#5B0A2E",
+		"titleBar.activeBackground": "#800E40",
+		"titleBar.activeForeground": "#FFFCFD"
+	},
+	"window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}[Branch: development/feature/voxelmesh]"
+}

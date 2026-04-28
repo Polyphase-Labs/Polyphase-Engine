@@ -737,6 +737,13 @@ void Widget::UpdateRect()
         mRect.mHeight = gameH;
     }
 
+    // Apply pivot-based position shift so that the user-specified offset refers
+    // to the pivot point on the widget rect, not the top-left corner. This matches
+    // Unity RectTransform / Unreal UMG semantics. With default mPivot = (0, 0),
+    // this is a no-op (backward compatible).
+    mRect.mX -= mPivot.x * mRect.mWidth;
+    mRect.mY -= mPivot.y * mRect.mHeight;
+
     glm::vec2 pivotPoint =
     {
         mRect.mX + mRect.mWidth * mPivot.x,

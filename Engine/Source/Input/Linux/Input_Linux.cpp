@@ -5,12 +5,14 @@
 
 #include "Engine.h"
 #include "Log.h"
+#include "Profiler.h"
 
 #include <xcb/xcb.h>
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <time.h>
 #include <linux/joystick.h>
 
 bool gWarpCursor = false;
@@ -137,16 +139,34 @@ void INP_Shutdown()
 
 void INP_Update()
 {
-    InputAdvanceFrame();
+    {
+        SCOPED_FRAME_STAT("INP.Advance");
+        InputAdvanceFrame();
+    }
+
+    // Throttle open() retries on disconnected joystick slots to 1Hz. Per-frame
+    // open() for every empty /dev/input/jsN path is harmless in the common
+    // case but can stall if udev is doing anything with that path. Matches the
+    // XInput-disconnected-slot throttle on Windows.
+    static uint64_t sLastOpenAttemptMs[INPUT_MAX_GAMEPADS] = { 0, 0, 0, 0 };
+    auto nowMs = []() -> uint64_t {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    };
+    uint64_t now = nowMs();
 
     struct js_event event;
 
+    SCOPED_FRAME_STAT("INP.Joystick");
     // Update connected gamepads. -1 indicates no gamepad connected.
     for (int32_t i = 0; i < INPUT_MAX_GAMEPADS; ++i)
     {
         if (jsHandles[i] == -1)
         {
-            // Attempt to open the controller
+            // Attempt to open the controller at most once per second.
+            if (now - sLastOpenAttemptMs[i] < 1000) continue;
+            sLastOpenAttemptMs[i] = now;
             jsHandles[i] = open(jsDevicePaths[i], O_RDONLY | O_NONBLOCK);
         }
         else
@@ -165,20 +185,23 @@ void INP_Update()
                     {
                         // printf("Axis %zu = %6d\n", event.number, event.value);
                         HandleJoystickAxisEvent(i, event.number, event.value);
-                            
+
                         break;
                     }
                     default:
                         /* Ignore init events. */
                         break;
                 }
-                
+
                 fflush(stdout);
             }
         }
     }
 
-    InputPostUpdate();
+    {
+        SCOPED_FRAME_STAT("INP.Post");
+        InputPostUpdate();
+    }
 }
 
 void INP_SetCursorPos(int32_t x, int32_t y)

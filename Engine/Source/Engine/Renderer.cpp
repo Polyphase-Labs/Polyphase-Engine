@@ -29,6 +29,7 @@
 #include "PaintManager.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
+#include "AnimationBrowser/AnimationBrowser.h"
 #endif
 
 // TEMPORARY!
@@ -349,14 +350,31 @@ void Renderer::EndFrame()
 
 void Renderer::EnableStatsOverlay(bool enable)
 {
+    // If the user placed a StatsOverlay in their scene, prefer that one and
+    // keep the renderer-owned fallback hidden — otherwise both stack on the
+    // same TopRight anchor and render over each other.
+    bool hasScenePlaced = false;
+    for (StatsOverlay* so : StatsOverlay::GetAllInstances())
+    {
+        if (so != mStatsWidget.Get())
+        {
+            so->SetVisible(enable);
+            hasScenePlaced = true;
+        }
+    }
+
     if (mStatsWidget)
     {
-        mStatsWidget->SetVisible(enable);
+        mStatsWidget->SetVisible(enable && !hasScenePlaced);
     }
 }
 
 bool Renderer::IsStatsOverlayEnabled() const
 {
+    for (StatsOverlay* so : StatsOverlay::GetAllInstances())
+    {
+        if (so != mStatsWidget.Get() && so->IsVisible()) return true;
+    }
     return mStatsWidget && mStatsWidget->IsVisible();
 }
 
@@ -1464,6 +1482,11 @@ void Renderer::Render(World* world, int32_t screenIndex)
             GetGamePreview()->Render();
         }
 
+        if (GetAnimationBrowser()->IsEnabled())
+        {
+            GetAnimationBrowser()->Render();
+        }
+
         // After secondary screen rendering, widget rects contain screen 1 coordinates.
         // Recompute them for screen 0 so that Draw2dSelections (which runs before the
         // next Render call) reads correct editor-viewport rects.
@@ -1542,7 +1565,7 @@ void Renderer::RenderSelectedGeometry(World* world)
 #if EDITOR
 void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depthTarget,
                                    uint32_t width, uint32_t height, Camera3D* cameraOverride,
-                                   int32_t targetScreen)
+                                   int32_t targetScreen, bool drawAccumulatedDebugDraws)
 {
     if (world == nullptr || colorTarget == nullptr || depthTarget == nullptr)
         return;
@@ -1663,15 +1686,21 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
             GFX_SetPipelineState(PipelineConfig::Forward);
             RenderDraws(mPostShadowOpaqueDraws);
             RenderDraws(mTranslucentDraws);
-            RenderDebugDraws(mDebugDraws);
-            RenderDebugDraws(Gizmos::GetSolidDraws());
+            if (drawAccumulatedDebugDraws)
+            {
+                RenderDebugDraws(mDebugDraws);
+                RenderDebugDraws(Gizmos::GetSolidDraws());
+            }
 
             GFX_EnableMaterials(false);
         }
 
         RenderDraws(mWireframeDraws, PipelineConfig::Wireframe);
-        RenderDebugDraws(mDebugDraws, PipelineConfig::Wireframe);
-        RenderDebugDraws(Gizmos::GetWireDraws(), PipelineConfig::Wireframe);
+        if (drawAccumulatedDebugDraws)
+        {
+            RenderDebugDraws(mDebugDraws, PipelineConfig::Wireframe);
+            RenderDebugDraws(Gizmos::GetWireDraws(), PipelineConfig::Wireframe);
+        }
 
         GFX_DrawLines(world->GetLines());
         GFX_DrawLines(Gizmos::GetLines());

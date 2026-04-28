@@ -398,6 +398,75 @@ void GFX_DrawTextMeshComp(TextMesh3D* textMeshComp)
     DrawTextMeshComp(textMeshComp);
 }
 
+void GFX_CreateVoxel3DResource(Voxel3D* voxel)
+{
+    if (IsHeadless()) return;
+    CreateVoxel3DResource(voxel);
+}
+
+void GFX_DestroyVoxel3DResource(Voxel3D* voxel)
+{
+    if (IsHeadless()) return;
+    DestroyVoxel3DResource(voxel);
+}
+
+void GFX_UpdateVoxel3DResource(Voxel3D* voxel, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    if (IsHeadless()) return;
+    UpdateVoxel3DResource(voxel, vertices, indices);
+}
+
+void GFX_DrawVoxel3D(Voxel3D* voxel)
+{
+    DrawVoxel3D(voxel);
+}
+
+void GFX_CreateTerrain3DResource(Terrain3D* terrain)
+{
+    if (IsHeadless()) return;
+    CreateTerrain3DResource(terrain);
+}
+
+void GFX_DestroyTerrain3DResource(Terrain3D* terrain)
+{
+    if (IsHeadless()) return;
+    DestroyTerrain3DResource(terrain);
+}
+
+void GFX_UpdateTerrain3DResource(Terrain3D* terrain, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    if (IsHeadless()) return;
+    UpdateTerrain3DResource(terrain, vertices, indices);
+}
+
+void GFX_DrawTerrain3D(Terrain3D* terrain)
+{
+    DrawTerrain3D(terrain);
+}
+
+void GFX_CreateTileMap2DResource(TileMap2D* tileMap)
+{
+    if (IsHeadless()) return;
+    CreateTileMap2DResource(tileMap);
+}
+
+void GFX_DestroyTileMap2DResource(TileMap2D* tileMap)
+{
+    if (IsHeadless()) return;
+    DestroyTileMap2DResource(tileMap);
+}
+
+void GFX_UpdateTileMap2DResource(TileMap2D* tileMap, const std::vector<VertexColor>& vertices, const std::vector<IndexType>& indices)
+{
+    if (IsHeadless()) return;
+    UpdateTileMap2DResource(tileMap, vertices, indices);
+}
+
+void GFX_DrawTileMap2D(TileMap2D* tileMap)
+{
+    DrawTileMap2D(tileMap);
+}
+
 void GFX_CreateParticleCompResource(Particle3D* particleComp)
 {
     if (IsHeadless()) return;
