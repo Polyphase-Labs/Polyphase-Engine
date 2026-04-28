@@ -24,6 +24,7 @@ SOURCES		:=	Source \
 				Source/Engine/Nodes/3D \
 				Source/Engine/Nodes/Widgets \
 				Source/Engine/Assets \
+				Source/Engine/Animation \
 				Source/Engine/NodeGraph \
 				Source/Engine/NodeGraph/Nodes \
 				Source/Engine/NodeGraph/Domains \
