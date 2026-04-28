@@ -230,3 +230,132 @@ Sig: `p = SpriteAnimator:GetProgress()`
 | OnAnimationStart | name (String) | Fired when a new clip starts. |
 | OnAnimationEnd | name (String) | Fired when a non-looping clip ends. |
 | OnFrameChanged | frameIndex (Integer) | Fired on every frame change. |
+
+---
+
+## Examples
+
+> **Note:** Always use `:` for method calls (`anim:Play()`), not `.` (`anim.Play()`). The colon form auto-passes the node as the first argument; the dot form does not, and ConnectSignal in particular will fail with a confusing nil-index error if you use `.`.
+
+### Connecting to OnAnimationEnd
+
+```lua
+MyScript = {}
+
+function MyScript:GatherProperties()
+    return { { name = "anim", type = DatumType.Node } }
+end
+
+function MyScript:Start()
+    -- Use ':' (colon), not '.' — this is the most common gotcha
+    self.anim:ConnectSignal("OnAnimationEnd", self, MyScript.OnAnimEnded)
+end
+
+function MyScript:OnAnimEnded(animName)
+    Log.Debug("Animation finished: " .. animName)
+end
+```
+
+### Driving a Quad from a SpriteAnimator
+
+```lua
+QuadBinder = {}
+
+function QuadBinder:GatherProperties()
+    return {
+        { name = "anim", type = DatumType.Node },
+        { name = "quad", type = DatumType.Quad },
+    }
+end
+
+function QuadBinder:Start()
+    self.anim:ConnectSignal("OnFrameChanged", self, QuadBinder.Refresh)
+    self:Refresh()  -- apply the initial frame so the quad isn't blank
+end
+
+function QuadBinder:Refresh()
+    local tex = self.anim:GetCurrentTexture()
+    if tex ~= nil then self.quad:SetTexture(tex) end
+
+    -- UV scale/offset are no-ops in discrete mode, only matter for atlas mode
+    local sx, sy = self.anim:GetCurrentUVScale()
+    local ox, oy = self.anim:GetCurrentUVOffset()
+    self.quad:SetUvScale(Vec(sx, sy))
+    self.quad:SetUvOffset(Vec(ox, oy))
+end
+```
+
+### Building animations at runtime (no asset needed)
+
+```lua
+function RuntimeBuilder:Start()
+    -- Variant 1: empty + AddImage one-by-one
+    self.anim:CreateAnimation("idle")
+    self.anim:AddImage("idle", "Textures/Idle_01")
+    self.anim:AddImage("idle", "Textures/Idle_02")
+
+    -- Variant 2: bulk add via AddImages (string paths)
+    self.anim:AddImages("walk", {
+        "Textures/Walk_01",
+        "Textures/Walk_02",
+        "Textures/Walk_03",
+    })
+
+    -- Variant 3: pre-load + CreateAnimation with table of textures
+    local hitFrames = {
+        LoadAsset("Textures/Hit_01"),
+        LoadAsset("Textures/Hit_02"),
+    }
+    self.anim:CreateAnimation("hit", hitFrames)
+
+    self.anim:PlayAnimation("idle")
+end
+```
+
+### Pause on a specific frame
+
+```lua
+self.anim:Pause()
+self.anim:SetFrame(0)  -- frozen on first frame
+```
+
+### Animate to a frame, then trigger logic
+
+```lua
+-- Wind-up then deal damage on the impact frame, then return to idle
+function Attack:Run()
+    self.anim:PlayAnimation("attack")
+    self.anim:AnimateTo(8, false, function()
+        Player:DealDamage()
+    end)
+end
+```
+
+### Drive a progress bar
+
+```lua
+function ProgressMirror:Tick(deltaTime)
+    self.bar:SetValue(self.anim:GetProgress())
+end
+```
+
+### Simple state machine
+
+```lua
+function Character:Tick(deltaTime)
+    if Input.IsKeyJustDown(Key.W) and self.state ~= "walk" then
+        self.state = "walk"
+        self.anim:PlayAnimation("walk")
+    elseif Input.IsKeyJustDown(Key.Space) and self.state ~= "jump" then
+        self.state = "jump"
+        self.anim:PlayAnimation("jump")
+        -- One-shot: when jump ends, go back to idle
+        self.anim:ConnectSignal("OnAnimationEnd", self, function(s, name)
+            if name == "jump" then
+                s.state = "idle"
+                s.anim:PlayAnimation("idle")
+            end
+        end)
+    end
+end
+```

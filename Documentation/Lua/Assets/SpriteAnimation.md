@@ -159,6 +159,96 @@ Sig: `SpriteAnimation:SetAtlasSpacing(x, y)`
 | Atlas Frame Indices | Atlas | Ordered list of cell indices that make up the playback. |
 | Edit Atlas Frames… | Atlas | Opens the visual atlas editor. |
 
+---
+
+## Examples
+
+> **Note:** Use `:` (colon) for method calls. Most of these examples are for runtime modification of an existing SpriteAnimation asset; in normal authoring you'd configure a SpriteAnimation through the editor inspector instead.
+
+### Loading and inspecting a SpriteAnimation asset
+
+```lua
+local anim = LoadAsset("Animations/Anim_Walk")
+
+Log.Debug("Clip name: " .. anim:GetAnimationName())
+Log.Debug("FPS: " .. anim:GetFps())
+Log.Debug("Frames: " .. anim:GetFrameCount())
+Log.Debug("Loops: " .. tostring(anim:GetLoop()))
+Log.Debug("Mode: " .. anim:GetMode())  -- 0 = Discrete, 1 = AtlasGrid
+```
+
+### Tweaking playback parameters at runtime
+
+```lua
+function CutsceneScript:Start()
+    local anim = LoadAsset("Animations/Anim_Boss_Idle")
+
+    -- Slow down idle for dramatic effect
+    anim:SetFps(6.0)
+    anim:SetLoop(true)
+end
+```
+
+### Adding frames to a Discrete-mode SpriteAnimation
+
+```lua
+function BuildAnimation:Start()
+    local anim = LoadAsset("Animations/Anim_Pickup")
+
+    -- Make sure we're in Discrete mode (0). Atlas mode is 1.
+    anim:SetMode(0)
+    anim:ClearFrames()
+
+    anim:AddFrame(LoadAsset("Textures/T_Pickup_01"))
+    anim:AddFrame(LoadAsset("Textures/T_Pickup_02"))
+    anim:AddFrame(LoadAsset("Textures/T_Pickup_03"))
+    anim:SetFps(8.0)
+    anim:SetLoop(false)
+end
+```
+
+### Configuring an Atlas-mode SpriteAnimation from script
+
+```lua
+function SetupAtlasAnim:Start()
+    local anim = LoadAsset("Animations/Anim_AtlasWalk")
+
+    anim:SetMode(1)  -- Atlas Grid
+    anim:SetAtlasTexture(LoadAsset("Textures/T_CharacterSheet"))
+    anim:SetAtlasGrid(8, 4)        -- 8 columns × 4 rows
+    anim:SetAtlasMargin(0, 0)
+    anim:SetAtlasSpacing(2, 2)     -- 2px between adjacent cells
+    anim:SetFps(12.0)
+    anim:SetLoop(true)
+
+    -- The Atlas Frame Indices array still has to be set in the inspector
+    -- (or via the visual atlas editor) — there's no Lua method to populate
+    -- it directly in v1.
+end
+```
+
+### Common pattern: register on an animator and play by name
+
+The asset itself is rarely manipulated from script — the typical flow is to register it with a [SpriteAnimator](../Nodes/SpriteAnimator.md) / [AnimatedWidget](../Nodes/Widgets/AnimatedWidget.md) / [AnimatedSprite3D](../Nodes/3D/AnimatedSprite3D.md) and play by clip name:
+
+```lua
+function PlayerSetup:Start()
+    -- Register a SpriteAnimation asset on the animator. Once added, the
+    -- animator can play it by name (the SpriteAnimation's Animation Name
+    -- field, or its asset filename if blank).
+    self.animator:AddAnimation(LoadAsset("Animations/Anim_Walk"))
+    self.animator:AddAnimation("Animations/Anim_Run")  -- by path also works
+
+    self.animator:PlayAnimation("walk")
+end
+```
+
+### Authoring tip — bulk import from selected textures
+
+You don't usually need any of the above. In the editor, select the texture frames in the Asset Browser (click first, Shift-click last for range), right-click → **Create Animation Asset From Selected**. Frames are added in selection order, and the new SpriteAnimation is auto-named `Anim_<base>`.
+
+---
+
 ## See Also
 
 - [SpriteAnimator](../Nodes/SpriteAnimator.md)

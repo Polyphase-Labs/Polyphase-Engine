@@ -3362,7 +3362,7 @@ static void CreateAndSaveDefaultScene(const std::string& scenePath, const std::s
 {
     // Create a root Node3D using proper construction
     NodePtr root = Node::Construct(Node3D::GetStaticType());
-    root->SetName("Root");
+    root->SetName((sceneName +"_Root").c_str());
 
     NodePtr camera = Node::Construct(Camera3D::GetStaticType());
     camera->SetName("Camera");
