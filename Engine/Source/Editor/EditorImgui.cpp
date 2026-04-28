@@ -4290,7 +4290,9 @@ static void DrawScenePanel()
             AlternatingRowBackground();
             bool nodeClicked = ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen();
             bool nodeMiddleClicked = ImGui::IsItemClicked(ImGuiMouseButton_Middle);
+            ImGui::PushID((void*)node);
             ImGui::OpenPopupOnItemClick("##NodeCtx", ImGuiPopupFlags_MouseButtonRight);
+            ImGui::PopID();
             bool expandChildren = trackingNode || (nodeMiddleClicked && IsControlDown());
             bool collapseChildren = !expandChildren && nodeMiddleClicked;
 
@@ -4514,6 +4516,7 @@ static void DrawScenePanel()
                 GetEditorState()->mTrackSelectedNode = false;
             }
 
+            ImGui::PushID((void*)node);
             if (ImGui::BeginPopup("##NodeCtx"))
             {
                 bool setTextInputFocus = false;
@@ -5071,6 +5074,7 @@ static void DrawScenePanel()
 
                 ImGui::EndPopup();
             }
+            ImGui::PopID();
 
             if (nodeOpen)
             {
@@ -5641,6 +5645,43 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         {
             ImGui::OpenPopup("Make Zoo");
             strncpy(sPopupInputBuffer, "SC_Zoo", kPopupInputBufferSize - 1);
+            sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
+            setTextInputFocus = true;
+        }
+    }
+
+    // Create Animation Asset From Selected — available when 2+ Texture assets
+    // are selected. Frames are added in selection order; default asset name is
+    // "Anim_" + first selected texture's base name (T_ prefix stripped if any).
+    {
+        const auto& multiStubs = GetEditorState()->GetSelectedAssetStubs();
+        int textureCount = 0;
+        for (AssetStub* s : multiStubs)
+        {
+            if (s && s->mType == Texture::GetStaticType()) textureCount++;
+        }
+
+        if (textureCount >= 2 && ImGui::Selectable("Create Animation Asset From Selected", false, ImGuiSelectableFlags_DontClosePopups))
+        {
+            std::string defaultName = "Anim_Sprite";
+            for (AssetStub* s : multiStubs)
+            {
+                if (s && s->mType == Texture::GetStaticType())
+                {
+                    std::string base = s->mName;
+                    // Strip the conventional "T_" texture prefix so the default
+                    // ends up like "Anim_Walk" rather than "Anim_T_Walk".
+                    if (base.length() >= 2 && base[0] == 'T' && base[1] == '_')
+                    {
+                        base = base.substr(2);
+                    }
+                    defaultName = "Anim_" + base;
+                    break;
+                }
+            }
+
+            ImGui::OpenPopup("Create Animation From Textures");
+            strncpy(sPopupInputBuffer, defaultName.c_str(), kPopupInputBufferSize - 1);
             sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
             setTextInputFocus = true;
         }
@@ -6242,6 +6283,70 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     scene->Capture(root.Get());
                     AssetManager::Get()->SaveAsset(*sceneStub);
                     GetEditorState()->OpenEditScene(scene);
+                }
+            }
+
+            ImGui::CloseCurrentPopup();
+            closeContextPopup = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // Create Animation From Textures popup — opened from the multi-Texture
+    // context menu entry above. Builds a Discrete-mode SpriteAnimation with
+    // the selected Texture assets as frames in selection order.
+    if (ImGui::BeginPopup("Create Animation From Textures"))
+    {
+        if (setTextInputFocus)
+        {
+            ImGui::SetKeyboardFocusHere();
+        }
+
+        ImGui::InputText("Asset Name", sPopupInputBuffer, kPopupInputBufferSize);
+
+        const auto& multiStubs = GetEditorState()->GetSelectedAssetStubs();
+        int textureCount = 0;
+        for (AssetStub* s : multiStubs)
+        {
+            if (s && s->mType == Texture::GetStaticType()) textureCount++;
+        }
+        ImGui::Text("%d frame%s in selection order", textureCount, textureCount == 1 ? "" : "s");
+
+        if (ImGui::Button("Create") || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+        {
+            std::vector<Texture*> frames;
+            for (AssetStub* s : multiStubs)
+            {
+                if (s && s->mType == Texture::GetStaticType())
+                {
+                    if (!s->mAsset) AssetManager::Get()->LoadAsset(*s);
+                    Texture* tex = s->mAsset ? s->mAsset->As<Texture>() : nullptr;
+                    if (tex) frames.push_back(tex);
+                }
+            }
+
+            if (!frames.empty())
+            {
+                std::string assetName = sPopupInputBuffer[0] ? sPopupInputBuffer : "Anim_Sprite";
+                AssetStub* newStub = EditorAddUniqueAsset(assetName.c_str(), curDir, SpriteAnimation::GetStaticType(), true);
+                if (newStub != nullptr && newStub->mAsset != nullptr)
+                {
+                    SpriteAnimation* anim = newStub->mAsset->As<SpriteAnimation>();
+                    if (anim != nullptr)
+                    {
+                        anim->SetMode(SpriteFrameSourceMode::Discrete);
+                        anim->SetAnimationName(assetName);
+                        for (Texture* tex : frames)
+                        {
+                            anim->AddFrame(tex);
+                        }
+                        AssetManager::Get()->SaveAsset(*newStub);
+                    }
                 }
             }
 

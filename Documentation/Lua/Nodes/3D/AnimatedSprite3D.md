@@ -270,3 +270,123 @@ Two meshes referencing the same Material asset will both show the animation. To 
 For **MaterialLite**, defaults are: Diffuse Slot = 0, Alpha Slot = 1, Emission Slot = 2, Atlas UV Map = 0. Override via the inspector to match your MaterialLite layout.
 
 For **custom Materials**, defaults are: Diffuse Param = `DiffuseMap`, Alpha Param = `AlphaMap`, Emission Param = `EmissionMap`, UV Rect Param = `AnimUVRect`. Override to match your shader's parameter names.
+
+---
+
+## Examples
+
+> **Note:** Use `:` (colon) for method calls, not `.` (dot). `sprite:Play()` is correct; `sprite.Play()` will not work for instance methods or `ConnectSignal`.
+
+### Basic playback (no script — inspector only)
+
+The simplest setup needs no script at all:
+1. Place a `StaticMesh3D` in your scene with a `MaterialLite`.
+2. Place an `AnimatedSprite3D` (anywhere — its transform isn't used).
+3. In the AnimatedSprite3D inspector: drag the same MaterialLite into `Material`, drag SpriteAnimation assets into `Animations`, set `Default Animation`, tick `Auto Play`, leave `Affect Diffuse = true`.
+4. Hit Play. The mesh's diffuse texture animates.
+
+### Switch animations on a trigger
+
+```lua
+DoorAnimator = {}
+
+function DoorAnimator:GatherProperties()
+    return { { name = "sprite", type = DatumType.Node } }
+end
+
+function DoorAnimator:OnPlayerNear()
+    self.sprite:PlayAnimation("opening")
+end
+
+function DoorAnimator:OnPlayerFar()
+    self.sprite:PlayAnimation("closing")
+end
+```
+
+### One-shot impact effect
+
+```lua
+function ExplodeFX:Start()
+    self.sprite:PlayAnimation("explode")
+    self.sprite:ConnectSignal("OnAnimationEnd", self, ExplodeFX.Cleanup)
+end
+
+function ExplodeFX:Cleanup(animName)
+    self.Owner:DestroyDeferred()
+end
+```
+
+### Drive multiple texture slots from one animation
+
+To use the animated frames as both the base color **and** the emissive (e.g. a glowing icon that throbs):
+
+```lua
+function GlowIcon:Start()
+    -- In the inspector, tick BOTH Affect Diffuse and Affect Emission.
+    -- Both slots receive the same animated texture each frame.
+    self.sprite:SetAffectDiffuse(true)
+    self.sprite:SetAffectEmission(true)
+end
+```
+
+### Two AnimatedSprite3Ds on the same MaterialLite (independent diffuse + alpha)
+
+Place two AnimatedSprite3D nodes pointing at the same MaterialLite — one drives Diffuse Slot 0 with the color frames, the other drives Alpha Slot 1 with the mask frames. (See the `MaterialLite` docs for how to configure TEV Mode 1 + Blend Mode so the alpha actually applies.)
+
+```lua
+function CharacterRig:Start()
+    -- Sprite #1: animate the diffuse
+    self.diffuse:SetMaterial(LoadAsset("Materials/M_Character"))
+    self.diffuse:SetAffectDiffuse(true)
+    self.diffuse:SetAffectAlpha(false)
+    self.diffuse:PlayAnimation("walk_diffuse")
+
+    -- Sprite #2: animate the mask in the same material's slot 1
+    self.mask:SetMaterial(LoadAsset("Materials/M_Character"))
+    self.mask:SetAffectDiffuse(false)
+    self.mask:SetAffectAlpha(true)
+    self.mask:PlayAnimation("walk_mask")
+end
+```
+
+### Custom Material with named shader parameters
+
+If your Material is a full `Material` (not MaterialLite) with a custom shader exposing `BaseColor` and `EmissiveColor` texture parameters:
+
+```lua
+-- In the inspector, override the param names to match your shader:
+--   Diffuse Param Name  = "BaseColor"
+--   Emission Param Name = "EmissiveColor"
+-- Or set them from script:
+self.sprite.Owner:Find("AnimatedSprite3D"):SetMaterial(myCustomMat)
+-- (Param-name overrides aren't currently exposed to Lua; set them in the inspector.)
+```
+
+For atlas-mode animations on a custom shader, your shader can read the `AnimUVRect` vec4 parameter:
+
+```glsl
+uniform vec4 AnimUVRect;  // (u0, v0, u1, v1)
+
+// In the fragment shader:
+vec2 cellUV = mix(AnimUVRect.xy, AnimUVRect.zw, baseUV);
+vec4 color = texture(BaseColor, cellUV);
+```
+
+### Animate to a frame, run damage logic, return to idle
+
+```lua
+function Enemy:Attack()
+    self.sprite:PlayAnimation("attack")
+    self.sprite:AnimateTo(7, false, function()  -- frame 7 = impact
+        Player:TakeDamage(self.damage)
+    end)
+    -- After animation finishes naturally, go back to idle
+    self.sprite:ConnectSignal("OnAnimationEnd", self, Enemy.OnAttackDone)
+end
+
+function Enemy:OnAttackDone(animName)
+    if animName == "attack" then
+        self.sprite:PlayAnimation("idle")
+    end
+end
+```

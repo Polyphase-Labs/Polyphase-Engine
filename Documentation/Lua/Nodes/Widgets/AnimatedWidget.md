@@ -223,3 +223,125 @@ Sig: `p = AnimatedWidget:GetProgress()`
 | OnAnimationStart | name (String) | Fired when a new clip starts via `PlayAnimation` or auto-play. |
 | OnAnimationEnd | name (String) | Fired when a non-looping clip reaches its last frame. |
 | OnFrameChanged | frameIndex (Integer) | Fired every time the displayed frame changes. |
+
+---
+
+## Examples
+
+> **Note:** Use `:` (colon) for method calls, not `.` (dot). `widget:Play()` is correct; `widget.Play()` does not pass the node as `self` and breaks ConnectSignal in particular.
+
+### Zero-script setup
+
+For most cases you don't need a script at all. In the editor:
+1. Add an `AnimatedWidget` to your Canvas.
+2. Drop SpriteAnimation assets into its `Animations` array.
+3. Set `Default Animation` to one of their names, tick `Auto Play`.
+4. Hit Play. The widget animates.
+
+Use scripts only when you need to switch animations dynamically or react to events.
+
+### Switching animations from input
+
+```lua
+CharacterPortrait = {}
+
+function CharacterPortrait:GatherProperties()
+    return { { name = "widget", type = DatumType.Quad } }
+end
+
+function CharacterPortrait:Tick(deltaTime)
+    if Input.IsKeyJustDown(Key.N1) then
+        self.widget:PlayAnimation("idle")
+    elseif Input.IsKeyJustDown(Key.N2) then
+        self.widget:PlayAnimation("happy")
+    elseif Input.IsKeyJustDown(Key.N3) then
+        self.widget:PlayAnimation("angry")
+    end
+end
+```
+
+### One-shot effect that despawns when done
+
+```lua
+HitFX = {}
+
+function HitFX:GatherProperties()
+    return { { name = "widget", type = DatumType.Quad } }
+end
+
+function HitFX:Start()
+    self.widget:PlayAnimation("explode")
+    self.widget:ConnectSignal("OnAnimationEnd", self, HitFX.Finish)
+end
+
+function HitFX:Finish(animName)
+    self.Owner:DestroyDeferred()
+end
+```
+
+### Pause on first frame (for a still-frame UI element)
+
+```lua
+function StillIcon:Start()
+    self.widget:PlayAnimation("hover")
+    self.widget:Pause()
+    self.widget:SetFrame(0)
+end
+
+function StillIcon:OnHover()
+    self.widget:Play()
+end
+```
+
+### Runtime-built animation from a list of texture paths
+
+```lua
+function ItemTicker:Start()
+    self.widget:CreateAnimation("scroll")
+    self.widget:AddImages("scroll", {
+        "Textures/Item_Sword",
+        "Textures/Item_Shield",
+        "Textures/Item_Potion",
+    })
+    self.widget:PlayAnimation("scroll")
+end
+```
+
+### Animate intro, then loop the idle
+
+```lua
+function PanelIntro:Start()
+    self.widget:PlayAnimation("intro")
+    self.widget:ConnectSignal("OnAnimationEnd", self, PanelIntro.OnIntroDone)
+end
+
+function PanelIntro:OnIntroDone(animName)
+    if animName == "intro" then
+        self.widget:PlayAnimation("idle")  -- looping
+    end
+end
+```
+
+### Play to a specific frame, then run logic
+
+```lua
+-- Play "open" until frame 6, pause, run a callback,
+-- then continue to the end, returning to idle.
+self.widget:PlayAnimation("open")
+self.widget:AnimateTo(6, true, function()
+    self:OnHalfwayOpen()
+    -- Resume from where we paused, animate to the last frame, then idle
+    self.widget:Play()
+    self.widget:AnimateToProgress(1.0, true, function()
+        self.widget:PlayAnimation("idle")
+    end)
+end)
+```
+
+### Drive a progress bar synced to the widget's playback
+
+```lua
+function ProgressTracker:Tick(deltaTime)
+    self.progressBar:SetValue(self.widget:GetProgress())
+end
+```
