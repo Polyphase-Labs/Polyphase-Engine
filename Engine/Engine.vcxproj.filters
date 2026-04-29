@@ -1247,6 +1247,9 @@
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\ControllerServer\EditorScreenshot.cpp">
+      <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Network\NetworkModule.cpp">
       <Filter>Source Files\Editor\Preferences\Network</Filter>
     </ClCompile>
@@ -2644,6 +2647,9 @@
       <Filter>Source Files\Editor\ControllerServer</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerTypes.h">
+      <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\ControllerServer\EditorScreenshot.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Network\NetworkModule.h">

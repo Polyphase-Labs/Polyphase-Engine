@@ -1,6 +1,6 @@
-# Octave Widget Generation Skill
+# Polyphase Widget Generation Skill
 
-Generate new UI widgets for the Octave Engine following established patterns.
+Generate new UI widgets for the Polyphase Engine following established patterns.
 
 ## Widget File Structure
 
@@ -28,7 +28,7 @@ class Quad;
 class Text;
 // Forward declare child widget types
 
-class OCTAVE_API MyWidget : public Widget
+class Polyphase_API MyWidget : public Widget
 {
 public:
 
@@ -276,7 +276,9 @@ MyWidget_Lua::Bind();
 ## Key Patterns
 
 ### Transient Children
+
 Internal UI elements that shouldn't be serialized:
+
 ```cpp
 mChild = CreateChild<Quad>("Child");
 mChild->SetTransient(true);
@@ -286,20 +288,26 @@ mChild->mHiddenInTree = true;
 ```
 
 ### Signals and Callbacks (Dual Pattern)
+
 Always emit both signal and call Lua function:
+
 ```cpp
 EmitSignal("Activated", { this });
 CallFunction("OnActivated", { this });
 ```
 
 ### Property Change Handling
+
 Use HandlePropChange for editor property updates:
+
 ```cpp
 props.push_back(Property(DatumType::Float, "Value", this, &mValue, 1, HandlePropChange));
 ```
 
 ### Lazy Container Creation
+
 Create containers on first access (like Window pattern):
+
 ```cpp
 void MyWidget::EnsureContainers()
 {
@@ -312,6 +320,7 @@ void MyWidget::EnsureContainers()
 ```
 
 ### Common Property Types
+
 ```cpp
 DatumType::Bool      // bool
 DatumType::Integer   // int32_t
@@ -324,6 +333,7 @@ DatumType::Byte      // uint8_t (for enums, add strings array)
 ```
 
 ### Common Lua Type Checks
+
 ```cpp
 CHECK_NUMBER(L, arg)    // float
 CHECK_INTEGER(L, arg)   // int

@@ -53,6 +53,7 @@ Singleton: `NetworkModule::Get()`. Registered as root module in `PreferencesMana
 | Method | Path | Action |
 |--------|------|--------|
 | GET | `/api/scene` | Scene name + play/paused state |
+| POST | `/api/scene/new` | Create new scene asset (`{name, type:"3D"\|"2D", createCamera, open}`); built-in 2D/3D only |
 | POST | `/api/scene/open` | Open scene by name |
 | POST | `/api/scene/save` | Save current scene |
 | GET | `/api/scene/hierarchy` | Recursive node tree JSON |
@@ -86,6 +87,21 @@ Singleton: `NetworkModule::Get()`. Registered as root module in `PreferencesMana
 
 ### Assets
 | POST | `/api/assets/import` | Import asset from disk path |
+
+### Diagnostics
+| Method | Path | Action |
+|--------|------|--------|
+| GET | `/api/log` | Tail editor debug log (query: `since`, `limit`, `minSeverity`) |
+| GET | `/api/screenshot` | PNG of the Game Preview viewport (query: `width`) |
+| GET | `/api/screenshot/editor` | PNG of the entire editor window incl. ImGui chrome (query: `width`) |
+
+The log endpoint reads from the existing `DebugLogWindow` ring buffer (cap 2048 entries) — no parallel buffer is maintained. Each entry has a monotonic `seq` so clients can poll with `?since=<lastSeq>`. Response body: `{ "entries": [{seq, severity, severityName, timestamp, message}, ...], "nextSeq", "dropped" }`. `dropped: true` means older entries the caller hadn't seen yet were evicted from the ring before this poll.
+
+`/api/screenshot` reuses `GamePreview::CaptureScreenshotToMemory` (Vulkan-only) — same readback path as the editor's "Screenshot" button, but returns the PNG inline instead of writing to disk. Captures the Game Preview viewport only (no imgui chrome). Requires Game Preview enabled and rendered at least once.
+
+`/api/screenshot/editor` does a full swapchain readback in `EditorScreenshot.cpp`, hooked into `Renderer::Render` just before `EndFrame()`. Use this for UI/widget authoring or any task where you need to see imgui panels (inspector, hierarchy, debug log) — the Game Preview only renders 3D-camera scenes through `GamePreview::Render`, so it's not useful for UI work outside play mode. The route handler enqueues a `std::promise<EditorScreenshotData>` via `RequestEditorScreenshot`, which the post-render hook `ProcessPendingEditorScreenshots` fulfills — typical latency is one render frame (~16ms). Times out at 2s if no render frame happens (e.g. editor window minimized).
+
+Both screenshot endpoints share the same JSON shape: `{ "format": "png", "width", "height", "data": "<base64>" }`, support optional `?width=N` downscale via `stbir_resize_uint8_linear` (preserves aspect, won't upscale), and are Vulkan-only.
 
 ## Thread Safety Model
 

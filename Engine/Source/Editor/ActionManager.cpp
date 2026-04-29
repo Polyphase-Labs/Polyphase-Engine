@@ -80,8 +80,10 @@
 #include "Nodes/3D/TextMesh3d.h"
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/Widgets/Widget.h"
+#include "Nodes/Widgets/Canvas.h"
 #include "Script.h"
 #include "Datum.h"
+#include "GamePreview/GamePreview.h"
 
 #include "System/System.h"
 #include "Packaging/PackagingSettings.h"
@@ -3731,6 +3733,68 @@ void ActionManager::OpenScene()
 void ActionManager::OpenScene(Scene* scene)
 {
     GetEditorState()->OpenEditScene(scene);
+}
+
+Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, AssetDir* targetDir)
+{
+    if (sceneName == nullptr || sceneName[0] == '\0')
+        return nullptr;
+
+    if (targetDir == nullptr)
+        targetDir = GetEditorState()->GetAssetDirectory();
+
+    if (targetDir == nullptr)
+        return nullptr;
+
+    // Plugin scene types (sceneType >= 2) are not supported here — those go through
+    // the EditorImgui menu path which has access to plugin function pointers.
+    if (sceneType != 0 && sceneType != 1)
+        return nullptr;
+
+    AssetStub* stub = EditorAddUniqueAsset(sceneName, targetDir, Scene::GetStaticType(), true);
+    if (stub == nullptr || stub->mAsset == nullptr)
+        return nullptr;
+
+    Scene* scene = (Scene*)stub->mAsset;
+
+    if (sceneType == 1) // 3D
+    {
+        SharedPtr<Node3D> root = Node::Construct<Node3D>();
+        root->SetName("Root");
+
+        if (createCamera)
+        {
+            Camera3D* cam = root->CreateChild<Camera3D>("Camera3D");
+            cam->SetPosition(glm::vec3(0.0f, 0.0f, 5.0f));
+        }
+
+        scene->Capture(root.Get());
+    }
+    else // 2D
+    {
+        SharedPtr<Canvas> root = Node::Construct<Canvas>();
+        root->SetName("Root");
+
+        // Match the EditorImgui "New Scene" popup: size the Canvas to the current
+        // Build Profile's platform resolution, with a 640x480 fallback.
+        uint32_t canvasW = 640;
+        uint32_t canvasH = 480;
+
+        PackagingSettings* pkgSettings = PackagingSettings::Get();
+        BuildProfile* profile = (pkgSettings != nullptr) ? pkgSettings->GetCurrentTargetProfile() : nullptr;
+        if (profile != nullptr)
+        {
+            const char* platformName = nullptr;
+            GamePreview::GetPlatformResolution(profile->mTargetPlatform, canvasW, canvasH, platformName);
+        }
+
+        root->SetSize((float)canvasW, (float)canvasH);
+
+        scene->Capture(root.Get());
+    }
+
+    AssetManager::Get()->SaveAsset(*stub);
+    return scene;
 }
 
 void ActionManager::SaveScene(bool saveAs)

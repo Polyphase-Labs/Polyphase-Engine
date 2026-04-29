@@ -30,7 +30,40 @@ void DebugLogWindow::LogCallback(LogSeverity severity, const char* message)
     entry.mTimestamp = clock ? clock->GetTime() : 0.0f;
 
     std::lock_guard<std::mutex> lock(sDebugLogWindow.mBufferMutex);
+    entry.mSeq = ++sDebugLogWindow.mNextSeq;
     sDebugLogWindow.mPendingEntries.push_back(std::move(entry));
+}
+
+void DebugLogWindow::GetEntriesSnapshot(uint64_t sinceSeq,
+                                        uint32_t maxCount,
+                                        std::vector<DebugLogEntry>& outEntries,
+                                        uint64_t& outNextSeq)
+{
+    DrainPendingEntries();
+
+    outEntries.clear();
+    if (maxCount == 0)
+    {
+        std::lock_guard<std::mutex> lock(mBufferMutex);
+        outNextSeq = mNextSeq;
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mBufferMutex);
+        outNextSeq = mNextSeq;
+    }
+
+    outEntries.reserve(std::min<size_t>(maxCount, mEntries.size()));
+    for (const auto& entry : mEntries)
+    {
+        if (entry.mSeq > sinceSeq)
+        {
+            outEntries.push_back(entry);
+            if (outEntries.size() >= maxCount)
+                break;
+        }
+    }
 }
 
 void DebugLogWindow::DrainPendingEntries()

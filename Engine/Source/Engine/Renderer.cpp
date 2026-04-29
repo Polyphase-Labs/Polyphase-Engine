@@ -29,6 +29,7 @@
 #include "PaintManager.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
+#include "ControllerServer/EditorScreenshot.h"
 #include "AnimationBrowser/AnimationBrowser.h"
 #endif
 
@@ -1505,6 +1506,10 @@ void Renderer::Render(World* world, int32_t screenIndex)
                 });
             }
         }
+#endif
+
+#if EDITOR
+        ProcessPendingEditorScreenshots();
 #endif
 
         {

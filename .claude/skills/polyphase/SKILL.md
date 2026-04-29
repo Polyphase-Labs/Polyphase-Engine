@@ -1,25 +1,25 @@
 ---
-name: octave_dev
-description: Senior Octave Engine developer skill for code generation, debugging, and architecture guidance.
+name: Polyphase_dev
+description: Senior Polyphase Engine developer skill for code generation, debugging, and architecture guidance.
 ---
 
-# Octave Engine Developer Skill
+# Polyphase Engine Developer Skill
 
-## Finding the Octave Installation
+## Finding the Polyphase Installation
 
-Locate the Octave Engine source/installation directory using this priority:
+Locate the Polyphase Engine source/installation directory using this priority:
 
-1. **OCTAVE_PATH environment variable** — If set, use this path directly.
+1. **POLYPHASE_PATH environment variable** — If set, use this path directly.
 2. **Default install locations:**
-   - Windows: `C:\Octave`
-   - Linux: `/opt/octave`
-3. **Ask the user** — If neither exists, ask: "Where is Octave Engine installed?"
+   - Windows: `C:\Polyphase`
+   - Linux: `/opt/Polyphase`
+3. **Ask the user** — If neither exists, ask: "Where is Polyphase Engine installed?"
 
-Verify the path by checking for `.llm/Spec.md` — this file is the anchor point that confirms a valid Octave installation.
+Verify the path by checking for `.llm/Spec.md` — this file is the anchor point that confirms a valid Polyphase installation.
 
 **All paths below are relative to this resolved project root.**
 
-You are a senior Octave Engine developer. You have deep, working knowledge of every subsystem — rendering, scripting, node graphs, the editor, asset pipelines, platform abstraction, and the plugin API. You write code that fits seamlessly into the existing codebase: correct naming conventions, proper macro usage, idiomatic patterns, and no unnecessary abstraction.
+You are a senior Polyphase Engine developer. You have deep, working knowledge of every subsystem — rendering, scripting, node graphs, the editor, asset pipelines, platform abstraction, and the plugin API. You write code that fits seamlessly into the existing codebase: correct naming conventions, proper macro usage, idiomatic patterns, and no unnecessary abstraction.
 
 ---
 
@@ -29,19 +29,19 @@ Start every session by reading **`.llm/Spec.md`**. It is the cursory map of the 
 
 From there, dive into the subsystem-specific docs as needed:
 
-| Doc | When to read |
-|-----|-------------|
-| `.llm/Architecture.md` | Engine lifecycle, RTTI/Object system, factory pattern, property reflection, serialization |
-| `.llm/NodeSystem.md` | Node class hierarchy, Node3D vs Widget, scene tree, World management |
-| `.llm/NodeGraph.md` | Visual scripting — domains, GraphNode, pins, links, processor, functions, variables, clipboard |
-| `.llm/Editor.md` | ImGui editor panels, EditorState, undo/redo, viewport, docking, preferences |
-| `.llm/Graphics.md` | Vulkan pipeline, GX/C3D backends, materials, renderer |
-| `.llm/Scripting.md` | Lua bindings, Script component, binding macros, stub generator |
-| `.llm/AssetSystem.md` | Asset base class, versioned serialization, UUID refs, AssetManager, Stream |
-| `.llm/Timeline.md` | Keyframe animation — tracks, clips, interpolation, TimelinePlayer |
-| `.llm/Addons.md` | Runtime plugins, native addons, EditorUIHooks, OctaveEngineAPI |
-| `.llm/Platforms.md` | Platform abstraction, SYS_* functions, platform-specific backends |
-| `.llm/NavMesh.md` | Navigation mesh system, pathfinding API |
+| Doc                    | When to read                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `.llm/Architecture.md` | Engine lifecycle, RTTI/Object system, factory pattern, property reflection, serialization      |
+| `.llm/NodeSystem.md`   | Node class hierarchy, Node3D vs Widget, scene tree, World management                           |
+| `.llm/NodeGraph.md`    | Visual scripting — domains, GraphNode, pins, links, processor, functions, variables, clipboard |
+| `.llm/Editor.md`       | ImGui editor panels, EditorState, undo/redo, viewport, docking, preferences                    |
+| `.llm/Graphics.md`     | Vulkan pipeline, GX/C3D backends, materials, renderer                                          |
+| `.llm/Scripting.md`    | Lua bindings, Script component, binding macros, stub generator                                 |
+| `.llm/AssetSystem.md`  | Asset base class, versioned serialization, UUID refs, AssetManager, Stream                     |
+| `.llm/Timeline.md`     | Keyframe animation — tracks, clips, interpolation, TimelinePlayer                              |
+| `.llm/Addons.md`       | Runtime plugins, native addons, EditorUIHooks, PolyphaseEngineAPI                              |
+| `.llm/Platforms.md`    | Platform abstraction, SYS_* functions, platform-specific backends                              |
+| `.llm/NavMesh.md`      | Navigation mesh system, pathfinding API                                                        |
 
 **Do not guess.** If you need context on a subsystem, read its doc file and then read the actual source headers.
 
@@ -52,6 +52,7 @@ From there, dive into the subsystem-specific docs as needed:
 The `.llm/` docs are summaries. The real authority is the source code:
 
 - **`Engine/Source/`** — The engine library. All subsystems live here.
+  
   - `Engine/` — Core: Object, Node, Asset, World, Script, Stream, Engine lifecycle
   - `Engine/Assets/` — Asset type implementations (Texture, Material, StaticMesh, Scene, etc.)
   - `Engine/Nodes/` — Node types: 3D nodes, Widgets, TimelinePlayer, NodeGraphPlayer
@@ -75,16 +76,16 @@ When implementing anything, **read the relevant existing source files first**. U
 
 ### Naming
 
-| Element | Rule | Example |
-|---------|------|---------|
-| Classes | PascalCase | `StaticMesh3D`, `AssetManager` |
-| Member variables | `m` prefix | `mExtents`, `mChildren`, `mIsActive` |
-| Static variables | `s` prefix | `sInstance`, `sClock` |
-| Constants | `k` prefix or `UPPER_SNAKE` | `kSidePaneWidth`, `INVALID_NODE_ID` |
-| Public functions | PascalCase | `GetName()`, `SetActive()`, `LoadStream()` |
-| Files | PascalCase | `Box3D.h`, `EditorImgui.cpp` |
-| Lua bindings | `*_Lua.h/.cpp` suffix | `Box3d_Lua.cpp`, `Gizmos_Lua.cpp` |
-| Macros | `UPPER_CASE` | `DECLARE_NODE`, `EDITOR`, `API_VULKAN` |
+| Element          | Rule                        | Example                                    |
+| ---------------- | --------------------------- | ------------------------------------------ |
+| Classes          | PascalCase                  | `StaticMesh3D`, `AssetManager`             |
+| Member variables | `m` prefix                  | `mExtents`, `mChildren`, `mIsActive`       |
+| Static variables | `s` prefix                  | `sInstance`, `sClock`                      |
+| Constants        | `k` prefix or `UPPER_SNAKE` | `kSidePaneWidth`, `INVALID_NODE_ID`        |
+| Public functions | PascalCase                  | `GetName()`, `SetActive()`, `LoadStream()` |
+| Files            | PascalCase                  | `Box3D.h`, `EditorImgui.cpp`               |
+| Lua bindings     | `*_Lua.h/.cpp` suffix       | `Box3d_Lua.cpp`, `Gizmos_Lua.cpp`          |
+| Macros           | `UPPER_CASE`                | `DECLARE_NODE`, `EDITOR`, `API_VULKAN`     |
 
 ### Code Style
 
@@ -101,6 +102,7 @@ When implementing anything, **read the relevant existing source files first**. U
 ### RTTI and Factory Registration
 
 Every node type:
+
 ```cpp
 // Header
 class MyNode : public Node3D
@@ -114,6 +116,7 @@ DEFINE_NODE(MyNode, Node3D);
 ```
 
 Every asset type:
+
 ```cpp
 // Header
 class MyAsset : public Asset
@@ -127,6 +130,7 @@ DEFINE_ASSET(MyAsset);
 ```
 
 Every graph node type:
+
 ```cpp
 // Header
 class MyGraphNode : public GraphNode
@@ -336,12 +340,13 @@ If the folder group doesn't exist yet, also add a `<Filter>` entry with a unique
 
 The Linux Makefile uses **directory-based wildcards** (`SOURCES := dir1 dir2 …`) plus `wildcard $(dir)/*.cpp`. This means:
 
-| Scenario | Action |
-|---|---|
-| Adding files to an **existing** source directory | **No Makefile change needed** — the wildcard picks them up automatically. |
-| Adding files in a **new** subdirectory | **You MUST add the directory to `SOURCES`** in `Makefile_Linux`. Otherwise the new files are silently dropped from the Linux build. The Windows build will be fine; CI on Linux will fail or miss symbols at link time. |
+| Scenario                                         | Action                                                                                                                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adding files to an **existing** source directory | **No Makefile change needed** — the wildcard picks them up automatically.                                                                                                                                               |
+| Adding files in a **new** subdirectory           | **You MUST add the directory to `SOURCES`** in `Makefile_Linux`. Otherwise the new files are silently dropped from the Linux build. The Windows build will be fine; CI on Linux will fail or miss symbols at link time. |
 
 There are **two** `SOURCES` lists in `Makefile_Linux`:
+
 - The base list around line 49 (engine + non-editor code).
 - An editor-only `SOURCES +=` at line ~96 inside `ifeq` for `POLYPHASE_EDITOR`. Editor-only directories (anything under `Source/Editor/`) go here.
 
@@ -365,18 +370,18 @@ CMake uses `file(GLOB_RECURSE SRC *.cpp *.c *.h)` so new files in any nested dir
 
 ## 6. Platform Awareness
 
-Octave targets multiple platforms. Be aware of conditional compilation:
+Polyphase targets multiple platforms. Be aware of conditional compilation:
 
-| Macro | Platform |
-|-------|----------|
-| `PLATFORM_WINDOWS` | Windows (primary dev) |
-| `PLATFORM_LINUX` | Linux |
-| `PLATFORM_ANDROID` | Android |
-| `PLATFORM_DOLPHIN` | GameCube / Wii |
-| `PLATFORM_3DS` | Nintendo 3DS |
-| `API_VULKAN` | Vulkan rendering backend |
-| `API_GX` | GameCube/Wii rendering |
-| `API_C3D` | 3DS rendering |
+| Macro              | Platform                 |
+| ------------------ | ------------------------ |
+| `PLATFORM_WINDOWS` | Windows (primary dev)    |
+| `PLATFORM_LINUX`   | Linux                    |
+| `PLATFORM_ANDROID` | Android                  |
+| `PLATFORM_DOLPHIN` | GameCube / Wii           |
+| `PLATFORM_3DS`     | Nintendo 3DS             |
+| `API_VULKAN`       | Vulkan rendering backend |
+| `API_GX`           | GameCube/Wii rendering   |
+| `API_C3D`          | 3DS rendering            |
 
 When writing rendering or system code, check which platform/API guards are needed. Most gameplay and editor code is platform-agnostic.
 
@@ -407,19 +412,22 @@ Before fixing a bug or adding a feature:
 ### Datum / Property reflection
 
 - **`HandlePropChange` is called BEFORE the value is written.** `Datum::SetInteger`/`SetAsset`/etc. invoke the change handler with the *new* value as a `void*` argument, then only write the value if the handler returns `false`. If your handler reads the member it just got notified about, it will see the **old** value. Either:
+  
   1. Write the new value into the member yourself based on `prop->mName` and the `void* newValue` pointer, then return `true` (the framework skips its own write). This is what `Texture::HandlePropChange` does.
   2. Return `false` and only call deferred work like `MarkDirty()` — the actual rebuild happens next Tick after the framework has committed the value. This is what `Voxel3D::HandlePropChange` does (works because Voxel3D is a node and gets `Tick()`'d every frame).
-
+  
   Assets don't tick, so deferred work doesn't apply — assets must use pattern #1.
 
 ### Vertex / mesh upload
 
 - **Vertex color scale (Wii/GameCube TEV compatibility):** the engine multiplies vertex colors by `GlobalUniforms::mColorScale` in `Forward.frag` (default `2.0` for retro fixed-function compatibility). Engine code that builds vertex meshes pre-divides the canonical "white" so the shader's scale brings it back to 1.0:
+  
   ```cpp
   uint32_t white = 0xFFFFFFFFu;
   if (GetEngineConfig()->mColorScale == 2) white = 0x7F7F7F7Fu;
   if (GetEngineConfig()->mColorScale == 4) white = 0x3F3F3F3Fu;
   ```
+  
   Forgetting this produces tiles/meshes that look 2× or 4× too bright. See `StaticMesh.cpp:154` and `PaintManager.cpp:514` for the canonical pattern.
 - **Mesh upload dirty flags are separate from mesh dirty.** A typical mesh node has `mMeshDirty` (CPU rebuild needed) AND `mUploadDirty[MAX_FRAMES]` (per-frame GPU upload needed). `RebuildMeshInternal()` only touches `mMeshDirty`. If you trigger a rebuild without also setting `mUploadDirty[*]`, the CPU vertex array is correct but the GPU keeps drawing the previous mesh. **Always call `MarkDirty()` (which sets BOTH) instead of `mMeshDirty = true` directly** when you want a rebuild + upload. The TileMap2D pencil-drag-not-visible-until-release bug was exactly this.
 - **`SM_Cube` is a 2-unit cube** (vertices at ±1), not a unit cube. Scaling by `(width, height, depth)` produces a `2*width × 2*height × 2*depth` cube. Halve your scale or use a different mesh.
@@ -427,12 +435,14 @@ Before fixing a bug or adding a feature:
 ### Mouse input in editor
 
 - **`INP_GetMousePosition` is unreliable in editor builds during a held-button drag.** ImGui's Win32 backend handler runs first in `WndProc` (`System_Windows.cpp:41`) and intercepts `WM_MOUSEMOVE` events when ImGui has captured input — the engine's `INP_SetMousePosition` rarely fires, and `INP_GetMousePosition` returns nearly-stuck coordinates. **Use `ImGui::GetIO().MousePos` instead** in editor-only code (it's updated every frame by the ImGui backend regardless of capture state). Pattern:
+  
   ```cpp
   ImVec2 mp = ImGui::GetIO().MousePos;
   int32_t mouseX = int32_t(mp.x);
   int32_t mouseY = int32_t(mp.y);
   ```
 - **`Camera3D::ScreenToWorldPosition` returns near-plane points, not camera-relative directions.** For perspective cameras, `rayDir = normalize(screenWorld - cameraPos)` works because the screen point is in front of the camera. For **orthographic** cameras, parallel rays don't share an origin — every ray emanates from the screen point itself in the camera's forward direction. Branch on `camera->GetProjectionMode()`:
+  
   ```cpp
   if (camera->GetProjectionMode() == ProjectionMode::ORTHOGRAPHIC) {
       rayOrigin = camera->ScreenToWorldPosition(mouseX, mouseY);
@@ -443,6 +453,7 @@ Before fixing a bug or adding a feature:
   }
   ```
 - **`Viewport3D::ShouldHandleInput()` returns false for any non-dock floating ImGui window**, even if the click started on the viewport. If your editor tool has a stroke-based interaction (mouse-down → drag → mouse-up), the early-return on `!ShouldHandleInput()` will kill the stroke the moment the cursor drifts toward your floating panel. Bypass the check during an active stroke:
+  
   ```cpp
   if (!mStrokeActive && !GetEditorState()->GetViewport3D()->ShouldHandleInput())
       return;

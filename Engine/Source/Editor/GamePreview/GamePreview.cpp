@@ -422,11 +422,17 @@ void GamePreview::Render()
     }
 }
 
-void GamePreview::CaptureScreenshot()
+bool GamePreview::CaptureScreenshotToMemory(std::vector<uint8_t>& outRgba,
+                                            uint32_t& outWidth,
+                                            uint32_t& outHeight)
 {
+    outRgba.clear();
+    outWidth = 0;
+    outHeight = 0;
+
 #if API_VULKAN
     if (mColorTarget == nullptr || mCurrentWidth == 0 || mCurrentHeight == 0)
-        return;
+        return false;
 
     uint32_t w = mCurrentWidth;
     uint32_t h = mCurrentHeight;
@@ -461,60 +467,75 @@ void GamePreview::CaptureScreenshot()
 
     DeviceWaitIdle();
 
-    // Read pixels
+    bool ok = false;
     void* mapped = stagingBuffer->Map();
     if (mapped != nullptr)
     {
         // BGRA -> RGBA conversion
         uint8_t* pixels = (uint8_t*)mapped;
-        std::vector<uint8_t> rgbaPixels(bufSize);
+        outRgba.resize(bufSize);
         for (size_t i = 0; i < bufSize; i += 4)
         {
-            rgbaPixels[i + 0] = pixels[i + 2]; // R
-            rgbaPixels[i + 1] = pixels[i + 1]; // G
-            rgbaPixels[i + 2] = pixels[i + 0]; // B
-            rgbaPixels[i + 3] = pixels[i + 3]; // A
+            outRgba[i + 0] = pixels[i + 2]; // R
+            outRgba[i + 1] = pixels[i + 1]; // G
+            outRgba[i + 2] = pixels[i + 0]; // B
+            outRgba[i + 3] = pixels[i + 3]; // A
         }
-
-        // Build path: ProjectDir/Screenshots/GamePreview_YYYYMMDD_HHMMSS.png
-        std::string projDir = GetEngineState()->mProjectDirectory;
-        std::string screenshotDir = projDir + "Screenshots";
-
-        if (!DoesDirExist(screenshotDir.c_str()))
-        {
-            SYS_CreateDirectory(screenshotDir.c_str());
-        }
-
-        time_t now = time(nullptr);
-        struct tm timeInfo;
-#if PLATFORM_WINDOWS
-        localtime_s(&timeInfo, &now);
-#else
-        localtime_r(&now, &timeInfo);
-#endif
-
-        char filename[256];
-        snprintf(filename, sizeof(filename),
-                 "%s/GamePreview_%04d%02d%02d_%02d%02d%02d.png",
-                 screenshotDir.c_str(),
-                 timeInfo.tm_year + 1900, timeInfo.tm_mon + 1, timeInfo.tm_mday,
-                 timeInfo.tm_hour, timeInfo.tm_min, timeInfo.tm_sec);
-
-        int result = stbi_write_png(filename, (int)w, (int)h, 4, rgbaPixels.data(), (int)(w * 4));
-        if (result)
-        {
-            LogDebug("Game Preview screenshot saved: %s", filename);
-        }
-        else
-        {
-            LogError("Failed to save Game Preview screenshot");
-        }
+        outWidth = w;
+        outHeight = h;
+        ok = true;
 
         stagingBuffer->Unmap();
     }
 
     GetDestroyQueue()->Destroy(stagingBuffer);
+    return ok;
+#else
+    return false;
 #endif
+}
+
+void GamePreview::CaptureScreenshot()
+{
+    std::vector<uint8_t> rgbaPixels;
+    uint32_t w = 0;
+    uint32_t h = 0;
+    if (!CaptureScreenshotToMemory(rgbaPixels, w, h))
+        return;
+
+    // Build path: ProjectDir/Screenshots/GamePreview_YYYYMMDD_HHMMSS.png
+    std::string projDir = GetEngineState()->mProjectDirectory;
+    std::string screenshotDir = projDir + "Screenshots";
+
+    if (!DoesDirExist(screenshotDir.c_str()))
+    {
+        SYS_CreateDirectory(screenshotDir.c_str());
+    }
+
+    time_t now = time(nullptr);
+    struct tm timeInfo;
+#if PLATFORM_WINDOWS
+    localtime_s(&timeInfo, &now);
+#else
+    localtime_r(&now, &timeInfo);
+#endif
+
+    char filename[256];
+    snprintf(filename, sizeof(filename),
+             "%s/GamePreview_%04d%02d%02d_%02d%02d%02d.png",
+             screenshotDir.c_str(),
+             timeInfo.tm_year + 1900, timeInfo.tm_mon + 1, timeInfo.tm_mday,
+             timeInfo.tm_hour, timeInfo.tm_min, timeInfo.tm_sec);
+
+    int result = stbi_write_png(filename, (int)w, (int)h, 4, rgbaPixels.data(), (int)(w * 4));
+    if (result)
+    {
+        LogDebug("Game Preview screenshot saved: %s", filename);
+    }
+    else
+    {
+        LogError("Failed to save Game Preview screenshot");
+    }
 }
 
 void GamePreview::DrawPanel()

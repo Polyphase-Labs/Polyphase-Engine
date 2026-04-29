@@ -1940,14 +1940,17 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
 
 static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera)
 {
-    AssetDir* currentDir = GetEditorState()->GetAssetDirectory();
-    if (currentDir == nullptr)
-        return;
-
-    // Check if this is a plugin-registered scene type
+    // Plugin-registered scene types (sceneType >= 2) call into addon function pointers
+    // that aren't safe to invoke from non-editor contexts (e.g. the REST controller).
+    // Keep that branch here in EditorImgui; defer the built-in 2D/3D path to ActionManager
+    // so the REST POST /api/scene/new endpoint can share the same implementation.
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr && sceneType >= 2)
     {
+        AssetDir* currentDir = GetEditorState()->GetAssetDirectory();
+        if (currentDir == nullptr)
+            return;
+
         const auto& sceneTypes = hookMgr->GetSceneTypes();
         int hookIndex = sceneType - 2;
         if (hookIndex >= 0 && hookIndex < (int)sceneTypes.size())
@@ -1956,7 +1959,6 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
             if (stub == nullptr)
                 return;
 
-            // Create a temporary root for plugin to populate
             SharedPtr<Node3D> root = Node::Construct<Node3D>();
             root->SetName("Root");
 
@@ -1969,51 +1971,7 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
         }
     }
 
-    // Built-in scene types (0=2D, 1=3D)
-    AssetStub* stub = EditorAddUniqueAsset(sceneName, currentDir, Scene::GetStaticType(), true);
-    if (stub == nullptr)
-        return;
-
-    if (sceneType == 1) // 3D
-    {
-        SharedPtr<Node3D> root = Node::Construct<Node3D>();
-        root->SetName("Root");
-
-        if (createCamera)
-        {
-            Camera3D* cam = root->CreateChild<Camera3D>("Camera3D");
-            cam->SetPosition(glm::vec3(0.0f, 0.0f, 5.0f));
-        }
-
-        Scene* scene = (Scene*)stub->mAsset;
-        scene->Capture(root.Get());
-    }
-    else // 2D
-    {
-        SharedPtr<Canvas> root = Node::Construct<Canvas>();
-        root->SetName("Root");
-
-        // Initialize the Canvas size to the current Build Profile's platform resolution
-        // (the same value Game Preview's "* Profile [Platform]" preset uses), with a
-        // 640x480 fallback when no Build Profile is set.
-        uint32_t canvasW = 640;
-        uint32_t canvasH = 480;
-
-        PackagingSettings* pkgSettings = PackagingSettings::Get();
-        BuildProfile* profile = (pkgSettings != nullptr) ? pkgSettings->GetCurrentTargetProfile() : nullptr;
-        if (profile != nullptr)
-        {
-            const char* platformName = nullptr;
-            GamePreview::GetPlatformResolution(profile->mTargetPlatform, canvasW, canvasH, platformName);
-        }
-
-        root->SetSize((float)canvasW, (float)canvasH);
-
-        Scene* scene = (Scene*)stub->mAsset;
-        scene->Capture(root.Get());
-    }
-
-    AssetManager::Get()->SaveAsset(*stub);
+    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera);
 }
 
 static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Property& prop, uint32_t index, Asset* newAsset)

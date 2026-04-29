@@ -723,6 +723,7 @@
     <ClCompile Include="Source\Editor\Preferences\Appearance\Theme\CssThemeManager.cpp" />
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServer.cpp" />
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp" />
+    <ClCompile Include="Source\Editor\ControllerServer\EditorScreenshot.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Network\NetworkModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Updates\UpdatesModule.cpp" />
     <ClCompile Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.cpp" />
@@ -1226,6 +1227,7 @@
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServer.h" />
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerRoutes.h" />
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerTypes.h" />
+    <ClInclude Include="Source\Editor\ControllerServer\EditorScreenshot.h" />
     <ClInclude Include="Source\Editor\Preferences\Network\NetworkModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Updates\UpdatesModule.h" />
     <ClInclude Include="Source\Editor\Preferences\Updates\CuttingEdgeModule.h" />

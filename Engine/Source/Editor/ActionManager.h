@@ -279,6 +279,10 @@ public:
     void OpenScene();
     void OpenScene(Scene* scene);
     void SaveScene(bool saveAs);
+    // sceneType: 0 = 2D Canvas root, 1 = 3D Node3D root. targetDir defaults to the
+    // editor's currently-selected asset directory. Returns the created Scene asset
+    // (already saved to disk) or nullptr on failure.
+    Scene* CreateNewScene(const char* sceneName, int sceneType, bool createCamera, AssetDir* targetDir = nullptr);
     void SaveSelectedAsset();
     void DeleteSelectedNodes();
     void DeleteNode(Node* node);

@@ -31,6 +31,13 @@ public:
     uint32_t GetCurrentWidth() const { return mCurrentWidth; }
     uint32_t GetCurrentHeight() const { return mCurrentHeight; }
 
+    // Capture the current color target into RGBA bytes (no disk write).
+    // Returns false if the preview is not currently rendered (no color target).
+    // Must be called from the main thread.
+    bool CaptureScreenshotToMemory(std::vector<uint8_t>& outRgba,
+                                   uint32_t& outWidth,
+                                   uint32_t& outHeight);
+
     void BeginInputRemap();
     void EndInputRemap();
 

@@ -26,6 +26,17 @@
 #include "ActionManager.h"
 #include "EditorUIHookManager.h"
 #include "Addons/NativeAddonManager.h"
+#include "DebugLog/DebugLogWindow.h"
+#include "GamePreview/GamePreview.h"
+#include "EditorScreenshot.h"
+
+#include <chrono>
+
+#include <cstdlib>
+#include <vector>
+
+#include <stb_image_write.h>
+#include <stb_image_resize2.h>
 
 #if defined(_MSC_VER)
 #pragma warning(push, 0)
@@ -46,6 +57,94 @@ static crow::json::wvalue ErrorJson(const std::string& msg)
     crow::json::wvalue j;
     j["error"] = msg;
     return j;
+}
+
+static std::string Base64Encode(const uint8_t* data, size_t len)
+{
+    static const char kTable[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    std::string out;
+    out.resize(((len + 2) / 3) * 4);
+    size_t o = 0;
+
+    size_t i = 0;
+    for (; i + 2 < len; i += 3)
+    {
+        uint32_t v = (uint32_t(data[i]) << 16) | (uint32_t(data[i + 1]) << 8) | uint32_t(data[i + 2]);
+        out[o++] = kTable[(v >> 18) & 0x3F];
+        out[o++] = kTable[(v >> 12) & 0x3F];
+        out[o++] = kTable[(v >>  6) & 0x3F];
+        out[o++] = kTable[ v        & 0x3F];
+    }
+    if (i < len)
+    {
+        uint32_t v = uint32_t(data[i]) << 16;
+        bool two = (i + 1 < len);
+        if (two)
+            v |= uint32_t(data[i + 1]) << 8;
+
+        out[o++] = kTable[(v >> 18) & 0x3F];
+        out[o++] = kTable[(v >> 12) & 0x3F];
+        out[o++] = two ? kTable[(v >> 6) & 0x3F] : '=';
+        out[o++] = '=';
+    }
+
+    return out;
+}
+
+static void PngWriteToVector(void* context, void* data, int size)
+{
+    auto* buf = static_cast<std::vector<uint8_t>*>(context);
+    buf->insert(buf->end(),
+                static_cast<uint8_t*>(data),
+                static_cast<uint8_t*>(data) + size);
+}
+
+// Encode an RGBA buffer as a base64 PNG JSON response, optionally downscaling
+// to targetWidth (preserves aspect; only resizes when smaller than native).
+// rgba is mutated by resize.
+static std::string EncodeScreenshotResponse(std::vector<uint8_t>& rgba,
+                                            uint32_t w,
+                                            uint32_t h,
+                                            uint32_t targetWidth)
+{
+    if (targetWidth != 0 && targetWidth < w)
+    {
+        uint32_t newW = targetWidth;
+        uint32_t newH = std::max<uint32_t>(1, (uint32_t)((uint64_t)h * newW / w));
+
+        std::vector<uint8_t> resized(size_t(newW) * newH * 4);
+        unsigned char* ok = stbir_resize_uint8_linear(
+            rgba.data(), (int)w, (int)h, 0,
+            resized.data(), (int)newW, (int)newH, 0,
+            STBIR_RGBA);
+
+        if (ok == nullptr)
+            return ErrorJson("Failed to resize screenshot").dump();
+
+        rgba.swap(resized);
+        w = newW;
+        h = newH;
+    }
+
+    std::vector<uint8_t> png;
+    png.reserve(size_t(w) * h);
+    int wr = stbi_write_png_to_func(
+        &PngWriteToVector, &png,
+        (int)w, (int)h, 4, rgba.data(), (int)(w * 4));
+
+    if (!wr || png.empty())
+        return ErrorJson("Failed to encode PNG").dump();
+
+    std::string b64 = Base64Encode(png.data(), png.size());
+
+    crow::json::wvalue j;
+    j["format"] = "png";
+    j["width"] = static_cast<int>(w);
+    j["height"] = static_cast<int>(h);
+    j["data"] = std::move(b64);
+    return j.dump();
 }
 
 static crow::json::wvalue Vec3ToJson(const glm::vec3& v)
@@ -75,9 +174,13 @@ static crow::json::wvalue DatumToJson(const Datum& datum, uint32_t index = 0)
     switch (datum.GetType())
     {
     case DatumType::Integer:
-    case DatumType::Short:
-    case DatumType::Byte:
         j = datum.GetInteger(index);
+        break;
+    case DatumType::Short:
+        j = static_cast<int32_t>(datum.GetShort(index));
+        break;
+    case DatumType::Byte:
+        j = static_cast<int32_t>(datum.GetByte(index));
         break;
     case DatumType::Float:
         j = datum.GetFloat(index);
@@ -247,6 +350,74 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             j["playing"] = editorState->mPlayInEditor;
             j["paused"] = editorState->mPaused;
 
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/scene/new — Create a new scene asset
+    //   Body: { "name": string (required),
+    //           "type": "3D" | "2D" (default "3D"),
+    //           "createCamera": bool (default true, 3D only),
+    //           "open": bool (default true) }
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/scene/new").methods("POST"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "POST", "/api/scene/new");
+
+        std::string body = req.body;
+        auto future = server->QueueCommand([body]() -> std::string
+        {
+            auto parsed = crow::json::load(body);
+            if (!parsed || !parsed.has("name"))
+            {
+                return ErrorJson("Missing 'name' field").dump();
+            }
+
+            std::string sceneName = parsed["name"].s();
+            if (sceneName.empty())
+            {
+                return ErrorJson("Scene name must be non-empty").dump();
+            }
+
+            int sceneTypeInt = 1; // 3D default
+            if (parsed.has("type"))
+            {
+                std::string typeStr = parsed["type"].s();
+                if (typeStr == "2D" || typeStr == "2d")
+                    sceneTypeInt = 0;
+                else if (typeStr == "3D" || typeStr == "3d")
+                    sceneTypeInt = 1;
+                else
+                    return ErrorJson("Invalid 'type' — expected \"3D\" or \"2D\"").dump();
+            }
+
+            bool createCamera = true;
+            if (parsed.has("createCamera"))
+                createCamera = parsed["createCamera"].b();
+
+            bool open = true;
+            if (parsed.has("open"))
+                open = parsed["open"].b();
+
+            Scene* scene = ActionManager::Get()->CreateNewScene(sceneName.c_str(), sceneTypeInt, createCamera);
+            if (scene == nullptr)
+            {
+                return ErrorJson("Failed to create scene: " + sceneName).dump();
+            }
+
+            if (open)
+            {
+                GetEditorState()->OpenEditScene(scene);
+            }
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["scene"] = scene->GetName();
             return j.dump();
         });
 
@@ -808,26 +979,29 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 if (prop.mName == propName)
                 {
                     Datum newValue;
-                    newValue.SetType(prop.GetType());
 
                     switch (prop.GetType())
                     {
                     case DatumType::Integer:
+                        newValue = Datum(static_cast<int32_t>(parsed["value"].i()));
+                        break;
                     case DatumType::Short:
+                        newValue = Datum(static_cast<int16_t>(parsed["value"].i()));
+                        break;
                     case DatumType::Byte:
-                        newValue.SetInteger(static_cast<int32_t>(parsed["value"].i()));
+                        newValue = Datum(static_cast<uint8_t>(parsed["value"].i()));
                         break;
                     case DatumType::Float:
-                        newValue.SetFloat(static_cast<float>(parsed["value"].d()));
+                        newValue = Datum(static_cast<float>(parsed["value"].d()));
                         break;
                     case DatumType::Bool:
-                        newValue.SetBool(parsed["value"].b());
+                        newValue = Datum(parsed["value"].b());
                         break;
                     case DatumType::String:
-                        newValue.SetString(parsed["value"].s());
+                        newValue = Datum(std::string(parsed["value"].s()));
                         break;
                     case DatumType::Vector:
-                        newValue.SetVector(JsonToVec3(parsed["value"]));
+                        newValue = Datum(JsonToVec3(parsed["value"]));
                         break;
                     default:
                         return ErrorJson("Unsupported property type for set").dump();
@@ -942,24 +1116,23 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 if (prop.mName == fieldName)
                 {
                     Datum newValue;
-                    newValue.SetType(prop.GetType());
 
                     switch (prop.GetType())
                     {
                     case DatumType::Integer:
-                        newValue.SetInteger(static_cast<int32_t>(parsed["value"].i()));
+                        newValue = Datum(static_cast<int32_t>(parsed["value"].i()));
                         break;
                     case DatumType::Float:
-                        newValue.SetFloat(static_cast<float>(parsed["value"].d()));
+                        newValue = Datum(static_cast<float>(parsed["value"].d()));
                         break;
                     case DatumType::Bool:
-                        newValue.SetBool(parsed["value"].b());
+                        newValue = Datum(parsed["value"].b());
                         break;
                     case DatumType::String:
-                        newValue.SetString(parsed["value"].s());
+                        newValue = Datum(std::string(parsed["value"].s()));
                         break;
                     case DatumType::Vector:
-                        newValue.SetVector(JsonToVec3(parsed["value"]));
+                        newValue = Datum(JsonToVec3(parsed["value"]));
                         break;
                     default:
                         return ErrorJson("Unsupported script property type").dump();
@@ -1109,6 +1282,198 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
         });
 
         std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/log — Tail editor debug log entries
+    //
+    // Query params (all optional):
+    //   since        — return entries with seq > since (default 0 = all buffered)
+    //   limit        — max entries to return (default 200, capped at 2048)
+    //   minSeverity  — 0=Debug (all), 1=Warning+, 2=Error only (default 0)
+    //
+    // Response:
+    //   { "entries": [{seq, severity, severityName, timestamp, message}, ...],
+    //     "nextSeq": <latest seq>,
+    //     "dropped": <bool — true if older entries were evicted from the ring> }
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/log").methods("GET"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "GET", "/api/log");
+
+        uint64_t sinceSeq = 0;
+        uint32_t limit = 200;
+        uint32_t minSeverity = 0;
+
+        if (const char* s = req.url_params.get("since"))
+            sinceSeq = static_cast<uint64_t>(std::strtoull(s, nullptr, 10));
+        if (const char* s = req.url_params.get("limit"))
+        {
+            int v = std::atoi(s);
+            if (v < 1) v = 1;
+            if (v > 2048) v = 2048;
+            limit = static_cast<uint32_t>(v);
+        }
+        if (const char* s = req.url_params.get("minSeverity"))
+        {
+            int v = std::atoi(s);
+            if (v < 0) v = 0;
+            if (v > 2) v = 2;
+            minSeverity = static_cast<uint32_t>(v);
+        }
+
+        auto future = server->QueueCommand([sinceSeq, limit, minSeverity]() -> std::string
+        {
+            DebugLogWindow* logWin = GetDebugLogWindow();
+            if (logWin == nullptr)
+            {
+                return ErrorJson("Debug log unavailable").dump();
+            }
+
+            std::vector<DebugLogEntry> entries;
+            uint64_t nextSeq = 0;
+            logWin->GetEntriesSnapshot(sinceSeq, limit, entries, nextSeq);
+
+            crow::json::wvalue j;
+            crow::json::wvalue arr;
+            uint32_t outIdx = 0;
+            for (const auto& e : entries)
+            {
+                if (static_cast<uint32_t>(e.mSeverity) < minSeverity)
+                    continue;
+
+                const char* sevName = "Debug";
+                switch (e.mSeverity)
+                {
+                case LogSeverity::Warning: sevName = "Warning"; break;
+                case LogSeverity::Error:   sevName = "Error";   break;
+                default:                   sevName = "Debug";   break;
+                }
+
+                crow::json::wvalue item;
+                item["seq"] = static_cast<int64_t>(e.mSeq);
+                item["severity"] = static_cast<int>(e.mSeverity);
+                item["severityName"] = sevName;
+                item["timestamp"] = e.mTimestamp;
+                item["message"] = e.mMessage;
+                arr[outIdx++] = std::move(item);
+            }
+
+            bool dropped = false;
+            if (sinceSeq > 0 && !entries.empty() && entries.front().mSeq > sinceSeq + 1)
+                dropped = true;
+
+            j["entries"] = std::move(arr);
+            j["nextSeq"] = static_cast<int64_t>(nextSeq);
+            j["dropped"] = dropped;
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/screenshot — PNG of the Game Preview viewport
+    //
+    // Query params (all optional):
+    //   width  — downscale to this width (preserves aspect; only if < native)
+    //
+    // Response:
+    //   { "format": "png", "width": <w>, "height": <h>, "data": "<base64>" }
+    //
+    // Requires Game Preview to be enabled and rendered at least once.
+    // Vulkan-only (other backends return an error).
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/screenshot").methods("GET"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "GET", "/api/screenshot");
+
+        uint32_t targetWidth = 0; // 0 = native
+        if (const char* s = req.url_params.get("width"))
+        {
+            int v = std::atoi(s);
+            if (v < 16) v = 16;
+            if (v > 8192) v = 8192;
+            targetWidth = static_cast<uint32_t>(v);
+        }
+
+        auto future = server->QueueCommand([targetWidth]() -> std::string
+        {
+            GamePreview* preview = GetGamePreview();
+            if (preview == nullptr)
+            {
+                return ErrorJson("Game Preview unavailable").dump();
+            }
+
+            std::vector<uint8_t> rgba;
+            uint32_t w = 0;
+            uint32_t h = 0;
+            if (!preview->CaptureScreenshotToMemory(rgba, w, h))
+            {
+                return ErrorJson("Game Preview not currently rendered (enable it in the editor)").dump();
+            }
+
+            return EncodeScreenshotResponse(rgba, w, h, targetWidth);
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/screenshot/editor — PNG of the entire editor window
+    //
+    // Captures the swapchain image after the next frame is rendered, so the
+    // result includes ImGui chrome (inspector, hierarchy, debug log) plus the
+    // Game Preview viewport. Useful for inspecting UI/widget authoring or any
+    // editor panel state — anything you'd see by glancing at the editor.
+    //
+    // Query params (all optional):
+    //   width  — downscale to this width (preserves aspect; only if < native)
+    //
+    // Response: same shape as /api/screenshot.
+    // Vulkan-only. Latency: one render frame (~16 ms typical).
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/screenshot/editor").methods("GET"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "GET", "/api/screenshot/editor");
+
+        uint32_t targetWidth = 0;
+        if (const char* s = req.url_params.get("width"))
+        {
+            int v = std::atoi(s);
+            if (v < 16) v = 16;
+            if (v > 8192) v = 8192;
+            targetWidth = static_cast<uint32_t>(v);
+        }
+
+        // Capture happens at post-render time; not via QueueCommand. The
+        // promise is fulfilled by ProcessPendingEditorScreenshots() during
+        // the next Renderer::Render call, just before vkQueuePresent.
+        auto promise = std::make_shared<std::promise<EditorScreenshotData>>();
+        auto future = promise->get_future();
+        RequestEditorScreenshot(promise);
+
+        auto status = future.wait_for(std::chrono::seconds(2));
+        if (status != std::future_status::ready)
+        {
+            return crow::response(200, "application/json",
+                ErrorJson("Editor screenshot timed out (no render frame within 2s)").dump());
+        }
+
+        EditorScreenshotData shot = future.get();
+        if (!shot.mOk)
+        {
+            std::string msg = shot.mError.empty() ? std::string("Editor screenshot failed") : shot.mError;
+            return crow::response(200, "application/json", ErrorJson(msg).dump());
+        }
+
+        std::string result = EncodeScreenshotResponse(shot.mRgba, shot.mWidth, shot.mHeight, targetWidth);
         return crow::response(200, "application/json", result);
     });
 
