@@ -86,6 +86,15 @@ Singleton: `NetworkModule::Get()`. Registered as root module in `PreferencesMana
 | POST | `/api/play/resume` | Resume |
 
 ### Assets
+| Method | Path | Action |
+|--------|------|--------|
+| GET | `/api/assets` | List registered assets (query: `type`, `prefix`, `engine`) |
+| GET | `/api/assets/<name>` | Asset summary (type, path, uuid) |
+| GET | `/api/assets/<name>/properties` | All reflected properties of an asset |
+| PUT | `/api/assets/<name>/properties` | Set an asset property by name |
+| POST | `/api/assets` | Create+register a new asset (`{type, name, directory}`) |
+| POST | `/api/assets/<name>/save` | Persist a dirty asset to disk |
+| POST | `/api/assets/<name>/delete` | Purge an asset |
 | POST | `/api/assets/import` | Import asset from disk path |
 
 ### Diagnostics

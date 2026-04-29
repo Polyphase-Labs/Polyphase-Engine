@@ -169,7 +169,14 @@ curl -X PUT http://localhost:7890/api/nodes/Player/script-properties \
 ```
 Script properties are the fields defined inside the Lua table (e.g. `Speed = 0.0`).
 The `GET` returns `{"properties": []}` (empty array) if no script is attached or the
-script has no exposed fields. Settable types: Integer, Float, Bool, String, Vector.
+script has no exposed fields. Settable types: Integer, Float, Bool, String, Vector,
+Vector2D, Color, Asset (and asset subtypes — Material, Scene, etc.).
+
+**Persistence**: PUT routes through the same `EXE_EditProperty` action the editor's
+inspector uses, so the C++ property cache *and* the Lua-side value both stay in sync.
+Earlier versions of this endpoint called `Script::SetField` directly, which only
+updated Lua and left the cache stale — REST-set string/asset values would survive
+in-memory but get clobbered on scene save/reload. That's fixed.
 
 ### Set reflected (engine-side) properties
 First enumerate to learn the names + types:
@@ -212,6 +219,69 @@ curl -X POST http://localhost:7890/api/assets/import \
 ```
 Returns `{"success": true, "name": "<imported asset name>", "type": "<asset type>"}`.
 The path is an absolute disk path; the importer infers the asset type from the file.
+
+### Assign a static mesh / material override to a node
+"Static Mesh" and "Material Override" are just `Asset` properties — once you know the
+asset's name, set them like any other property. The same PUT route handles both.
+
+```bash
+# List available static meshes so you know what names to pass.
+curl 'http://localhost:7890/api/assets?type=StaticMesh'
+
+# Set the StaticMesh3D's mesh.
+curl -X PUT http://localhost:7890/api/nodes/Coin/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Static Mesh","value":"coin-gold"}'
+
+# Set its material override (a Material asset, not a node property).
+curl -X PUT http://localhost:7890/api/nodes/Coin/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Material Override","value":"M_Gold"}'
+
+# Clear the override (revert to the mesh's default material).
+curl -X PUT http://localhost:7890/api/nodes/Coin/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Material Override","value":""}'
+```
+
+Pass `""` (empty string) as `value` to clear an asset slot.
+
+### List, create, and edit assets
+```bash
+# Everything project-side (engine assets hidden by default).
+curl http://localhost:7890/api/assets
+
+# Just textures whose name contains "background".
+curl 'http://localhost:7890/api/assets?type=Texture&prefix=background'
+
+# Create a new MaterialLite asset under <Project>/Materials.
+curl -X POST http://localhost:7890/api/assets \
+     -H "Content-Type: application/json" \
+     -d '{"type":"MaterialLite","name":"M_Background","directory":"Materials"}'
+
+# Configure it (Color is [r,g,b,a] in 0..1, Texture 0 takes a Texture asset name).
+curl -X PUT http://localhost:7890/api/assets/M_Background/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Color","value":[1.0,1.0,1.0,1.0]}'
+curl -X PUT http://localhost:7890/api/assets/M_Background/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Texture 0","value":"background_color_hills"}'
+curl -X PUT http://localhost:7890/api/assets/M_Background/properties \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Shading Model","value":0}'
+
+# Persist to disk.
+curl -X POST http://localhost:7890/api/assets/M_Background/save
+```
+
+This is the full "build a runtime material from a texture, apply it to a plane" flow —
+exactly what `BackgroundPlane.lua`-style scripts used to be the only way to do. It
+replaces 30 lines of `AssetManager.CreateAndRegisterAsset` + `mat:SetTexture` Lua.
+
+Common asset class names for `?type=` and the `POST /api/assets` body:
+`StaticMesh`, `SkeletalMesh`, `Texture`, `Material`, `MaterialLite`, `MaterialBase`,
+`Font`, `SoundWave`, `ParticleSystem`, `Scene`, `TileSet`, `TileMap`, `Timeline`,
+`NodeGraphAsset`. (Class names match `DEFINE_FACTORY` registrations — case-sensitive.)
 
 ### Read the editor debug log (errors, warnings, prints)
 The same buffer the editor's Debug Log panel shows is exposed over REST. Use this
@@ -417,7 +487,7 @@ endpoints are 3D-only; calling them on a 2D widget or pure `Node` returns an err
 ## Property types and JSON wire format
 
 The integer `type` code in `GET .../properties` responses is the `DatumType` enum index
-from `Engine/Source/Engine/Datum.h:27`. Only a subset is settable via REST today:
+from `Engine/Source/Engine/Datum.h:27`. Settable types and wire format:
 
 | Code | DatumType | JSON value | Settable via PUT? |
 |---|---|---|---|
@@ -425,16 +495,17 @@ from `Engine/Source/Engine/Datum.h:27`. Only a subset is settable via REST today
 | 1 | Float | number | yes |
 | 2 | Bool | boolean | yes |
 | 3 | String | string | yes |
-| 4 | Vector2D | `[x, y]` | **no** |
+| 4 | Vector2D | `[x, y]` | yes |
 | 5 | Vector | `[x, y, z]` | yes |
-| 6 | Color | `[r, g, b, a]` (0–1 floats) | **no** |
-| 7 | Asset | asset name (string) | **no** |
-| 8 | Byte | number | yes (node only) |
-| 11 | Short | number | yes (node only) |
+| 6 | Color | `[r, g, b, a]` (0–1 floats) | yes |
+| 7 | Asset | asset name (string, `""` to clear) | yes |
+| 8 | Byte | number | yes |
+| 11 | Short | number | yes |
+| — | Material / Scene / TileSet / TileMap / Timeline / NodeGraphAsset (asset subtypes) | asset name (string) | yes |
 
-`script-properties` PUT accepts a narrower set (Integer, Float, Bool, String, Vector — no
-Short/Byte). Asset, Color, and Vector2D currently cannot be set via either endpoint;
-the handler's `default:` branch returns `"Unsupported property type for set"`.
+Asset values are looked up by name from `AssetManager`; pass `""` to clear an asset
+slot. The same JSON shape works on `/api/nodes/<n>/properties`,
+`/api/nodes/<n>/script-properties`, and `/api/assets/<n>/properties`.
 
 ## Common node types you can pass to `POST /api/nodes`
 
@@ -453,10 +524,8 @@ The class name is case-sensitive and must match a `DEFINE_NODE(...)` registratio
 
 ## Known limitations
 
-- **Cannot set Asset / Color / Vector2D properties via REST.** Mesh, material, texture,
-  font, and color assignments are not currently doable through this API; do them in-editor
-  or from Lua. (Source: `ControllerServerRoutes.cpp:813-834` — the `default:` arm of the
-  property-set switch.)
+- `PUT .../properties` only edits index 0 of an array property. Multi-index array
+  edits aren't yet exposed — for those, do it in-editor or via Lua.
 - `POST /api/nodes` ignores all body fields except `type` / `name` / `parent`. Initial
   transform and property values require follow-up `PUT` calls.
 - `POST /api/scene/save` saves to the currently-open scene asset only — no save-as.

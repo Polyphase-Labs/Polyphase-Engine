@@ -168,6 +168,98 @@ static glm::vec3 JsonToVec3(const crow::json::rvalue& j)
     return v;
 }
 
+static glm::vec2 JsonToVec2(const crow::json::rvalue& j)
+{
+    glm::vec2 v(0.0f);
+    if (j.size() >= 2)
+    {
+        v.x = static_cast<float>(j[0].d());
+        v.y = static_cast<float>(j[1].d());
+    }
+    return v;
+}
+
+static glm::vec4 JsonToColor(const crow::json::rvalue& j)
+{
+    glm::vec4 c(0.0f, 0.0f, 0.0f, 1.0f);
+    if (j.size() >= 1) c.r = static_cast<float>(j[0].d());
+    if (j.size() >= 2) c.g = static_cast<float>(j[1].d());
+    if (j.size() >= 3) c.b = static_cast<float>(j[2].d());
+    if (j.size() >= 4) c.a = static_cast<float>(j[3].d());
+    return c;
+}
+
+// Convert a JSON value to a Datum matching the given Property's type.
+// On failure, fills outError with a human-readable message and returns false.
+// Handles the full settable type range — primitives, Vector/Vector2D/Color,
+// Asset and all asset subtypes (Material, Scene, TileSet, TileMap, Timeline,
+// NodeGraphAsset). Asset values are looked up by name from AssetManager;
+// pass an empty string to clear an asset slot.
+static bool BuildDatumFromJson(const Property& prop,
+                               const crow::json::rvalue& jsonValue,
+                               Datum& outDatum,
+                               std::string& outError)
+{
+    DatumType type = prop.GetType();
+
+    switch (type)
+    {
+    case DatumType::Integer:
+        outDatum = Datum(static_cast<int32_t>(jsonValue.i()));
+        return true;
+    case DatumType::Short:
+        outDatum = Datum(static_cast<int16_t>(jsonValue.i()));
+        return true;
+    case DatumType::Byte:
+        outDatum = Datum(static_cast<uint8_t>(jsonValue.i()));
+        return true;
+    case DatumType::Float:
+        outDatum = Datum(static_cast<float>(jsonValue.d()));
+        return true;
+    case DatumType::Bool:
+        outDatum = Datum(jsonValue.b());
+        return true;
+    case DatumType::String:
+        outDatum = Datum(std::string(jsonValue.s()));
+        return true;
+    case DatumType::Vector:
+        outDatum = Datum(JsonToVec3(jsonValue));
+        return true;
+    case DatumType::Vector2D:
+        outDatum = Datum(JsonToVec2(jsonValue));
+        return true;
+    case DatumType::Color:
+        outDatum = Datum(JsonToColor(jsonValue));
+        return true;
+    case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
+    {
+        std::string assetName = jsonValue.s();
+        Asset* asset = nullptr;
+        if (!assetName.empty())
+        {
+            asset = AssetManager::Get()->LoadAsset(assetName);
+            if (asset == nullptr)
+            {
+                outError = "Asset not found: " + assetName;
+                return false;
+            }
+        }
+        outDatum.SetType(type);
+        outDatum.PushBack(AssetRef(asset));
+        return true;
+    }
+    default:
+        outError = "Unsupported property type for set";
+        return false;
+    }
+}
+
 static crow::json::wvalue DatumToJson(const Datum& datum, uint32_t index = 0)
 {
     crow::json::wvalue j;
@@ -216,8 +308,14 @@ static crow::json::wvalue DatumToJson(const Datum& datum, uint32_t index = 0)
         break;
     }
     case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
     {
-        Asset* a = datum.GetAsset();
+        Asset* a = datum.GetAsset(index);
         j = a ? a->GetName() : "";
         break;
     }
@@ -979,32 +1077,10 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 if (prop.mName == propName)
                 {
                     Datum newValue;
-
-                    switch (prop.GetType())
+                    std::string err;
+                    if (!BuildDatumFromJson(prop, parsed["value"], newValue, err))
                     {
-                    case DatumType::Integer:
-                        newValue = Datum(static_cast<int32_t>(parsed["value"].i()));
-                        break;
-                    case DatumType::Short:
-                        newValue = Datum(static_cast<int16_t>(parsed["value"].i()));
-                        break;
-                    case DatumType::Byte:
-                        newValue = Datum(static_cast<uint8_t>(parsed["value"].i()));
-                        break;
-                    case DatumType::Float:
-                        newValue = Datum(static_cast<float>(parsed["value"].d()));
-                        break;
-                    case DatumType::Bool:
-                        newValue = Datum(parsed["value"].b());
-                        break;
-                    case DatumType::String:
-                        newValue = Datum(std::string(parsed["value"].s()));
-                        break;
-                    case DatumType::Vector:
-                        newValue = Datum(JsonToVec3(parsed["value"]));
-                        break;
-                    default:
-                        return ErrorJson("Unsupported property type for set").dump();
+                        return ErrorJson(err).dump();
                     }
 
                     ActionManager::Get()->EXE_EditProperty(
@@ -1116,29 +1192,20 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 if (prop.mName == fieldName)
                 {
                     Datum newValue;
-
-                    switch (prop.GetType())
+                    std::string err;
+                    if (!BuildDatumFromJson(prop, parsed["value"], newValue, err))
                     {
-                    case DatumType::Integer:
-                        newValue = Datum(static_cast<int32_t>(parsed["value"].i()));
-                        break;
-                    case DatumType::Float:
-                        newValue = Datum(static_cast<float>(parsed["value"].d()));
-                        break;
-                    case DatumType::Bool:
-                        newValue = Datum(parsed["value"].b());
-                        break;
-                    case DatumType::String:
-                        newValue = Datum(std::string(parsed["value"].s()));
-                        break;
-                    case DatumType::Vector:
-                        newValue = Datum(JsonToVec3(parsed["value"]));
-                        break;
-                    default:
-                        return ErrorJson("Unsupported script property type").dump();
+                        return ErrorJson(err).dump();
                     }
 
-                    script->SetField(fieldName.c_str(), newValue);
+                    // Route through EXE_EditProperty (not Script::SetField). The action
+                    // re-gathers properties via Node::GatherProperties → Script::AppendScriptProperties,
+                    // and the change handler updates BOTH the C++ Property cache (mScriptProps,
+                    // which is what scene save reads) AND propagates to Lua via UploadDatum.
+                    // Direct Script::SetField only updates Lua, leaving the cache stale —
+                    // which is why REST-set values used to disappear after save / scene reload.
+                    ActionManager::Get()->EXE_EditProperty(
+                        node, PropertyOwnerType::Node, fieldName, 0, newValue);
 
                     crow::json::wvalue j;
                     j["success"] = true;
@@ -1278,6 +1345,315 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             j["success"] = true;
             j["name"] = imported->GetName();
             j["type"] = imported->GetTypeName();
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/assets — List all registered assets
+    //
+    // Query params (all optional):
+    //   type    — filter by asset class name (e.g. "MaterialLite", "Texture",
+    //             "StaticMesh", "Scene"). Match is exact, case-sensitive.
+    //   prefix  — case-sensitive substring match against asset name.
+    //   engine  — "1" includes engine assets in the result (default excludes them
+    //             so the LLM only sees project-level assets).
+    //
+    // Response: { "assets": [{name, type, path, uuid, engine}, ...] }
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets").methods("GET"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "GET", "/api/assets");
+
+        std::string typeFilter;
+        std::string prefixFilter;
+        bool includeEngine = false;
+        if (const char* s = req.url_params.get("type"))    typeFilter = s;
+        if (const char* s = req.url_params.get("prefix"))  prefixFilter = s;
+        if (const char* s = req.url_params.get("engine"))  includeEngine = (std::atoi(s) != 0);
+
+        auto future = server->QueueCommand([typeFilter, prefixFilter, includeEngine]() -> std::string
+        {
+            crow::json::wvalue j;
+            crow::json::wvalue arr;
+            uint32_t outIdx = 0;
+
+            const auto& assetMap = AssetManager::Get()->GetAssetMap();
+            for (const auto& kv : assetMap)
+            {
+                AssetStub* stub = kv.second;
+                if (stub == nullptr) continue;
+                if (!includeEngine && stub->mEngineAsset) continue;
+
+                const char* typeName = Asset::GetNameFromTypeId(stub->mType);
+                if (!typeFilter.empty() && typeFilter != typeName) continue;
+
+                const std::string& name = kv.first;
+                if (!prefixFilter.empty() && name.find(prefixFilter) == std::string::npos) continue;
+
+                crow::json::wvalue item;
+                item["name"] = name;
+                item["type"] = typeName;
+                item["path"] = stub->mPath;
+                item["uuid"] = static_cast<int64_t>(stub->mUuid);
+                item["engine"] = stub->mEngineAsset;
+                arr[outIdx++] = std::move(item);
+            }
+
+            j["assets"] = std::move(arr);
+            j["count"] = static_cast<int>(outIdx);
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/assets/<name> — Asset summary (info, no properties)
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets/<string>").methods("GET"_method)
+    ([server](const crow::request& req, const std::string& name)
+    {
+        LogRequest(server, "GET", "/api/assets/<name>");
+
+        std::string assetName = name;
+        auto future = server->QueueCommand([assetName]() -> std::string
+        {
+            AssetStub* stub = AssetManager::Get()->GetAssetStub(assetName);
+            if (stub == nullptr)
+            {
+                return ErrorJson("Asset not found: " + assetName).dump();
+            }
+
+            crow::json::wvalue j;
+            j["name"] = assetName;
+            j["type"] = Asset::GetNameFromTypeId(stub->mType);
+            j["path"] = stub->mPath;
+            j["uuid"] = static_cast<int64_t>(stub->mUuid);
+            j["engine"] = stub->mEngineAsset;
+            j["loaded"] = (stub->mAsset != nullptr);
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/assets/<name>/properties — All reflected properties of an asset
+    //
+    // Loads the asset on demand. Same response shape as
+    // /api/nodes/<name>/properties.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets/<string>/properties").methods("GET"_method)
+    ([server](const crow::request& req, const std::string& name)
+    {
+        LogRequest(server, "GET", "/api/assets/<name>/properties");
+
+        std::string assetName = name;
+        auto future = server->QueueCommand([assetName]() -> std::string
+        {
+            Asset* asset = AssetManager::Get()->LoadAsset(assetName);
+            if (asset == nullptr)
+            {
+                return ErrorJson("Asset not found: " + assetName).dump();
+            }
+
+            std::vector<Property> props;
+            asset->GatherProperties(props);
+
+            crow::json::wvalue j;
+            crow::json::wvalue propArr;
+            for (uint32_t i = 0; i < props.size(); ++i)
+            {
+                propArr[i] = PropertyToJson(props[i]);
+            }
+            j["properties"] = std::move(propArr);
+            j["type"] = asset->GetTypeName();
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // PUT /api/assets/<name>/properties — Set a property by name
+    //
+    // Body: { "name": "Color", "value": [1.0, 1.0, 1.0, 1.0] }
+    //
+    // Goes through ActionManager::EXE_EditProperty so the asset is marked
+    // dirty and undo/redo works. Asset is NOT automatically saved — call
+    // POST /api/assets/<name>/save to persist.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets/<string>/properties").methods("PUT"_method)
+    ([server](const crow::request& req, const std::string& name)
+    {
+        LogRequest(server, "PUT", "/api/assets/<name>/properties");
+
+        std::string assetName = name;
+        std::string body = req.body;
+        auto future = server->QueueCommand([assetName, body]() -> std::string
+        {
+            Asset* asset = AssetManager::Get()->LoadAsset(assetName);
+            if (asset == nullptr)
+            {
+                return ErrorJson("Asset not found: " + assetName).dump();
+            }
+
+            auto parsed = crow::json::load(body);
+            if (!parsed || !parsed.has("name") || !parsed.has("value"))
+            {
+                return ErrorJson("Missing 'name' or 'value' field").dump();
+            }
+
+            std::string propName = parsed["name"].s();
+
+            std::vector<Property> props;
+            asset->GatherProperties(props);
+
+            for (auto& prop : props)
+            {
+                if (prop.mName == propName)
+                {
+                    Datum newValue;
+                    std::string err;
+                    if (!BuildDatumFromJson(prop, parsed["value"], newValue, err))
+                    {
+                        return ErrorJson(err).dump();
+                    }
+
+                    ActionManager::Get()->EXE_EditProperty(
+                        asset, PropertyOwnerType::Asset, propName, 0, newValue);
+
+                    crow::json::wvalue j;
+                    j["success"] = true;
+                    return j.dump();
+                }
+            }
+
+            return ErrorJson("Property not found: " + propName).dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/assets — Create and register a new asset
+    //
+    // Body: { "type": "MaterialLite", "name": "M_Background", "directory": "Materials" }
+    //
+    // The directory path is project-relative (e.g. "Materials" creates the
+    // asset under <Project>/Materials). Returns the new asset's name + type
+    // on success.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets").methods("POST"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "POST", "/api/assets");
+
+        std::string body = req.body;
+        auto future = server->QueueCommand([body]() -> std::string
+        {
+            auto parsed = crow::json::load(body);
+            if (!parsed || !parsed.has("type") || !parsed.has("name") || !parsed.has("directory"))
+            {
+                return ErrorJson("Missing required field: 'type', 'name', or 'directory'").dump();
+            }
+
+            std::string typeStr = parsed["type"].s();
+            std::string assetName = parsed["name"].s();
+            std::string dirPath = parsed["directory"].s();
+
+            TypeId typeId = Asset::GetTypeIdFromName(typeStr.c_str());
+            if (typeId == INVALID_TYPE_ID)
+            {
+                return ErrorJson("Unknown asset type: " + typeStr).dump();
+            }
+
+            AssetDir* dir = AssetManager::Get()->GetAssetDirFromPath(dirPath);
+            if (dir == nullptr)
+            {
+                return ErrorJson("Asset directory not found: " + dirPath).dump();
+            }
+
+            AssetStub* stub = AssetManager::Get()->CreateAndRegisterAsset(typeId, dir, assetName, false);
+            if (stub == nullptr || stub->mAsset == nullptr)
+            {
+                return ErrorJson("Failed to create asset (name may already exist)").dump();
+            }
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["name"] = stub->mAsset->GetName();
+            j["type"] = stub->mAsset->GetTypeName();
+            j["path"] = stub->mPath;
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/assets/<name>/save — Persist a dirty asset to disk
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets/<string>/save").methods("POST"_method)
+    ([server](const crow::request& req, const std::string& name)
+    {
+        LogRequest(server, "POST", "/api/assets/<name>/save");
+
+        std::string assetName = name;
+        auto future = server->QueueCommand([assetName]() -> std::string
+        {
+            AssetStub* stub = AssetManager::Get()->GetAssetStub(assetName);
+            if (stub == nullptr)
+            {
+                return ErrorJson("Asset not found: " + assetName).dump();
+            }
+
+            AssetManager::Get()->SaveAsset(assetName);
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["name"] = assetName;
+            return j.dump();
+        });
+
+        std::string result = future.get();
+        return crow::response(200, "application/json", result);
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/assets/<name>/delete — Purge an asset
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/assets/<string>/delete").methods("POST"_method)
+    ([server](const crow::request& req, const std::string& name)
+    {
+        LogRequest(server, "POST", "/api/assets/<name>/delete");
+
+        std::string assetName = name;
+        auto future = server->QueueCommand([assetName]() -> std::string
+        {
+            if (!AssetManager::Get()->DoesAssetExist(assetName))
+            {
+                return ErrorJson("Asset not found: " + assetName).dump();
+            }
+
+            bool ok = AssetManager::Get()->PurgeAsset(assetName.c_str());
+            if (!ok)
+            {
+                return ErrorJson("Failed to purge asset: " + assetName).dump();
+            }
+
+            crow::json::wvalue j;
+            j["success"] = true;
             return j.dump();
         });
 
