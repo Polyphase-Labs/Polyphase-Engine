@@ -34,6 +34,7 @@
 #include "Utilities.h"
 #include "Script.h"
 #include "Plugins/ImGuiPluginContext.h"
+#include "Plugins/EditorUIHooks.h"
 
 #include "document.h"
 
@@ -1855,6 +1856,20 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     if (state.mDescValid && state.mDesc.OnUnload != nullptr)
     {
         state.mDesc.OnUnload();
+    }
+
+    // Clear every editor-UI hook the addon registered (windows, menus, inspectors,
+    // event callbacks, etc). Their function pointers live in the DLL we are about to
+    // free; without this, the next frame's DrawWindows() jumps into freed memory.
+    // hookId must match the formula in LoadNativeAddon.
+    if (mEngineAPI.editorUI != nullptr && mEngineAPI.editorUI->RemoveAllHooks != nullptr)
+    {
+        uint64_t hookId = 0;
+        for (char c : addonId)
+        {
+            hookId = hookId * 31 + c;
+        }
+        mEngineAPI.editorUI->RemoveAllHooks(hookId);
     }
 
     // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE

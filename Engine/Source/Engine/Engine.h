@@ -77,6 +77,11 @@ void WriteEngineConfig(std::string path = "");
 void ReadEngineConfig(std::string path = "");
 void ResetEngineConfig();
 
+// Rewrite the .octp project file's `name=` line in place. Preserves other lines
+// (assets=, solution=, etc.). Used to keep the .octp in sync when the project
+// name is edited via AppSettings, since the .octp is what packaging reads.
+void WriteProjectFile(const std::string& path, const std::string& newName);
+
 void ReadCommandLineArgs(int32_t argc, char** argv);
 
 

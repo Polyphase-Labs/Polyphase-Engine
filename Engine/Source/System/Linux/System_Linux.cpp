@@ -1444,4 +1444,17 @@ void SYS_GetWindowRect(int32_t& outX, int32_t& outY, int32_t& outWidth, int32_t&
     geom = nullptr;
 }
 
+bool SYS_IsWindowMaximized()
+{
+    // TODO: query _NET_WM_STATE for _NET_WM_STATE_MAXIMIZED_VERT/HORZ via xcb.
+    return false;
+}
+
+void SYS_MaximizeWindow()
+{
+    // TODO: send a _NET_WM_STATE client message setting _NET_WM_STATE_MAXIMIZED_VERT
+    // and _NET_WM_STATE_MAXIMIZED_HORZ via xcb. Linux users still get rect restore
+    // via SYS_SetWindowRect — only the maximize state is dropped on this platform.
+}
+
 #endif

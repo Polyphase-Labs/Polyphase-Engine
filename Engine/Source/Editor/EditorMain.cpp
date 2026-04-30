@@ -31,6 +31,7 @@
 #include "CliTerminal/TerminalPanel.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/General/GeneralModule.h"
+#include "Preferences/JsonSettings.h"
 #include "ProjectSelect/TemplateManager.h"
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonManager.h"
@@ -120,6 +121,68 @@ static void SelfHealStandaloneIfCrashed()
 }
 #endif
 
+// Persisted across sessions in %APPDATA%/PolyphaseEditor/Preferences/WindowState.json
+// (or ~/.config/... on Linux). Captured on close, applied right after the OS window
+// exists on next startup. Per-app, not per-project — the window is shared across all
+// projects and the project-select screen.
+static const char* kWindowStateFile = "WindowState.json";
+
+static void RestoreEditorWindowState()
+{
+    std::string path = JsonSettings::GetPreferencesDirectory() + "/" + kWindowStateFile;
+    rapidjson::Document doc;
+    if (!JsonSettings::LoadFromFile(path, doc) || !doc.IsObject())
+    {
+        return;
+    }
+
+    int width = JsonSettings::GetInt(doc, "width", -1);
+    int height = JsonSettings::GetInt(doc, "height", -1);
+    int x = JsonSettings::GetInt(doc, "x", 0);
+    int y = JsonSettings::GetInt(doc, "y", 0);
+    bool maximized = JsonSettings::GetBool(doc, "maximized", false);
+
+    if (width > 0 && height > 0)
+    {
+        SYS_SetWindowRect(x, y, width, height);
+    }
+    if (maximized)
+    {
+        SYS_MaximizeWindow();
+    }
+}
+
+static void SaveEditorWindowState()
+{
+    // Bail if Play-in-Editor is using the editor window — EditorState::BeginPlayInEditor
+    // temporarily resizes it to game preview resolution and queryng now would record the
+    // wrong rect. Tolerable edge case to skip the save; the previous saved state stays.
+    EditorState* es = GetEditorState();
+    if (es != nullptr && es->mPlayInEditor && !es->mPlayInGameWindow)
+    {
+        return;
+    }
+
+    // SYS_GetWindowRect on Windows uses GetWindowPlacement.rcNormalPosition, so the
+    // rect we save is the un-maximized rect even when currently maximized — restore
+    // then puts the window back to the right size if the user un-maximizes.
+    int x = 0, y = 0, w = 0, h = 0;
+    SYS_GetWindowRect(x, y, w, h);
+    bool maximized = SYS_IsWindowMaximized();
+
+    rapidjson::Document doc;
+    doc.SetObject();
+    JsonSettings::SetInt(doc, "x", x);
+    JsonSettings::SetInt(doc, "y", y);
+    JsonSettings::SetInt(doc, "width", w);
+    JsonSettings::SetInt(doc, "height", h);
+    JsonSettings::SetBool(doc, "maximized", maximized);
+
+    JsonSettings::EnsurePreferencesDirectory();
+    std::string path = JsonSettings::GetPreferencesDirectory() + "/" + kWindowStateFile;
+    JsonSettings::SaveToFile(path, doc);
+}
+
 void OctPreInitialize(EngineConfig& config);
 
 void EditorMain(int32_t argc, char** argv)
@@ -193,6 +256,10 @@ void EditorMain(int32_t argc, char** argv)
 
     // Normal editor initialization
     GetEditorState()->Init();
+
+    // Window already exists from Initialize() above. Apply last-session size/maximize
+    // state if we have one — overrides Config.ini's WindowWidth/Height for the editor.
+    RestoreEditorWindowState();
 
     ActionManager::Create();
     BuildCache::Create();
@@ -364,13 +431,20 @@ void EditorMain(int32_t argc, char** argv)
         EditorUIHookManager::Get()->FireOnEditorShutdown();
     }
 
+    // Capture window size/maximize state before Shutdown() destroys the OS window.
+    SaveEditorWindowState();
+
     GitService::Destroy();
     AutoUpdater::Destroy();
-    // NOTE: NativeAddonManager::Destroy() is intentionally deferred until AFTER Shutdown().
-    // Shutdown destroys every world and recursively destroys their nodes. If addon DLLs
-    // are freed first, any scene node whose type came from an addon (e.g. VideoPlayer3D)
-    // has a dangling vtable pointer into unmapped memory; the destructor call crashes.
-    EditorUIHookManager::Destroy();
+    // NOTE: NativeAddonManager::Destroy() is sandwiched between Shutdown() and
+    // EditorUIHookManager::Destroy() to satisfy two ordering constraints:
+    //   (A) Worlds must be destroyed BEFORE addon DLLs are unloaded — scene nodes
+    //       whose type came from an addon (e.g. VideoPlayer3D) have vtables in the
+    //       addon DLL; freeing the DLL first leaves dangling vtables and ~Node crashes.
+    //   (B) EditorUIHookManager must outlive addon unload — each addon's OnUnload()
+    //       calls hooks->RemoveAllHooks(hookId), and UnloadNativeAddon itself also
+    //       does the same on the way out. Both dereference the editorUI pointer that
+    //       points into EditorUIHookManager's mHooks struct.
     AddonManager::Destroy();
     TemplateManager::Destroy();
     BuildCache::Destroy();
@@ -380,9 +454,10 @@ void EditorMain(int32_t argc, char** argv)
     InputMap::Destroy();
     GetEditorState()->Shutdown();
     Shutdown();
-    // Now that all worlds/nodes are destroyed and the Lua state is closed, it's safe to
-    // FreeLibrary the addon DLLs.
+    // Worlds/nodes destroyed and Lua state closed — safe to FreeLibrary addon DLLs.
     NativeAddonManager::Destroy();
+    // Addons are gone, no one will dereference editorUI any more.
+    EditorUIHookManager::Destroy();
 }
 
 #endif

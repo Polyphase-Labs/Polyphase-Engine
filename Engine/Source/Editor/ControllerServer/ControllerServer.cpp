@@ -102,6 +102,16 @@ void ControllerServer::Stop()
         return;
     }
 
+    // Reject new requests so Crow workers never park on a future that will
+    // never be ticked once the main thread enters Engine::Shutdown.
+    mShuttingDown.store(true);
+
+    // Drain anything queued since the last frame so legitimate in-flight
+    // requests get a real response, then cancel whatever is left so any
+    // Crow worker still blocked in WaitForCommand wakes up immediately.
+    Tick();
+    DrainAndCancelQueue();
+
     mRunning.store(false);
 
     if (mImpl->mApp)
@@ -111,10 +121,24 @@ void ControllerServer::Stop()
 
     if (mServerFuture.valid())
     {
-        mServerFuture.wait();
+        // Bounded outer wait. The future returned by Crow's run_async() is a
+        // std::async future whose destructor BLOCKS until the task completes,
+        // so on timeout we cannot just let it fall out of scope — we must
+        // move both it and the Crow app onto the heap and intentionally leak.
+        // We're inside the editor's shutdown path; the OS reclaims memory at
+        // process exit. Without this, the editor process can become unkillable
+        // on Windows when a worker thread is wedged inside an LSP/AV/VPN.
+        if (mServerFuture.wait_for(std::chrono::seconds(4)) != std::future_status::ready)
+        {
+            LogWarning("ControllerServer: Crow worker did not exit in 4s; "
+                       "leaking app + future to allow process to exit cleanly.");
+            new std::future<void>(std::move(mServerFuture));
+            (void)mImpl->mApp.release();
+        }
     }
 
     mImpl->mApp.reset();
+    mShuttingDown.store(false);
 
     LogDebug("Controller Server stopped");
 
@@ -152,6 +176,12 @@ std::future<std::string> ControllerServer::QueueCommand(std::function<std::strin
     cmd->mFunction = std::move(fn);
     std::future<std::string> future = cmd->mPromise.get_future();
 
+    if (mShuttingDown.load())
+    {
+        cmd->mPromise.set_value(R"({"error":"server_shutting_down"})");
+        return future;
+    }
+
     {
         std::lock_guard<std::mutex> lock(mQueueMutex);
         mCommandQueue.push(std::move(cmd));
@@ -187,6 +217,28 @@ void ControllerServer::Tick()
             }
             catch (...) {}
         }
+    }
+}
+
+void ControllerServer::DrainAndCancelQueue()
+{
+    std::queue<std::unique_ptr<ControllerCommand>> batch;
+
+    {
+        std::lock_guard<std::mutex> lock(mQueueMutex);
+        std::swap(batch, mCommandQueue);
+    }
+
+    while (!batch.empty())
+    {
+        auto cmd = std::move(batch.front());
+        batch.pop();
+
+        try
+        {
+            cmd->mPromise.set_value(R"({"error":"server_shutting_down"})");
+        }
+        catch (...) {} // promise already satisfied — ignore
     }
 }
 

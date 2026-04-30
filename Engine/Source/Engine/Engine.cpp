@@ -1019,7 +1019,9 @@ void LoadProject(const std::string& path, bool discoverAssets)
         char key[MAX_PATH_SIZE] = {};
         char value[MAX_PATH_SIZE] = {};
 
-        while (projFileStream.Scan("%[^=]=%s\n", key, value) != -1)
+        // %[^\n] (not %s) so values containing spaces — e.g. name=Updater Launcher Demo —
+        // are read whole. %s stops at the first whitespace and would silently truncate.
+        while (projFileStream.Scan("%[^=]=%[^\n]", key, value) != -1)
         {
             if (strncmp(key, "name", MAX_PATH_SIZE) == 0)
             {
@@ -1033,11 +1035,30 @@ void LoadProject(const std::string& path, bool discoverAssets)
             {
                 sEngineState.mSolutionPath = sEngineState.mProjectDirectory + value;
             }
+            strcpy(key, "");
+            strcpy(value, "");
         }
     }
 
     std::string configPath = sEngineState.mProjectDirectory + "Config.ini";
     ReadEngineConfig(configPath);
+
+#if EDITOR
+    // .octp `name=` is the canonical project name (it's what packaging reads to derive
+    // the final exe name). Config.ini's `Project=` is a mirror used by the standalone
+    // game runtime. When they drift — e.g. the .octp was edited by hand or by Create
+    // New Project — rewrite Config.ini so the two agree. Editor-only because a shipped
+    // game has no .octp to sync from.
+    if (!IsHeadless() &&
+        !sEngineState.mProjectName.empty() &&
+        sEngineState.mProjectName != sEngineConfig.mProjectName)
+    {
+        LogDebug("Syncing Config.ini Project= to .octp name= (\"%s\" -> \"%s\")",
+                 sEngineConfig.mProjectName.c_str(), sEngineState.mProjectName.c_str());
+        sEngineConfig.mProjectName = sEngineState.mProjectName;
+        WriteEngineConfig(configPath);
+    }
+#endif
 
 #if EDITOR
     // Load native addons BEFORE discovering assets. Addon DLLs register custom node types
@@ -1362,6 +1383,57 @@ ScreenOrientation GetScreenOrientation()
     return SYS_GetScreenOrientation();
 }
 
+void WriteProjectFile(const std::string& path, const std::string& newName)
+{
+    if (path.empty())
+    {
+        LogError("WriteProjectFile: empty path");
+        return;
+    }
+
+    // Read existing lines so we preserve assets= / solution= / unknown keys.
+    std::vector<std::string> lines;
+    bool replacedNameLine = false;
+    {
+        FILE* f = fopen(path.c_str(), "r");
+        if (f != nullptr)
+        {
+            char buf[4096];
+            while (fgets(buf, sizeof(buf), f) != nullptr)
+            {
+                lines.emplace_back(buf);
+            }
+            fclose(f);
+        }
+    }
+
+    const std::string newNameLine = "name=" + newName + "\n";
+    for (std::string& line : lines)
+    {
+        if (line.compare(0, 5, "name=") == 0)
+        {
+            line = newNameLine;
+            replacedNameLine = true;
+        }
+    }
+    if (!replacedNameLine)
+    {
+        lines.insert(lines.begin(), newNameLine);
+    }
+
+    FILE* f = fopen(path.c_str(), "w");
+    if (f == nullptr)
+    {
+        LogError("WriteProjectFile: failed to open %s for writing", path.c_str());
+        return;
+    }
+    for (const std::string& line : lines)
+    {
+        fputs(line.c_str(), f);
+    }
+    fclose(f);
+}
+
 void WriteEngineConfig(std::string path)
 {
     if (path == "")
@@ -1477,7 +1549,9 @@ void ReadEngineConfig(std::string path)
                 return (intVal != 0);
             };
 
-        while (iniStream.Scan("%[^=]=%s\n", key, value) != -1)
+        // %[^\n] (not %s) so values containing spaces — e.g. Project=Updater Launcher Demo
+        // or Icon=Some Icon Path.png — are read whole instead of truncated at whitespace.
+        while (iniStream.Scan("%[^=]=%[^\n]", key, value) != -1)
         {
             keyStr = key;
             valueStr = value;

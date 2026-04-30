@@ -1445,6 +1445,21 @@ void SYS_GetWindowRect(int32_t& outX, int32_t& outY, int32_t& outWidth, int32_t&
 {
     SystemState& system = GetEngineState()->mSystem;
 
+    // When the window is maximized, GetWindowRect returns the maximized rect — useless
+    // for "restore on next launch" since the OS will re-maximize from saved state and
+    // we want the underlying restored size. GetWindowPlacement.rcNormalPosition gives
+    // the un-maximized rect even while currently maximized.
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    if (GetWindowPlacement(system.mWindow, &placement))
+    {
+        outX = placement.rcNormalPosition.left;
+        outY = placement.rcNormalPosition.top;
+        outWidth = placement.rcNormalPosition.right - placement.rcNormalPosition.left;
+        outHeight = placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
+        return;
+    }
+
     RECT winRect;
     GetWindowRect(system.mWindow, &winRect);
 
@@ -1452,6 +1467,21 @@ void SYS_GetWindowRect(int32_t& outX, int32_t& outY, int32_t& outWidth, int32_t&
     outY = winRect.top;
     outWidth = winRect.right - winRect.left;
     outHeight = winRect.bottom - winRect.top;
+}
+
+bool SYS_IsWindowMaximized()
+{
+    SystemState& system = GetEngineState()->mSystem;
+    return system.mWindow != nullptr && IsZoomed(system.mWindow) != 0;
+}
+
+void SYS_MaximizeWindow()
+{
+    SystemState& system = GetEngineState()->mSystem;
+    if (system.mWindow != nullptr)
+    {
+        ShowWindow(system.mWindow, SW_MAXIMIZE);
+    }
 }
 
 void SYS_ExplorerOpenDirectory(const std::string& dirPath)

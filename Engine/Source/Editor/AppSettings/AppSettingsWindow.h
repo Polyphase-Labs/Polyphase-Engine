@@ -24,6 +24,7 @@ private:
     void DrawIconSection();
 
     bool mIsOpen = false;
+    bool mDirty = false;
 
     // Text input buffers
     char mProjectNameBuffer[256] = {};

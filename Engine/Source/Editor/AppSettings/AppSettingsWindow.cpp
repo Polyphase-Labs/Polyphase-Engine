@@ -29,6 +29,7 @@ AppSettingsWindow::~AppSettingsWindow()
 void AppSettingsWindow::Open()
 {
     mIsOpen = true;
+    mDirty = false;
 
     const EngineConfig* config = GetEngineConfig();
 
@@ -73,6 +74,28 @@ void AppSettingsWindow::Draw()
         DrawRuntimeSection();
         DrawPackagingSection();
         DrawIconSection();
+
+        ImGui::Separator();
+        ImGui::BeginDisabled(!mDirty);
+        if (ImGui::Button("Apply"))
+        {
+            WriteEngineConfig();
+            const std::string& projectPath = GetEngineState()->mProjectPath;
+            if (!projectPath.empty())
+            {
+                WriteProjectFile(projectPath, mProjectNameBuffer);
+            }
+            // Push the new name to the OS window so the title bar reflects it
+            // immediately — Engine.cpp only sets the title once, during LoadProject.
+            SYS_SetWindowTitle(mProjectNameBuffer);
+            mDirty = false;
+        }
+        ImGui::EndDisabled();
+        if (mDirty)
+        {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(unsaved changes)");
+        }
     }
     ImGui::End();
 
@@ -96,6 +119,7 @@ void AppSettingsWindow::DrawGeneralSection()
     {
         config->mProjectName = mProjectNameBuffer;
         GetEngineState()->mProjectName = mProjectNameBuffer;
+        // .octp + Config.ini are written together when Apply is clicked.
         changed = true;
     }
 
@@ -127,7 +151,7 @@ void AppSettingsWindow::DrawGeneralSection()
 
     if (changed)
     {
-        WriteEngineConfig();
+        mDirty = true;
     }
 }
 
@@ -168,7 +192,7 @@ void AppSettingsWindow::DrawWindowSection()
 
     if (changed)
     {
-        WriteEngineConfig();
+        mDirty = true;
     }
 }
 
@@ -219,7 +243,7 @@ void AppSettingsWindow::DrawGraphicsSection()
 
     if (changed)
     {
-        WriteEngineConfig();
+        mDirty = true;
     }
 }
 
@@ -255,7 +279,7 @@ void AppSettingsWindow::DrawRuntimeSection()
 
     if (changed)
     {
-        WriteEngineConfig();
+        mDirty = true;
     }
 }
 
@@ -276,7 +300,7 @@ void AppSettingsWindow::DrawPackagingSection()
 
     if (changed)
     {
-        WriteEngineConfig();
+        mDirty = true;
     }
 }
 
@@ -339,7 +363,7 @@ void AppSettingsWindow::DrawIconSection()
             strncpy(mIconPathBuffer, config->mIconPath.c_str(), sizeof(mIconPathBuffer) - 1);
             mIconPathBuffer[sizeof(mIconPathBuffer) - 1] = '\0';
 
-            WriteEngineConfig();
+            mDirty = true;
 
             // Update window icon live
             std::string fullIconPath = projectDir + config->mIconPath;
@@ -360,7 +384,7 @@ void AppSettingsWindow::DrawIconSection()
     {
         config->mIconPath = "";
         mIconPathBuffer[0] = '\0';
-        WriteEngineConfig();
+        mDirty = true;
 
         // Reset to default icon
         SYS_SetWindowIcon("");

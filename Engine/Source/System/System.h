@@ -113,6 +113,8 @@ void SYS_SetFullscreen(bool fullscreen);
 bool SYS_IsFullscreen();
 void SYS_SetWindowRect(int32_t x, int32_t y, int32_t width, int32_t height);
 void SYS_GetWindowRect(int32_t& outX, int32_t& outY, int32_t& outWidth, int32_t& outHeight);
+bool SYS_IsWindowMaximized();
+void SYS_MaximizeWindow();
 
 struct ScopedLock
 {

@@ -26,6 +26,7 @@ public:
     void Stop();
     void Restart(int port);
     bool IsRunning() const;
+    bool IsShuttingDown() const { return mShuttingDown.load(); }
 
     void Tick();
 
@@ -38,11 +39,14 @@ private:
     ControllerServer();
     ~ControllerServer();
 
+    void DrainAndCancelQueue();
+
     static ControllerServer* sInstance;
 
     std::unique_ptr<ControllerServerImpl> mImpl;
     std::future<void> mServerFuture;
     std::atomic<bool> mRunning{ false };
+    std::atomic<bool> mShuttingDown{ false };
     std::atomic<bool> mLogRequests{ false };
     int mPort = 7890;
 

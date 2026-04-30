@@ -428,6 +428,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/scene");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -451,8 +452,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -466,6 +466,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/scene/new");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -519,8 +520,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -530,6 +530,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/scene/open");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -557,8 +558,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -568,6 +568,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/scene/save");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -578,8 +579,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -589,6 +589,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/scene/hierarchy");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -603,8 +604,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -614,6 +614,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "PUT", "/api/scene/hierarchy");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -658,8 +659,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -669,6 +669,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "GET", "/api/nodes/<name>");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         auto future = server->QueueCommand([nodeName]() -> std::string
@@ -688,8 +689,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(node).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -699,6 +699,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/nodes");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -736,8 +737,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(newNode).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -747,6 +747,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "POST", "/api/nodes/<name>/delete");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         auto future = server->QueueCommand([nodeName]() -> std::string
@@ -770,8 +771,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -781,6 +781,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/transform");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -828,8 +829,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(n3d).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -839,6 +839,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/move");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -869,8 +870,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(n3d).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -880,6 +880,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/rotate");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -910,8 +911,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(n3d).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -921,6 +921,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/scale");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -951,8 +952,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return NodeToJson(n3d).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -962,6 +962,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/visibility");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -993,8 +994,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1004,6 +1004,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "GET", "/api/nodes/<name>/properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         auto future = server->QueueCommand([nodeName]() -> std::string
@@ -1033,8 +1034,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1044,6 +1044,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -1095,8 +1096,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return ErrorJson("Property not found: " + propName).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1106,6 +1106,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "GET", "/api/nodes/<name>/script-properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         auto future = server->QueueCommand([nodeName]() -> std::string
@@ -1143,8 +1144,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1154,6 +1154,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/nodes/<name>/script-properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string nodeName = name;
         std::string body = req.body;
@@ -1216,8 +1217,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return ErrorJson("Script property not found: " + fieldName).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1227,6 +1227,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/play/start");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -1242,8 +1243,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1253,6 +1253,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/play/stop");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -1268,8 +1269,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1279,6 +1279,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/play/pause");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -1290,8 +1291,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1301,6 +1301,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/play/resume");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -1312,8 +1313,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1323,6 +1323,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/assets/import");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -1348,8 +1349,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1368,6 +1368,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/assets");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string typeFilter;
         std::string prefixFilter;
@@ -1409,8 +1410,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1420,6 +1420,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "GET", "/api/assets/<name>");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string assetName = name;
         auto future = server->QueueCommand([assetName]() -> std::string
@@ -1440,8 +1441,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1454,6 +1454,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "GET", "/api/assets/<name>/properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string assetName = name;
         auto future = server->QueueCommand([assetName]() -> std::string
@@ -1478,8 +1479,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1495,6 +1495,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "PUT", "/api/assets/<name>/properties");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string assetName = name;
         std::string body = req.body;
@@ -1540,8 +1541,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return ErrorJson("Property not found: " + propName).dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1557,6 +1557,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "POST", "/api/assets");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string body = req.body;
         auto future = server->QueueCommand([body]() -> std::string
@@ -1597,8 +1598,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1608,6 +1608,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "POST", "/api/assets/<name>/save");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string assetName = name;
         auto future = server->QueueCommand([assetName]() -> std::string
@@ -1626,8 +1627,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1637,6 +1637,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req, const std::string& name)
     {
         LogRequest(server, "POST", "/api/assets/<name>/delete");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         std::string assetName = name;
         auto future = server->QueueCommand([assetName]() -> std::string
@@ -1657,8 +1658,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1678,6 +1678,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/log");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         uint64_t sinceSeq = 0;
         uint32_t limit = 200;
@@ -1747,8 +1748,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1767,6 +1767,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/screenshot");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         uint32_t targetWidth = 0; // 0 = native
         if (const char* s = req.url_params.get("width"))
@@ -1796,8 +1797,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return EncodeScreenshotResponse(rgba, w, h, targetWidth);
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1818,6 +1818,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/screenshot/editor");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         uint32_t targetWidth = 0;
         if (const char* s = req.url_params.get("width"))
@@ -1860,6 +1861,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     ([server](const crow::request& req)
     {
         LogRequest(server, "GET", "/api/preferences");
+        RETURN_IF_SHUTTING_DOWN(server);
 
         auto future = server->QueueCommand([]() -> std::string
         {
@@ -1869,8 +1871,7 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             return j.dump();
         });
 
-        std::string result = future.get();
-        return crow::response(200, "application/json", result);
+        return crow::response(200, "application/json", WaitForCommand(future));
     });
 
     // ------------------------------------------------------------------
@@ -1879,6 +1880,8 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     CROW_CATCHALL_ROUTE(app)
     ([server](const crow::request& req)
     {
+        RETURN_IF_SHUTTING_DOWN(server);
+
         // Check addon routes
         EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
         if (hookMgr != nullptr)
