@@ -740,6 +740,12 @@ static void DrawToolsMenu()
         {
             auto openInVSCode = [](const std::string& dir) {
                 std::string absPath = SYS_GetAbsolutePath(dir);
+                // Strip trailing slashes — on Windows cmd.exe interprets a
+                // trailing backslash inside double quotes as an escape for the
+                // closing quote ("...\\\"" -> mangled args), which makes
+                // `code` receive a corrupted path and crash with an ICU error.
+                while (!absPath.empty() && (absPath.back() == '/' || absPath.back() == '\\'))
+                    absPath.pop_back();
 #if PLATFORM_WINDOWS
                 SYS_Exec(("code \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
@@ -771,6 +777,8 @@ static void DrawToolsMenu()
                 if (editors)
                 {
                     std::string absPath = SYS_GetAbsolutePath(dir);
+                    while (!absPath.empty() && (absPath.back() == '/' || absPath.back() == '\\'))
+                        absPath.pop_back();
                     std::string cmd = editors->BuildLuaOpenCommand(absPath);
                     SYS_Exec(cmd.c_str());
                 }
@@ -797,6 +805,8 @@ static void DrawToolsMenu()
     {
         auto revealDir = [](const std::string& dir) {
             std::string absPath = SYS_GetAbsolutePath(dir);
+            while (!absPath.empty() && (absPath.back() == '/' || absPath.back() == '\\'))
+                absPath.pop_back();
 #if PLATFORM_WINDOWS
             for (char& c : absPath) { if (c == '/') c = '\\'; }
             SYS_Exec(("explorer \"" + absPath + "\"").c_str());
