@@ -926,6 +926,9 @@
     <ClCompile Include="Source\Editor\EditorImgui.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\EditorWidgets.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\EditorMainMenu.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -2371,6 +2374,9 @@
       <Filter>Source Files\Editor\AnimationBrowser</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorImgui.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\EditorWidgets.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorMainMenu.h">

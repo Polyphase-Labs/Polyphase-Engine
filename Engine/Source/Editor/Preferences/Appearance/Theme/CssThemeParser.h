@@ -39,6 +39,9 @@ struct CssThemeData
     ImVec2 ButtonTextAlign;                bool hasButtonTextAlign = false;
     ImVec2 SelectableTextAlign;            bool hasSelectableTextAlign = false;
 
+    // Polyphase-specific: visual size for editor checkboxes (drawn via Polyphase::Checkbox).
+    float CheckboxSize = 16.0f;            bool hasCheckboxSize = false;
+
     // Dock tab text color (separate from ImGuiCol_Text)
     ImVec4 DockTabTextColor;               bool hasDockTabTextColor = false;
 

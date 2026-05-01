@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "TilemapGridModule.h"
+#include "EditorWidgets.h"
 #include "../../../JsonSettings.h"
 #include "../../../PreferencesManager.h"
 
@@ -45,7 +46,7 @@ void TilemapGridModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Highlight World Axes", &mHighlightAxes))
+    if (Polyphase::Checkbox("Highlight World Axes", &mHighlightAxes))
     {
         changed = true;
     }

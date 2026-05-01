@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ViewportModule.h"
+#include "EditorWidgets.h"
 #include "../../JsonSettings.h"
 #include "../../PreferencesManager.h"
 
@@ -52,7 +53,7 @@ void ViewportModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Show Grid", &mShowGrid))
+    if (Polyphase::Checkbox("Show Grid", &mShowGrid))
     {
         changed = true;
         ApplyGridVisibility();

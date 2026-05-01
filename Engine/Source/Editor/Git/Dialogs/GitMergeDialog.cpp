@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitMergeDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "../GitProcessRunner.h"
@@ -120,7 +121,7 @@ void GitMergeDialog::Draw()
         ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::Checkbox("No fast-forward (--no-ff)", &mNoFastForward);
+        Polyphase::Checkbox("No fast-forward (--no-ff)", &mNoFastForward);
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("Always create a merge commit, even if the merge could be fast-forwarded.");

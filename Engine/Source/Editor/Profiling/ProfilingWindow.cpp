@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ProfilingWindow.h"
+#include "EditorWidgets.h"
 #include "Engine.h"
 #include "Clock.h"
 #include "Profiler.h"
@@ -32,15 +33,15 @@ void ProfilingWindow::Draw()
 void ProfilingWindow::DrawContent()
 {
     // Toggle buttons row
-    ImGui::Checkbox("FPS", &mShowFPS);
+    Polyphase::Checkbox("FPS", &mShowFPS);
     ImGui::SameLine();
-    ImGui::Checkbox("CPU", &mShowCpuStats);
+    Polyphase::Checkbox("CPU", &mShowCpuStats);
     ImGui::SameLine();
-    ImGui::Checkbox("GPU", &mShowGpuStats);
+    Polyphase::Checkbox("GPU", &mShowGpuStats);
     ImGui::SameLine();
-    ImGui::Checkbox("Memory", &mShowMemory);
+    Polyphase::Checkbox("Memory", &mShowMemory);
     ImGui::SameLine();
-    ImGui::Checkbox("Graph", &mShowFrameGraph);
+    Polyphase::Checkbox("Graph", &mShowFrameGraph);
 
     ImGui::Separator();
 

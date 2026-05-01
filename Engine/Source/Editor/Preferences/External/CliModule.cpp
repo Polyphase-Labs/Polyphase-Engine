@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "CliModule.h"
+#include "EditorWidgets.h"
 
 #include "../JsonSettings.h"
 #include "CliTerminal/ITerminalProcess.h"
@@ -57,7 +58,7 @@ void CliModule::Render()
 {
     bool changed = false;
 
-    if (ImGui::Checkbox("Enable CLI Terminal", &mEnabled))
+    if (Polyphase::Checkbox("Enable CLI Terminal", &mEnabled))
     {
         changed = true;
     }
@@ -169,19 +170,19 @@ void CliModule::Render()
     ImGui::Text("Behavior");
     ImGui::Separator();
 
-    if (ImGui::Checkbox("Launch on panel open", &mLaunchOnPanelOpen))
+    if (Polyphase::Checkbox("Launch on panel open", &mLaunchOnPanelOpen))
     {
         changed = true;
     }
-    if (ImGui::Checkbox("Reuse session across panel open/close", &mReuseSession))
+    if (Polyphase::Checkbox("Reuse session across panel open/close", &mReuseSession))
     {
         changed = true;
     }
-    if (ImGui::Checkbox("Close process when panel closes", &mCloseProcessOnPanelClose))
+    if (Polyphase::Checkbox("Close process when panel closes", &mCloseProcessOnPanelClose))
     {
         changed = true;
     }
-    if (ImGui::Checkbox("Use pseudo-console (ConPTY) for interactive shells", &mUseConPty))
+    if (Polyphase::Checkbox("Use pseudo-console (ConPTY) for interactive shells", &mUseConPty))
     {
         changed = true;
     }

@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "PlayerInputDebugger.h"
+#include "EditorWidgets.h"
 #include "Input/PlayerInputSystem.h"
 
 #include "imgui.h"
@@ -41,7 +42,7 @@ void PlayerInputDebugger::Draw()
 
     if (ImGui::Begin("Player Input Debugger", &mIsOpen, ImGuiWindowFlags_NoCollapse))
     {
-        ImGui::Checkbox("Active Only", &mFilterActiveOnly);
+        Polyphase::Checkbox("Active Only", &mFilterActiveOnly);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(200.0f);
         ImGui::InputText("Filter", mFilterText, sizeof(mFilterText));

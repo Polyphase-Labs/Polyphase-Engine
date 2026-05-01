@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ScriptCreatorDialog.h"
+#include "EditorWidgets.h"
 #include "Engine.h"
 #include "Stream.h"
 #include "Log.h"
@@ -408,7 +409,7 @@ static void DrawPropertyDefault(ScriptPropertyEntry& prop, int index)
         ImGui::InputFloat("##defFloat", &prop.mFloatValue, 0.0f, 0.0f, "%.3f");
         break;
     case 2: // Bool
-        ImGui::Checkbox("##defBool", &prop.mBoolValue);
+        Polyphase::Checkbox("##defBool", &prop.mBoolValue);
         break;
     case 3: // String
         ImGui::SetNextItemWidth(-1);
@@ -478,7 +479,7 @@ static void DrawCreateScriptDialog()
 
     // Extends
     ImGui::Text("Extends:");
-    ImGui::Checkbox("Extend a parent class", &sExtendEnabled);
+    Polyphase::Checkbox("Extend a parent class", &sExtendEnabled);
     if (sExtendEnabled)
     {
         ImGui::Indent(20.0f);
@@ -500,13 +501,13 @@ static void DrawCreateScriptDialog()
 
     // Optional Stubs
     ImGui::Text("Optional Stubs:");
-    ImGui::Checkbox("Tick", &sIncludeTick);
+    Polyphase::Checkbox("Tick", &sIncludeTick);
     ImGui::SameLine();
-    ImGui::Checkbox("Destroy", &sIncludeDestroy);
+    Polyphase::Checkbox("Destroy", &sIncludeDestroy);
     ImGui::SameLine();
-    ImGui::Checkbox("BeginOverlap", &sIncludeBeginOverlap);
+    Polyphase::Checkbox("BeginOverlap", &sIncludeBeginOverlap);
     ImGui::SameLine();
-    ImGui::Checkbox("EndOverlap", &sIncludeEndOverlap);
+    Polyphase::Checkbox("EndOverlap", &sIncludeEndOverlap);
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -595,7 +596,7 @@ static void DrawCreateScriptDialog()
         ImGui::TextDisabled("%s", displayPath.c_str());
     }
 
-    ImGui::Checkbox("Custom location", &sCustomSaveLocation);
+    Polyphase::Checkbox("Custom location", &sCustomSaveLocation);
     if (sCustomSaveLocation)
     {
         ImGui::SameLine();

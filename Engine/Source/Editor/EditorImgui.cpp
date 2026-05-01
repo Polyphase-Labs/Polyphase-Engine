@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorImgui.h"
+#include "EditorWidgets.h"
 #include "System/System.h"
 #include "Engine.h"
 #include "EditorUtils.h"
@@ -3087,7 +3088,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 }
 
                 bool propVal = prop.GetBool(i);
-                if (ImGui::Checkbox("", &propVal))
+                if (Polyphase::Checkbox("", &propVal))
                 {
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
@@ -6156,7 +6157,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             }
         }
 
-        ImGui::Checkbox("Create Camera", &sNewSceneCreateCamera);
+        Polyphase::Checkbox("Create Camera", &sNewSceneCreateCamera);
 
         if (ImGui::Button("Create"))
         {
@@ -7526,7 +7527,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
 
         bool on = (mask & kRows[i].bit) != 0;
         ImGui::PushID(i);
-        if (ImGui::Checkbox(kRows[i].label, &on))
+        if (Polyphase::Checkbox(kRows[i].label, &on))
         {
             if (on) mask |=  kRows[i].bit;
             else    mask &= ~kRows[i].bit;
@@ -7536,7 +7537,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
     }
     ImGui::Unindent();
 
-    if (ImGui::Checkbox("Embed in shipped exe", &embed))
+    if (Polyphase::Checkbox("Embed in shipped exe", &embed))
     {
         changed = true;
     }
@@ -9343,13 +9344,13 @@ static void DrawMainMenuBar()
         ImGui::Text(GetEditorState()->mPendingSceneImportPath.c_str());
         ImGui::InputText("Scene Name", &sSceneImportOptions.mSceneName);
         ImGui::InputText("Prefix", &sSceneImportOptions.mPrefix);
-        ImGui::Checkbox("Import Meshes", &sSceneImportOptions.mImportMeshes);
-        ImGui::Checkbox("Import Materials", &sSceneImportOptions.mImportMaterials);
-        ImGui::Checkbox("Import Textures", &sSceneImportOptions.mImportTextures);
-        ImGui::Checkbox("Import Lights", &sSceneImportOptions.mImportLights);
-        ImGui::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
-        ImGui::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
-        ImGui::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
+        Polyphase::Checkbox("Import Meshes", &sSceneImportOptions.mImportMeshes);
+        Polyphase::Checkbox("Import Materials", &sSceneImportOptions.mImportMaterials);
+        Polyphase::Checkbox("Import Textures", &sSceneImportOptions.mImportTextures);
+        Polyphase::Checkbox("Import Lights", &sSceneImportOptions.mImportLights);
+        Polyphase::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
+        Polyphase::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
+        Polyphase::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sSceneImportOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
@@ -9400,13 +9401,13 @@ static void DrawMainMenuBar()
         ImGui::Separator();
 
         ImGui::InputText("Prefix", &sReimportSceneOptions.mPrefix);
-        ImGui::Checkbox("Import Meshes", &sReimportSceneOptions.mImportMeshes);
-        ImGui::Checkbox("Import Materials", &sReimportSceneOptions.mImportMaterials);
-        ImGui::Checkbox("Import Textures", &sReimportSceneOptions.mImportTextures);
-        ImGui::Checkbox("Import Lights", &sReimportSceneOptions.mImportLights);
-        ImGui::Checkbox("Import Cameras", &sReimportSceneOptions.mImportCameras);
-        ImGui::Checkbox("Enable Collision", &sReimportSceneOptions.mEnableCollision);
-        ImGui::Checkbox("Textures Updated", &sReimportSceneOptions.mReimportTextures);
+        Polyphase::Checkbox("Import Meshes", &sReimportSceneOptions.mImportMeshes);
+        Polyphase::Checkbox("Import Materials", &sReimportSceneOptions.mImportMaterials);
+        Polyphase::Checkbox("Import Textures", &sReimportSceneOptions.mImportTextures);
+        Polyphase::Checkbox("Import Lights", &sReimportSceneOptions.mImportLights);
+        Polyphase::Checkbox("Import Cameras", &sReimportSceneOptions.mImportCameras);
+        Polyphase::Checkbox("Enable Collision", &sReimportSceneOptions.mEnableCollision);
+        Polyphase::Checkbox("Textures Updated", &sReimportSceneOptions.mReimportTextures);
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sReimportSceneOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
@@ -9460,8 +9461,8 @@ static void DrawMainMenuBar()
     {
         sCameraImportOptions.mFilePath = GetEditorState()->mIOAssetPath;
         ImGui::Text(GetEditorState()->mPendingSceneImportPath.c_str());
-        ImGui::Checkbox("Set As Main Camera", &sCameraImportOptions.mIsMainCamera);
-        ImGui::Checkbox("Override Camera Name", &sCameraImportOptions.mOverrideCameraName);
+        Polyphase::Checkbox("Set As Main Camera", &sCameraImportOptions.mIsMainCamera);
+        Polyphase::Checkbox("Override Camera Name", &sCameraImportOptions.mOverrideCameraName);
         if (sCameraImportOptions.mOverrideCameraName) {
             ImGui::InputText("Camera Name", &sCameraImportOptions.mCameraName);
         }
@@ -9650,8 +9651,8 @@ static void DrawPaintColorsPanel()
     int32_t blendModeCount = OCT_ARRAY_SIZE(blendModeStrings);
     ImGui::Combo("Blend Mode", (int*)&(pm->mColorOptions.mBlendMode), blendModeStrings, blendModeCount);
 
-    ImGui::Checkbox("Only Facing Normals", &pm->mColorOptions.mOnlyFacingNormals);
-    ImGui::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
+    Polyphase::Checkbox("Only Facing Normals", &pm->mColorOptions.mOnlyFacingNormals);
+    Polyphase::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
 
     ImGui::End();
 }
@@ -9685,9 +9686,9 @@ static void DrawPaintInstancesPanel()
     ImGui::OctDragScalarN("Max Rotation", ImGuiDataType_Float, &pm->mInstanceOptions.mMaxRotation[0], 3, 1.0f, nullptr, nullptr, "%.2f", 0);
     ImGui::DragFloat("Min Scale", &pm->mInstanceOptions.mMinScale, 0.05f, 0.0f, 100.0f);
     ImGui::DragFloat("Max Scale", &pm->mInstanceOptions.mMaxScale, 0.05f, 0.0f, 100.0f);
-    ImGui::Checkbox("Align With Normal", &pm->mInstanceOptions.mAlignWithNormal);
-    ImGui::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
-    ImGui::Checkbox("Erase", &pm->mInstanceOptions.mErase);
+    Polyphase::Checkbox("Align With Normal", &pm->mInstanceOptions.mAlignWithNormal);
+    Polyphase::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
+    Polyphase::Checkbox("Erase", &pm->mInstanceOptions.mErase);
 
     ImGui::PopItemWidth();
 
@@ -10781,7 +10782,7 @@ void EditorImguiDraw()
                         if (isOpen)
                         {
                             bool enabled = info.mUseTexture;
-                            if (ImGui::Checkbox("Enabled", &enabled))
+                            if (Polyphase::Checkbox("Enabled", &enabled))
                             {
                                 if (enabled)
                                     voxel->SetMaterialTexture(static_cast<VoxelType>(i), info.mAtlasTile[0], info.mAtlasTile[1], info.mAtlasTile[2]);
@@ -11320,7 +11321,7 @@ void EditorImguiDraw()
 
                 // Debug splatmap toggle
                 ImGui::Separator();
-                if (ImGui::Checkbox("Debug Splatmap", &terrain->mDebugSplatmap))
+                if (Polyphase::Checkbox("Debug Splatmap", &terrain->mDebugSplatmap))
                 {
                     terrain->MarkDirty();
                 }
@@ -11458,7 +11459,7 @@ void EditorImguiDraw()
                         ImGui::SameLine();
 
                         bool visible = layer->mVisible;
-                        if (ImGui::Checkbox("##Vis", &visible))
+                        if (Polyphase::Checkbox("##Vis", &visible))
                         {
                             layer->mVisible = visible;
                             tileMapNode->MarkDirty();
@@ -11468,7 +11469,7 @@ void EditorImguiDraw()
                         ImGui::SameLine();
 
                         bool locked = layer->mLocked;
-                        if (ImGui::Checkbox("##Lock", &locked))
+                        if (Polyphase::Checkbox("##Lock", &locked))
                         {
                             layer->mLocked = locked;
                             tileMap->SetDirtyFlag();
@@ -11837,9 +11838,9 @@ void EditorImguiDraw()
                 // View overlays (Phase 3 + Phase 4 cell grid)
                 if (ImGui::CollapsingHeader(ICON_MDI_EYE " View"))
                 {
-                    ImGui::Checkbox(ICON_BXS_GRID " Cell Grid",         &mgr->mOptions.mShowCellGrid);
-                    ImGui::Checkbox( ICON_FLUENT_MDL2_CUBE_SHAPE " Collision Overlay", &mgr->mOptions.mShowCollisionOverlay);
-                    ImGui::Checkbox(ICON_FLUENT_TAG_24_FILLED " Tag Overlay",       &mgr->mOptions.mShowTagOverlay);
+                    Polyphase::Checkbox(ICON_BXS_GRID " Cell Grid",         &mgr->mOptions.mShowCellGrid);
+                    Polyphase::Checkbox( ICON_FLUENT_MDL2_CUBE_SHAPE " Collision Overlay", &mgr->mOptions.mShowCollisionOverlay);
+                    Polyphase::Checkbox(ICON_FLUENT_TAG_24_FILLED " Tag Overlay",       &mgr->mOptions.mShowTagOverlay);
                     if (mgr->mOptions.mShowTagOverlay)
                     {
                         char tagBuf[64];
@@ -11904,7 +11905,7 @@ void EditorImguiDraw()
                         }
 
                         bool hasCol = def->mHasCollision;
-                        if (ImGui::Checkbox("Has Collision", &hasCol))
+                        if (Polyphase::Checkbox("Has Collision", &hasCol))
                         {
                             def->mHasCollision = hasCol;
                             if (hasCol && def->mCollisionType == TileCollisionType::None)

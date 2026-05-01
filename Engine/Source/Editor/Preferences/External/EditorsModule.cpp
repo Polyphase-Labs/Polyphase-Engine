@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorsModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 #include "ScriptEditor/ScriptEditorWindow.h"
 
@@ -79,7 +80,7 @@ void EditorsModule::Render()
     // Internal Editor
     ImGui::Text("Internal Editor");
     ImGui::Separator();
-    if (ImGui::Checkbox("Use Internal Editor", &mUseInternalEditor))
+    if (Polyphase::Checkbox("Use Internal Editor", &mUseInternalEditor))
     {
         changed = true;
     }

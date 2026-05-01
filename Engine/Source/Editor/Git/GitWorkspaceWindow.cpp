@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitWorkspaceWindow.h"
+#include "EditorWidgets.h"
 #include "GitService.h"
 #include "GitRepository.h"
 #include "GitOperationQueue.h"
@@ -924,7 +925,7 @@ void GitWorkspaceWindow::DrawHistoryView(float width, float height)
     ImGui::SetNextItemWidth(width * 0.5f);
     ImGui::InputTextWithHint("##HistoryFilter", "Filter commits...", mHistoryFilterText, sizeof(mHistoryFilterText));
     ImGui::SameLine();
-    ImGui::Checkbox("All branches", &mShowAllBranches);
+    Polyphase::Checkbox("All branches", &mShowAllBranches);
 
     ImGui::Separator();
 
@@ -1479,7 +1480,7 @@ void GitWorkspaceWindow::DrawCommitComposer(float width, float height)
     ImGui::InputTextMultiline("##CommitBody", mCommitBody, sizeof(mCommitBody), ImVec2(ImGui::GetContentRegionAvail().x, bodyHeight));
 
     // Amend checkbox
-    ImGui::Checkbox("Amend last commit", &mAmendCommit);
+    Polyphase::Checkbox("Amend last commit", &mAmendCommit);
     ImGui::SameLine();
 
     // Count staged files

@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "LuaDebuggerPanel.h"
+#include "EditorWidgets.h"
 #include "LuaDebugger.h"
 
 #include "Hotkeys/EditorHotkeyMap.h"
@@ -38,7 +39,7 @@ void LuaDebuggerPanel::DrawContent()
     // ----- Active toggle (hand off to LuaPanda) -----
     {
         bool active = dbg->IsInstalled();
-        if (ImGui::Checkbox("Active (uncheck to hand back to LuaPanda)", &active))
+        if (Polyphase::Checkbox("Active (uncheck to hand back to LuaPanda)", &active))
         {
             // Persist BEFORE Install -- Install reads the saved preference
             // and bails if it's false, so we need the new value on disk first.

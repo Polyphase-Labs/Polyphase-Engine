@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "PackagingWindow.h"
+#include "EditorWidgets.h"
 #include "PackagingSettings.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/PreferencesManager.h"
@@ -301,7 +302,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Embedded mode
-    if (ImGui::Checkbox("Embedded Mode", &profile->mEmbedded))
+    if (Polyphase::Checkbox("Embedded Mode", &profile->mEmbedded))
     {
         changed = true;
     }
@@ -341,7 +342,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Use Docker checkbox (optional on all platforms — Windows builds GCN/Wii/3DS natively)
-    if (ImGui::Checkbox("Use Docker", &profile->mUseDocker))
+    if (Polyphase::Checkbox("Use Docker", &profile->mUseDocker))
     {
         changed = true;
     }
@@ -353,7 +354,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Open directory on finish
-    if (ImGui::Checkbox("Open Directory On Finish", &profile->mOpenDirectoryOnFinish))
+    if (Polyphase::Checkbox("Open Directory On Finish", &profile->mOpenDirectoryOnFinish))
     {
         changed = true;
     }
@@ -376,7 +377,7 @@ void PackagingWindow::DrawBuildButtons()
     bool canBuild = (profile != nullptr) && !mBuildInProgress;
 
     // Force Rebuild checkbox
-    ImGui::Checkbox("Force Rebuild", &mForceRebuild);
+    Polyphase::Checkbox("Force Rebuild", &mForceRebuild);
     if (ImGui::IsItemHovered())
     {
         ImGui::SetTooltip("Rebuild even if no files have changed");
@@ -1387,9 +1388,9 @@ void PackagingWindow::DrawBuildOutputModal()
         ImGui::EndChild();
 
         // Footer with checkboxes and button
-        ImGui::Checkbox("Auto-scroll", &mAutoScroll);
+        Polyphase::Checkbox("Auto-scroll", &mAutoScroll);
         ImGui::SameLine();
-        ImGui::Checkbox("Auto-close when finished", &mAutoCloseOnFinish);
+        Polyphase::Checkbox("Auto-close when finished", &mAutoCloseOnFinish);
 
         ImGui::SameLine();
         float buttonWidth = 80.0f;

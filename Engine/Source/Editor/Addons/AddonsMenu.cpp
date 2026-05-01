@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "AddonsMenu.h"
+#include "EditorWidgets.h"
 #include "AddonCreator.h"
 #include "AddonManager.h"
 #include "NativeAddonManager.h"
@@ -474,7 +475,7 @@ static void DrawCreateAddonDialog()
         }
         else
         {
-            ImGui::Checkbox("Create project file", &sCreateAddonWithProject);
+            Polyphase::Checkbox("Create project file", &sCreateAddonWithProject);
         }
         ImGui::Spacing();
 
@@ -854,10 +855,10 @@ static void DrawPackageNativeAddonDialog()
 
         // Include options
         ImGui::Text("Include in Package:");
-        ImGui::Checkbox("Source Code", &sPackageIncludeSource);
-        ImGui::Checkbox("Assets", &sPackageIncludeAssets);
-        ImGui::Checkbox("Scripts", &sPackageIncludeScripts);
-        ImGui::Checkbox("Thumbnail", &sPackageIncludeThumbnail);
+        Polyphase::Checkbox("Source Code", &sPackageIncludeSource);
+        Polyphase::Checkbox("Assets", &sPackageIncludeAssets);
+        Polyphase::Checkbox("Scripts", &sPackageIncludeScripts);
+        Polyphase::Checkbox("Thumbnail", &sPackageIncludeThumbnail);
         ImGui::Spacing();
 
         // Output path
@@ -1045,7 +1046,7 @@ static void DrawPublishGitDialog()
 
                     // Push checkbox
                     if (!sGitHasRemote) ImGui::BeginDisabled();
-                    ImGui::Checkbox("Push to remote", &sGitPush);
+                    Polyphase::Checkbox("Push to remote", &sGitPush);
                     if (!sGitHasRemote)
                     {
                         ImGui::EndDisabled();
@@ -1370,7 +1371,7 @@ static void DrawEditPackageJsonDialog()
                 // Native section (collapsible)
                 if (ImGui::CollapsingHeader("Native C++ Configuration"))
                 {
-                    ImGui::Checkbox("Enable Native Code", &sEditHasNative);
+                    Polyphase::Checkbox("Enable Native Code", &sEditHasNative);
 
                     if (sEditHasNative)
                     {

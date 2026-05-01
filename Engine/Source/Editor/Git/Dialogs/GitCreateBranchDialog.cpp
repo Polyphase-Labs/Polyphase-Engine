@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitCreateBranchDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "imgui.h"
@@ -122,7 +123,7 @@ void GitCreateBranchDialog::Draw()
         }
 
         ImGui::Spacing();
-        ImGui::Checkbox("Checkout after creation", &mCheckoutAfterCreate);
+        Polyphase::Checkbox("Checkout after creation", &mCheckoutAfterCreate);
 
         // Error / existing branch message
         if (!mErrorMessage.empty())

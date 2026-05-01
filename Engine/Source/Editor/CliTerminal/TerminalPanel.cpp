@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "TerminalPanel.h"
+#include "EditorWidgets.h"
 
 #include "EditorImgui.h"
 #include "Preferences/External/CliModule.h"
@@ -326,7 +327,7 @@ void TerminalPanel::DrawToolbar()
     }
 
     ImGui::SameLine();
-    ImGui::Checkbox("Auto-scroll", &mAutoScroll);
+    Polyphase::Checkbox("Auto-scroll", &mAutoScroll);
 
     ImGui::SameLine();
     if (ImGui::Button("Preferences..."))

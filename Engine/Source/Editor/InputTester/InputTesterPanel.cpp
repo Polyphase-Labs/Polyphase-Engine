@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "InputTesterPanel.h"
+#include "EditorWidgets.h"
 
 #include "Engine.h"
 #include "Input/Input.h"
@@ -368,11 +369,11 @@ void InputTesterPanel::Draw()
 
 void InputTesterPanel::DrawContent()
 {
-    ImGui::Checkbox("Raw DInput", &mShowRawDInput);
+    Polyphase::Checkbox("Raw DInput", &mShowRawDInput);
     ImGui::SameLine();
-    ImGui::Checkbox("Keyboard",   &mShowKeyboard);
+    Polyphase::Checkbox("Keyboard",   &mShowKeyboard);
     ImGui::SameLine();
-    ImGui::Checkbox("Mouse",      &mShowMouse);
+    Polyphase::Checkbox("Mouse",      &mShowMouse);
 
     ImGui::Separator();
 

@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitFetchDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "../GitOperationQueue.h"
@@ -103,8 +104,8 @@ void GitFetchDialog::Draw()
         ImGui::Spacing();
 
         // Options
-        ImGui::Checkbox("Prune deleted remote branches", &mPrune);
-        ImGui::Checkbox("Fetch tags", &mFetchTags);
+        Polyphase::Checkbox("Prune deleted remote branches", &mPrune);
+        Polyphase::Checkbox("Fetch tags", &mFetchTags);
 
         ImGui::Spacing();
         ImGui::Separator();

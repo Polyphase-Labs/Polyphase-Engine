@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ActionManager.h"
+#include "EditorWidgets.h"
 #include "BuildCache.h"
 
 #if PLATFORM_WINDOWS
@@ -2433,7 +2434,7 @@ void ActionManager::DrawBuildModal()
         }
 
         // Footer buttons
-        ImGui::Checkbox("Auto-scroll", &mBuildAutoScroll);
+        Polyphase::Checkbox("Auto-scroll", &mBuildAutoScroll);
 
         ImGui::SameLine();
         if (ImGui::Button("Copy"))

@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "AnimationBrowser.h"
+#include "EditorWidgets.h"
 
 #include "World.h"
 #include "Renderer.h"
@@ -622,12 +623,12 @@ void AnimationBrowser::DrawPanel()
             StepFrame(1);
         }
         ImGui::SameLine();
-        if (ImGui::Checkbox(ICON_MATERIAL_SYMBOLS_DEVICE_RESET, &mLoop))
+        if (Polyphase::Checkbox(ICON_MATERIAL_SYMBOLS_DEVICE_RESET, &mLoop))
         {
             SyncLoopFlag();
         }
         ImGui::SameLine();
-        ImGui::Checkbox(ICON_FLUENT_SPACE_3D_32_REGULAR, &mShowGrid);
+        Polyphase::Checkbox(ICON_FLUENT_SPACE_3D_32_REGULAR, &mShowGrid);
     }
 
     // Scrubber

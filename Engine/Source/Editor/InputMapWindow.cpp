@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "InputMapWindow.h"
+#include "EditorWidgets.h"
 #include "Input/InputMap.h"
 #include "Input/Input.h"
 #include "Preferences/PreferencesManager.h"
@@ -405,11 +406,11 @@ void InputMapWindow::DrawMouseAxes()
             ImGui::Text("%s", axisName);
             ImGui::SameLine(140.0f);
 
-            if (ImGui::Checkbox("Mouse X", &useMouseX))
+            if (Polyphase::Checkbox("Mouse X", &useMouseX))
                 changed = true;
 
             ImGui::SameLine(260.0f);
-            if (ImGui::Checkbox("Mouse Y", &useMouseY))
+            if (Polyphase::Checkbox("Mouse Y", &useMouseY))
                 changed = true;
 
             ImGui::SameLine(380.0f);
@@ -435,7 +436,7 @@ void InputMapWindow::DrawMousePointerSection()
     if (ImGui::CollapsingHeader("Mouse / Pointer", ImGuiTreeNodeFlags_DefaultOpen))
     {
         bool mouseEnabled = inputMap->IsMouseEnabled();
-        if (ImGui::Checkbox("Mouse Input Enabled", &mouseEnabled))
+        if (Polyphase::Checkbox("Mouse Input Enabled", &mouseEnabled))
         {
             inputMap->SetMouseEnabled(mouseEnabled);
             MarkInputMapDirty();
@@ -443,7 +444,7 @@ void InputMapWindow::DrawMousePointerSection()
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("When disabled, all mouse queries (buttons, delta, position, scroll) return zero for game code.\nUse this during PIE to let gamepad right stick take over camera look.");
 
         bool pointerEnabled = inputMap->IsPointerEnabled();
-        if (ImGui::Checkbox("Pointer Input Enabled", &pointerEnabled))
+        if (Polyphase::Checkbox("Pointer Input Enabled", &pointerEnabled))
         {
             inputMap->SetPointerEnabled(pointerEnabled);
             MarkInputMapDirty();

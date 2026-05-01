@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GeneralModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 #include "Log.h"
 #include "Engine.h"
@@ -22,7 +23,7 @@ void GeneralModule::Render()
 {
     bool changed = false;
 
-    if (ImGui::Checkbox("Auto-save Settings", &mAutoSave))
+    if (Polyphase::Checkbox("Auto-save Settings", &mAutoSave))
     {
         changed = true;
     }
@@ -38,7 +39,7 @@ void GeneralModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Show Welcome Screen", &mShowWelcomeScreen))
+    if (Polyphase::Checkbox("Show Welcome Screen", &mShowWelcomeScreen))
     {
         changed = true;
     }
@@ -50,7 +51,7 @@ void GeneralModule::Render()
     ImGui::Text("Debugging");
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Show Debug Log In Editor", &mShowDebugInEditor))
+    if (Polyphase::Checkbox("Show Debug Log In Editor", &mShowDebugInEditor))
     {
         changed = true;
     }
@@ -58,7 +59,7 @@ void GeneralModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Show Debug Logs In Build", &mShowDebugLogsInBuild))
+    if (Polyphase::Checkbox("Show Debug Logs In Build", &mShowDebugLogsInBuild))
     {
         SetDebugLogsInBuildEnabled(mShowDebugLogsInBuild);
         changed = true;
@@ -71,7 +72,7 @@ void GeneralModule::Render()
     ImGui::Text("Build");
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Check Build Dependencies On Startup", &mCheckBuildDepsOnStartup))
+    if (Polyphase::Checkbox("Check Build Dependencies On Startup", &mCheckBuildDepsOnStartup))
     {
         changed = true;
     }
@@ -84,7 +85,7 @@ void GeneralModule::Render()
     ImGui::Spacing();
 
     bool hotReloadEnabled = IsScriptHotReloadEnabled();
-    if (ImGui::Checkbox("Enable Script Hot-Reload", &hotReloadEnabled))
+    if (Polyphase::Checkbox("Enable Script Hot-Reload", &hotReloadEnabled))
     {
         SetScriptHotReloadEnabled(hotReloadEnabled);
         WriteEngineConfig();

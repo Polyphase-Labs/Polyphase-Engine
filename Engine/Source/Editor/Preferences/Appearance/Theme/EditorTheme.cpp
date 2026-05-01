@@ -3,6 +3,7 @@
 #include "EditorTheme.h"
 #include "CssThemeManager.h"
 #include "CssThemeParser.h"
+#include "EditorWidgets.h"
 #include "imgui.h"
 #include "imgui_dock.h"
 
@@ -88,6 +89,9 @@ void ApplyTheme(EditorThemeType type)
     // Custom CSS themes will re-set them if specified.
     ImGui::ClearDockTabTextColor();
     CssThemeParser::ClearPanelColors();
+
+    // Reset checkbox size to engine default; a CSS theme may override it later.
+    Polyphase::gCheckboxSize = 16.0f;
 
     if (IsCustomTheme(type))
     {

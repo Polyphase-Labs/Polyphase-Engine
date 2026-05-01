@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "BuildDependencyWindow.h"
+#include "EditorWidgets.h"
 #include "EditorUtils.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/General/GeneralModule.h"
@@ -331,7 +332,7 @@ void BuildDependencyWindow::Draw()
         if (generalModule != nullptr)
         {
             bool dontShow = !generalModule->GetCheckBuildDepsOnStartup();
-            if (ImGui::Checkbox("Don't show on startup", &dontShow))
+            if (Polyphase::Checkbox("Don't show on startup", &dontShow))
             {
                 generalModule->SetCheckBuildDepsOnStartup(!dontShow);
                 PreferencesManager::Get()->SaveModule(generalModule);

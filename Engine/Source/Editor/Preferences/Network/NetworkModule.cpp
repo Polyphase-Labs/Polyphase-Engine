@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "NetworkModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 #include "../PreferencesManager.h"
 #include "ControllerServer/ControllerServer.h"
@@ -46,7 +47,7 @@ void NetworkModule::Render()
     ImGui::Text("Controller Server");
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Enabled (Auto-start)", &mControllerServerEnabled))
+    if (Polyphase::Checkbox("Enabled (Auto-start)", &mControllerServerEnabled))
     {
         changed = true;
 
@@ -80,7 +81,7 @@ void NetworkModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Log Requests", &mLogRequests))
+    if (Polyphase::Checkbox("Log Requests", &mLogRequests))
     {
         changed = true;
         if (server)
