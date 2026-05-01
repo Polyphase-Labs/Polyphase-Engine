@@ -1020,8 +1020,21 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         }
     }
 
+    // Tag the fingerprint with the host engine's CRT config. The build script
+    // picks /MDd vs /MD based on _DEBUG (see GenerateBuildScript), so a DLL
+    // compiled by one config cannot be safely loaded by the other -- mismatched
+    // CRT heaps and _ITERATOR_DEBUG_LEVEL crash at the first cross-module STL
+    // operation. Without this tag, Debug and Release engines share a cache
+    // directory and silently reuse each other's ABI-incompatible DLL.
+    const char* configTag =
+#if defined(_DEBUG)
+        "dbg";
+#else
+        "rel";
+#endif
+
     char fingerprint[32];
-    snprintf(fingerprint, sizeof(fingerprint), "%016llx", (unsigned long long)hash);
+    snprintf(fingerprint, sizeof(fingerprint), "%s_%016llx", configTag, (unsigned long long)hash);
     return fingerprint;
 }
 

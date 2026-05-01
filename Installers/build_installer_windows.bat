@@ -5,13 +5,14 @@ REM  Full build pipeline for Polyphase Engine Windows 64-bit installer.
 REM
 REM  This script performs the complete build process:
 REM    1. Initialize git submodules
-REM    2. Compile shaders
+REM    2. Run master prebuild (libgit2, shaders, embedded asset stubs)
 REM    3. Build Engine (ReleaseEditor x64)
 REM    4. Stage distribution files
 REM    5. Build Inno Setup installer
 REM
 REM  Prerequisites:
-REM    - Visual Studio with MSBuild (or VS Developer Command Prompt)
+REM    - Visual Studio 2022 with MSBuild (or VS Developer Command Prompt)
+REM      (the bundled CMake is used to build libgit2)
 REM    - Vulkan SDK installed (VULKAN_SDK environment variable set)
 REM    - Python 3 on PATH
 REM    - Inno Setup installed (ISCC.exe on PATH or at default location)
@@ -71,17 +72,14 @@ if errorlevel 1 (
 echo   Submodules initialized.
 echo.
 
-REM --- Step 2: Compile shaders ---
-echo [2/5] Compiling shaders...
-pushd Engine\Shaders\GLSL
-call compile.bat
+REM --- Step 2: Master prebuild (libgit2, shaders, embedded asset stubs) ---
+echo [2/5] Running prebuild (libgit2, shaders, embedded asset stubs)...
+call Tools\prebuild.bat
 if errorlevel 1 (
-    popd
-    echo ERROR: Shader compilation failed.
+    echo ERROR: Prebuild failed.
     exit /b 1
 )
-popd
-echo   Shaders compiled.
+echo   Prebuild complete.
 echo.
 
 REM --- Step 3: Build Engine ---

@@ -4,8 +4,12 @@ REM Runs all prebuild steps needed before opening the solution.
 
 setlocal
 
-set SCRIPT_DIR=%~dp0
-set REPO_ROOT=%SCRIPT_DIR%..
+set "SCRIPT_DIR=%~dp0"
+REM Resolve REPO_ROOT to a normalized absolute path (no trailing "..") so that
+REM downstream cd/pushd calls work reliably regardless of how this script was
+REM invoked. %~f1 trick: use a for-loop to canonicalize.
+for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
+set "SHADER_DIR=%REPO_ROOT%\Engine\Shaders\GLSL"
 
 echo ============================================
 echo  Polyphase Prebuild (Windows)
@@ -22,14 +26,26 @@ if %ERRORLEVEL% neq 0 (
 echo.
 
 REM --- Shaders ---
+REM compile.bat uses relative paths (.\src, .\bin), so cwd MUST be the shader
+REM directory when it runs. Use cd /d with explicit error checks rather than
+REM pushd/popd so any failure is loud.
 echo [2/3] Compiling shaders...
-pushd "%REPO_ROOT%\Engine\Shaders\GLSL"
-call compile.bat
-popd
-if %ERRORLEVEL% neq 0 (
-    echo [FAILED] Shader compilation failed.
+if not exist "%SHADER_DIR%\compile.bat" (
+    echo [FAILED] compile.bat not found at: %SHADER_DIR%\compile.bat
     exit /b 1
 )
+cd /d "%SHADER_DIR%"
+if errorlevel 1 (
+    echo [FAILED] Could not change to shader directory: %SHADER_DIR%
+    exit /b 1
+)
+call "%SHADER_DIR%\compile.bat"
+if errorlevel 1 (
+    echo [FAILED] Shader compilation failed.
+    cd /d "%REPO_ROOT%"
+    exit /b 1
+)
+cd /d "%REPO_ROOT%"
 echo.
 
 REM --- Standalone embedded asset stubs ---

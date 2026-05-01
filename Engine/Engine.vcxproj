@@ -140,7 +140,8 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <!-- WPO disabled: MSVC LTCG ICEs/AVs on heavy templated 3rd-party code (Bullet, zep, etc.) at link time. -->
+    <WholeProgramOptimization>false</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Android-arm64-v8a'" Label="Configuration">
@@ -768,7 +769,10 @@
     <ClCompile Include="Source\Editor\Addons\AddonsWindow.cpp" />
     <ClCompile Include="Source\Editor\Addons\NativeAddonManager.cpp" />
     <ClCompile Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.cpp" />
-    <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp" />
+    <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp">
+      <!-- /GL disabled: this TU pulls in the full zep single-header build, and MSVC LTCG ICEs on zep/src/mode.cpp during ReleaseEditor link. -->
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+    </ClCompile>
     <ClCompile Include="Source\Editor\BuildDependencyWindow.cpp" />
     <ClCompile Include="Source\Editor\InputMapWindow.cpp" />
     <ClCompile Include="Source\Editor\PlayerInputEditor.cpp" />

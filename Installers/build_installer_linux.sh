@@ -5,16 +5,17 @@
 #
 #  This script performs the complete build process:
 #    1. Initialize git submodules
-#    2. Compile shaders
+#    2. Run master prebuild (libgit2, shaders, embedded asset stubs)
 #    3. Build Engine (Linux Editor)
 #    4. Build .deb package
 #    5. Build tarball
 #
 #  Prerequisites:
 #    - GCC/G++ toolchain
+#    - CMake (for libgit2 prebuild)
 #    - Vulkan SDK installed (VULKAN_SDK environment variable set)
 #    - Python 3
-#    - System packages: libxcb1-dev libasound2-dev libx11-dev dpkg-dev
+#    - System packages: libxcb1-dev libasound2-dev libx11-dev dpkg-dev cmake
 #
 #  Usage: bash Installers/build_installer_linux.sh
 # ==========================================================================
@@ -68,13 +69,10 @@ git submodule update --recursive
 echo "  Submodules initialized."
 echo ""
 
-# --- Step 2: Compile shaders ---
-echo "[2/5] Compiling shaders..."
-pushd Engine/Shaders/GLSL > /dev/null
-chmod +x compile.sh
-./compile.sh
-popd > /dev/null
-echo "  Shaders compiled."
+# --- Step 2: Master prebuild (libgit2, shaders, embedded asset stubs) ---
+echo "[2/5] Running prebuild (libgit2, shaders, embedded asset stubs)..."
+bash Tools/prebuild.sh
+echo "  Prebuild complete."
 echo ""
 
 # --- Step 3: Build Engine ---

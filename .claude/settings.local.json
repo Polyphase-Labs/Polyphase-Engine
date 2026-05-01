@@ -92,7 +92,12 @@
       "Bash(make -f Makefile_3DS -p)",
       "Bash(make -f /home/uai/Projects/Octave/Polyphase-Engine/External/Bullet/Makefile_3DS -p)",
       "Bash(git *)",
-      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -30 {}')"
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -30 {}')",
+      "Bash(cmd *)",
+      "PowerShell(& \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\Installers\\\\build_installer_windows.bat\" 2>&1)",
+      "Read(//m/Projects/BravoMedia/BRVKPMG2601XR/CODE/SlotMachine/**)",
+      "Read(//m/Projects/BravoMedia/BRVKPMG2601XR/CODE/SlotMachine/Packaged/**)",
+      "Read(//m/Projects/BravoMedia/BRVKPMG2601XR/CODE/SlotMachine/Generated/**)"
     ]
   }
 }
