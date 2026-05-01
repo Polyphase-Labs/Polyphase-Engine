@@ -561,6 +561,11 @@ void Node::Render()
 
 }
 
+void Node::OnInstanced()
+{
+
+}
+
 VertexType Node::GetVertexType() const
 {
     return VertexType::Max;

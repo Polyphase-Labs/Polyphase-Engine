@@ -76,7 +76,7 @@ The project starts with a default scene called `SC_Default`. You need to add you
 
 ## 6. Package for Wii
 
-1. Go to **File > Packaging**.
+1. Go to **File > Build Profiles**.
 2. Set up a new **Wii** build profile.
 3. Click **Build**.
 

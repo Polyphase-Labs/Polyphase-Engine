@@ -3,6 +3,7 @@
 #include "GeneralModule.h"
 #include "../JsonSettings.h"
 #include "Log.h"
+#include "Engine.h"
 
 #include "document.h"
 #include "imgui.h"
@@ -75,6 +76,20 @@ void GeneralModule::Render()
         changed = true;
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check for missing build tools at startup and show a warning window if any are missing.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Text("Scripting");
+    ImGui::Spacing();
+
+    bool hotReloadEnabled = IsScriptHotReloadEnabled();
+    if (ImGui::Checkbox("Enable Script Hot-Reload", &hotReloadEnabled))
+    {
+        SetScriptHotReloadEnabled(hotReloadEnabled);
+        WriteEngineConfig();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reload Lua scripts automatically when source files change on disk.");
 
     if (changed)
     {

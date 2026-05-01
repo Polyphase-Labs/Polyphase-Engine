@@ -13,9 +13,11 @@ This example demonstrates how to insert a custom top-level menu at a specific po
 | `1` | After **Edit** |
 | `2` | After **View** |
 | `3` | After **World** |
-| `4` | After **Developer** |
-| `5` | After **Addons** |
-| `6` | After **Extra** |
+| `4` | After **Tools** (formerly *Developer* — integer value unchanged) |
+| `5` | Between **Tools** and **Help** (legacy slot — top-level *Addons* menu was folded into Tools > Addons) |
+| `6` | Between **Tools** and **Help** (legacy slot — top-level *Extra* menu was removed; *Version* and *Prepare Release* moved to Help and Tools respectively) |
+
+Positions `0`–`4` still anchor against named menus. Positions `5` and `6` are kept for backward compatibility but now alias the same slot before Help.
 
 ## Files
 

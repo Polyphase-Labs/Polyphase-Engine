@@ -27,6 +27,7 @@ public:
     virtual void Create() override;
     virtual void Start() override;
     virtual void Stop() override;
+    virtual void OnInstanced() override;
     virtual void Tick(float deltaTime) override;
     virtual void PreRender() override;
     virtual void GatherProperties(std::vector<Property>& props) override;

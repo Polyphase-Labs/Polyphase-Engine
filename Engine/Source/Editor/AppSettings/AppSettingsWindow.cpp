@@ -5,6 +5,8 @@
 #include "Engine.h"
 #include "Log.h"
 #include "System/System.h"
+#include "../PlayerInputEditor.h"
+#include "../PlayerInputDebugger.h"
 
 #include "imgui.h"
 
@@ -72,6 +74,7 @@ void AppSettingsWindow::Draw()
         DrawWindowSection();
         DrawGraphicsSection();
         DrawRuntimeSection();
+        DrawInputSection();
         DrawPackagingSection();
         DrawIconSection();
 
@@ -280,6 +283,23 @@ void AppSettingsWindow::DrawRuntimeSection()
     if (changed)
     {
         mDirty = true;
+    }
+}
+
+void AppSettingsWindow::DrawInputSection()
+{
+    if (!ImGui::CollapsingHeader("Input"))
+    {
+        return;
+    }
+
+    if (ImGui::Button("Edit Player Inputs"))
+    {
+        GetPlayerInputEditor()->Open();
+    }
+    if (ImGui::Button("Debug Player Inputs"))
+    {
+        GetPlayerInputDebugger()->Open();
     }
 }
 

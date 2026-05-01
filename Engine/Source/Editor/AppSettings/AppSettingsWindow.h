@@ -20,6 +20,7 @@ private:
     void DrawWindowSection();
     void DrawGraphicsSection();
     void DrawRuntimeSection();
+    void DrawInputSection();
     void DrawPackagingSection();
     void DrawIconSection();
 

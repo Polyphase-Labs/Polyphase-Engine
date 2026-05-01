@@ -168,6 +168,11 @@ void DialogWindow::Start()
     mButtonSignalsConnected = true;
 }
 
+void DialogWindow::OnInstanced()
+{
+    Centered();
+}
+
 void DialogWindow::EnsureButtonBar()
 {
     if (mButtonBar != nullptr)

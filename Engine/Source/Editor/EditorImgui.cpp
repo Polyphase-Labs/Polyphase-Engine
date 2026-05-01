@@ -119,6 +119,7 @@
 #include "Preferences/Network/NetworkModule.h"
 #include "AutoUpdater/AutoUpdater.h"
 #include "AutoUpdater/AutoUpdaterWindow.h"
+#include "EditorMainMenu.h"
 
 #include <functional>
 #include <algorithm>
@@ -304,7 +305,6 @@ static bool sUnsavedModalActive = false;
 
 static std::vector<std::string> sSceneList;
 static std::unordered_map<std::string, std::vector<std::string>> sScenesByCategory;
-static int32_t sDevModeClicks = 0;
 
 static std::string sReplaceAssetInput;
 static std::vector<std::string> sReplaceAssetSuggestions;
@@ -1602,6 +1602,8 @@ static void DiscoverNodeClasses()
         }
         else if (node->As<Widget>())
         {
+			auto className = node->GetClassName();
+			auto factoryClassName = nodeFactories[i]->GetClassName();
             if (strcmp(node->GetClassName(), "Widget") == 0)
             {
                 sNodeWidgetNames.insert(sNodeWidgetNames.begin(), node->GetClassName());
@@ -3605,7 +3607,7 @@ static void BuildSceneCategoryMap()
     }
 }
 
-static void DrawAddNodeMenu(Node* node)
+void DrawAddNodeMenu(Node* node)
 {
     ActionManager* am = ActionManager::Get();
 
@@ -3882,7 +3884,7 @@ static void DrawImportMenu(Node* node)
     }
 }
 
-static void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
+void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
 {
     ActionManager* am = ActionManager::Get();
     glm::vec3 spawnPos = EditorGetFocusPosition();
@@ -3945,14 +3947,22 @@ static void DrawSpawnBasicWidgetMenu(Node* node)
 
     const char* widgetTypeName = nullptr;
 
+    if (ImGui::MenuItem("Canvas"))
+        widgetTypeName = "Canvas";
     if (ImGui::MenuItem("Widget"))
         widgetTypeName = "Widget";
+    if (ImGui::MenuItem("AnimatedWidget"))
+        widgetTypeName = "AnimatedWidget";
     if (ImGui::MenuItem("Quad"))
         widgetTypeName = "Quad";
     if (ImGui::MenuItem("Text"))
         widgetTypeName = "Text";
     if (ImGui::MenuItem("Button"))
         widgetTypeName = "Button";
+    if (ImGui::MenuItem("Window"))
+        widgetTypeName = "Window";
+    if (ImGui::MenuItem("DialogWindow"))
+        widgetTypeName = "DialogWindow";
 
     if (widgetTypeName != nullptr)
     {
@@ -4064,37 +4074,16 @@ static void CopyNodeHierarchyToClipboard(Node* node)
     LogDebug("Copied hierarchy JSON to clipboard (%d characters)", (int)json.size());
 }
 
-static void DrawPackageMenu()
+// Helpers exposed to EditorMainMenu.cpp so the lifted main-menu construction
+// can mutate file-scope state owned by this TU.
+void EditorImgui_ResetSaveSceneAsBuffer()
 {
-    ActionManager* am = ActionManager::Get();
-    bool buildRunning = am->IsBuildRunning();
+    sPopupInputBuffer[0] = '\0';
+}
 
-    //if (ImGui::BeginPopup("PackagePopup"))
-    //{
-#if PLATFORM_WINDOWS
-    if (ImGui::MenuItem("Windows", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Windows, false);
-#elif PLATFORM_LINUX
-    if (ImGui::MenuItem("Linux", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Linux, false);
-#endif
-    if (ImGui::MenuItem("Android", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Android, false);
-    if (ImGui::MenuItem("GameCube", nullptr, false, !buildRunning))
-        am->BuildData(Platform::GameCube, false);
-    if (ImGui::MenuItem("Wii", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Wii, false);
-    if (ImGui::MenuItem("3DS", nullptr, false, !buildRunning))
-        am->BuildData(Platform::N3DS, false);
-    if (ImGui::MenuItem("GameCube Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::GameCube, true);
-    if (ImGui::MenuItem("Wii Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Wii, true);
-    if (ImGui::MenuItem("3DS Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::N3DS, true);
-
-    //    ImGui::EndPopup();
-    //}
+void EditorImgui_RequestDockReset()
+{
+    sDockResetRequested = true;
 }
 
 static int sAltRowIndex = 0;
@@ -8606,7 +8595,6 @@ static void DrawScriptsPanel()
 
 static void DrawMainMenuBar()
 {
-    Renderer* renderer = Renderer::Get();
     ActionManager* am = ActionManager::Get();
 
     bool openSaveSceneAsModal = false;
@@ -8616,695 +8604,7 @@ static void DrawMainMenuBar()
 
     if (ImGui::BeginMainMenuBar())
     {
-        if (ImGui::BeginMenu("File"))
-        {
-            EditScene* editScene = GetEditorState()->GetEditScene();
-
-            if (ImGui::MenuItem("Project Select..."))
-                GetProjectSelectWindow()->Open();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Open Project"))
-                am->OpenProject();
-            if (ImGui::BeginMenu("Open Recent Project"))
-            {
-                const std::vector<std::string>& recentProjects = GetEditorState()->mRecentProjects;
-                for (uint32_t i = 0; i < recentProjects.size(); ++i)
-                {
-                    if (recentProjects[i] != "" &&
-                        ImGui::MenuItem(recentProjects[i].c_str()))
-                    {
-                        am->OpenProject(recentProjects[i].c_str());
-                    }
-                }
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Recent Scenes"))
-            {
-                const std::vector<RecentScene>& recentScenes = GetEditorState()->mRecentScenes;
-                AssetManager* assetMgr = AssetManager::Get();
-                bool hasValid = false;
-
-                for (const RecentScene& r : recentScenes)
-                {
-                    if (assetMgr && assetMgr->DoesAssetExist(r.mSceneName))
-                    {
-                        hasValid = true;
-                        if (ImGui::MenuItem(r.mSceneName.c_str()))
-                        {
-                            AssetStub* stub = assetMgr->GetAssetStub(r.mSceneName);
-                            if (stub)
-                            {
-                                if (!stub->mAsset)
-                                    assetMgr->LoadAsset(*stub);
-                                Scene* scene = stub->mAsset ? stub->mAsset->As<Scene>() : nullptr;
-                                if (scene)
-                                    GetEditorState()->OpenEditScene(scene);
-                            }
-                        }
-                    }
-                }
-
-                if (!hasValid)
-                    ImGui::TextDisabled("(No recent scenes)");
-
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("New Project"))
-                am->CreateNewProject();
-            if (ImGui::MenuItem("New C++ Project"))
-                am->CreateNewProject(nullptr, true);
-            if (ImGui::MenuItem("New Scene"))
-                GetEditorState()->OpenEditScene(nullptr);
-            if (editScene && ImGui::MenuItem("Save Scene"))
-            {
-                Scene* scene = editScene->mSceneAsset.Get<Scene>();
-                AssetStub* sceneStub = scene ? AssetManager::Get()->GetAssetStub(scene->GetName()) : nullptr;
-                if (sceneStub != nullptr)
-                {
-                    GetEditorState()->CaptureAndSaveScene(sceneStub, nullptr);
-                }
-                else
-                {
-                    openSaveSceneAsModal = true;
-                    sPopupInputBuffer[0] = '\0';
-                }
-            }
-            if (editScene && ImGui::MenuItem("Save Scene As..."))
-            {
-                openSaveSceneAsModal = true;
-                sPopupInputBuffer[0] = '\0';
-            }
-            if (ImGui::MenuItem("Import Asset"))
-                am->ImportAsset();
-            if (ImGui::MenuItem("Import Scene"))
-                am->BeginImportScene();
-            if (ImGui::MenuItem("Run Script"))
-                am->RunScript();
-            if (ImGui::MenuItem("Recapture All Scenes"))
-                am->RecaptureAndSaveAllScenes();
-            if (ImGui::MenuItem("Resave All Assets"))
-                am->ResaveAllAssets();
-            if (ImGui::MenuItem("Reload All Scripts"))
-            {
-                ReloadAllScripts();
-
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addon dependencies regenerated and addons reloaded.");
-                }
-            }
-
-            // Script Hot-Reload toggle
-            bool hotReloadEnabled = IsScriptHotReloadEnabled();
-            std::string hotReloadText = hotReloadEnabled ? "Disable Script Hot-Reload" : "Enable Script Hot-Reload";
-            if (ImGui::MenuItem(hotReloadText.c_str()))
-            {
-                SetScriptHotReloadEnabled(!hotReloadEnabled);
-                WriteEngineConfig();
-            }
-
-            if (ImGui::MenuItem("Write Config"))
-                WriteEngineConfig();
-            if (ImGui::MenuItem("Packaging..."))
-            {
-                GetPackagingWindow()->Open();
-            }
-            if (ImGui::BeginMenu("Package Project"))
-            {
-                DrawPackageMenu();
-                ImGui::EndMenu();
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Addons..."))
-            {
-                GetAddonsWindow()->Open();
-            }
-
-            // Draw plugin menu items for File menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("File");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after File (position=0)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(0);
-        }
-
-        if (ImGui::BeginMenu("Edit"))
-        {
-            if (ImGui::MenuItem("Undo"))
-                am->Undo();
-            if (ImGui::MenuItem("Redo"))
-                am->Redo();
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Preferences..."))
-            {
-                GetPreferencesWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Editor Hotkeys..."))
-            {
-                GetEditorHotkeysWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("App Settings..."))
-            {
-                GetAppSettingsWindow()->Open();
-            }
-
-            // Draw plugin menu items for Edit menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("Edit");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Edit (position=1)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(1);
-        }
-
-        if (ImGui::BeginMenu("Version Control"))
-        {
-            if (ImGui::BeginMenu("Git"))
-            {
-                if (ImGui::MenuItem("Open Git Panel"))
-                {
-                    GetGitWorkspaceWindow()->Open();
-                }
-
-                ImGui::Separator();
-
-                bool repoOpen = GitService::Get() && GitService::Get()->IsRepositoryOpen();
-
-                if (ImGui::MenuItem("Fetch", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Fetch;
-                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                if (ImGui::MenuItem("Pull...", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Pull;
-                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                if (ImGui::MenuItem("Push...", nullptr, false, repoOpen))
-                {
-                    GitRepository* pushRepo = GitService::Get()->GetCurrentRepo();
-                    if (pushRepo)
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Push;
-                        req.mRepoPath = pushRepo->GetPath();
-                        req.mBranchName = pushRepo->GetCurrentBranch();
-                        std::vector<GitRemoteInfo> pushRemotes = pushRepo->GetRemotes();
-                        if (!pushRemotes.empty())
-                            req.mRemoteName = pushRemotes[0].mName;
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::MenuItem("Refresh", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitService::Get()->GetCurrentRepo()->RefreshStatus();
-                    }
-                }
-
-                ImGui::EndMenu();
-            }
-
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("View"))
-        {
-            Camera3D* cam = GetEditorState()->GetEditorCamera();
-            ProjectionMode projMode = cam ? cam->GetProjectionMode() : ProjectionMode::PERSPECTIVE;
-            if ((projMode == ProjectionMode::PERSPECTIVE && ImGui::MenuItem("Orthographic")) ||
-                (projMode == ProjectionMode::ORTHOGRAPHIC && ImGui::MenuItem("Perspective")))
-            {
-                GetEditorState()->ToggleEditorCameraProjection();
-            }
-            if (ImGui::MenuItem("Wireframe"))
-                renderer->SetDebugMode(renderer->GetDebugMode() == DEBUG_WIREFRAME ? DEBUG_NONE : DEBUG_WIREFRAME);
-            if (ImGui::MenuItem("Collision"))
-                renderer->SetDebugMode(renderer->GetDebugMode() == DEBUG_COLLISION ? DEBUG_NONE : DEBUG_COLLISION);
-            if (ImGui::MenuItem("Proxy"))
-                renderer->EnableProxyRendering(!renderer->IsProxyRenderingEnabled());
-            if (ImGui::MenuItem("Spline Lines"))
-                Spline3D::SetSplineLinesVisible(!Spline3D::IsSplineLinesVisible());
-            if (ImGui::MenuItem("Bounds"))
-            {
-                uint32_t newMode = (uint32_t(renderer->GetBoundsDebugMode()) + 1) % uint32_t(BoundsDebugMode::Count);
-                renderer->SetBoundsDebugMode((BoundsDebugMode)newMode);
-            }
-            if (ImGui::MenuItem("Grid"))
-                ToggleGrid();
-            if (ImGui::MenuItem("Stats"))
-                renderer->EnableStatsOverlay(!renderer->IsStatsOverlayEnabled());
-            if (ImGui::MenuItem("Preview Lighting"))
-            {
-                GetEditorState()->mPreviewLighting = !GetEditorState()->mPreviewLighting;
-                LogDebug("Preview lighting %s", GetEditorState()->mPreviewLighting ? "enabled." : "disabled.");
-            }
-
-            if (GetEditorState()->GetEditorMode() == EditorMode::Scene2D)
-            {
-                if (ImGui::MenuItem("Reset 2D Viewport"))
-                {
-                    GetEditorState()->GetViewport2D()->ResetViewport();
-                }
-            }
-
-            if (ImGui::BeginMenu("Interface Scale"))
-            {
-                static float sInterfaceScale = GetEngineConfig()->mEditorInterfaceScale;
-                ImGui::SliderFloat("IntScale", &sInterfaceScale, 0.5f, 3.0f);
-                if (ImGui::Button("Apply"))
-                {
-                    GetMutableEngineConfig()->mEditorInterfaceScale = sInterfaceScale;
-                    WriteEngineConfig();
-                }
-                ImGui::EndMenu();
-            }
-
-            // Preferences moved to Edit menu
-
-            if (GetFeatureFlagsEditor().mShowTheming == true) {
-                if (ImGui::MenuItem("Theme Editor..."))
-                {
-                    GetThemeEditorWindow()->Open();
-                }
-            }
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Scene"))
-                GetEditorState()->mShowLeftPane = !GetEditorState()->mShowLeftPane;
-            if (ImGui::MenuItem("Assets"))
-                GetEditorState()->mShowLeftPane = !GetEditorState()->mShowLeftPane;
-            if (ImGui::MenuItem("Properties"))
-                GetEditorState()->mShowRightPane = !GetEditorState()->mShowRightPane;
-            if (ImGui::MenuItem("Debug Log"))
-                GetEditorState()->mShowBottomPane = !GetEditorState()->mShowBottomPane;
-
-            if (ImGui::MenuItem("Timeline"))
-                GetEditorState()->mShowTimelinePanel = !GetEditorState()->mShowTimelinePanel;
-
-            if (ImGui::MenuItem("3DS Preview"))
-                GetEditorState()->mShow3DSPreview = !GetEditorState()->mShow3DSPreview;
-
-            if (ImGui::MenuItem("Game Preview"))
-                GetEditorState()->mShowGamePreview = !GetEditorState()->mShowGamePreview;
-
-            if (ImGui::MenuItem("Node Graph"))
-                GetEditorState()->mShowNodeGraphPanel = !GetEditorState()->mShowNodeGraphPanel;
-
-            if (ImGui::MenuItem("Animation Browser")) {
-                GetEditorState()->mShowAnimationBrowser = !GetEditorState()->mShowAnimationBrowser;
-            }
-            if (ImGui::MenuItem("Profiling"))
-                GetEditorState()->mShowProfilingPanel = !GetEditorState()->mShowProfilingPanel;
-
-            if (ImGui::MenuItem("CLI Terminal"))
-                GetTerminalPanel()->mVisible = !GetTerminalPanel()->mVisible;
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset Layout"))
-                sDockResetRequested = true;
-
-            // Draw plugin menu items for View menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("View");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after View (position=2)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(2);
-        }
-
-        if (ImGui::BeginMenu("World"))
-        {
-            if (ImGui::BeginMenu("Spawn Node"))
-            {
-                DrawAddNodeMenu(nullptr);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Spawn Basic 3D"))
-            {
-                DrawSpawnBasic3dMenu(nullptr, true);
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("Clear World"))
-                am->DeleteAllNodes();
-            if (ImGui::MenuItem("Bake Lighting"))
-                renderer->BeginLightBake();
-            if (ImGui::MenuItem("Clear Baked Lighting"))
-            {
-                const std::vector<Node*>& nodes = GetWorld(0)->GatherNodes();
-                for (uint32_t a = 0; a < nodes.size(); ++a)
-                {
-                    StaticMesh3D* meshNode = nodes[a]->As<StaticMesh3D>();
-                    if (meshNode != nullptr && meshNode->GetBakeLighting())
-                    {
-                        meshNode->ClearInstanceColors();
-                    }
-                }
-            }
-            if (ImGui::MenuItem("Toggle Transform Mode"))
-                GetEditorState()->GetViewport3D()->ToggleTransformMode();
-
-            // Draw plugin menu items for World menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("World");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after World (position=3)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(3);
-        }
-
-        if (ImGui::BeginMenu("Developer"))
-        {
-            if (ImGui::MenuItem("Reload Native Addons"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addons reloaded.");
-                }
-            }
-
-            if (ImGui::MenuItem("Discover Native Addons"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    nam->DiscoverNativeAddons();
-                    LogDebug("Native addons discovered.");
-                }
-            }
-
-            if (ImGui::MenuItem("Regenerate Native Addon Dependencies"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-                    LogDebug("Native addon dependencies regenerated for %d addon(s).", (int)localIds.size());
-                }
-            }
-
-            ImGui::Separator();
-
-            // Directory paths
-            const std::string& projectDir = GetEngineState()->mProjectDirectory;
-            bool hasProject = !projectDir.empty();
-            std::string assetsDir = projectDir + "Assets/";
-            std::string scriptsDir = projectDir + "Scripts/";
-            std::string addonsDir = projectDir + "Packages/";
-            std::string polyphaseDir = SYS_GetPolyphasePath();
-
-            if (ImGui::BeginMenu("Reveal in Explorer"))
-            {
-                auto revealDir = [](const std::string& dir) {
-                    std::string absPath = SYS_GetAbsolutePath(dir);
-#if PLATFORM_WINDOWS
-                    for (char& c : absPath) { if (c == '/') c = '\\'; }
-                    SYS_Exec(("explorer \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                    SYS_Exec(("xdg-open \"" + absPath + "\" &").c_str());
-#endif
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject))
-                    revealDir(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject))
-                    revealDir(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject))
-                    revealDir(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject))
-                    revealDir(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory"))
-                    revealDir(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Open in Code Editor"))
-            {
-                PreferencesModule* mod = PreferencesManager::Get()->FindModule("External/Editors");
-                EditorsModule* editors = mod ? static_cast<EditorsModule*>(mod) : nullptr;
-                bool hasEditor = editors && editors->IsLuaEditorConfigured();
-
-                auto openInEditor = [&](const std::string& dir) {
-                    if (editors)
-                    {
-                        std::string absPath = SYS_GetAbsolutePath(dir);
-                        std::string cmd = editors->BuildLuaOpenCommand(absPath);
-                        SYS_Exec(cmd.c_str());
-                    }
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory", nullptr, false, hasEditor))
-                    openInEditor(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Open in VS Code"))
-            {
-                auto openInVSCode = [](const std::string& dir) {
-                    std::string absPath = SYS_GetAbsolutePath(dir);
-#if PLATFORM_WINDOWS
-                    SYS_Exec(("code \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                    SYS_Exec(("code \"" + absPath + "\" &").c_str());
-#endif
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject))
-                    openInVSCode(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject))
-                    openInVSCode(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject))
-                    openInVSCode(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject))
-                    openInVSCode(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory"))
-                    openInVSCode(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::MenuItem("Check Build Dependencies"))
-            {
-                GetBuildDependencyWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Texture Atlas Viewer"))
-            {
-                GetEditorState()->mShowTextureAtlasViewer = !GetEditorState()->mShowTextureAtlasViewer;
-            }
-
-            if (ImGui::MenuItem("Input Map Window"))
-            {
-                GetInputMapWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Player Input Editor"))
-            {
-                GetPlayerInputEditor()->Open();
-            }
-
-            if (ImGui::MenuItem("Player Input Debugger"))
-            {
-                GetPlayerInputDebugger()->Open();
-            }
-
-            if (ImGui::MenuItem("Input Tester", nullptr, GetEditorState()->mShowInputTesterPanel))
-            {
-                GetEditorState()->mShowInputTesterPanel = !GetEditorState()->mShowInputTesterPanel;
-            }
-
-            ImGui::Separator();
-
-            // Draw plugin menu items for Developer menu
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr)
-            {
-                hookMgr->DrawMenuItems("Developer");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Developer (position=4)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(4);
-        }
-
-        if (ImGui::BeginMenu("Addons"))
-        {
-            DrawAddonsPopupContent();
-
-            // Draw addon-registered Addons menu items (Batch 8)
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawAddonsMenuItems();
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Addons (position=5)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(5);
-        }
-
-        if (ImGui::BeginMenu("Extra"))
-        {
-            char versionStr[32];
-            snprintf(versionStr, 31, "Version: %d", POLYPHASE_VERSION);
-            ImGui::MenuItem(versionStr, nullptr, false, false);
-
-            if (ImGui::IsItemHovered() && IsMouseButtonJustUp(MOUSE_RIGHT))
-            {
-                sDevModeClicks++;
-                if (sDevModeClicks >= 5)
-                {
-                    GetEditorState()->mDevMode = true;
-                }
-            }
-
-            if (GetEditorState()->mDevMode &&
-                GetEngineState()->mStandalone &&
-                ImGui::MenuItem("Prepare Release"))
-            {
-                ActionManager::Get()->PrepareRelease();
-            }
-
-            // Draw plugin menu items for Extra menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("Extra");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Extra (position=6)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(6);
-        }
-
-        if (ImGui::BeginMenu("Help"))
-        {
-            if (ImGui::MenuItem("Check for Updates..."))
-            {
-                AutoUpdater::Get()->CheckForUpdates(true);
-            }
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Documentation"))
-            {
-#if PLATFORM_WINDOWS
-                SYS_Exec("start https://github.com/polyphase-engine/polyphase-engine/wiki");
-#else
-                SYS_Exec("xdg-open https://github.com/polyphase-engine/polyphase-engine/wiki &");
-#endif
-            }
-
-            if (ImGui::MenuItem("Report Issue"))
-            {
-#if PLATFORM_WINDOWS
-                SYS_Exec("start https://github.com/polyphase-engine/polyphase-engine/issues");
-#else
-                SYS_Exec("xdg-open https://github.com/polyphase-engine/polyphase-engine/issues &");
-#endif
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon top-level menus as main menu bar entries (legacy append, position=-1)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr)
-            {
-                hookMgr->DrawTopLevelMenus();
-            }
-        }
+        DrawMainMenuBarMenus(openSaveSceneAsModal);
 
         // -- Toolbar items (merged into menu bar) --
         ImGui::SameLine(0.0f, 20.0f);

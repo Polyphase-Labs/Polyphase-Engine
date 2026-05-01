@@ -702,6 +702,7 @@
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp" />
     <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp" />
     <ClCompile Include="Source\Editor\EditorImgui.cpp" />
+    <ClCompile Include="Source\Editor\EditorMainMenu.cpp" />
     <ClCompile Include="Source\Editor\EditorMain.cpp" />
     <ClCompile Include="Source\Editor\EditorState.cpp" />
     <ClCompile Include="Source\Editor\EditorUtils.cpp" />
@@ -1207,6 +1208,7 @@
     <ClInclude Include="Source\Editor\EditorIcons.h" />
     <ClInclude Include="Source\Editor\EditorIconRegistry.h" />
     <ClInclude Include="Source\Editor\EditorImgui.h" />
+    <ClInclude Include="Source\Editor\EditorMainMenu.h" />
     <ClInclude Include="Source\Editor\EditorState.h" />
     <ClInclude Include="Source\Editor\ImGuizmo\ImGuizmo.h" />
     <ClInclude Include="Source\Editor\EditorTypes.h" />

@@ -98,6 +98,8 @@ public:
     virtual void EditorTick(float deltaTime);
     uint32_t GetLastTickedFrame() const;
     virtual void Render();
+    virtual void OnInstanced();
+
     virtual VertexType GetVertexType() const;
 
     virtual void GatherProperties(std::vector<Property>& outProps) override;

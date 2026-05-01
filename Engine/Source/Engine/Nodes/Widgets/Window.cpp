@@ -309,6 +309,13 @@ void Window::Stop()
     Widget::Stop();
 }
 
+void Window::OnInstanced()
+{
+    SetFullScreen();
+    Centered();
+
+}
+
 void Window::GatherProperties(std::vector<Property>& props)
 {
     Widget::GatherProperties(props);

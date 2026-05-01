@@ -453,13 +453,13 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     // Add menu items
     hooks->AddMenuItem(hookId, "View", "Debug Log", OnOpenLogWindow, nullptr, "Ctrl+Shift+L");
 
-    hooks->AddMenuSeparator(hookId, "Developer");
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Clear Log", OnClearLog, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Test Debug", OnTestDebug, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Test Info", OnTestInfo, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Test Warning", OnTestWarning, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Test Error", OnTestError, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "Debug Log/Test Burst (100 messages)", OnTestBurst, nullptr, nullptr);
+    hooks->AddMenuSeparator(hookId, "Tools");
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Clear Log", OnClearLog, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Test Debug", OnTestDebug, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Test Info", OnTestInfo, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Test Warning", OnTestWarning, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Test Error", OnTestError, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "Debug Log/Test Burst (100 messages)", OnTestBurst, nullptr, nullptr);
 
     // Open the window by default
     hooks->OpenWindow("debuglog_window");
@@ -628,7 +628,7 @@ Right-click any log entry to:
 ## Usage
 
 ### From the Editor
-1. Open via **View > Debug Log** (or Ctrl+Shift+L)
+1. Open via **View > Panels > Debug Log** (or Ctrl+Shift+L)
 2. The window docks at the bottom by default
 3. Use filter checkboxes to show/hide message types
 4. Search to find specific messages
@@ -647,7 +647,7 @@ DebugLog.Clear()
 ```
 
 ### Test Messages
-Use **Developer > Debug Log > Test ...** menu items to test different message types.
+Use **Tools > Debug Log > Test ...** menu items to test different message types.
 
 ---
 

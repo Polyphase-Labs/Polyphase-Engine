@@ -80,6 +80,11 @@ void Canvas::Stop()
     Widget::Stop();
 }
 
+void Canvas::OnInstanced()
+{
+    SetFullScreen();
+}
+
 void Canvas::Tick(float deltaTime)
 {
     Widget::Tick(deltaTime);

@@ -3027,6 +3027,8 @@ Node* ActionManager::EXE_SpawnNode(const char* srcTypeName)
 
     OCT_ASSERT(action->GetNodes().size() == 1);
     Node* retNode = action->GetNodes()[0].Get();
+	retNode->SetName(srcTypeName);
+	retNode->OnInstanced();
     return retNode;
 }
 

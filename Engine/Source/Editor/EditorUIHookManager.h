@@ -127,7 +127,19 @@ struct RegisteredTopLevelMenu
     std::string mMenuName;
     TopLevelMenuDrawCallback mDrawFunc;
     void* mUserData;
-    int32_t mPosition = -1;  // -1=append after all, 0=after File, 1=after Edit, etc.
+    // Position of this menu in the main menu bar:
+    //   -1 = append after all menus (legacy default)
+    //    0 = after File
+    //    1 = after Edit
+    //    2 = after View
+    //    3 = after World
+    //    4 = after Tools (formerly "Developer" — same integer for compatibility)
+    //    5 = legacy "after Addons" — top-level Addons menu was folded into
+    //        Tools > Addons; addons registered against 5 now render between
+    //        Tools and Help (the slot the Addons menu used to occupy).
+    //    6 = legacy "after Extra"  — top-level Extra menu was removed; addons
+    //        registered against 6 also render between Tools and Help.
+    int32_t mPosition = -1;
 };
 
 /**
