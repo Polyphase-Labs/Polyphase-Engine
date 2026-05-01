@@ -264,6 +264,7 @@ static bool sShowUIDocumentPicker = false;
 
 static int sNewSceneType = 1;        // 0=2D, 1=3D
 static bool sNewSceneCreateCamera = true;
+static bool sNewSceneCreateSkybox = true;
 static int32_t sZooColumns = 5;
 static float sZooSpacing = 3.0f;
 
@@ -1941,7 +1942,7 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
     }
 }
 
-static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera)
+static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = true)
 {
     // Plugin-registered scene types (sceneType >= 2) call into addon function pointers
     // that aren't safe to invoke from non-editor contexts (e.g. the REST controller).
@@ -1974,7 +1975,7 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
         }
     }
 
-    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera);
+    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera, createSkybox);
 }
 
 static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Property& prop, uint32_t index, Asset* newAsset)
@@ -6158,6 +6159,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
 
         Polyphase::Checkbox("Create Camera", &sNewSceneCreateCamera);
+        Polyphase::Checkbox("Create Skybox", &sNewSceneCreateSkybox);
 
         if (ImGui::Button("Create"))
         {
@@ -6165,7 +6167,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (sceneName.empty())
                 sceneName = "SC_Scene";
 
-            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera);
+            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera, sNewSceneCreateSkybox);
 
             ImGui::CloseCurrentPopup();
             closeContextPopup = true;

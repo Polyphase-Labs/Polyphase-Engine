@@ -2634,6 +2634,34 @@ Node* ActionManager::SpawnNode(TypeId nodeType, glm::vec3 position)
     return node;
 }
 
+static void ConfigureSkyboxNode(StaticMesh3D* skyNode, Material* srcMaterial = nullptr)
+{
+    StaticMesh* mesh = (StaticMesh*)LoadAsset("SM_Sphere");
+    skyNode->SetStaticMesh(mesh);
+
+    // Caller-provided material wins (e.g. user had a material selected when invoking the
+    // BASIC_SKYBOX_TEXTURED menu). Otherwise apply the bundled engine default that already
+    // has the skybox render properties baked in.
+    Material* skyMat = srcMaterial;
+    if (skyMat == nullptr)
+    {
+        skyMat = (Material*)LoadAsset("M_SkyboxDay");
+    }
+    if (skyMat != nullptr)
+    {
+        skyNode->SetMaterialOverride(skyMat);
+    }
+
+    skyNode->EnableCollision(false);
+    skyNode->EnableOverlaps(false);
+    skyNode->EnablePhysics(false);
+    skyNode->EnableCastShadows(false);
+    skyNode->EnableReceiveShadows(false);
+    skyNode->EnableReceiveSimpleShadows(false);
+    skyNode->SetScale(glm::vec3(500.0f));
+    skyNode->SetTargetScreen(0xFF);
+}
+
 Node* ActionManager::SpawnBasicNode(const std::string& name, Node* parent, Asset* srcAsset, bool setWorldPos, glm::vec3 worldPos)
 {
     Node* spawnedNode = nullptr;
@@ -2813,31 +2841,9 @@ Node* ActionManager::SpawnBasicNode(const std::string& name, Node* parent, Asset
         StaticMesh3D* skyNode = EXE_SpawnNode(StaticMesh3D::GetStaticType())->As<StaticMesh3D>();
         skyNode->SetName("Skybox");
 
-        StaticMesh* mesh = (StaticMesh*)LoadAsset("SM_Sphere");
-        skyNode->SetStaticMesh(mesh);
-
-        if (srcAsset != nullptr && srcAsset->Is(Material::ClassRuntimeId()))
-        {
-            skyNode->SetMaterialOverride(static_cast<Material*>(srcAsset));
-        }
-
-        // Create a MaterialLite override with skybox render properties.
-        MaterialLite* skyMat = MaterialLite::New(skyNode->GetMaterial());
-        skyMat->SetShadingModel(ShadingModel::Unlit); // No lighting on skybox
-        skyMat->SetCullMode(CullMode::Front);      // Show inside of sphere
-        skyMat->SetDepthTestDisabled(true);         // Don't affect depth buffer
-        skyMat->SetSortPriority(-1000);             // Render before everything
-        skyMat->SetApplyFog(false);                 // No fog on skybox
-        skyNode->SetMaterialOverride(skyMat);
-
-        skyNode->EnableCollision(false);
-        skyNode->EnableOverlaps(false);
-        skyNode->EnablePhysics(false);
-        skyNode->EnableCastShadows(false);
-        skyNode->EnableReceiveShadows(false);
-        skyNode->EnableReceiveSimpleShadows(false);
-        skyNode->SetScale(glm::vec3(500.0f));
-        skyNode->SetTargetScreen(0xFF); // Render on all screens
+        Material* srcMat = (srcAsset != nullptr && srcAsset->Is(Material::ClassRuntimeId()))
+            ? static_cast<Material*>(srcAsset) : nullptr;
+        ConfigureSkyboxNode(skyNode, srcMat);
 
         spawnedNode = skyNode;
     }
@@ -3738,7 +3744,7 @@ void ActionManager::OpenScene(Scene* scene)
     GetEditorState()->OpenEditScene(scene);
 }
 
-Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, AssetDir* targetDir)
+Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox, AssetDir* targetDir)
 {
     if (sceneName == nullptr || sceneName[0] == '\0')
         return nullptr;
@@ -3769,6 +3775,12 @@ Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool 
         {
             Camera3D* cam = root->CreateChild<Camera3D>("Camera3D");
             cam->SetPosition(glm::vec3(0.0f, 0.0f, 5.0f));
+        }
+
+        if (createSkybox)
+        {
+            StaticMesh3D* skyNode = root->CreateChild<StaticMesh3D>("Skybox");
+            ConfigureSkyboxNode(skyNode);
         }
 
         scene->Capture(root.Get());
