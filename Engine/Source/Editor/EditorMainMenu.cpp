@@ -906,7 +906,7 @@ static void DrawHelpMenu()
 
     if (ImGui::MenuItem("Report Issue"))
     {
-        OpenUrl("https://github.com/polyphase-engine/polyphase-engine/issues");
+        OpenUrl("https://github.com/Polyphase-Labs/Polyphase-Engine/issues");
     }
 
     ImGui::Separator();

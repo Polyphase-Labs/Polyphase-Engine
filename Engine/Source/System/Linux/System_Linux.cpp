@@ -721,8 +721,7 @@ void SYS_OpenDirectory(const std::string& dirPath, DirEntry& outDirEntry)
     outDirEntry.mDir = opendir(dirPath.c_str());
     if (outDirEntry.mDir == nullptr)
     {
-        LogError("Could not open directory.");
-        closedir(outDirEntry.mDir);
+        // Directory doesn't exist or can't be opened — not an error, caller checks mValid.
         return;
     }
 
