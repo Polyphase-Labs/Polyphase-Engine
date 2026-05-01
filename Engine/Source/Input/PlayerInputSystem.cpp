@@ -6,6 +6,8 @@
 #include "AssetManager.h"
 #include "Log.h"
 #include "Stream.h"
+#include "System/System.h"
+#include "Engine/EmbeddedFile.h"
 
 #include "document.h"
 #include "prettywriter.h"
@@ -668,24 +670,42 @@ void PlayerInputSystem::LoadProjectActions()
     mActions.clear();
     mActionLookup.clear();
 
-    // Try loading the .oct asset (non-embedded first, then embedded for romfs/3DS)
-    Stream stream;
-    if (stream.ReadFile(octPath.c_str(), false) || stream.ReadFile(octPath.c_str(), true))
-    {
-        InputActionsAsset asset;
-        asset.LoadStream(stream, GetPlatform());
-        mActions = asset.mActions;
-        RebuildLookup();
-        LogDebug("PlayerInput: Loaded %d actions from %s", (int)mActions.size(), octPath.c_str());
-        DumpLoadedActions(mActions);
-        return;
-    }
+    // Gate the read on existence (disk OR embedded). SYS_DoesFileExist only
+    // checks stat(), so embedded-only packaged builds need the EmbeddedFile
+    // table check as well.
+    uint32_t embeddedSize = 0;
+    bool octExists =
+        SYS_DoesFileExist(octPath.c_str(), false) ||
+        SYS_DoesFileExist(octPath.c_str(), true)  ||
+        SYS_LookupEmbeddedRawAsset(octPath.c_str(), embeddedSize) != nullptr;
 
-    LogWarning("PlayerInput: Could not find %s", octPath.c_str());
+    if (octExists)
+    {
+        // Try loading the .oct asset (non-embedded first, then embedded for romfs/3DS)
+        Stream stream;
+        if (stream.ReadFile(octPath.c_str(), false) || stream.ReadFile(octPath.c_str(), true))
+        {
+            InputActionsAsset asset;
+            asset.LoadStream(stream, GetPlatform());
+            mActions = asset.mActions;
+            RebuildLookup();
+            LogDebug("PlayerInput: Loaded %d actions from %s", (int)mActions.size(), octPath.c_str());
+            DumpLoadedActions(mActions);
+            return;
+        }
+
+        LogWarning("PlayerInput: Failed to read %s", octPath.c_str());
+    }
 
     // Fallback: import from legacy InputActions.json if it exists
     std::string jsonPath = projectDir + "InputActions.json";
-    if (LoadFromJsonFile(jsonPath))
+    embeddedSize = 0;
+    bool jsonExists =
+        SYS_DoesFileExist(jsonPath.c_str(), false) ||
+        SYS_DoesFileExist(jsonPath.c_str(), true)  ||
+        SYS_LookupEmbeddedRawAsset(jsonPath.c_str(), embeddedSize) != nullptr;
+
+    if (jsonExists && LoadFromJsonFile(jsonPath))
     {
         LogDebug("PlayerInput: Migrated %d actions from JSON to .oct", (int)mActions.size());
         DumpLoadedActions(mActions);
@@ -693,11 +713,19 @@ void PlayerInputSystem::LoadProjectActions()
         return;
     }
 
-    LogWarning("PlayerInput: No InputActions found (tried .oct and .json in %s)", projectDir.c_str());
+    LogDebug("PlayerInput: No InputActions defined for project");
 }
 
 bool PlayerInputSystem::LoadFromJsonFile(const std::string& filePath)
 {
+    uint32_t embeddedSize = 0;
+    bool exists =
+        SYS_DoesFileExist(filePath.c_str(), false) ||
+        SYS_DoesFileExist(filePath.c_str(), true)  ||
+        SYS_LookupEmbeddedRawAsset(filePath.c_str(), embeddedSize) != nullptr;
+    if (!exists)
+        return false;
+
     Stream stream;
     if (!stream.ReadFile(filePath.c_str(), false))
     {
