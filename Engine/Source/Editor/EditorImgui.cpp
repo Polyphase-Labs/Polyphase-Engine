@@ -5745,7 +5745,13 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
     if (curDir && !curDir->mEngineDir && !curDir->mAddonDir)
     {
-        if (ImGui::Selectable("Import Asset"))
+
+		// Make into Import submenu with options for different import types (model, scene, etc)
+
+        if (ImGui::BeginMenu("Import Asset"))
+        {
+
+        if (ImGui::Selectable("Import"))
         {
             actMan->ImportAsset();
         }
@@ -5764,6 +5770,9 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         {
             actMan->ImportTinyLLMTokenizer();
         }
+
+        ImGui::EndMenu();
+		}
 
         if (ImGui::BeginMenu("Create Asset"))
         {
@@ -5825,11 +5834,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 sNewAssetType = UIDocument::GetStaticType();
                 showPopup = true;
             }
-            if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = DataAsset::GetStaticType();
-                showPopup = true;
-            }
+            //if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
+            //{
+            //    sNewAssetType = DataAsset::GetStaticType();
+            //    showPopup = true;
+            //}
             if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = SpriteAnimation::GetStaticType();
@@ -7177,7 +7186,7 @@ static void DrawAssetsPanel()
                     ImGui::SetTooltip("Import Asset");
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_STREAMLINE_SHARP_NEW_FILE_REMIX "##NewFolder"))
+                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##NewFolder"))
                 {
                     if (hasProject)
                         ImGui::OpenPopup("NewFolderPopup");
@@ -7186,7 +7195,7 @@ static void DrawAssetsPanel()
                     ImGui::SetTooltip("New Folder");
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenProjectExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenProjectExplorer"))
                 {
                     if (hasProject)
                     {
@@ -7271,7 +7280,7 @@ static void DrawAssetsPanel()
 
             // Toolbar
             {
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenAddonsExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenAddonsExplorer"))
                 {
                     AssetDir* pkgDir = AssetManager::Get()->FindPackagesDirectory();
                     if (pkgDir)
@@ -7990,7 +7999,7 @@ static void DrawScriptsPanel()
                 if (!editorConfigured) ImGui::PopStyleVar();
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenLuaExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenLuaExplorer"))
                 {
                     if (hasProject)
                     {
@@ -8417,7 +8426,7 @@ static void DrawScriptsPanel()
                 if (!cppConfigured || !hasAddons) ImGui::PopStyleVar();
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenCppExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenCppExplorer"))
                 {
                     if (hasProject)
                     {
