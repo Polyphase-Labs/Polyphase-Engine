@@ -6159,7 +6159,9 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
 
         Polyphase::Checkbox("Create Camera", &sNewSceneCreateCamera);
-        Polyphase::Checkbox("Create Skybox", &sNewSceneCreateSkybox);
+        if (sNewSceneType != 0) {
+            Polyphase::Checkbox("Create Skybox", &sNewSceneCreateSkybox);
+        }
 
         if (ImGui::Button("Create"))
         {

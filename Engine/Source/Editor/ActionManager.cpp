@@ -82,6 +82,7 @@
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/Widgets/Widget.h"
 #include "Nodes/Widgets/Canvas.h"
+#include "Nodes/Widgets/Quad.h"
 #include "Script.h"
 #include "Datum.h"
 #include "GamePreview/GamePreview.h"
@@ -3035,7 +3036,6 @@ Node* ActionManager::EXE_SpawnNode(const char* srcTypeName)
     OCT_ASSERT(action->GetNodes().size() == 1);
     Node* retNode = action->GetNodes()[0].Get();
 	retNode->SetName(srcTypeName);
-	retNode->OnInstanced();
     return retNode;
 }
 
@@ -3769,7 +3769,7 @@ Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool 
     if (sceneType == 1) // 3D
     {
         SharedPtr<Node3D> root = Node::Construct<Node3D>();
-        root->SetName("Root");
+        root->SetName(std::string(sceneName) + "_Root");
 
         if (createCamera)
         {
@@ -3788,24 +3788,17 @@ Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool 
     else // 2D
     {
         SharedPtr<Canvas> root = Node::Construct<Canvas>();
-        root->SetName("Root");
+        root->SetName(std::string(sceneName) + "_Root");
 
         // Match the EditorImgui "New Scene" popup: size the Canvas to the current
         // Build Profile's platform resolution, with a 640x480 fallback.
-        uint32_t canvasW = 640;
-        uint32_t canvasH = 480;
 
-        PackagingSettings* pkgSettings = PackagingSettings::Get();
-        BuildProfile* profile = (pkgSettings != nullptr) ? pkgSettings->GetCurrentTargetProfile() : nullptr;
-        if (profile != nullptr)
-        {
-            const char* platformName = nullptr;
-            GamePreview::GetPlatformResolution(profile->mTargetPlatform, canvasW, canvasH, platformName);
-        }
-
-        root->SetSize((float)canvasW, (float)canvasH);
+        Quad* bgQuad = root->CreateChild<Quad>("Background");
+        bgQuad->SetFullScreen();
+        bgQuad->Centered();
 
         scene->Capture(root.Get());
+
     }
 
     AssetManager::Get()->SaveAsset(*stub);
