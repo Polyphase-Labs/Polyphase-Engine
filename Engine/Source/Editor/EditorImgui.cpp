@@ -18,6 +18,7 @@
 #include "EditorIcons.h"
 #include "EditorIconRegistry.h"
 
+#include "Nodes/NodeClipboard.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/InstancedMesh3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
@@ -4076,6 +4077,63 @@ static void CopyNodeHierarchyToClipboard(Node* node)
     LogDebug("Copied hierarchy JSON to clipboard (%d characters)", (int)json.size());
 }
 
+// Paste the cloned NodeClipboard contents under `parent`. Mirrors the
+// duplicate flow in ActionManager::DuplicateNodes: spawn via EXE_SpawnNodes
+// (cloned again, so the clipboard snapshots stay reusable) then attach to
+// the requested parent. Falls back to the active world's root when parent
+// is null. Refuses to paste under scene-linked nodes.
+static void PasteNodesFromClipboard(Node* parent)
+{
+    if (!NodeClipboard::HasContent())
+        return;
+
+    const std::vector<NodePtr>& clip = NodeClipboard::GetContents();
+
+    std::vector<Node*> srcNodes;
+    srcNodes.reserve(clip.size());
+    for (const NodePtr& np : clip)
+    {
+        if (np != nullptr)
+            srcNodes.push_back(np.Get());
+    }
+
+    if (srcNodes.empty())
+        return;
+
+    if (parent == nullptr)
+    {
+        World* world = GetWorld(0);
+        if (world != nullptr)
+            parent = world->GetRootNode();
+    }
+
+    if (parent != nullptr && (parent->IsSceneLinked() || parent->IsSceneLinkedChild()))
+    {
+        LogWarning("Cannot paste nodes into a scene-linked subtree. Unlink the scene first.");
+        return;
+    }
+
+    ActionManager* am = ActionManager::Get();
+    std::vector<Node*> spawned = am->EXE_SpawnNodes(srcNodes);
+
+    if (spawned.size() != srcNodes.size())
+        return;
+
+    if (parent != nullptr)
+    {
+        for (Node* newNode : spawned)
+        {
+            parent->AddChild(newNode);
+        }
+    }
+
+    GetEditorState()->SetSelectedNode(nullptr);
+    for (Node* newNode : spawned)
+    {
+        GetEditorState()->AddSelectedNode(newNode, false);
+    }
+}
+
 // Helpers exposed to EditorMainMenu.cpp so the lifted main-menu construction
 // can mutate file-scope state owned by this TU.
 void EditorImgui_ResetSaveSceneAsBuffer()
@@ -4811,6 +4869,26 @@ static void DrawScenePanel()
                 }
 
                 ImGui::Separator();
+                if (!inSubScene && ImGui::Selectable("Copy"))
+                {
+                    NodeClipboard::Copy(GetEditorState()->GetSelectedNodes());
+                }
+                if (!inSubScene && ImGui::Selectable("Cut"))
+                {
+                    const std::vector<Node*>& selForCut = GetEditorState()->GetSelectedNodes();
+                    NodeClipboard::Copy(selForCut);
+                    am->EXE_DeleteNodes(selForCut);
+                    closeContextPopup = true;
+                }
+                {
+                    bool canPaste = NodeClipboard::HasContent() && !inSubScene;
+                    if (ImGui::Selectable("Paste", false,
+                            canPaste ? 0 : ImGuiSelectableFlags_Disabled))
+                    {
+                        PasteNodesFromClipboard(node);
+                    }
+                }
+                ImGui::Separator();
                 if (ImGui::Selectable("Copy Hierarchy"))
                 {
                     CopyNodeHierarchyToClipboard(node);
@@ -5217,9 +5295,10 @@ static void DrawScenePanel()
             }
         }
 
+        EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+
         if (selNodes.size() > 0)
         {
-            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
             if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
             {
                 am->EXE_DeleteNodes(selNodes);
@@ -5239,6 +5318,15 @@ static void DrawScenePanel()
                     am->DuplicateNodes(selNodes);
                 }
             }
+            else if (hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_CopyNodes))
+            {
+                NodeClipboard::Copy(selNodes);
+            }
+            else if (hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_CutNodes))
+            {
+                NodeClipboard::Copy(selNodes);
+                am->EXE_DeleteNodes(selNodes);
+            }
             else if (hotkeys->IsActionJustTriggered(EditorAction::Hier_Rename))
             {
                 ImGui::OpenPopup("Rename Node F2");
@@ -5246,6 +5334,14 @@ static void DrawScenePanel()
                 sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
                 setKeyboardFocus = true;
             }
+        }
+
+        // Paste works whether or not anything is selected.
+        if (NodeClipboard::HasContent() &&
+            hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_PasteNodes))
+        {
+            Node* parent = (selNodes.size() == 1) ? selNodes[0] : nullptr;
+            PasteNodesFromClipboard(parent);
         }
     }
 

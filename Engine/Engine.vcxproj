@@ -891,6 +891,7 @@
     <ClCompile Include="Source\Engine\Nodes\3D\TileMap2d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Node3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Node.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\NodeClipboard.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\ArrayWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Button.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Slider.cpp" />
@@ -1396,6 +1397,7 @@
     <ClInclude Include="Source\Engine\Nodes\3D\TileMap2d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Node3d.h" />
     <ClInclude Include="Source\Engine\Nodes\Node.h" />
+    <ClInclude Include="Source\Engine\Nodes\NodeClipboard.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\ArrayWidget.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Button.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Slider.h" />

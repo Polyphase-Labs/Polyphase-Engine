@@ -677,6 +677,9 @@
     <ClCompile Include="Source\Engine\Nodes\Node.cpp">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\NodeClipboard.cpp">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\ScriptFunc.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
@@ -1765,6 +1768,9 @@
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Node.h">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\NodeClipboard.h">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Widgets\Console.h">

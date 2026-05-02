@@ -33,6 +33,9 @@ enum class EditorAction : int32_t
     Edit_DeselectAll,
     Edit_Duplicate,
     Edit_DeleteSelected,
+    Edit_CopyNodes,
+    Edit_PasteNodes,
+    Edit_CutNodes,
 
     // ----- Scene Mode -----
     Mode_Scene,
