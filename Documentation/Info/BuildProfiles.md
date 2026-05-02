@@ -4,7 +4,7 @@ Build Profiles let you save packaging configurations for different platforms and
 
 ## Opening the Packaging Window
 
-Go to **File > Packaging...** to open the Packaging window.
+Go to **File > Build Profiles** to open the Packaging window.
 
 ## Creating a Build Profile
 

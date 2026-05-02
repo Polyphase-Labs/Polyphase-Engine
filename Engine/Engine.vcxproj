@@ -702,6 +702,8 @@
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp" />
     <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp" />
     <ClCompile Include="Source\Editor\EditorImgui.cpp" />
+    <ClCompile Include="Source\Editor\EditorWidgets.cpp" />
+    <ClCompile Include="Source\Editor\EditorMainMenu.cpp" />
     <ClCompile Include="Source\Editor\EditorMain.cpp" />
     <ClCompile Include="Source\Editor\EditorState.cpp" />
     <ClCompile Include="Source\Editor\EditorUtils.cpp" />
@@ -889,6 +891,7 @@
     <ClCompile Include="Source\Engine\Nodes\3D\TileMap2d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Node3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Node.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\NodeClipboard.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\ArrayWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Button.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Slider.cpp" />
@@ -1207,6 +1210,8 @@
     <ClInclude Include="Source\Editor\EditorIcons.h" />
     <ClInclude Include="Source\Editor\EditorIconRegistry.h" />
     <ClInclude Include="Source\Editor\EditorImgui.h" />
+    <ClInclude Include="Source\Editor\EditorWidgets.h" />
+    <ClInclude Include="Source\Editor\EditorMainMenu.h" />
     <ClInclude Include="Source\Editor\EditorState.h" />
     <ClInclude Include="Source\Editor\ImGuizmo\ImGuizmo.h" />
     <ClInclude Include="Source\Editor\EditorTypes.h" />
@@ -1392,6 +1397,7 @@
     <ClInclude Include="Source\Engine\Nodes\3D\TileMap2d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Node3d.h" />
     <ClInclude Include="Source\Engine\Nodes\Node.h" />
+    <ClInclude Include="Source\Engine\Nodes\NodeClipboard.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\ArrayWidget.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Button.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Slider.h" />

@@ -205,6 +205,8 @@ void Node::Create()
     OCT_ASSERT(sNextNodeId != INVALID_NODE_ID);
 
     REGISTER_SCRIPT_FUNCS();
+    OnInstanced();
+
 }
 
 void Node::Destroy()
@@ -557,6 +559,11 @@ void Node::TickCommon(float deltaTime)
 }
 
 void Node::Render()
+{
+
+}
+
+void Node::OnInstanced()
 {
 
 }

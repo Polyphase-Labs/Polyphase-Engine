@@ -677,6 +677,9 @@
     <ClCompile Include="Source\Engine\Nodes\Node.cpp">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\NodeClipboard.cpp">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\ScriptFunc.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
@@ -924,6 +927,12 @@
       <Filter>Source Files\Editor\AnimationBrowser</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\EditorImgui.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\EditorWidgets.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\EditorMainMenu.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\Viewport2d.cpp">
@@ -1761,6 +1770,9 @@
     <ClInclude Include="Source\Engine\Nodes\Node.h">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\NodeClipboard.h">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Widgets\Console.h">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
@@ -2368,6 +2380,12 @@
       <Filter>Source Files\Editor\AnimationBrowser</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorImgui.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\EditorWidgets.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\EditorMainMenu.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorIconRegistry.h">

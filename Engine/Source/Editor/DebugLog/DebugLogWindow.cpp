@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "DebugLogWindow.h"
+#include "EditorWidgets.h"
 #include "Editor/EditorUIHookManager.h"
 #include "Engine.h"
 #include "Clock.h"
@@ -275,26 +276,26 @@ void DebugLogWindow::DrawContent()
 
     // Severity filter toggles
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.5f, 1.0f));
-    ImGui::Checkbox(ICON_MDI_BUG "##FilterDebug", &mShowDebug);
+    Polyphase::Checkbox(ICON_MDI_BUG "##FilterDebug", &mShowDebug);
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Debug");
     ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.5f, 1.0f));
-    ImGui::Checkbox(ICON_MATERIAL_SYMBOLS_WARNING "##FilterWarning", &mShowWarnings);
+    Polyphase::Checkbox(ICON_MATERIAL_SYMBOLS_WARNING "##FilterWarning", &mShowWarnings);
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Warning");
     ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.5f, 1.0f));
-    ImGui::Checkbox(ICON_DASHICONS_NO_ALT "##FilterError", &mShowErrors);
+    Polyphase::Checkbox(ICON_DASHICONS_NO_ALT "##FilterError", &mShowErrors);
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Error");
     ImGui::SameLine();
 
     ImGui::Spacing();
     ImGui::SameLine();
-    ImGui::Checkbox(ICON_BXS_ARROW_TO_BOTTOM "##AutoScroll", &mAutoScroll);
+    Polyphase::Checkbox(ICON_BXS_ARROW_TO_BOTTOM "##AutoScroll", &mAutoScroll);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Auto-scroll");
 
     // Search bar

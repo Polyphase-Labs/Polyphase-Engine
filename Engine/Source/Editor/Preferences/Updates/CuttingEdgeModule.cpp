@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "CuttingEdgeModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 
 #include "document.h"
@@ -41,7 +42,7 @@ void CuttingEdgeModule::Render()
 
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Opt into cutting edge builds", &mCuttingEdgeEnabled))
+    if (Polyphase::Checkbox("Opt into cutting edge builds", &mCuttingEdgeEnabled))
     {
         changed = true;
     }

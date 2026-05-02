@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitSyncBranchDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "../GitProcessRunner.h"
@@ -101,8 +102,8 @@ void GitSyncBranchDialog::Draw()
         ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::Checkbox("Checkout branch after sync", &mCheckoutAfter);
-        ImGui::Checkbox("No fast-forward (--no-ff)", &mNoFastForward);
+        Polyphase::Checkbox("Checkout branch after sync", &mCheckoutAfter);
+        Polyphase::Checkbox("No fast-forward (--no-ff)", &mNoFastForward);
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("Always create a merge commit, even if the merge could be fast-forwarded.");

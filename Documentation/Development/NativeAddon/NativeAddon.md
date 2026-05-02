@@ -413,7 +413,7 @@ Create your addon directly in your project's `Packages/` folder:
 1. Create `{ProjectDir}/Packages/MyAddon/` directory
 2. Add `package.json` with native configuration
 3. Add your C++ source files in `Source/`
-4. Use **Developer > Reload Native Addons**
+4. Use **Tools > Addons > Reload Native Addons**
 5. Your addon is automatically discovered, built, and loaded
 
 **Advantages:**
@@ -441,15 +441,15 @@ Use the Addons window to install from a repository:
 - Click **Reload** to hot-load changes
 - Check the build log for errors
 
-**From the Developer Menu:**
+**From the Tools Menu:**
 
 | Menu Item | Description |
 |-----------|-------------|
-| **Developer > Reload Native Addons** | Discovers, builds changed addons, and reloads all native addons |
-| **Developer > Discover Native Addons** | Scans for native addons without building or loading |
-| **Developer > Regenerate Native Addon Dependencies** | Rewrites IDE configs (.vcxproj, .vscode/c_cpp_properties.json) for all addons |
-| **Developer > Create Native Addon...** | Opens dialog to create a new native addon with template files |
-| **Developer > Package Native Addon...** | Opens dialog to package an addon as a distributable ZIP |
+| **Tools > Addons > Reload Native Addons** | Discovers, builds changed addons, and reloads all native addons |
+| **Tools > Addons > Discover Native Addons** | Scans for native addons without building or loading |
+| **Tools > Addons > Regenerate Native Addon Dependencies** | Rewrites IDE configs (.vcxproj, .vscode/c_cpp_properties.json) for all addons |
+| **Tools > Addons > Create Native Addon...** | Opens dialog to create a new native addon with template files |
+| **Tools > Addons > Package Native Addon...** | Opens dialog to package an addon as a distributable ZIP |
 
 **From the File Menu:**
 
@@ -461,7 +461,7 @@ Use the Addons window to install from a repository:
 
 The hot-reload workflow:
 1. Edit your C++ code
-2. Press **Developer > Reload Native Addons**
+2. Press **Tools > Addons > Reload Native Addons**
 3. Changes take effect immediately - no editor restart!
 
 **Tip:** If you also have Lua scripts, use **File > Reload All Scripts** to reload everything at once.
@@ -474,7 +474,7 @@ Native addons generate IDE configuration files for IntelliSense support:
 - `{AddonName}.vcxproj` - Visual Studio project file
 - `CMakeLists.txt` - CMake configuration
 
-These files include the correct engine include paths. If the engine is moved or paths change, use **Developer > Regenerate Native Addon Dependencies** to update them.
+These files include the correct engine include paths. If the engine is moved or paths change, use **Tools > Addons > Regenerate Native Addon Dependencies** to update them.
 
 ---
 
@@ -563,10 +563,10 @@ Native addons can extend the editor interface with custom menus, windows, and in
 ```cpp
 static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
 {
-    // Add a menu item under Developer menu
+    // Add a menu item under the Tools menu
     hooks->AddMenuItem(
         hookId,
-        "Developer",              // Menu to add to
+        "Tools",                  // Menu to add to
         "My Addon/Do Something",  // Item path (supports submenus)
         [](void* userData) {
             LogDebug("Menu item clicked!");
@@ -671,7 +671,7 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
 {
     sHookId = hookId;  // Save for later if needed
 
-    hooks->AddMenuItem(hookId, "Developer", "My Tool", MyCallback, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "My Tool", MyCallback, nullptr, nullptr);
     hooks->RegisterWindow(hookId, "My Window", "my_window", DrawMyWindow, nullptr);
 
     // All hooks registered with this hookId are automatically removed
@@ -953,7 +953,7 @@ if not Editor then return end
 local hookId = Script.GetUUID()
 
 -- Add a menu item
-Editor.AddMenuItem(hookId, "Developer", "My Lua Tool", function()
+Editor.AddMenuItem(hookId, "Tools", "My Lua Tool", function()
     Log.Debug("Lua tool activated!")
     Editor.OpenWindow("my_lua_window")
 end)

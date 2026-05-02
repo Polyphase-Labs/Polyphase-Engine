@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitCreateTagDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "imgui.h"
@@ -119,7 +120,7 @@ void GitCreateTagDialog::Draw()
         }
 
         ImGui::Spacing();
-        ImGui::Checkbox("Annotated tag", &mAnnotated);
+        Polyphase::Checkbox("Annotated tag", &mAnnotated);
 
         if (mAnnotated)
         {

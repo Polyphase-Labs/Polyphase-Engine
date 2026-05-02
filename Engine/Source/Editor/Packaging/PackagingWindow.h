@@ -6,6 +6,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <set>
 #if PLATFORM_LINUX
 #include <sys/types.h>
 #endif
@@ -123,6 +124,12 @@ private:
      * @brief Draws the Docker build output modal.
      */
     void DrawBuildOutputModal();
+
+    /** @brief Concatenate every visible output line into a single string. */
+    std::string BuildAllOutputLinesText() const;
+
+    /** @brief Concatenate the lines whose indices are in mSelectedLineIndices. */
+    std::string BuildSelectedOutputLinesText() const;
 
     /**
      * @brief Opens the Preferences window and navigates to Launchers.
@@ -261,6 +268,15 @@ private:
 
     /** @brief Display copy of build output (main thread only) */
     std::string mDisplayOutput;
+
+    /** @brief Indices of selected lines in the build output (for copy ops). */
+    std::set<int> mSelectedLineIndices;
+
+    /** @brief Anchor row for shift-click range selection in the output. */
+    int mSelectionAnchor = -1;
+
+    /** @brief Total renderable line count this frame (for "Select all"). */
+    int mSelectionLineCount = 0;
 
     /** @brief Whether to auto-scroll the build output */
     bool mAutoScroll = true;

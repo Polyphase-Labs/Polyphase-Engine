@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitInitDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "imgui.h"
@@ -51,7 +52,7 @@ void GitInitDialog::Draw()
         ImGui::InputText("##InitBranchName", mInitialBranchName, sizeof(mInitialBranchName));
 
         ImGui::Spacing();
-        ImGui::Checkbox("Create initial empty commit", &mCreateInitialCommit);
+        Polyphase::Checkbox("Create initial empty commit", &mCreateInitialCommit);
 
         ImGui::Spacing();
         ImGui::Separator();

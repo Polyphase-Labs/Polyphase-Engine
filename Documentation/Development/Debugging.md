@@ -92,7 +92,7 @@ Renderer.EnableStatsOverlay(true, "Network")       -- Upload/download rates
 
 ## PlayerInput Debugger
 
-When running in the editor, the **Developer > Player Input Debugger** window shows a real-time table of all registered input actions with color-coded active/inactive states. See [PlayerInput](PlayerInput.md) for details.
+When running in the editor, the **Edit > App Settings > Input > Debug Player Inputs** button opens a real-time table of all registered input actions with color-coded active/inactive states. See [PlayerInput](PlayerInput.md) for details.
 
 ## Debug Action Dump
 

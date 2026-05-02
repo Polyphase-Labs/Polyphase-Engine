@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "SecondScreenPreview.h"
+#include "EditorWidgets.h"
 #include "GamePreview/GamePreview.h"
 #include "World.h"
 #include "Renderer.h"
@@ -323,7 +324,7 @@ void SecondScreenPreview::DrawPanel()
 {
     bool wasEnabled = mEnabled;
     bool enableToggle = mEnabled;
-    ImGui::Checkbox(ICON_MDI_EYE, &enableToggle);
+    Polyphase::Checkbox(ICON_MDI_EYE, &enableToggle);
 
     if (enableToggle && !wasEnabled)
         Enable();

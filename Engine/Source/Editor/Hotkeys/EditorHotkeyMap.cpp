@@ -14,6 +14,8 @@
 #include "prettywriter.h"
 #include "stringbuffer.h"
 
+#include "imgui.h"
+
 #include <cstdlib>
 #include <cstring>
 
@@ -106,6 +108,103 @@ bool EditorHotkeyMap::IsActionJustTriggered(EditorAction action) const
         return false;
 
     return MatchesBinding(b);
+}
+
+// Map a Polyphase key code to the equivalent ImGuiKey enum value. Returns
+// ImGuiKey_None for keys that don't have a direct mapping. Covers the keys
+// that hotkey bindings actually use (letters, digits, function keys, common
+// editing keys); anything outside that returns ImGuiKey_None and the caller
+// falls back to the INP_* path via IsActionJustTriggered.
+static ImGuiKey PolyphaseKeyToImGuiKey(int32_t key)
+{
+    switch (key)
+    {
+        case POLYPHASE_KEY_A: return ImGuiKey_A;
+        case POLYPHASE_KEY_B: return ImGuiKey_B;
+        case POLYPHASE_KEY_C: return ImGuiKey_C;
+        case POLYPHASE_KEY_D: return ImGuiKey_D;
+        case POLYPHASE_KEY_E: return ImGuiKey_E;
+        case POLYPHASE_KEY_F: return ImGuiKey_F;
+        case POLYPHASE_KEY_G: return ImGuiKey_G;
+        case POLYPHASE_KEY_H: return ImGuiKey_H;
+        case POLYPHASE_KEY_I: return ImGuiKey_I;
+        case POLYPHASE_KEY_J: return ImGuiKey_J;
+        case POLYPHASE_KEY_K: return ImGuiKey_K;
+        case POLYPHASE_KEY_L: return ImGuiKey_L;
+        case POLYPHASE_KEY_M: return ImGuiKey_M;
+        case POLYPHASE_KEY_N: return ImGuiKey_N;
+        case POLYPHASE_KEY_O: return ImGuiKey_O;
+        case POLYPHASE_KEY_P: return ImGuiKey_P;
+        case POLYPHASE_KEY_Q: return ImGuiKey_Q;
+        case POLYPHASE_KEY_R: return ImGuiKey_R;
+        case POLYPHASE_KEY_S: return ImGuiKey_S;
+        case POLYPHASE_KEY_T: return ImGuiKey_T;
+        case POLYPHASE_KEY_U: return ImGuiKey_U;
+        case POLYPHASE_KEY_V: return ImGuiKey_V;
+        case POLYPHASE_KEY_W: return ImGuiKey_W;
+        case POLYPHASE_KEY_X: return ImGuiKey_X;
+        case POLYPHASE_KEY_Y: return ImGuiKey_Y;
+        case POLYPHASE_KEY_Z: return ImGuiKey_Z;
+        case POLYPHASE_KEY_0: return ImGuiKey_0;
+        case POLYPHASE_KEY_1: return ImGuiKey_1;
+        case POLYPHASE_KEY_2: return ImGuiKey_2;
+        case POLYPHASE_KEY_3: return ImGuiKey_3;
+        case POLYPHASE_KEY_4: return ImGuiKey_4;
+        case POLYPHASE_KEY_5: return ImGuiKey_5;
+        case POLYPHASE_KEY_6: return ImGuiKey_6;
+        case POLYPHASE_KEY_7: return ImGuiKey_7;
+        case POLYPHASE_KEY_8: return ImGuiKey_8;
+        case POLYPHASE_KEY_9: return ImGuiKey_9;
+        case POLYPHASE_KEY_F1:  return ImGuiKey_F1;
+        case POLYPHASE_KEY_F2:  return ImGuiKey_F2;
+        case POLYPHASE_KEY_F3:  return ImGuiKey_F3;
+        case POLYPHASE_KEY_F4:  return ImGuiKey_F4;
+        case POLYPHASE_KEY_F5:  return ImGuiKey_F5;
+        case POLYPHASE_KEY_F6:  return ImGuiKey_F6;
+        case POLYPHASE_KEY_F7:  return ImGuiKey_F7;
+        case POLYPHASE_KEY_F8:  return ImGuiKey_F8;
+        case POLYPHASE_KEY_F9:  return ImGuiKey_F9;
+        case POLYPHASE_KEY_F10: return ImGuiKey_F10;
+        case POLYPHASE_KEY_F11: return ImGuiKey_F11;
+        case POLYPHASE_KEY_F12: return ImGuiKey_F12;
+        case POLYPHASE_KEY_DELETE:    return ImGuiKey_Delete;
+        case POLYPHASE_KEY_BACKSPACE: return ImGuiKey_Backspace;
+        case POLYPHASE_KEY_ENTER:     return ImGuiKey_Enter;
+        case POLYPHASE_KEY_SPACE:     return ImGuiKey_Space;
+        case POLYPHASE_KEY_INSERT:    return ImGuiKey_Insert;
+        case POLYPHASE_KEY_HOME:      return ImGuiKey_Home;
+        case POLYPHASE_KEY_END:       return ImGuiKey_End;
+        case POLYPHASE_KEY_PAGE_UP:   return ImGuiKey_PageUp;
+        case POLYPHASE_KEY_PAGE_DOWN: return ImGuiKey_PageDown;
+        default: return ImGuiKey_None;
+    }
+}
+
+bool EditorHotkeyMap::IsActionJustTriggeredImGui(EditorAction action) const
+{
+    if (!AreEditorHotkeysActive())
+        return false;
+
+    const KeyBinding& b = mBindings[(int32_t)action];
+    if (!b.IsValid())
+        return false;
+
+    ImGuiKey imguiKey = PolyphaseKeyToImGuiKey(b.mKeyCode);
+    if (imguiKey == ImGuiKey_None)
+        return false;
+
+    if (!ImGui::IsKeyPressed(imguiKey, false))
+        return false;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.KeyCtrl  != b.mCtrl)  return false;
+    if (io.KeyShift != b.mShift) return false;
+    if (io.KeyAlt   != b.mAlt)   return false;
+
+    if (b.mRequireSpace && !ImGui::IsKeyDown(ImGuiKey_Space))
+        return false;
+
+    return true;
 }
 
 bool EditorHotkeyMap::IsActionDown(EditorAction action) const

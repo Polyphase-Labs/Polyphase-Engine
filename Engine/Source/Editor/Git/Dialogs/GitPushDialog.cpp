@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitPushDialog.h"
+#include "EditorWidgets.h"
 #include "../GitService.h"
 #include "../GitRepository.h"
 #include "../GitOperationQueue.h"
@@ -167,16 +168,16 @@ void GitPushDialog::Draw()
         ImGui::Spacing();
 
         // Options
-        ImGui::Checkbox("Push tags", &mPushTags);
-        ImGui::Checkbox("Set upstream (-u)", &mSetUpstream);
+        Polyphase::Checkbox("Push tags", &mPushTags);
+        Polyphase::Checkbox("Set upstream (-u)", &mSetUpstream);
 
         ImGui::Spacing();
-        ImGui::Checkbox("Show force push option", &mShowForcePush);
+        Polyphase::Checkbox("Show force push option", &mShowForcePush);
 
         if (mShowForcePush)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-            ImGui::Checkbox("Force push (--force-with-lease)", &mForcePush);
+            Polyphase::Checkbox("Force push (--force-with-lease)", &mForcePush);
             if (mForcePush)
             {
                 ImGui::TextWrapped("WARNING: Force push rewrites remote history. "

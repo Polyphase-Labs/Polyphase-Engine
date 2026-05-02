@@ -27,6 +27,9 @@
     <ClCompile Include="Generated\EmbeddedScripts.cpp">
       <Filter>Generated</Filter>
     </ClCompile>
+    <ClCompile Include="Generated\AddonPlugins.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Generated\EmbeddedAssets.h">

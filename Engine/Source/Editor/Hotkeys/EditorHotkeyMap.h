@@ -30,6 +30,14 @@ public:
     // down. Returns false during captured PIE so game code owns those keys.
     bool IsActionJustTriggered(EditorAction action) const;
 
+    // Same as IsActionJustTriggered but uses ImGui's input pipeline
+    // (ImGui::IsKeyPressed + io.KeyCtrl/Shift/Alt) instead of the engine's
+    // INP_* layer. Use this from inside ImGui-window draw code where the
+    // engine input layer can race with ImGui's keyboard handling — for
+    // example panel-scoped Ctrl+C / Ctrl+V hotkeys that should fire when the
+    // window is hovered. Same PIE gate as IsActionJustTriggered.
+    bool IsActionJustTriggeredImGui(EditorAction action) const;
+
     // True every frame the binding's key+modifier combo is held. Use for
     // camera movement / continuous tools. Same PIE gate as above.
     bool IsActionDown(EditorAction action) const;

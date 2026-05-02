@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "NodeGraph/NodeGraphPanel.h"
+#include "EditorWidgets.h"
 #include "EditorState.h"
 #include "EditorConstants.h"
 #include "EditorIcons.h"
@@ -262,7 +263,7 @@ static void DrawInputPinWidget(GraphPin& pin, GraphNode* ownerNode = nullptr, ui
     case DatumType::Bool:
     {
         bool b = pin.mDefaultValue.GetBool();
-        if (ImGui::Checkbox("##v", &b))
+        if (Polyphase::Checkbox("##v", &b))
         {
             pin.mDefaultValue = Datum(b);
             pin.mValue = pin.mDefaultValue;
@@ -2005,7 +2006,7 @@ static void DrawFunctionSidebar(NodeGraphAsset* asset)
             case DatumType::Bool:
             {
                 bool b = var->mDefaultValue.GetBool();
-                if (ImGui::Checkbox("##def", &b))
+                if (Polyphase::Checkbox("##def", &b))
                 {
                     var->mDefaultValue = Datum(b);
                     var->mRuntimeValue = var->mDefaultValue;
@@ -2101,7 +2102,7 @@ void DrawNodeGraphContent()
     }
     ImGui::SameLine();
 
-    if (ImGui::Checkbox("Preview", &sPreviewEnabled))
+    if (Polyphase::Checkbox("Preview", &sPreviewEnabled))
     {
         if (!sPreviewEnabled)
         {

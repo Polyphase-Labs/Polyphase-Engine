@@ -2,6 +2,7 @@
 
 #include "CssThemeParser.h"
 #include "imgui_dock.h"
+#include "EditorWidgets.h"
 #include "System/System.h"
 #include "Log.h"
 
@@ -347,6 +348,7 @@ static void ParseStyleBlock(const std::string& body, CssThemeData& theme)
         else if (prop == "tab-border-size")    { theme.TabBorderSize = ParsePxValue(val);       theme.hasTabBorderSize = true; }
         else if (prop == "button-text-align")  { theme.ButtonTextAlign = ParseVec2Value(val);   theme.hasButtonTextAlign = true; }
         else if (prop == "selectable-text-align") { theme.SelectableTextAlign = ParseVec2Value(val); theme.hasSelectableTextAlign = true; }
+        else if (prop == "checkbox-size")      { theme.CheckboxSize = ParsePxValue(val);        theme.hasCheckboxSize = true; }
     }
 }
 
@@ -611,6 +613,10 @@ void ApplyTheme(const CssThemeData& themeData)
     if (themeData.hasTabBorderSize)      style.TabBorderSize = themeData.TabBorderSize;
     if (themeData.hasButtonTextAlign)    style.ButtonTextAlign = themeData.ButtonTextAlign;
     if (themeData.hasSelectableTextAlign) style.SelectableTextAlign = themeData.SelectableTextAlign;
+
+    // Polyphase-specific: editor checkbox size. EditorTheme::ApplyTheme() resets
+    // this to 16 before any theme is applied, so we only need to override here.
+    if (themeData.hasCheckboxSize)       Polyphase::gCheckboxSize = themeData.CheckboxSize;
 
     // Overlay parsed colors
     for (const auto& pair : themeData.Colors)

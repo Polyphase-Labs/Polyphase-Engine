@@ -994,6 +994,24 @@ def generate_value_stub(type_info):
     return "\n".join(lines)
 
 
+_LUA_IDENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+_LUA_RESERVED = {
+    "and", "break", "do", "else", "elseif", "end", "false", "for",
+    "function", "goto", "if", "in", "local", "nil", "not", "or",
+    "repeat", "return", "then", "true", "until", "while",
+}
+
+
+def _format_enum_key(name):
+    """Return a valid Lua table key for `name`. Bare identifiers stay as-is;
+    anything that starts with a digit, contains punctuation, or matches a
+    reserved word is emitted in bracket-string form so the stub parses."""
+    if _LUA_IDENT_RE.match(name) and name not in _LUA_RESERVED:
+        return name
+    escaped = name.replace('\\', '\\\\').replace('"', '\\"')
+    return f'["{escaped}"]'
+
+
 def generate_enum_stub(enum_info):
     """Generate a .lua stub file for an enum type."""
     lines = []
@@ -1004,7 +1022,8 @@ def generate_enum_stub(enum_info):
 
     for i, entry in enumerate(enum_info.entries):
         comma = "," if i < len(enum_info.entries) - 1 else ""
-        lines.append(f"    {entry.name} = 0{comma}")
+        key = _format_enum_key(entry.name)
+        lines.append(f"    {key} = 0{comma}")
 
     lines.append(f"}}")
     lines.append(f"")

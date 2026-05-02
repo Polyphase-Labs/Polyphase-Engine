@@ -563,6 +563,7 @@ glm::vec2 Widget::GetAnchorRatio() const
     return ratio;
 }
 
+
 float Widget::GetX() const
 {
     if (StretchX())
@@ -788,6 +789,29 @@ void Widget::UpdateColor()
     float thisOpacity = GetOpacityFloat();
     mColor.a = (parentAlpha * thisOpacity);
 }
+
+
+
+void Widget::SetFullScreen() {
+
+    SetAnchorMode(AnchorMode::FullStretch);
+    SetSize(1.0f, 1.0f);
+    SetOffset(0, 0);
+
+
+}
+void Widget::Centered() {
+
+    CenterPivot();
+    SetOffset(0, 0);
+
+}
+void Widget::CenterPivot() {
+
+    SetAnchorMode(AnchorMode::Mid);
+	SetPivot({ 0.5f, 0.5f });
+}
+
 
 void Widget::FitInsideParent()
 {

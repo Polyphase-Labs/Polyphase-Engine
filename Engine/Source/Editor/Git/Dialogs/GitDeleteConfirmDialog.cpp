@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitDeleteConfirmDialog.h"
+#include "EditorWidgets.h"
 #include "imgui.h"
 
 static GitDeleteConfirmDialog sInstance;
@@ -72,7 +73,7 @@ void GitDeleteConfirmDialog::Draw()
             ImGui::Spacing();
 
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-            ImGui::Checkbox("I understand the consequences of this action", &mUnderstandChecked);
+            Polyphase::Checkbox("I understand the consequences of this action", &mUnderstandChecked);
             ImGui::PopStyleColor();
         }
 

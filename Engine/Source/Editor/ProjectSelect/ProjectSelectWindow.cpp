@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ProjectSelectWindow.h"
+#include "EditorWidgets.h"
 #include "TemplateManager.h"
 #include "TemplateData.h"
 #include "../Addons/AddonsMenu.h"
@@ -309,7 +310,7 @@ void ProjectSelectWindow::DrawCreateProject()
 
     ImGui::Spacing();
 
-    ImGui::Checkbox("Init Git Repo", &mInitGitRepo);
+    Polyphase::Checkbox("Init Git Repo", &mInitGitRepo);
 
     ImGui::Spacing();
     ImGui::Spacing();

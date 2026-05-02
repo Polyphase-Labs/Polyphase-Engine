@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GamePreview.h"
+#include "EditorWidgets.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "World.h"
 #include "Renderer.h"
@@ -543,7 +544,7 @@ void GamePreview::DrawPanel()
     // Enable/Disable toggle
     bool wasEnabled = mEnabled;
     bool enableToggle = mEnabled;
-    ImGui::Checkbox(ICON_MDI_EYE, &enableToggle);
+    Polyphase::Checkbox(ICON_MDI_EYE, &enableToggle);
 
     if (enableToggle && !wasEnabled)
         Enable();
@@ -744,7 +745,7 @@ void GamePreview::DrawPanel()
 
     // Toolbar: Gizmos | Screenshot | Play/Stop
     {
-        if (ImGui::Checkbox("Gizmos", &mShowGizmos))
+        if (Polyphase::Checkbox("Gizmos", &mShowGizmos))
         {
             ViewportModule* vm = ViewportModule::Get();
             if (vm)

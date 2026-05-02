@@ -76,7 +76,7 @@ static uint64_t sHookId = 0;
 //=============================================================================
 
 // Configurable menu path
-static char sMenuPath[64] = "Developer";
+static char sMenuPath[64] = "Tools";
 static char sMenuItemName[64] = "Scene Debug Window";
 static bool sWindowOpen = false;
 
@@ -560,11 +560,11 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
 
 ## Usage
 
-1. Open the debug window via **Developer > Scene Debug Window** (or Ctrl+Shift+D)
+1. Open the debug window via **Tools > Scene Debug Window** (or Ctrl+Shift+D)
 2. Click objects in the hierarchy to select them
 3. View transform data in the bottom panel
 4. Enable "Auto" for real-time updates during gameplay
-5. Configure settings via **Developer > Debug Window Settings...**
+5. Configure settings via **Tools > Debug Window Settings...**
 
 ---
 
@@ -575,7 +575,7 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
 Edit the `sMenuPath` variable to change where the menu item appears:
 
 ```cpp
-static char sMenuPath[64] = "Developer";  // Default
+static char sMenuPath[64] = "Tools";  // Default
 // Change to:
 static char sMenuPath[64] = "View";       // Appears under View menu
 static char sMenuPath[64] = "My Tools";   // Custom top-level menu

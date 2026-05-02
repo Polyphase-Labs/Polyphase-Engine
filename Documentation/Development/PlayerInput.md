@@ -44,7 +44,7 @@ end
 
 ### From the Editor
 
-1. Open **Developer > Player Input Editor**
+1. Open **Edit > App Settings > Input > Edit Player Inputs**
 2. Enter a category and action name, click **Add**
 3. Select the action, choose a trigger mode, click **+ Add Binding**
 4. Click **Remap** and press a key/button to bind it
@@ -133,7 +133,7 @@ PlayerInput.RegisterAction("Platformer", "SuperJump", {
 
 ## Editor Tools
 
-### Player Input Editor (Developer > Player Input Editor)
+### Player Input Editor (Edit > App Settings > Input > Edit Player Inputs)
 
 Visual tool for defining and configuring actions:
 
@@ -142,7 +142,7 @@ Visual tool for defining and configuring actions:
 - **Capture mode**: Click "Remap" then press any input to bind it (records modifier state)
 - **Save/Load**: Persists to `ProjectDir/InputActions.json`
 
-### Player Input Debugger (Developer > Player Input Debugger)
+### Player Input Debugger (Edit > App Settings > Input > Debug Player Inputs)
 
 Real-time monitoring panel for debugging input during PIE:
 

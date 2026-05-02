@@ -121,6 +121,9 @@ public:
     inline bool StretchX() const { return AnchorStretchesX(mAnchorMode); }
     inline bool StretchY() const { return AnchorStretchesY(mAnchorMode); }
     glm::vec2 GetAnchorRatio() const;
+    void SetFullScreen();
+    void Centered();
+    void CenterPivot();
 
     float GetX() const;
     float GetY() const;

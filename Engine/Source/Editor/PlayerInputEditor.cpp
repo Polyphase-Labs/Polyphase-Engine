@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "PlayerInputEditor.h"
+#include "EditorWidgets.h"
 #include "Input/PlayerInputSystem.h"
 #include "Input/InputMap.h"
 #include "Input/Input.h"
@@ -665,11 +666,11 @@ void PlayerInputEditor::DrawActionDetails()
 
         // Modifiers
         ImGui::SameLine();
-        ImGui::Checkbox("Ctrl", &binding.requireCtrl);
+        Polyphase::Checkbox("Ctrl", &binding.requireCtrl);
         ImGui::SameLine();
-        ImGui::Checkbox("Shift", &binding.requireShift);
+        Polyphase::Checkbox("Shift", &binding.requireShift);
         ImGui::SameLine();
-        ImGui::Checkbox("Alt", &binding.requireAlt);
+        Polyphase::Checkbox("Alt", &binding.requireAlt);
 
         // Axis-specific
         if (binding.sourceType == InputSourceType::GamepadAxis)

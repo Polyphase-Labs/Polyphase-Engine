@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "PackagingWindow.h"
+#include "EditorWidgets.h"
 #include "PackagingSettings.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/PreferencesManager.h"
@@ -35,6 +36,46 @@ static PackagingWindow sPackagingWindow;
 PackagingWindow* GetPackagingWindow()
 {
     return &sPackagingWindow;
+}
+
+namespace
+{
+    // Push to both clipboards. ImGui::SetClipboardText alone leaves the system
+    // clipboard empty on Linux because no SetClipboardTextFn bridge is wired
+    // up. Mirrors the helper in Editor/CliTerminal/TerminalPanel.cpp.
+    void CopyOutputToClipboard(const std::string& text)
+    {
+        SYS_SetClipboardText(text);
+        ImGui::SetClipboardText(text.c_str());
+    }
+
+    // In-process clipboard for "Copy Values" / "Paste Values" on build
+    // profiles. Holds a snapshot of the value-bearing fields only —
+    // mId and mName are intentionally excluded so paste targets keep
+    // their own identity.
+    static BuildProfile sProfileValueClipboard;
+    static bool sProfileValueClipboardValid = false;
+
+    void CopyProfileValues(const BuildProfile& src)
+    {
+        sProfileValueClipboard.mTargetPlatform        = src.mTargetPlatform;
+        sProfileValueClipboard.mEmbedded              = src.mEmbedded;
+        sProfileValueClipboard.mOutputDirectory       = src.mOutputDirectory;
+        sProfileValueClipboard.mUseDocker             = src.mUseDocker;
+        sProfileValueClipboard.mOpenDirectoryOnFinish = src.mOpenDirectoryOnFinish;
+        sProfileValueClipboardValid = true;
+    }
+
+    void PasteProfileValues(BuildProfile& dst)
+    {
+        if (!sProfileValueClipboardValid)
+            return;
+        dst.mTargetPlatform        = sProfileValueClipboard.mTargetPlatform;
+        dst.mEmbedded              = sProfileValueClipboard.mEmbedded;
+        dst.mOutputDirectory       = sProfileValueClipboard.mOutputDirectory;
+        dst.mUseDocker             = sProfileValueClipboard.mUseDocker;
+        dst.mOpenDirectoryOnFinish = sProfileValueClipboard.mOpenDirectoryOnFinish;
+    }
 }
 
 PackagingWindow::PackagingWindow()
@@ -248,6 +289,65 @@ void PackagingWindow::DrawProfileList()
                     settings->SetCurrentTargetProfileId(profile.mId);
                 }
             }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Duplicate"))
+            {
+                // Snapshot source values BEFORE CreateProfile, since the
+                // underlying push_back can reallocate the profiles vector
+                // and invalidate `profile`.
+                BuildProfile srcSnapshot = profile;
+                std::string newName = srcSnapshot.mName + " Copy";
+                BuildProfile* newProfile = settings->CreateProfile(newName);
+                if (newProfile != nullptr)
+                {
+                    uint32_t newId = newProfile->mId;
+                    newProfile->mTargetPlatform        = srcSnapshot.mTargetPlatform;
+                    newProfile->mEmbedded              = srcSnapshot.mEmbedded;
+                    newProfile->mOutputDirectory       = srcSnapshot.mOutputDirectory;
+                    newProfile->mUseDocker             = srcSnapshot.mUseDocker;
+                    newProfile->mOpenDirectoryOnFinish = srcSnapshot.mOpenDirectoryOnFinish;
+                    settings->SaveSettings();
+
+                    // Select the duplicate so the user can immediately rename
+                    // or tweak it. Match by id since CreateProfile may have
+                    // reallocated the profiles vector.
+                    std::vector<BuildProfile>& list = settings->GetProfiles();
+                    for (int32_t k = 0; k < (int32_t)list.size(); ++k)
+                    {
+                        if (list[k].mId == newId)
+                        {
+                            settings->SetSelectedProfileIndex(k);
+                            strncpy(mNameBuffer, list[k].mName.c_str(), sizeof(mNameBuffer) - 1);
+                            mNameBuffer[sizeof(mNameBuffer) - 1] = '\0';
+                            strncpy(mOutputDirBuffer, list[k].mOutputDirectory.c_str(), sizeof(mOutputDirBuffer) - 1);
+                            mOutputDirBuffer[sizeof(mOutputDirBuffer) - 1] = '\0';
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (ImGui::MenuItem("Copy Values"))
+            {
+                CopyProfileValues(profile);
+            }
+
+            if (ImGui::MenuItem("Paste Values", nullptr, false, sProfileValueClipboardValid))
+            {
+                PasteProfileValues(profile);
+                settings->SaveSettings();
+
+                // Refresh the edit buffers if we just pasted into the
+                // currently-selected profile.
+                if (isSelected)
+                {
+                    strncpy(mOutputDirBuffer, profile.mOutputDirectory.c_str(), sizeof(mOutputDirBuffer) - 1);
+                    mOutputDirBuffer[sizeof(mOutputDirBuffer) - 1] = '\0';
+                }
+            }
+
             ImGui::EndPopup();
         }
 
@@ -301,7 +401,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Embedded mode
-    if (ImGui::Checkbox("Embedded Mode", &profile->mEmbedded))
+    if (Polyphase::Checkbox("Embedded Mode", &profile->mEmbedded))
     {
         changed = true;
     }
@@ -341,7 +441,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Use Docker checkbox (optional on all platforms — Windows builds GCN/Wii/3DS natively)
-    if (ImGui::Checkbox("Use Docker", &profile->mUseDocker))
+    if (Polyphase::Checkbox("Use Docker", &profile->mUseDocker))
     {
         changed = true;
     }
@@ -353,7 +453,7 @@ void PackagingWindow::DrawProfileSettings()
     ImGui::Spacing();
 
     // Open directory on finish
-    if (ImGui::Checkbox("Open Directory On Finish", &profile->mOpenDirectoryOnFinish))
+    if (Polyphase::Checkbox("Open Directory On Finish", &profile->mOpenDirectoryOnFinish))
     {
         changed = true;
     }
@@ -376,7 +476,7 @@ void PackagingWindow::DrawBuildButtons()
     bool canBuild = (profile != nullptr) && !mBuildInProgress;
 
     // Force Rebuild checkbox
-    ImGui::Checkbox("Force Rebuild", &mForceRebuild);
+    Polyphase::Checkbox("Force Rebuild", &mForceRebuild);
     if (ImGui::IsItemHovered())
     {
         ImGui::SetTooltip("Rebuild even if no files have changed");
@@ -407,15 +507,22 @@ void PackagingWindow::DrawBuildButtons()
     bool is3DS = profile && profile->mTargetPlatform == Platform::N3DS;
     bool isWii = profile && profile->mTargetPlatform == Platform::Wii;
 
+    // "Set As Target" applies to every platform — keep it outside the
+    // supportsRun-gated disabled block below (which exists for Build & Run,
+    // not for the target-profile bookkeeping).
+    ImGui::SameLine();
+    {
+        bool isCurrentTarget = profile && (profile->mId == settings->GetCurrentTargetProfileId());
+        const char* targetLabel = isCurrentTarget ? "Clear As Target" : "Set As Target";
+        if (ImGui::Button(targetLabel, ImVec2(dropdownButtonWidth, 0)))
+        {
+            settings->SetCurrentTargetProfileId(isCurrentTarget ? 0 : profile->mId);
+        }
+    }
+
     if (!supportsRun)
     {
         ImGui::BeginDisabled();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Set As Target", ImVec2(dropdownButtonWidth, 0)))
-    {
-        settings->SetCurrentTargetProfileId(profile->mId);
-
     }
 
     // For Wii: Show dropdown with Dolphin and Wii LAN options
@@ -986,6 +1093,9 @@ void PackagingWindow::StartAsyncDockerBuild(const BuildProfile& profile, bool ru
 
     // Reset display state
     mDisplayOutput.clear();
+    mSelectedLineIndices.clear();
+    mSelectionAnchor = -1;
+    mSelectionLineCount = 0;
     mAutoScroll = true;
 
     // Show modal and mark build in progress
@@ -1376,8 +1486,156 @@ void PackagingWindow::DrawBuildOutputModal()
         float footerHeight = ImGui::GetFrameHeightWithSpacing() + 8.0f;
         ImVec2 outputSize(0, -footerHeight);
 
-        ImGui::BeginChild("BuildOutput", outputSize, true, ImGuiWindowFlags_HorizontalScrollbar);
-        ImGui::TextUnformatted(mDisplayOutput.c_str());
+        ImGui::BeginChild("BuildOutput", outputSize, true,
+            ImGuiWindowFlags_HorizontalScrollbar);
+
+        // Render each line as an ImGui::Selectable so the user can click,
+        // Ctrl/Shift-click, and right-click to copy. Mirrors the selection
+        // pattern in TerminalPanel::DrawOutput().
+        ImGuiIO& io = ImGui::GetIO();
+        int globalLineIndex = 0;
+        const std::string& s = mDisplayOutput;
+        size_t startPos = 0;
+        while (startPos <= s.size())
+        {
+            size_t nl = s.find('\n', startPos);
+            size_t lineEnd = (nl == std::string::npos) ? s.size() : nl;
+            size_t actualEnd = lineEnd;
+            if (actualEnd > startPos && s[actualEnd - 1] == '\r')
+            {
+                --actualEnd;
+            }
+
+            std::string line;
+            if (actualEnd > startPos)
+            {
+                line.assign(s.data() + startPos, actualEnd - startPos);
+            }
+
+            int rowIndex = globalLineIndex++;
+            ImGui::PushID(rowIndex);
+
+            const char* label = line.empty() ? " " : line.c_str();
+            bool selected = (mSelectedLineIndices.count(rowIndex) != 0);
+            if (ImGui::Selectable(label, selected, ImGuiSelectableFlags_AllowDoubleClick))
+            {
+                if (io.KeyShift && mSelectionAnchor >= 0)
+                {
+                    int lo = mSelectionAnchor < rowIndex ? mSelectionAnchor : rowIndex;
+                    int hi = mSelectionAnchor > rowIndex ? mSelectionAnchor : rowIndex;
+                    if (!io.KeyCtrl)
+                    {
+                        mSelectedLineIndices.clear();
+                    }
+                    for (int i = lo; i <= hi; ++i)
+                    {
+                        mSelectedLineIndices.insert(i);
+                    }
+                }
+                else if (io.KeyCtrl)
+                {
+                    if (mSelectedLineIndices.count(rowIndex) != 0)
+                    {
+                        mSelectedLineIndices.erase(rowIndex);
+                    }
+                    else
+                    {
+                        mSelectedLineIndices.insert(rowIndex);
+                    }
+                    mSelectionAnchor = rowIndex;
+                }
+                else
+                {
+                    mSelectedLineIndices.clear();
+                    mSelectedLineIndices.insert(rowIndex);
+                    mSelectionAnchor = rowIndex;
+                }
+
+                if (ImGui::IsMouseDoubleClicked(0))
+                {
+                    CopyOutputToClipboard(line);
+                }
+            }
+
+            if (ImGui::BeginPopupContextItem("##BuildLineCtx"))
+            {
+                if (mSelectedLineIndices.count(rowIndex) == 0)
+                {
+                    mSelectedLineIndices.clear();
+                    mSelectedLineIndices.insert(rowIndex);
+                    mSelectionAnchor = rowIndex;
+                }
+
+                if (ImGui::MenuItem("Copy line"))
+                {
+                    CopyOutputToClipboard(line);
+                }
+                char selLabel[64];
+                snprintf(selLabel, sizeof(selLabel),
+                    "Copy selected (%zu)", mSelectedLineIndices.size());
+                if (ImGui::MenuItem(selLabel, nullptr, false,
+                        !mSelectedLineIndices.empty()))
+                {
+                    CopyOutputToClipboard(BuildSelectedOutputLinesText());
+                }
+                if (ImGui::MenuItem("Copy all"))
+                {
+                    CopyOutputToClipboard(BuildAllOutputLinesText());
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Select all"))
+                {
+                    mSelectedLineIndices.clear();
+                    for (int i = 0; i < mSelectionLineCount; ++i)
+                    {
+                        mSelectedLineIndices.insert(i);
+                    }
+                }
+                if (ImGui::MenuItem("Clear selection", nullptr, false,
+                        !mSelectedLineIndices.empty()))
+                {
+                    mSelectedLineIndices.clear();
+                    mSelectionAnchor = -1;
+                }
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopID();
+
+            if (nl == std::string::npos)
+            {
+                break;
+            }
+            startPos = nl + 1;
+        }
+
+        mSelectionLineCount = globalLineIndex;
+
+        // Ctrl+A inside the focused output area selects every visible line.
+        if (ImGui::IsWindowFocused() && io.KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_A, false))
+        {
+            mSelectedLineIndices.clear();
+            for (int i = 0; i < mSelectionLineCount; ++i)
+            {
+                mSelectedLineIndices.insert(i);
+            }
+        }
+
+        // Ctrl+C copies the current selection (or the whole log if nothing
+        // is selected) so the standard shortcut works without right-click.
+        if (ImGui::IsWindowFocused() && io.KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_C, false))
+        {
+            if (!mSelectedLineIndices.empty())
+            {
+                CopyOutputToClipboard(BuildSelectedOutputLinesText());
+            }
+            else if (!mDisplayOutput.empty())
+            {
+                CopyOutputToClipboard(BuildAllOutputLinesText());
+            }
+        }
 
         // Auto-scroll to bottom
         if (mAutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f)
@@ -1387,9 +1645,27 @@ void PackagingWindow::DrawBuildOutputModal()
         ImGui::EndChild();
 
         // Footer with checkboxes and button
-        ImGui::Checkbox("Auto-scroll", &mAutoScroll);
+        Polyphase::Checkbox("Auto-scroll", &mAutoScroll);
         ImGui::SameLine();
-        ImGui::Checkbox("Auto-close when finished", &mAutoCloseOnFinish);
+        Polyphase::Checkbox("Auto-close when finished", &mAutoCloseOnFinish);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy All"))
+        {
+            if (!mDisplayOutput.empty())
+            {
+                CopyOutputToClipboard(BuildAllOutputLinesText());
+            }
+        }
+        ImGui::SameLine();
+        {
+            bool hasSelection = !mSelectedLineIndices.empty();
+            if (!hasSelection) ImGui::BeginDisabled();
+            if (ImGui::SmallButton("Copy Selected"))
+            {
+                CopyOutputToClipboard(BuildSelectedOutputLinesText());
+            }
+            if (!hasSelection) ImGui::EndDisabled();
+        }
 
         ImGui::SameLine();
         float buttonWidth = 80.0f;
@@ -1441,6 +1717,52 @@ void PackagingWindow::DrawBuildOutputModal()
             mShowBuildModal = true;
         }
     }
+}
+
+std::string PackagingWindow::BuildAllOutputLinesText() const
+{
+    return mDisplayOutput;
+}
+
+std::string PackagingWindow::BuildSelectedOutputLinesText() const
+{
+    if (mSelectedLineIndices.empty() || mDisplayOutput.empty())
+        return std::string();
+
+    std::string result;
+    result.reserve(mDisplayOutput.size());
+
+    int rowIndex = 0;
+    size_t startPos = 0;
+    const std::string& s = mDisplayOutput;
+    while (startPos <= s.size())
+    {
+        size_t nl = s.find('\n', startPos);
+        size_t lineEnd = (nl == std::string::npos) ? s.size() : nl;
+        size_t actualEnd = lineEnd;
+        if (actualEnd > startPos && s[actualEnd - 1] == '\r')
+        {
+            --actualEnd;
+        }
+
+        if (mSelectedLineIndices.count(rowIndex) != 0)
+        {
+            if (!result.empty())
+                result.push_back('\n');
+            if (actualEnd > startPos)
+            {
+                result.append(s.data() + startPos, actualEnd - startPos);
+            }
+        }
+
+        ++rowIndex;
+
+        if (nl == std::string::npos)
+            break;
+        startPos = nl + 1;
+    }
+
+    return result;
 }
 
 #endif

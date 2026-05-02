@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "Timeline/TimelinePanel.h"
+#include "EditorWidgets.h"
 #include "EditorState.h"
 #include "EditorConstants.h"
 #include "ActionManager.h"
@@ -242,7 +243,7 @@ void DrawTimelinePanel()
 
         ImGui::SameLine();
         bool loop = timeline->IsLooping();
-        if (ImGui::Checkbox("Loop", &loop))
+        if (Polyphase::Checkbox("Loop", &loop))
         {
             timeline->SetLooping(loop);
         }

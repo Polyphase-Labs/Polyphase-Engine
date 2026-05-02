@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ThemeEditorWindow.h"
+#include "EditorWidgets.h"
 #include "CssGenerator.h"
 #include "Preferences/Appearance/Theme/CssThemeParser.h"
 #include "Preferences/Appearance/Theme/CssThemeManager.h"
@@ -205,7 +206,7 @@ void ThemeEditorWindow::DrawHeader()
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
     ImGui::InputText("##ThemeName", mThemeName, sizeof(mThemeName));
 
-    ImGui::Checkbox("Inspect Mode", &mInspectMode);
+    Polyphase::Checkbox("Inspect Mode", &mInspectMode);
 
     ImGui::Separator();
 }
@@ -267,7 +268,7 @@ void ThemeEditorWindow::DrawPanelColorGroup()
     auto DrawPanelColor = [](const char* label, const char* css,
                              ImVec4& color, bool& hasColor)
     {
-        ImGui::Checkbox((std::string("Override##") + css).c_str(), &hasColor);
+        Polyphase::Checkbox((std::string("Override##") + css).c_str(), &hasColor);
         if (hasColor)
         {
             ImGui::SameLine();
@@ -352,7 +353,7 @@ void ThemeEditorWindow::DrawColorsTab()
         ImGui::Indent(8.0f);
 
         // Dock tab text color override
-        ImGui::Checkbox("Override Tab Text Color", &mHasDockTabTextColor);
+        Polyphase::Checkbox("Override Tab Text Color", &mHasDockTabTextColor);
         if (mHasDockTabTextColor)
         {
             ImGui::SameLine();
@@ -403,7 +404,7 @@ void ThemeEditorWindow::DrawColorsTab()
         ImGui::Indent(8.0f);
 
         // Splitter color
-        ImGui::Checkbox("Override Splitter Color", &mHasDockSplitterColor);
+        Polyphase::Checkbox("Override Splitter Color", &mHasDockSplitterColor);
         if (mHasDockSplitterColor)
         {
             ImGui::SameLine();
@@ -422,7 +423,7 @@ void ThemeEditorWindow::DrawColorsTab()
         }
 
         // Splitter hover color
-        ImGui::Checkbox("Override Splitter Hover Color", &mHasDockSplitterHoverColor);
+        Polyphase::Checkbox("Override Splitter Hover Color", &mHasDockSplitterHoverColor);
         if (mHasDockSplitterHoverColor)
         {
             ImGui::SameLine();
@@ -441,7 +442,7 @@ void ThemeEditorWindow::DrawColorsTab()
         }
 
         // Tab bar background
-        ImGui::Checkbox("Override Tab Bar Background", &mHasDockTabBarBg);
+        Polyphase::Checkbox("Override Tab Bar Background", &mHasDockTabBarBg);
         if (mHasDockTabBarBg)
         {
             ImGui::SameLine();

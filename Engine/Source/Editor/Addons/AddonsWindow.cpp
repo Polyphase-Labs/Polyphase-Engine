@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "AddonsWindow.h"
+#include "EditorWidgets.h"
 #include "AddonsMenu.h"
 #include "AddonManager.h"
 #include "NativeAddonManager.h"
@@ -697,7 +698,7 @@ void AddonsWindow::DrawInstalledAddons()
         {
             ImGui::SameLine(300);
             bool enableNative = inst.mEnableNative;
-            if (ImGui::Checkbox("Enable Native", &enableNative))
+            if (Polyphase::Checkbox("Enable Native", &enableNative))
             {
                 OnToggleNativeEnabled(inst.mId);
             }

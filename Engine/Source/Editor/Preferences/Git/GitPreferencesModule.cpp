@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "GitPreferencesModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 #include "Git/GitCliProbe.h"
 #include "Git/GitService.h"
@@ -27,7 +28,7 @@ void GitPreferencesModule::Render()
     // --- General ---
     if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (ImGui::Checkbox("Auto-refresh repository status", &mAutoRefresh))
+        if (Polyphase::Checkbox("Auto-refresh repository status", &mAutoRefresh))
             SetDirty(true);
 
         if (ImGui::InputInt("Auto-fetch interval (minutes, 0=disabled)", &mAutoFetchIntervalMinutes))
@@ -36,13 +37,13 @@ void GitPreferencesModule::Render()
             SetDirty(true);
         }
 
-        if (ImGui::Checkbox("Show remote branches in history", &mShowRemoteBranches))
+        if (Polyphase::Checkbox("Show remote branches in history", &mShowRemoteBranches))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Show tags in history", &mShowTags))
+        if (Polyphase::Checkbox("Show tags in history", &mShowTags))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Show ignored files", &mShowIgnoredFiles))
+        if (Polyphase::Checkbox("Show ignored files", &mShowIgnoredFiles))
             SetDirty(true);
     }
 
@@ -51,10 +52,10 @@ void GitPreferencesModule::Render()
     // --- Commit ---
     if (ImGui::CollapsingHeader("Commit", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (ImGui::Checkbox("Require non-empty commit summary", &mRequireNonEmptySummary))
+        if (Polyphase::Checkbox("Require non-empty commit summary", &mRequireNonEmptySummary))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Prompt before amend", &mPromptBeforeAmend))
+        if (Polyphase::Checkbox("Prompt before amend", &mPromptBeforeAmend))
             SetDirty(true);
     }
 
@@ -63,13 +64,13 @@ void GitPreferencesModule::Render()
     // --- Branching ---
     if (ImGui::CollapsingHeader("Branching"))
     {
-        if (ImGui::Checkbox("Confirm before checkout with dirty files", &mConfirmCheckoutDirty))
+        if (Polyphase::Checkbox("Confirm before checkout with dirty files", &mConfirmCheckoutDirty))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Show detached HEAD warnings", &mShowDetachedHeadWarnings))
+        if (Polyphase::Checkbox("Show detached HEAD warnings", &mShowDetachedHeadWarnings))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Auto-track remote branch on checkout", &mAutoTrackRemote))
+        if (Polyphase::Checkbox("Auto-track remote branch on checkout", &mAutoTrackRemote))
             SetDirty(true);
     }
 
@@ -78,13 +79,13 @@ void GitPreferencesModule::Render()
     // --- Network ---
     if (ImGui::CollapsingHeader("Network"))
     {
-        if (ImGui::Checkbox("Fetch tags by default", &mFetchTagsByDefault))
+        if (Polyphase::Checkbox("Fetch tags by default", &mFetchTagsByDefault))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Prune on fetch", &mPruneOnFetch))
+        if (Polyphase::Checkbox("Prune on fetch", &mPruneOnFetch))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Fast-forward only (pull)", &mFastForwardOnly))
+        if (Polyphase::Checkbox("Fast-forward only (pull)", &mFastForwardOnly))
             SetDirty(true);
     }
 
@@ -109,21 +110,21 @@ void GitPreferencesModule::Render()
     // --- Safety ---
     if (ImGui::CollapsingHeader("Safety", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (ImGui::Checkbox("Confirm before discard changes", &mConfirmBeforeDiscard))
+        if (Polyphase::Checkbox("Confirm before discard changes", &mConfirmBeforeDiscard))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Confirm before hard reset", &mConfirmBeforeHardReset))
+        if (Polyphase::Checkbox("Confirm before hard reset", &mConfirmBeforeHardReset))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Confirm before deleting branch", &mConfirmBeforeDeleteBranch))
+        if (Polyphase::Checkbox("Confirm before deleting branch", &mConfirmBeforeDeleteBranch))
             SetDirty(true);
 
-        if (ImGui::Checkbox("Confirm before deleting remote tag", &mConfirmBeforeDeleteRemoteTag))
+        if (Polyphase::Checkbox("Confirm before deleting remote tag", &mConfirmBeforeDeleteRemoteTag))
             SetDirty(true);
 
         ImGui::Spacing();
 
-        if (ImGui::Checkbox("Enable advanced mode (force push, hard reset)", &mAdvancedModeEnabled))
+        if (Polyphase::Checkbox("Enable advanced mode (force push, hard reset)", &mAdvancedModeEnabled))
             SetDirty(true);
 
         if (mAdvancedModeEnabled)

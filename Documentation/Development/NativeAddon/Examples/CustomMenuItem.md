@@ -177,10 +177,12 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     // Adding to existing menus
     //=========================================================================
 
-    // Add item to the Developer menu
+    // Add item to the Tools menu (the engine renders "Developer"-registered
+    // hooks under Tools for backwards compatibility, so the string can stay
+    // "Developer" if you have older addons; new code should use "Tools").
     hooks->AddMenuItem(
         hookId,
-        "Developer",           // Menu to add to
+        "Tools",               // Menu to add to
         "Hello World",         // Item text
         OnHelloWorld,          // Callback
         nullptr,               // User data
@@ -190,7 +192,7 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     // Add item with keyboard shortcut
     hooks->AddMenuItem(
         hookId,
-        "Developer",
+        "Tools",
         "Quick Action",
         OnQuickAction,
         nullptr,
@@ -202,15 +204,15 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     //=========================================================================
 
     // Items with "/" create submenus automatically
-    hooks->AddMenuItem(hookId, "Developer", "My Addon/Open Documentation", OnOpenDocs, nullptr, "F1");
-    hooks->AddMenuItem(hookId, "Developer", "My Addon/Reset Settings", OnResetSettings, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "My Addon/Open Documentation", OnOpenDocs, nullptr, "F1");
+    hooks->AddMenuItem(hookId, "Tools", "My Addon/Reset Settings", OnResetSettings, nullptr, nullptr);
 
     // Add a separator in the submenu
-    hooks->AddMenuSeparator(hookId, "Developer");
+    hooks->AddMenuSeparator(hookId, "Tools");
 
     // More submenu items
-    hooks->AddMenuItem(hookId, "Developer", "My Addon/Features/Toggle Feature A", OnToggleFeatureA, nullptr, nullptr);
-    hooks->AddMenuItem(hookId, "Developer", "My Addon/Features/Toggle Feature B", OnToggleFeatureB, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "My Addon/Features/Toggle Feature A", OnToggleFeatureA, nullptr, nullptr);
+    hooks->AddMenuItem(hookId, "Tools", "My Addon/Features/Toggle Feature B", OnToggleFeatureB, nullptr, nullptr);
 
     //=========================================================================
     // Adding to other menus
@@ -264,10 +266,10 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
 
 ## Menu Structure Created
 
-After loading this addon, the Developer menu will contain:
+After loading this addon, the Tools menu will contain:
 
 ```
-Developer
+Tools
 ├── Hello World
 ├── Quick Action                    Ctrl+Shift+Q
 ├── ─────────────────────────────── (separator)
@@ -297,7 +299,7 @@ Adds a menu item to the editor.
 
 **Parameters:**
 - `hookId` (uint64_t): Your plugin's hook ID (provided to RegisterEditorUI)
-- `menuPath` (const char*): Top-level menu name ("Developer", "Help", "Edit", etc.)
+- `menuPath` (const char*): Top-level menu name. Recognised values: `"File"`, `"Edit"`, `"View"`, `"World"`, `"Tools"`, `"Help"`. The legacy strings `"Developer"` and `"Extra"` are also accepted and render under `"Tools"` for backwards compatibility (the top-level Developer menu was renamed to Tools, and the Extra menu was removed and its items folded into Tools).
 - `itemPath` (const char*): Item path, use "/" for submenus ("My Tool" or "Submenu/Item")
 - `callback` (MenuCallback): Function to call when clicked: `void callback(void* userData)`
 - `userData` (void*): Custom data passed to callback
@@ -338,28 +340,28 @@ Removes all hooks registered with this hookId. Called automatically on plugin un
 
 ```cpp
 // Good - Clear and professional
-hooks->AddMenuItem(hookId, "Developer", "My Addon/Export Scene Data", ...);
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Export Scene Data", ...);
 
 // Bad - Vague
-hooks->AddMenuItem(hookId, "Developer", "Do Thing", ...);
+hooks->AddMenuItem(hookId, "Tools", "Do Thing", ...);
 ```
 
 ### 2. Group Related Items in Submenus
 
 ```cpp
 // Group related features
-hooks->AddMenuItem(hookId, "Developer", "Level Tools/Validate Geometry", ...);
-hooks->AddMenuItem(hookId, "Developer", "Level Tools/Optimize Meshes", ...);
-hooks->AddMenuItem(hookId, "Developer", "Level Tools/Check Collisions", ...);
+hooks->AddMenuItem(hookId, "Tools", "Level Tools/Validate Geometry", ...);
+hooks->AddMenuItem(hookId, "Tools", "Level Tools/Optimize Meshes", ...);
+hooks->AddMenuItem(hookId, "Tools", "Level Tools/Check Collisions", ...);
 ```
 
 ### 3. Use Separators to Organize
 
 ```cpp
-hooks->AddMenuItem(hookId, "Developer", "My Addon/Primary Action", ...);
-hooks->AddMenuItem(hookId, "Developer", "My Addon/Secondary Action", ...);
-hooks->AddMenuSeparator(hookId, "Developer");
-hooks->AddMenuItem(hookId, "Developer", "My Addon/Settings...", ...);
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Primary Action", ...);
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Secondary Action", ...);
+hooks->AddMenuSeparator(hookId, "Tools");
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Settings...", ...);
 ```
 
 ### 4. Consistent Shortcut Style
@@ -400,8 +402,11 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
 | `"File"` | File operations |
 | `"Edit"` | Edit operations (undo, preferences) |
 | `"View"` | View/display options |
-| `"Developer"` | Developer/debug tools (recommended for addons) |
+| `"World"` | World/scene operations |
+| `"Tools"` | Developer/debug tools (recommended for addons) |
 | `"Help"` | Help and about |
+| `"Developer"` | *Legacy* — alias for `"Tools"`, kept for older addons |
+| `"Extra"` | *Legacy* — alias for `"Tools"`, kept for older addons |
 
 ---
 

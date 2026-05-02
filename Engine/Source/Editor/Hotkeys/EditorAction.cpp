@@ -52,6 +52,9 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "Deselect All",         "Edit",   "Clear the current selection",         "Edit_DeselectAll",       KB(POLYPHASE_KEY_A, false, false, true) },
     { "Duplicate",            "Edit",   "Duplicate the selected nodes/assets", "Edit_Duplicate",         KB(POLYPHASE_KEY_D, true, false, false) },
     { "Delete Selected",      "Edit",   "Delete the current selection",        "Edit_DeleteSelected",    KB(POLYPHASE_KEY_DELETE) },
+    { "Copy Nodes",           "Edit",   "Copy selected nodes (paste-able into any open scene)", "Edit_CopyNodes", KB(POLYPHASE_KEY_C, true, false, false) },
+    { "Paste Nodes",          "Edit",   "Paste previously-copied nodes into the active scene",  "Edit_PasteNodes", KB(POLYPHASE_KEY_V, true, false, false) },
+    { "Cut Nodes",            "Edit",   "Copy selected nodes and delete the originals",        "Edit_CutNodes",   KB(POLYPHASE_KEY_X, true, false, false) },
 
     // ----- Scene Mode -----
     { "Mode: Scene",          "Mode",   "Switch to the mixed Scene editor",    "Mode_Scene",             KB(POLYPHASE_KEY_1, true, false, false) },

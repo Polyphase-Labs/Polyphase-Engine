@@ -495,15 +495,18 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                     return ErrorJson("Invalid 'type' — expected \"3D\" or \"2D\"").dump();
             }
 
+            bool createSkybox = true;
             bool createCamera = true;
             if (parsed.has("createCamera"))
                 createCamera = parsed["createCamera"].b();
+            if (parsed.has("createSkybox"))
+                createSkybox = parsed["createSkybox"].b();
 
             bool open = true;
             if (parsed.has("open"))
                 open = parsed["open"].b();
 
-            Scene* scene = ActionManager::Get()->CreateNewScene(sceneName.c_str(), sceneTypeInt, createCamera);
+            Scene* scene = ActionManager::Get()->CreateNewScene(sceneName.c_str(), sceneTypeInt, createCamera, createSkybox);
             if (scene == nullptr)
             {
                 return ErrorJson("Failed to create scene: " + sceneName).dump();

@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorImgui.h"
+#include "EditorWidgets.h"
 #include "System/System.h"
 #include "Engine.h"
 #include "EditorUtils.h"
@@ -17,6 +18,7 @@
 #include "EditorIcons.h"
 #include "EditorIconRegistry.h"
 
+#include "Nodes/NodeClipboard.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/InstancedMesh3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
@@ -119,6 +121,7 @@
 #include "Preferences/Network/NetworkModule.h"
 #include "AutoUpdater/AutoUpdater.h"
 #include "AutoUpdater/AutoUpdaterWindow.h"
+#include "EditorMainMenu.h"
 
 #include <functional>
 #include <algorithm>
@@ -262,6 +265,7 @@ static bool sShowUIDocumentPicker = false;
 
 static int sNewSceneType = 1;        // 0=2D, 1=3D
 static bool sNewSceneCreateCamera = true;
+static bool sNewSceneCreateSkybox = true;
 static int32_t sZooColumns = 5;
 static float sZooSpacing = 3.0f;
 
@@ -304,7 +308,6 @@ static bool sUnsavedModalActive = false;
 
 static std::vector<std::string> sSceneList;
 static std::unordered_map<std::string, std::vector<std::string>> sScenesByCategory;
-static int32_t sDevModeClicks = 0;
 
 static std::string sReplaceAssetInput;
 static std::vector<std::string> sReplaceAssetSuggestions;
@@ -1602,6 +1605,8 @@ static void DiscoverNodeClasses()
         }
         else if (node->As<Widget>())
         {
+			auto className = node->GetClassName();
+			auto factoryClassName = nodeFactories[i]->GetClassName();
             if (strcmp(node->GetClassName(), "Widget") == 0)
             {
                 sNodeWidgetNames.insert(sNodeWidgetNames.begin(), node->GetClassName());
@@ -1938,7 +1943,7 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
     }
 }
 
-static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera)
+static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = true)
 {
     // Plugin-registered scene types (sceneType >= 2) call into addon function pointers
     // that aren't safe to invoke from non-editor contexts (e.g. the REST controller).
@@ -1971,7 +1976,7 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
         }
     }
 
-    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera);
+    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera, createSkybox);
 }
 
 static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Property& prop, uint32_t index, Asset* newAsset)
@@ -3085,7 +3090,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 }
 
                 bool propVal = prop.GetBool(i);
-                if (ImGui::Checkbox("", &propVal))
+                if (Polyphase::Checkbox("", &propVal))
                 {
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
@@ -3605,7 +3610,7 @@ static void BuildSceneCategoryMap()
     }
 }
 
-static void DrawAddNodeMenu(Node* node)
+void DrawAddNodeMenu(Node* node)
 {
     ActionManager* am = ActionManager::Get();
 
@@ -3882,7 +3887,7 @@ static void DrawImportMenu(Node* node)
     }
 }
 
-static void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
+void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
 {
     ActionManager* am = ActionManager::Get();
     glm::vec3 spawnPos = EditorGetFocusPosition();
@@ -3945,14 +3950,22 @@ static void DrawSpawnBasicWidgetMenu(Node* node)
 
     const char* widgetTypeName = nullptr;
 
+    if (ImGui::MenuItem("Canvas"))
+        widgetTypeName = "Canvas";
     if (ImGui::MenuItem("Widget"))
         widgetTypeName = "Widget";
+    if (ImGui::MenuItem("AnimatedWidget"))
+        widgetTypeName = "AnimatedWidget";
     if (ImGui::MenuItem("Quad"))
         widgetTypeName = "Quad";
     if (ImGui::MenuItem("Text"))
         widgetTypeName = "Text";
     if (ImGui::MenuItem("Button"))
         widgetTypeName = "Button";
+    if (ImGui::MenuItem("Window"))
+        widgetTypeName = "Window";
+    if (ImGui::MenuItem("DialogWindow"))
+        widgetTypeName = "DialogWindow";
 
     if (widgetTypeName != nullptr)
     {
@@ -4064,37 +4077,73 @@ static void CopyNodeHierarchyToClipboard(Node* node)
     LogDebug("Copied hierarchy JSON to clipboard (%d characters)", (int)json.size());
 }
 
-static void DrawPackageMenu()
+// Paste the cloned NodeClipboard contents under `parent`. Mirrors the
+// duplicate flow in ActionManager::DuplicateNodes: spawn via EXE_SpawnNodes
+// (cloned again, so the clipboard snapshots stay reusable) then attach to
+// the requested parent. Falls back to the active world's root when parent
+// is null. Refuses to paste under scene-linked nodes.
+static void PasteNodesFromClipboard(Node* parent)
 {
+    if (!NodeClipboard::HasContent())
+        return;
+
+    const std::vector<NodePtr>& clip = NodeClipboard::GetContents();
+
+    std::vector<Node*> srcNodes;
+    srcNodes.reserve(clip.size());
+    for (const NodePtr& np : clip)
+    {
+        if (np != nullptr)
+            srcNodes.push_back(np.Get());
+    }
+
+    if (srcNodes.empty())
+        return;
+
+    if (parent == nullptr)
+    {
+        World* world = GetWorld(0);
+        if (world != nullptr)
+            parent = world->GetRootNode();
+    }
+
+    if (parent != nullptr && (parent->IsSceneLinked() || parent->IsSceneLinkedChild()))
+    {
+        LogWarning("Cannot paste nodes into a scene-linked subtree. Unlink the scene first.");
+        return;
+    }
+
     ActionManager* am = ActionManager::Get();
-    bool buildRunning = am->IsBuildRunning();
+    std::vector<Node*> spawned = am->EXE_SpawnNodes(srcNodes);
 
-    //if (ImGui::BeginPopup("PackagePopup"))
-    //{
-#if PLATFORM_WINDOWS
-    if (ImGui::MenuItem("Windows", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Windows, false);
-#elif PLATFORM_LINUX
-    if (ImGui::MenuItem("Linux", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Linux, false);
-#endif
-    if (ImGui::MenuItem("Android", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Android, false);
-    if (ImGui::MenuItem("GameCube", nullptr, false, !buildRunning))
-        am->BuildData(Platform::GameCube, false);
-    if (ImGui::MenuItem("Wii", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Wii, false);
-    if (ImGui::MenuItem("3DS", nullptr, false, !buildRunning))
-        am->BuildData(Platform::N3DS, false);
-    if (ImGui::MenuItem("GameCube Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::GameCube, true);
-    if (ImGui::MenuItem("Wii Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::Wii, true);
-    if (ImGui::MenuItem("3DS Embedded", nullptr, false, !buildRunning))
-        am->BuildData(Platform::N3DS, true);
+    if (spawned.size() != srcNodes.size())
+        return;
 
-    //    ImGui::EndPopup();
-    //}
+    if (parent != nullptr)
+    {
+        for (Node* newNode : spawned)
+        {
+            parent->AddChild(newNode);
+        }
+    }
+
+    GetEditorState()->SetSelectedNode(nullptr);
+    for (Node* newNode : spawned)
+    {
+        GetEditorState()->AddSelectedNode(newNode, false);
+    }
+}
+
+// Helpers exposed to EditorMainMenu.cpp so the lifted main-menu construction
+// can mutate file-scope state owned by this TU.
+void EditorImgui_ResetSaveSceneAsBuffer()
+{
+    sPopupInputBuffer[0] = '\0';
+}
+
+void EditorImgui_RequestDockReset()
+{
+    sDockResetRequested = true;
 }
 
 static int sAltRowIndex = 0;
@@ -4820,6 +4869,26 @@ static void DrawScenePanel()
                 }
 
                 ImGui::Separator();
+                if (!inSubScene && ImGui::Selectable("Copy"))
+                {
+                    NodeClipboard::Copy(GetEditorState()->GetSelectedNodes());
+                }
+                if (!inSubScene && ImGui::Selectable("Cut"))
+                {
+                    const std::vector<Node*>& selForCut = GetEditorState()->GetSelectedNodes();
+                    NodeClipboard::Copy(selForCut);
+                    am->EXE_DeleteNodes(selForCut);
+                    closeContextPopup = true;
+                }
+                {
+                    bool canPaste = NodeClipboard::HasContent() && !inSubScene;
+                    if (ImGui::Selectable("Paste", false,
+                            canPaste ? 0 : ImGuiSelectableFlags_Disabled))
+                    {
+                        PasteNodesFromClipboard(node);
+                    }
+                }
+                ImGui::Separator();
                 if (ImGui::Selectable("Copy Hierarchy"))
                 {
                     CopyNodeHierarchyToClipboard(node);
@@ -5226,9 +5295,10 @@ static void DrawScenePanel()
             }
         }
 
+        EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+
         if (selNodes.size() > 0)
         {
-            EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
             if (hotkeys->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
             {
                 am->EXE_DeleteNodes(selNodes);
@@ -5248,6 +5318,15 @@ static void DrawScenePanel()
                     am->DuplicateNodes(selNodes);
                 }
             }
+            else if (hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_CopyNodes))
+            {
+                NodeClipboard::Copy(selNodes);
+            }
+            else if (hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_CutNodes))
+            {
+                NodeClipboard::Copy(selNodes);
+                am->EXE_DeleteNodes(selNodes);
+            }
             else if (hotkeys->IsActionJustTriggered(EditorAction::Hier_Rename))
             {
                 ImGui::OpenPopup("Rename Node F2");
@@ -5255,6 +5334,14 @@ static void DrawScenePanel()
                 sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
                 setKeyboardFocus = true;
             }
+        }
+
+        // Paste works whether or not anything is selected.
+        if (NodeClipboard::HasContent() &&
+            hotkeys->IsActionJustTriggeredImGui(EditorAction::Edit_PasteNodes))
+        {
+            Node* parent = (selNodes.size() == 1) ? selNodes[0] : nullptr;
+            PasteNodesFromClipboard(parent);
         }
     }
 
@@ -5756,7 +5843,13 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
     if (curDir && !curDir->mEngineDir && !curDir->mAddonDir)
     {
-        if (ImGui::Selectable("Import Asset"))
+
+		// Make into Import submenu with options for different import types (model, scene, etc)
+
+        if (ImGui::BeginMenu("Import Asset"))
+        {
+
+        if (ImGui::Selectable("Import"))
         {
             actMan->ImportAsset();
         }
@@ -5775,6 +5868,9 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         {
             actMan->ImportTinyLLMTokenizer();
         }
+
+        ImGui::EndMenu();
+		}
 
         if (ImGui::BeginMenu("Create Asset"))
         {
@@ -5836,11 +5932,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 sNewAssetType = UIDocument::GetStaticType();
                 showPopup = true;
             }
-            if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = DataAsset::GetStaticType();
-                showPopup = true;
-            }
+            //if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
+            //{
+            //    sNewAssetType = DataAsset::GetStaticType();
+            //    showPopup = true;
+            //}
             if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = SpriteAnimation::GetStaticType();
@@ -6158,7 +6254,10 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             }
         }
 
-        ImGui::Checkbox("Create Camera", &sNewSceneCreateCamera);
+        Polyphase::Checkbox("Create Camera", &sNewSceneCreateCamera);
+        if (sNewSceneType != 0) {
+            Polyphase::Checkbox("Create Skybox", &sNewSceneCreateSkybox);
+        }
 
         if (ImGui::Button("Create"))
         {
@@ -6166,7 +6265,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (sceneName.empty())
                 sceneName = "SC_Scene";
 
-            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera);
+            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera, sNewSceneCreateSkybox);
 
             ImGui::CloseCurrentPopup();
             closeContextPopup = true;
@@ -7188,7 +7287,7 @@ static void DrawAssetsPanel()
                     ImGui::SetTooltip("Import Asset");
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_STREAMLINE_SHARP_NEW_FILE_REMIX "##NewFolder"))
+                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##NewFolder"))
                 {
                     if (hasProject)
                         ImGui::OpenPopup("NewFolderPopup");
@@ -7197,7 +7296,7 @@ static void DrawAssetsPanel()
                     ImGui::SetTooltip("New Folder");
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenProjectExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenProjectExplorer"))
                 {
                     if (hasProject)
                     {
@@ -7282,7 +7381,7 @@ static void DrawAssetsPanel()
 
             // Toolbar
             {
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenAddonsExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenAddonsExplorer"))
                 {
                     AssetDir* pkgDir = AssetManager::Get()->FindPackagesDirectory();
                     if (pkgDir)
@@ -7528,7 +7627,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
 
         bool on = (mask & kRows[i].bit) != 0;
         ImGui::PushID(i);
-        if (ImGui::Checkbox(kRows[i].label, &on))
+        if (Polyphase::Checkbox(kRows[i].label, &on))
         {
             if (on) mask |=  kRows[i].bit;
             else    mask &= ~kRows[i].bit;
@@ -7538,7 +7637,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
     }
     ImGui::Unindent();
 
-    if (ImGui::Checkbox("Embed in shipped exe", &embed))
+    if (Polyphase::Checkbox("Embed in shipped exe", &embed))
     {
         changed = true;
     }
@@ -8001,7 +8100,7 @@ static void DrawScriptsPanel()
                 if (!editorConfigured) ImGui::PopStyleVar();
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenLuaExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenLuaExplorer"))
                 {
                     if (hasProject)
                     {
@@ -8428,7 +8527,7 @@ static void DrawScriptsPanel()
                 if (!cppConfigured || !hasAddons) ImGui::PopStyleVar();
 
                 ImGui::SameLine();
-                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_FOLDER_OPEN_SHARP "##OpenCppExplorer"))
+                if (ImGui::Button(ICON_MDI_FOLDER_SEARCH_OUTLINE "##OpenCppExplorer"))
                 {
                     if (hasProject)
                     {
@@ -8606,7 +8705,6 @@ static void DrawScriptsPanel()
 
 static void DrawMainMenuBar()
 {
-    Renderer* renderer = Renderer::Get();
     ActionManager* am = ActionManager::Get();
 
     bool openSaveSceneAsModal = false;
@@ -8616,695 +8714,7 @@ static void DrawMainMenuBar()
 
     if (ImGui::BeginMainMenuBar())
     {
-        if (ImGui::BeginMenu("File"))
-        {
-            EditScene* editScene = GetEditorState()->GetEditScene();
-
-            if (ImGui::MenuItem("Project Select..."))
-                GetProjectSelectWindow()->Open();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Open Project"))
-                am->OpenProject();
-            if (ImGui::BeginMenu("Open Recent Project"))
-            {
-                const std::vector<std::string>& recentProjects = GetEditorState()->mRecentProjects;
-                for (uint32_t i = 0; i < recentProjects.size(); ++i)
-                {
-                    if (recentProjects[i] != "" &&
-                        ImGui::MenuItem(recentProjects[i].c_str()))
-                    {
-                        am->OpenProject(recentProjects[i].c_str());
-                    }
-                }
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Recent Scenes"))
-            {
-                const std::vector<RecentScene>& recentScenes = GetEditorState()->mRecentScenes;
-                AssetManager* assetMgr = AssetManager::Get();
-                bool hasValid = false;
-
-                for (const RecentScene& r : recentScenes)
-                {
-                    if (assetMgr && assetMgr->DoesAssetExist(r.mSceneName))
-                    {
-                        hasValid = true;
-                        if (ImGui::MenuItem(r.mSceneName.c_str()))
-                        {
-                            AssetStub* stub = assetMgr->GetAssetStub(r.mSceneName);
-                            if (stub)
-                            {
-                                if (!stub->mAsset)
-                                    assetMgr->LoadAsset(*stub);
-                                Scene* scene = stub->mAsset ? stub->mAsset->As<Scene>() : nullptr;
-                                if (scene)
-                                    GetEditorState()->OpenEditScene(scene);
-                            }
-                        }
-                    }
-                }
-
-                if (!hasValid)
-                    ImGui::TextDisabled("(No recent scenes)");
-
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("New Project"))
-                am->CreateNewProject();
-            if (ImGui::MenuItem("New C++ Project"))
-                am->CreateNewProject(nullptr, true);
-            if (ImGui::MenuItem("New Scene"))
-                GetEditorState()->OpenEditScene(nullptr);
-            if (editScene && ImGui::MenuItem("Save Scene"))
-            {
-                Scene* scene = editScene->mSceneAsset.Get<Scene>();
-                AssetStub* sceneStub = scene ? AssetManager::Get()->GetAssetStub(scene->GetName()) : nullptr;
-                if (sceneStub != nullptr)
-                {
-                    GetEditorState()->CaptureAndSaveScene(sceneStub, nullptr);
-                }
-                else
-                {
-                    openSaveSceneAsModal = true;
-                    sPopupInputBuffer[0] = '\0';
-                }
-            }
-            if (editScene && ImGui::MenuItem("Save Scene As..."))
-            {
-                openSaveSceneAsModal = true;
-                sPopupInputBuffer[0] = '\0';
-            }
-            if (ImGui::MenuItem("Import Asset"))
-                am->ImportAsset();
-            if (ImGui::MenuItem("Import Scene"))
-                am->BeginImportScene();
-            if (ImGui::MenuItem("Run Script"))
-                am->RunScript();
-            if (ImGui::MenuItem("Recapture All Scenes"))
-                am->RecaptureAndSaveAllScenes();
-            if (ImGui::MenuItem("Resave All Assets"))
-                am->ResaveAllAssets();
-            if (ImGui::MenuItem("Reload All Scripts"))
-            {
-                ReloadAllScripts();
-
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addon dependencies regenerated and addons reloaded.");
-                }
-            }
-
-            // Script Hot-Reload toggle
-            bool hotReloadEnabled = IsScriptHotReloadEnabled();
-            std::string hotReloadText = hotReloadEnabled ? "Disable Script Hot-Reload" : "Enable Script Hot-Reload";
-            if (ImGui::MenuItem(hotReloadText.c_str()))
-            {
-                SetScriptHotReloadEnabled(!hotReloadEnabled);
-                WriteEngineConfig();
-            }
-
-            if (ImGui::MenuItem("Write Config"))
-                WriteEngineConfig();
-            if (ImGui::MenuItem("Packaging..."))
-            {
-                GetPackagingWindow()->Open();
-            }
-            if (ImGui::BeginMenu("Package Project"))
-            {
-                DrawPackageMenu();
-                ImGui::EndMenu();
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Addons..."))
-            {
-                GetAddonsWindow()->Open();
-            }
-
-            // Draw plugin menu items for File menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("File");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after File (position=0)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(0);
-        }
-
-        if (ImGui::BeginMenu("Edit"))
-        {
-            if (ImGui::MenuItem("Undo"))
-                am->Undo();
-            if (ImGui::MenuItem("Redo"))
-                am->Redo();
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Preferences..."))
-            {
-                GetPreferencesWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Editor Hotkeys..."))
-            {
-                GetEditorHotkeysWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("App Settings..."))
-            {
-                GetAppSettingsWindow()->Open();
-            }
-
-            // Draw plugin menu items for Edit menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("Edit");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Edit (position=1)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(1);
-        }
-
-        if (ImGui::BeginMenu("Version Control"))
-        {
-            if (ImGui::BeginMenu("Git"))
-            {
-                if (ImGui::MenuItem("Open Git Panel"))
-                {
-                    GetGitWorkspaceWindow()->Open();
-                }
-
-                ImGui::Separator();
-
-                bool repoOpen = GitService::Get() && GitService::Get()->IsRepositoryOpen();
-
-                if (ImGui::MenuItem("Fetch", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Fetch;
-                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                if (ImGui::MenuItem("Pull...", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Pull;
-                        req.mRepoPath = GitService::Get()->GetCurrentRepo()->GetPath();
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                if (ImGui::MenuItem("Push...", nullptr, false, repoOpen))
-                {
-                    GitRepository* pushRepo = GitService::Get()->GetCurrentRepo();
-                    if (pushRepo)
-                    {
-                        GitOperationRequest req;
-                        req.mKind = GitOperationKind::Push;
-                        req.mRepoPath = pushRepo->GetPath();
-                        req.mBranchName = pushRepo->GetCurrentBranch();
-                        std::vector<GitRemoteInfo> pushRemotes = pushRepo->GetRemotes();
-                        if (!pushRemotes.empty())
-                            req.mRemoteName = pushRemotes[0].mName;
-                        req.mCancelToken = CreateCancelToken();
-                        GitService::Get()->GetOperationQueue()->Enqueue(req);
-                    }
-                }
-
-                ImGui::Separator();
-
-                if (ImGui::MenuItem("Refresh", nullptr, false, repoOpen))
-                {
-                    if (GitService::Get()->GetCurrentRepo())
-                    {
-                        GitService::Get()->GetCurrentRepo()->RefreshStatus();
-                    }
-                }
-
-                ImGui::EndMenu();
-            }
-
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("View"))
-        {
-            Camera3D* cam = GetEditorState()->GetEditorCamera();
-            ProjectionMode projMode = cam ? cam->GetProjectionMode() : ProjectionMode::PERSPECTIVE;
-            if ((projMode == ProjectionMode::PERSPECTIVE && ImGui::MenuItem("Orthographic")) ||
-                (projMode == ProjectionMode::ORTHOGRAPHIC && ImGui::MenuItem("Perspective")))
-            {
-                GetEditorState()->ToggleEditorCameraProjection();
-            }
-            if (ImGui::MenuItem("Wireframe"))
-                renderer->SetDebugMode(renderer->GetDebugMode() == DEBUG_WIREFRAME ? DEBUG_NONE : DEBUG_WIREFRAME);
-            if (ImGui::MenuItem("Collision"))
-                renderer->SetDebugMode(renderer->GetDebugMode() == DEBUG_COLLISION ? DEBUG_NONE : DEBUG_COLLISION);
-            if (ImGui::MenuItem("Proxy"))
-                renderer->EnableProxyRendering(!renderer->IsProxyRenderingEnabled());
-            if (ImGui::MenuItem("Spline Lines"))
-                Spline3D::SetSplineLinesVisible(!Spline3D::IsSplineLinesVisible());
-            if (ImGui::MenuItem("Bounds"))
-            {
-                uint32_t newMode = (uint32_t(renderer->GetBoundsDebugMode()) + 1) % uint32_t(BoundsDebugMode::Count);
-                renderer->SetBoundsDebugMode((BoundsDebugMode)newMode);
-            }
-            if (ImGui::MenuItem("Grid"))
-                ToggleGrid();
-            if (ImGui::MenuItem("Stats"))
-                renderer->EnableStatsOverlay(!renderer->IsStatsOverlayEnabled());
-            if (ImGui::MenuItem("Preview Lighting"))
-            {
-                GetEditorState()->mPreviewLighting = !GetEditorState()->mPreviewLighting;
-                LogDebug("Preview lighting %s", GetEditorState()->mPreviewLighting ? "enabled." : "disabled.");
-            }
-
-            if (GetEditorState()->GetEditorMode() == EditorMode::Scene2D)
-            {
-                if (ImGui::MenuItem("Reset 2D Viewport"))
-                {
-                    GetEditorState()->GetViewport2D()->ResetViewport();
-                }
-            }
-
-            if (ImGui::BeginMenu("Interface Scale"))
-            {
-                static float sInterfaceScale = GetEngineConfig()->mEditorInterfaceScale;
-                ImGui::SliderFloat("IntScale", &sInterfaceScale, 0.5f, 3.0f);
-                if (ImGui::Button("Apply"))
-                {
-                    GetMutableEngineConfig()->mEditorInterfaceScale = sInterfaceScale;
-                    WriteEngineConfig();
-                }
-                ImGui::EndMenu();
-            }
-
-            // Preferences moved to Edit menu
-
-            if (GetFeatureFlagsEditor().mShowTheming == true) {
-                if (ImGui::MenuItem("Theme Editor..."))
-                {
-                    GetThemeEditorWindow()->Open();
-                }
-            }
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Scene"))
-                GetEditorState()->mShowLeftPane = !GetEditorState()->mShowLeftPane;
-            if (ImGui::MenuItem("Assets"))
-                GetEditorState()->mShowLeftPane = !GetEditorState()->mShowLeftPane;
-            if (ImGui::MenuItem("Properties"))
-                GetEditorState()->mShowRightPane = !GetEditorState()->mShowRightPane;
-            if (ImGui::MenuItem("Debug Log"))
-                GetEditorState()->mShowBottomPane = !GetEditorState()->mShowBottomPane;
-
-            if (ImGui::MenuItem("Timeline"))
-                GetEditorState()->mShowTimelinePanel = !GetEditorState()->mShowTimelinePanel;
-
-            if (ImGui::MenuItem("3DS Preview"))
-                GetEditorState()->mShow3DSPreview = !GetEditorState()->mShow3DSPreview;
-
-            if (ImGui::MenuItem("Game Preview"))
-                GetEditorState()->mShowGamePreview = !GetEditorState()->mShowGamePreview;
-
-            if (ImGui::MenuItem("Node Graph"))
-                GetEditorState()->mShowNodeGraphPanel = !GetEditorState()->mShowNodeGraphPanel;
-
-            if (ImGui::MenuItem("Animation Browser")) {
-                GetEditorState()->mShowAnimationBrowser = !GetEditorState()->mShowAnimationBrowser;
-            }
-            if (ImGui::MenuItem("Profiling"))
-                GetEditorState()->mShowProfilingPanel = !GetEditorState()->mShowProfilingPanel;
-
-            if (ImGui::MenuItem("CLI Terminal"))
-                GetTerminalPanel()->mVisible = !GetTerminalPanel()->mVisible;
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset Layout"))
-                sDockResetRequested = true;
-
-            // Draw plugin menu items for View menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("View");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after View (position=2)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(2);
-        }
-
-        if (ImGui::BeginMenu("World"))
-        {
-            if (ImGui::BeginMenu("Spawn Node"))
-            {
-                DrawAddNodeMenu(nullptr);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Spawn Basic 3D"))
-            {
-                DrawSpawnBasic3dMenu(nullptr, true);
-                ImGui::EndMenu();
-            }
-            if (ImGui::MenuItem("Clear World"))
-                am->DeleteAllNodes();
-            if (ImGui::MenuItem("Bake Lighting"))
-                renderer->BeginLightBake();
-            if (ImGui::MenuItem("Clear Baked Lighting"))
-            {
-                const std::vector<Node*>& nodes = GetWorld(0)->GatherNodes();
-                for (uint32_t a = 0; a < nodes.size(); ++a)
-                {
-                    StaticMesh3D* meshNode = nodes[a]->As<StaticMesh3D>();
-                    if (meshNode != nullptr && meshNode->GetBakeLighting())
-                    {
-                        meshNode->ClearInstanceColors();
-                    }
-                }
-            }
-            if (ImGui::MenuItem("Toggle Transform Mode"))
-                GetEditorState()->GetViewport3D()->ToggleTransformMode();
-
-            // Draw plugin menu items for World menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("World");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after World (position=3)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(3);
-        }
-
-        if (ImGui::BeginMenu("Developer"))
-        {
-            if (ImGui::MenuItem("Reload Native Addons"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addons reloaded.");
-                }
-            }
-
-            if (ImGui::MenuItem("Discover Native Addons"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    nam->DiscoverNativeAddons();
-                    LogDebug("Native addons discovered.");
-                }
-            }
-
-            if (ImGui::MenuItem("Regenerate Native Addon Dependencies"))
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-                    LogDebug("Native addon dependencies regenerated for %d addon(s).", (int)localIds.size());
-                }
-            }
-
-            ImGui::Separator();
-
-            // Directory paths
-            const std::string& projectDir = GetEngineState()->mProjectDirectory;
-            bool hasProject = !projectDir.empty();
-            std::string assetsDir = projectDir + "Assets/";
-            std::string scriptsDir = projectDir + "Scripts/";
-            std::string addonsDir = projectDir + "Packages/";
-            std::string polyphaseDir = SYS_GetPolyphasePath();
-
-            if (ImGui::BeginMenu("Reveal in Explorer"))
-            {
-                auto revealDir = [](const std::string& dir) {
-                    std::string absPath = SYS_GetAbsolutePath(dir);
-#if PLATFORM_WINDOWS
-                    for (char& c : absPath) { if (c == '/') c = '\\'; }
-                    SYS_Exec(("explorer \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                    SYS_Exec(("xdg-open \"" + absPath + "\" &").c_str());
-#endif
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject))
-                    revealDir(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject))
-                    revealDir(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject))
-                    revealDir(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject))
-                    revealDir(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory"))
-                    revealDir(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Open in Code Editor"))
-            {
-                PreferencesModule* mod = PreferencesManager::Get()->FindModule("External/Editors");
-                EditorsModule* editors = mod ? static_cast<EditorsModule*>(mod) : nullptr;
-                bool hasEditor = editors && editors->IsLuaEditorConfigured();
-
-                auto openInEditor = [&](const std::string& dir) {
-                    if (editors)
-                    {
-                        std::string absPath = SYS_GetAbsolutePath(dir);
-                        std::string cmd = editors->BuildLuaOpenCommand(absPath);
-                        SYS_Exec(cmd.c_str());
-                    }
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject && hasEditor))
-                    openInEditor(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory", nullptr, false, hasEditor))
-                    openInEditor(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Open in VS Code"))
-            {
-                auto openInVSCode = [](const std::string& dir) {
-                    std::string absPath = SYS_GetAbsolutePath(dir);
-#if PLATFORM_WINDOWS
-                    SYS_Exec(("code \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                    SYS_Exec(("code \"" + absPath + "\" &").c_str());
-#endif
-                };
-
-                if (ImGui::MenuItem("Project Directory", nullptr, false, hasProject))
-                    openInVSCode(projectDir);
-                if (ImGui::MenuItem("Project Assets Directory", nullptr, false, hasProject))
-                    openInVSCode(assetsDir);
-                if (ImGui::MenuItem("Project Scripts Directory", nullptr, false, hasProject))
-                    openInVSCode(scriptsDir);
-                if (ImGui::MenuItem("Project Addons Directory", nullptr, false, hasProject))
-                    openInVSCode(addonsDir);
-                if (ImGui::MenuItem("Polyphase Engine Directory"))
-                    openInVSCode(polyphaseDir);
-
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::MenuItem("Check Build Dependencies"))
-            {
-                GetBuildDependencyWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Texture Atlas Viewer"))
-            {
-                GetEditorState()->mShowTextureAtlasViewer = !GetEditorState()->mShowTextureAtlasViewer;
-            }
-
-            if (ImGui::MenuItem("Input Map Window"))
-            {
-                GetInputMapWindow()->Open();
-            }
-
-            if (ImGui::MenuItem("Player Input Editor"))
-            {
-                GetPlayerInputEditor()->Open();
-            }
-
-            if (ImGui::MenuItem("Player Input Debugger"))
-            {
-                GetPlayerInputDebugger()->Open();
-            }
-
-            if (ImGui::MenuItem("Input Tester", nullptr, GetEditorState()->mShowInputTesterPanel))
-            {
-                GetEditorState()->mShowInputTesterPanel = !GetEditorState()->mShowInputTesterPanel;
-            }
-
-            ImGui::Separator();
-
-            // Draw plugin menu items for Developer menu
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr)
-            {
-                hookMgr->DrawMenuItems("Developer");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Developer (position=4)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(4);
-        }
-
-        if (ImGui::BeginMenu("Addons"))
-        {
-            DrawAddonsPopupContent();
-
-            // Draw addon-registered Addons menu items (Batch 8)
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawAddonsMenuItems();
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Addons (position=5)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(5);
-        }
-
-        if (ImGui::BeginMenu("Extra"))
-        {
-            char versionStr[32];
-            snprintf(versionStr, 31, "Version: %d", POLYPHASE_VERSION);
-            ImGui::MenuItem(versionStr, nullptr, false, false);
-
-            if (ImGui::IsItemHovered() && IsMouseButtonJustUp(MOUSE_RIGHT))
-            {
-                sDevModeClicks++;
-                if (sDevModeClicks >= 5)
-                {
-                    GetEditorState()->mDevMode = true;
-                }
-            }
-
-            if (GetEditorState()->mDevMode &&
-                GetEngineState()->mStandalone &&
-                ImGui::MenuItem("Prepare Release"))
-            {
-                ActionManager::Get()->PrepareRelease();
-            }
-
-            // Draw plugin menu items for Extra menu
-            {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-                if (hookMgr != nullptr) hookMgr->DrawMenuItems("Extra");
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon menus positioned after Extra (position=6)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr) hookMgr->DrawTopLevelMenusAtPosition(6);
-        }
-
-        if (ImGui::BeginMenu("Help"))
-        {
-            if (ImGui::MenuItem("Check for Updates..."))
-            {
-                AutoUpdater::Get()->CheckForUpdates(true);
-            }
-
-            ImGui::Separator();
-
-            if (ImGui::MenuItem("Documentation"))
-            {
-#if PLATFORM_WINDOWS
-                SYS_Exec("start https://github.com/polyphase-engine/polyphase-engine/wiki");
-#else
-                SYS_Exec("xdg-open https://github.com/polyphase-engine/polyphase-engine/wiki &");
-#endif
-            }
-
-            if (ImGui::MenuItem("Report Issue"))
-            {
-#if PLATFORM_WINDOWS
-                SYS_Exec("start https://github.com/polyphase-engine/polyphase-engine/issues");
-#else
-                SYS_Exec("xdg-open https://github.com/polyphase-engine/polyphase-engine/issues &");
-#endif
-            }
-
-            ImGui::EndMenu();
-        }
-
-        // Draw addon top-level menus as main menu bar entries (legacy append, position=-1)
-        {
-            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
-            if (hookMgr != nullptr)
-            {
-                hookMgr->DrawTopLevelMenus();
-            }
-        }
+        DrawMainMenuBarMenus(openSaveSceneAsModal);
 
         // -- Toolbar items (merged into menu bar) --
         ImGui::SameLine(0.0f, 20.0f);
@@ -10034,13 +9444,13 @@ static void DrawMainMenuBar()
         ImGui::Text(GetEditorState()->mPendingSceneImportPath.c_str());
         ImGui::InputText("Scene Name", &sSceneImportOptions.mSceneName);
         ImGui::InputText("Prefix", &sSceneImportOptions.mPrefix);
-        ImGui::Checkbox("Import Meshes", &sSceneImportOptions.mImportMeshes);
-        ImGui::Checkbox("Import Materials", &sSceneImportOptions.mImportMaterials);
-        ImGui::Checkbox("Import Textures", &sSceneImportOptions.mImportTextures);
-        ImGui::Checkbox("Import Lights", &sSceneImportOptions.mImportLights);
-        ImGui::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
-        ImGui::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
-        ImGui::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
+        Polyphase::Checkbox("Import Meshes", &sSceneImportOptions.mImportMeshes);
+        Polyphase::Checkbox("Import Materials", &sSceneImportOptions.mImportMaterials);
+        Polyphase::Checkbox("Import Textures", &sSceneImportOptions.mImportTextures);
+        Polyphase::Checkbox("Import Lights", &sSceneImportOptions.mImportLights);
+        Polyphase::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
+        Polyphase::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
+        Polyphase::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sSceneImportOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
@@ -10091,13 +9501,13 @@ static void DrawMainMenuBar()
         ImGui::Separator();
 
         ImGui::InputText("Prefix", &sReimportSceneOptions.mPrefix);
-        ImGui::Checkbox("Import Meshes", &sReimportSceneOptions.mImportMeshes);
-        ImGui::Checkbox("Import Materials", &sReimportSceneOptions.mImportMaterials);
-        ImGui::Checkbox("Import Textures", &sReimportSceneOptions.mImportTextures);
-        ImGui::Checkbox("Import Lights", &sReimportSceneOptions.mImportLights);
-        ImGui::Checkbox("Import Cameras", &sReimportSceneOptions.mImportCameras);
-        ImGui::Checkbox("Enable Collision", &sReimportSceneOptions.mEnableCollision);
-        ImGui::Checkbox("Textures Updated", &sReimportSceneOptions.mReimportTextures);
+        Polyphase::Checkbox("Import Meshes", &sReimportSceneOptions.mImportMeshes);
+        Polyphase::Checkbox("Import Materials", &sReimportSceneOptions.mImportMaterials);
+        Polyphase::Checkbox("Import Textures", &sReimportSceneOptions.mImportTextures);
+        Polyphase::Checkbox("Import Lights", &sReimportSceneOptions.mImportLights);
+        Polyphase::Checkbox("Import Cameras", &sReimportSceneOptions.mImportCameras);
+        Polyphase::Checkbox("Enable Collision", &sReimportSceneOptions.mEnableCollision);
+        Polyphase::Checkbox("Textures Updated", &sReimportSceneOptions.mReimportTextures);
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sReimportSceneOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
@@ -10151,8 +9561,8 @@ static void DrawMainMenuBar()
     {
         sCameraImportOptions.mFilePath = GetEditorState()->mIOAssetPath;
         ImGui::Text(GetEditorState()->mPendingSceneImportPath.c_str());
-        ImGui::Checkbox("Set As Main Camera", &sCameraImportOptions.mIsMainCamera);
-        ImGui::Checkbox("Override Camera Name", &sCameraImportOptions.mOverrideCameraName);
+        Polyphase::Checkbox("Set As Main Camera", &sCameraImportOptions.mIsMainCamera);
+        Polyphase::Checkbox("Override Camera Name", &sCameraImportOptions.mOverrideCameraName);
         if (sCameraImportOptions.mOverrideCameraName) {
             ImGui::InputText("Camera Name", &sCameraImportOptions.mCameraName);
         }
@@ -10341,8 +9751,8 @@ static void DrawPaintColorsPanel()
     int32_t blendModeCount = OCT_ARRAY_SIZE(blendModeStrings);
     ImGui::Combo("Blend Mode", (int*)&(pm->mColorOptions.mBlendMode), blendModeStrings, blendModeCount);
 
-    ImGui::Checkbox("Only Facing Normals", &pm->mColorOptions.mOnlyFacingNormals);
-    ImGui::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
+    Polyphase::Checkbox("Only Facing Normals", &pm->mColorOptions.mOnlyFacingNormals);
+    Polyphase::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
 
     ImGui::End();
 }
@@ -10376,9 +9786,9 @@ static void DrawPaintInstancesPanel()
     ImGui::OctDragScalarN("Max Rotation", ImGuiDataType_Float, &pm->mInstanceOptions.mMaxRotation[0], 3, 1.0f, nullptr, nullptr, "%.2f", 0);
     ImGui::DragFloat("Min Scale", &pm->mInstanceOptions.mMinScale, 0.05f, 0.0f, 100.0f);
     ImGui::DragFloat("Max Scale", &pm->mInstanceOptions.mMaxScale, 0.05f, 0.0f, 100.0f);
-    ImGui::Checkbox("Align With Normal", &pm->mInstanceOptions.mAlignWithNormal);
-    ImGui::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
-    ImGui::Checkbox("Erase", &pm->mInstanceOptions.mErase);
+    Polyphase::Checkbox("Align With Normal", &pm->mInstanceOptions.mAlignWithNormal);
+    Polyphase::Checkbox("Only Render Selected", &pm->mOnlyRenderSelected);
+    Polyphase::Checkbox("Erase", &pm->mInstanceOptions.mErase);
 
     ImGui::PopItemWidth();
 
@@ -11472,7 +10882,7 @@ void EditorImguiDraw()
                         if (isOpen)
                         {
                             bool enabled = info.mUseTexture;
-                            if (ImGui::Checkbox("Enabled", &enabled))
+                            if (Polyphase::Checkbox("Enabled", &enabled))
                             {
                                 if (enabled)
                                     voxel->SetMaterialTexture(static_cast<VoxelType>(i), info.mAtlasTile[0], info.mAtlasTile[1], info.mAtlasTile[2]);
@@ -12011,7 +11421,7 @@ void EditorImguiDraw()
 
                 // Debug splatmap toggle
                 ImGui::Separator();
-                if (ImGui::Checkbox("Debug Splatmap", &terrain->mDebugSplatmap))
+                if (Polyphase::Checkbox("Debug Splatmap", &terrain->mDebugSplatmap))
                 {
                     terrain->MarkDirty();
                 }
@@ -12149,7 +11559,7 @@ void EditorImguiDraw()
                         ImGui::SameLine();
 
                         bool visible = layer->mVisible;
-                        if (ImGui::Checkbox("##Vis", &visible))
+                        if (Polyphase::Checkbox("##Vis", &visible))
                         {
                             layer->mVisible = visible;
                             tileMapNode->MarkDirty();
@@ -12159,7 +11569,7 @@ void EditorImguiDraw()
                         ImGui::SameLine();
 
                         bool locked = layer->mLocked;
-                        if (ImGui::Checkbox("##Lock", &locked))
+                        if (Polyphase::Checkbox("##Lock", &locked))
                         {
                             layer->mLocked = locked;
                             tileMap->SetDirtyFlag();
@@ -12528,9 +11938,9 @@ void EditorImguiDraw()
                 // View overlays (Phase 3 + Phase 4 cell grid)
                 if (ImGui::CollapsingHeader(ICON_MDI_EYE " View"))
                 {
-                    ImGui::Checkbox(ICON_BXS_GRID " Cell Grid",         &mgr->mOptions.mShowCellGrid);
-                    ImGui::Checkbox( ICON_FLUENT_MDL2_CUBE_SHAPE " Collision Overlay", &mgr->mOptions.mShowCollisionOverlay);
-                    ImGui::Checkbox(ICON_FLUENT_TAG_24_FILLED " Tag Overlay",       &mgr->mOptions.mShowTagOverlay);
+                    Polyphase::Checkbox(ICON_BXS_GRID " Cell Grid",         &mgr->mOptions.mShowCellGrid);
+                    Polyphase::Checkbox( ICON_FLUENT_MDL2_CUBE_SHAPE " Collision Overlay", &mgr->mOptions.mShowCollisionOverlay);
+                    Polyphase::Checkbox(ICON_FLUENT_TAG_24_FILLED " Tag Overlay",       &mgr->mOptions.mShowTagOverlay);
                     if (mgr->mOptions.mShowTagOverlay)
                     {
                         char tagBuf[64];
@@ -12595,7 +12005,7 @@ void EditorImguiDraw()
                         }
 
                         bool hasCol = def->mHasCollision;
-                        if (ImGui::Checkbox("Has Collision", &hasCol))
+                        if (Polyphase::Checkbox("Has Collision", &hasCol))
                         {
                             def->mHasCollision = hasCol;
                             if (hasCol && def->mCollisionType == TileCollisionType::None)

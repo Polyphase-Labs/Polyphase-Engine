@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "UpdatesModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 #include "AutoUpdater/AutoUpdater.h"
 #include "AutoUpdater/HttpClient.h"
@@ -42,7 +43,7 @@ void UpdatesModule::Render()
     ImGui::Text("Automatic Updates");
     ImGui::Spacing();
 
-    if (ImGui::Checkbox("Check for updates on startup", &mCheckOnStartup))
+    if (Polyphase::Checkbox("Check for updates on startup", &mCheckOnStartup))
     {
         changed = true;
     }

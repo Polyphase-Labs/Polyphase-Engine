@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ExternalModule.h"
+#include "EditorWidgets.h"
 #include "../JsonSettings.h"
 
 #include "document.h"
@@ -62,7 +63,7 @@ void ExternalModule::Render()
 
 #if PLATFORM_WINDOWS
     // Use WSL
-    if (ImGui::Checkbox("Use WSL", &mUseWSL))
+    if (Polyphase::Checkbox("Use WSL", &mUseWSL))
     {
         changed = true;
     }

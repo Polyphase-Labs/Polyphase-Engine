@@ -3,6 +3,8 @@
 #include "InputMapModule.h"
 #include "../JsonSettings.h"
 #include "Input/InputMap.h"
+#include "../../EditorState.h"
+#include "../../InputMapWindow.h"
 
 #include "document.h"
 #include "imgui.h"
@@ -51,7 +53,14 @@ void InputMapModule::Render()
     ImGui::Text("Mapped axes: %d / %d", mappedAxes, GAMEPAD_AXIS_COUNT);
 
     ImGui::Spacing();
-    ImGui::TextWrapped("Open the Input Map Window from Developer > Input Map Window for full editing.");
+    if (ImGui::Button("Edit Play In Editor Emulated Inputs"))
+    {
+        GetInputMapWindow()->Open();
+    }
+    if (ImGui::Button("Debug Inputs"))
+    {
+        GetEditorState()->mShowInputTesterPanel = true;
+    }
 }
 
 // Button name strings for serialization keys

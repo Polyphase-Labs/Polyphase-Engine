@@ -1,10 +1,13 @@
 #if EDITOR
 
 #include "AppSettingsWindow.h"
+#include "EditorWidgets.h"
 
 #include "Engine.h"
 #include "Log.h"
 #include "System/System.h"
+#include "../PlayerInputEditor.h"
+#include "../PlayerInputDebugger.h"
 
 #include "imgui.h"
 
@@ -72,6 +75,7 @@ void AppSettingsWindow::Draw()
         DrawWindowSection();
         DrawGraphicsSection();
         DrawRuntimeSection();
+        DrawInputSection();
         DrawPackagingSection();
         DrawIconSection();
 
@@ -185,7 +189,7 @@ void AppSettingsWindow::DrawWindowSection()
         }
     }
 
-    if (ImGui::Checkbox("Fullscreen", &config->mFullscreen))
+    if (Polyphase::Checkbox("Fullscreen", &config->mFullscreen))
     {
         changed = true;
     }
@@ -206,12 +210,12 @@ void AppSettingsWindow::DrawGraphicsSection()
     EngineConfig* config = GetMutableEngineConfig();
     bool changed = false;
 
-    if (ImGui::Checkbox("Validate Graphics", &config->mValidateGraphics))
+    if (Polyphase::Checkbox("Validate Graphics", &config->mValidateGraphics))
     {
         changed = true;
     }
 
-    if (ImGui::Checkbox("Linear Color Space", &config->mLinearColorSpace))
+    if (Polyphase::Checkbox("Linear Color Space", &config->mLinearColorSpace))
     {
         changed = true;
     }
@@ -236,7 +240,7 @@ void AppSettingsWindow::DrawGraphicsSection()
         }
     }
 
-    if (ImGui::Checkbox("LQ Enable MipMaps", &config->mLqEnableMipMaps))
+    if (Polyphase::Checkbox("LQ Enable MipMaps", &config->mLqEnableMipMaps))
     {
         changed = true;
     }
@@ -257,22 +261,22 @@ void AppSettingsWindow::DrawRuntimeSection()
     EngineConfig* config = GetMutableEngineConfig();
     bool changed = false;
 
-    if (ImGui::Checkbox("Logging", &config->mLogging))
+    if (Polyphase::Checkbox("Logging", &config->mLogging))
     {
         changed = true;
     }
 
-    if (ImGui::Checkbox("Log to File", &config->mLogToFile))
+    if (Polyphase::Checkbox("Log to File", &config->mLogToFile))
     {
         changed = true;
     }
 
-    if (ImGui::Checkbox("Script Hot Reload", &config->mScriptHotReload))
+    if (Polyphase::Checkbox("Script Hot Reload", &config->mScriptHotReload))
     {
         changed = true;
     }
 
-    if (ImGui::Checkbox("Use Asset Registry", &config->mUseAssetRegistry))
+    if (Polyphase::Checkbox("Use Asset Registry", &config->mUseAssetRegistry))
     {
         changed = true;
     }
@@ -280,6 +284,23 @@ void AppSettingsWindow::DrawRuntimeSection()
     if (changed)
     {
         mDirty = true;
+    }
+}
+
+void AppSettingsWindow::DrawInputSection()
+{
+    if (!ImGui::CollapsingHeader("Input"))
+    {
+        return;
+    }
+
+    if (ImGui::Button("Edit Player Inputs"))
+    {
+        GetPlayerInputEditor()->Open();
+    }
+    if (ImGui::Button("Debug Player Inputs"))
+    {
+        GetPlayerInputDebugger()->Open();
     }
 }
 
@@ -293,7 +314,7 @@ void AppSettingsWindow::DrawPackagingSection()
     EngineConfig* config = GetMutableEngineConfig();
     bool changed = false;
 
-    if (ImGui::Checkbox("Package for Steam", &config->mPackageForSteam))
+    if (Polyphase::Checkbox("Package for Steam", &config->mPackageForSteam))
     {
         changed = true;
     }
