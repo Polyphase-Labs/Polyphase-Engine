@@ -90,6 +90,26 @@ if errorlevel 1 (
     exit /b 1
 )
 echo   Engine built successfully.
+
+REM --- Verify import libraries exist ---
+REM stage_distribution.py only WARNS when these are missing, which produces a
+REM broken installer where native addons can't link (LNK1181: Polyphase.lib
+REM not found). Fail the pipeline here instead so the issue is caught loudly.
+echo   Verifying import libraries for native addon builds...
+if not exist "Standalone\Build\Windows\x64\ReleaseEditor\Polyphase.lib" (
+    echo ERROR: Polyphase.lib was not produced by the engine build.
+    echo        Expected: Standalone\Build\Windows\x64\ReleaseEditor\Polyphase.lib
+    echo        Without it, native addons cannot link against the installed editor.
+    echo        Check that the Standalone project is part of the ReleaseEditor build.
+    exit /b 1
+)
+if not exist "External\Lua\Build\Windows\x64\ReleaseEditor\Lua.lib" (
+    echo ERROR: Lua.lib was not produced by the engine build.
+    echo        Expected: External\Lua\Build\Windows\x64\ReleaseEditor\Lua.lib
+    echo        Native addons that use Lua require this import library.
+    exit /b 1
+)
+echo   [OK] Polyphase.lib and Lua.lib found.
 echo.
 
 REM --- Step 4: Stage distribution files ---
@@ -99,6 +119,18 @@ if errorlevel 1 (
     echo ERROR: Staging failed.
     exit /b 1
 )
+
+REM --- Verify the import libraries actually made it into the distribution ---
+if not exist "dist\Polyphase.lib" (
+    echo ERROR: Polyphase.lib is missing from the staged distribution.
+    echo        The installer would ship without native-addon link support.
+    exit /b 1
+)
+if not exist "dist\Lua.lib" (
+    echo ERROR: Lua.lib is missing from the staged distribution.
+    exit /b 1
+)
+echo   [OK] Import libraries staged into dist\.
 echo.
 
 REM --- Step 5: Build installer ---

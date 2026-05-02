@@ -80,6 +80,23 @@ echo "[3/5] Building Engine (Linux Editor)..."
 NPROC=$(nproc 2>/dev/null || echo 4)
 make -C Standalone -f Makefile_Linux_Editor -j$NPROC
 echo "  Engine built successfully."
+
+# --- Verify import library for native addon builds ---
+# stage_distribution.py only WARNS when this is missing, which produces a
+# broken package where native addons can't resolve Lua at link time. Fail the
+# pipeline here so the issue is caught loudly.
+echo "  Verifying import libraries for native addon builds..."
+LUA_LIB_RELEASE="External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a"
+LUA_LIB_DEBUG="External/Lua/Build/Linux/x64/DebugEditor/libLua.a"
+if [ ! -f "$LUA_LIB_RELEASE" ] && [ ! -f "$LUA_LIB_DEBUG" ]; then
+    echo "ERROR: libLua.a was not produced by the engine build."
+    echo "       Expected at one of:"
+    echo "         $LUA_LIB_RELEASE"
+    echo "         $LUA_LIB_DEBUG"
+    echo "       Without it, native addons that use Lua require a system Lua install."
+    exit 1
+fi
+echo "  [OK] libLua.a found."
 echo ""
 
 # --- Step 4: Build .deb package ---

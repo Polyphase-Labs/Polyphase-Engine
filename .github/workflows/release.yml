@@ -60,8 +60,41 @@ jobs:
       - name: Build Engine (ReleaseEditor x64)
         run: msbuild Polyphase.sln /p:Configuration=ReleaseEditor /p:Platform=x64 /m
 
+      # stage_distribution.py only WARNS when these are missing, which produces a
+      # broken installer where native addons can't link (LNK1181: Polyphase.lib
+      # not found). Fail the workflow here so the issue is caught loudly.
+      - name: Verify import libraries for native addon builds
+        shell: cmd
+        run: |
+          if not exist "Standalone\Build\Windows\x64\ReleaseEditor\Polyphase.lib" (
+            echo ERROR: Polyphase.lib was not produced by the engine build.
+            echo        Expected: Standalone\Build\Windows\x64\ReleaseEditor\Polyphase.lib
+            echo        Without it, native addons cannot link against the installed editor.
+            exit /b 1
+          )
+          if not exist "External\Lua\Build\Windows\x64\ReleaseEditor\Lua.lib" (
+            echo ERROR: Lua.lib was not produced by the engine build.
+            echo        Expected: External\Lua\Build\Windows\x64\ReleaseEditor\Lua.lib
+            exit /b 1
+          )
+          echo [OK] Polyphase.lib and Lua.lib found.
+
       - name: Stage distribution files
         run: python Installers/stage_distribution.py --platform windows --verbose
+
+      - name: Verify staged import libraries
+        shell: cmd
+        run: |
+          if not exist "dist\Polyphase.lib" (
+            echo ERROR: Polyphase.lib is missing from the staged distribution.
+            echo        The installer would ship without native-addon link support.
+            exit /b 1
+          )
+          if not exist "dist\Lua.lib" (
+            echo ERROR: Lua.lib is missing from the staged distribution.
+            exit /b 1
+          )
+          echo [OK] Import libraries staged into dist\.
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
@@ -128,6 +161,22 @@ jobs:
 
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
+
+      # stage_distribution.py only WARNS when libLua.a is missing, which
+      # produces a broken package where native addons must fall back to a
+      # system Lua. Fail the workflow here so the issue is caught loudly.
+      - name: Verify import library for native addon builds
+        run: |
+          LUA_LIB_RELEASE="External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a"
+          LUA_LIB_DEBUG="External/Lua/Build/Linux/x64/DebugEditor/libLua.a"
+          if [ ! -f "$LUA_LIB_RELEASE" ] && [ ! -f "$LUA_LIB_DEBUG" ]; then
+            echo "ERROR: libLua.a was not produced by the engine build."
+            echo "       Expected at one of:"
+            echo "         $LUA_LIB_RELEASE"
+            echo "         $LUA_LIB_DEBUG"
+            exit 1
+          fi
+          echo "[OK] libLua.a found."
 
       - name: Build .deb package
         run: bash Installers/build_deb_linux.sh

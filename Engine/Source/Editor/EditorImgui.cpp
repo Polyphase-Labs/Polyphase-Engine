@@ -7118,6 +7118,36 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
         }
         // Draw assets directly in the root directory
         DrawAssetItems(rootDir, filterLower);
+
+        // Provide a drop target for the root itself. Without a visible root
+        // tree node, users have no way to drop a folder/asset back to the
+        // top-level "Assets" directory (e.g. dragging Assets/Folder1/Folder2
+        // up to Assets/Folder2). Reserve the remaining vertical space as an
+        // invisible drop zone. Skip when the root is engine/addon-owned —
+        // those are read-only and MoveDirectoryToDirectory rejects them.
+        if (!rootDir->mEngineDir && !rootDir->mAddonDir)
+        {
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            // Always reserve a clickable strip even when the panel is full
+            // so users have a drop target to aim at.
+            if (avail.y < 32.0f) avail.y = 32.0f;
+            ImGui::InvisibleButton("##AssetsRootDropZone", avail);
+
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
+                {
+                    AssetStub* droppedStub = *(AssetStub**)payload->Data;
+                    MoveAssetToDirectory(droppedStub, rootDir);
+                }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_DIR))
+                {
+                    AssetDir* droppedDir = *(AssetDir**)payload->Data;
+                    MoveDirectoryToDirectory(droppedDir, rootDir);
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
     }
     else
     {
