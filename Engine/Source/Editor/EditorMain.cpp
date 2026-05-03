@@ -381,6 +381,10 @@ void EditorMain(int32_t argc, char** argv)
         {
             float deltaTime = GetAppClock()->DeltaTime();
 
+            // Drive any in-flight async addon builds (worker thread →
+            // main-thread finalize → MOD_Load + register types).
+            NativeAddonManager::Get()->TickAsyncBuilds();
+
             // TickEditor runs every frame in editor (regardless of play state)
             NativeAddonManager::Get()->TickEditorAllPlugins(deltaTime);
 

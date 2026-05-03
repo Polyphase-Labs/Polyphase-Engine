@@ -14,6 +14,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <memory>
 
 /**
  * @brief Parameters for creating a new native addon.
@@ -176,8 +180,34 @@ public:
      * triggers a fresh build because NeedsBuild() now sees no cached DLL.
      * Use this when the cached DLL is stale or was built against a
      * different host config and Reload alone won't recompile.
+     *
+     * The build itself runs on a worker thread so the editor stays
+     * interactive — TickAsyncBuilds() drives queue progression each frame.
      */
     void ForceRebuildAllNativeAddons();
+
+    // ===== Async build state (drives the progress modal) =====
+
+    /** Per-frame: poll the active background build, finalize on the main
+     *  thread when it completes, and start the next queued addon. Should be
+     *  called once per editor frame. */
+    void TickAsyncBuilds();
+
+    /** True while an async build is in flight or queued. */
+    bool IsBuildingAsync() const;
+
+    /** Total number of addons enqueued for the current build session. */
+    int  GetAsyncBuildTotal() const;
+
+    /** 1-based index of the addon currently being built. */
+    int  GetAsyncBuildIndex() const;
+
+    /** Addon id currently being built (empty if idle). */
+    std::string GetAsyncBuildAddonId() const;
+
+    /** Snapshot of the current build's stdout (returned by value because
+     *  the worker thread mutates the underlying buffer under a mutex). */
+    std::string GetAsyncBuildOutput() const;
 
     /**
      * @brief Tick all loaded plugins (gameplay tick).
@@ -353,6 +383,38 @@ private:
 
     std::unordered_map<std::string, NativeAddonState> mStates;
     PolyphaseEngineAPI mEngineAPI;
+
+    // ----- Async build queue -----
+    //
+    // One worker thread shells out to build.bat / build.sh per addon. The
+    // main thread polls completion in TickAsyncBuilds(), runs the post-
+    // build steps (write meta, MOD_Load, register types), and starts the
+    // next queued item. This keeps the editor interactive while addons
+    // compile, especially during multi-addon Force Rebuild.
+    struct AsyncAddonBuild
+    {
+        std::string addonId;
+        std::string scriptPath;
+        std::string outputPath;
+        std::string fingerprint;
+
+        std::thread thread;
+        std::atomic<bool> complete{false};
+        std::atomic<int>  exitCode{0};
+
+        mutable std::mutex outputMutex;
+        std::string output;  // guarded by outputMutex
+    };
+
+    std::unique_ptr<AsyncAddonBuild> mActiveBuild;
+    std::vector<std::string>         mBuildQueue;
+    int                              mBuildQueueTotal = 0;
+    int                              mBuildQueueIndex = 0;  // 1-based, advanced when a build starts
+
+    // Internal helpers
+    void StartNextQueuedBuild();
+    void FinalizeAsyncBuild(AsyncAddonBuild& job, bool success);
+    bool LoadNativeAddonAfterBuild(const std::string& addonId, std::string& outError);
 };
 
 #endif // EDITOR

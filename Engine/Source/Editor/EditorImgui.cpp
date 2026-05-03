@@ -10672,6 +10672,89 @@ ImFont* GetEditorTerminalFont()
     return sTerminalFont;
 }
 
+// Progress modal shown while NativeAddonManager has an async build queue
+// active (Force Rebuild Native Addons, or any other future enqueueing path).
+// Tells the user which addon is compiling, where they are in the queue, and
+// surfaces the build's stdout tail so a failed compile is visible.
+static void DrawNativeAddonBuildModal()
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr) return;
+
+    const bool building = nam->IsBuildingAsync();
+    const char* kPopupName = "Building Native Addons##NativeAddonBuildModal";
+
+    if (building && !ImGui::IsPopupOpen(kPopupName))
+    {
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(720, 360), ImGuiCond_FirstUseEver);
+
+    if (ImGui::BeginPopupModal(kPopupName, nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (!building)
+        {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        std::string addonId = nam->GetAsyncBuildAddonId();
+        int idx   = nam->GetAsyncBuildIndex();
+        int total = nam->GetAsyncBuildTotal();
+
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f),
+                           "Building '%s'  (%d / %d)",
+                           addonId.empty() ? "(starting...)" : addonId.c_str(),
+                           idx, total);
+
+        // Indeterminate progress bar — the build script is opaque and we
+        // don't get intermediate progress out of cl.exe, so just animate.
+        float pct = (total > 0) ? (float)(idx - 1) / (float)total : 0.0f;
+        if (idx > 0 && idx <= total)
+        {
+            // Visually, while addon N is building, the bar sits at (N-1)/total
+            // on the "completed" side; bumps to N/total once that addon finishes.
+            char overlay[64];
+            snprintf(overlay, sizeof(overlay), "%d / %d", idx - 1, total);
+            ImGui::ProgressBar(pct, ImVec2(-FLT_MIN, 0), overlay);
+        }
+        else
+        {
+            ImGui::ProgressBar(0.0f);
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Build output:");
+
+        std::string output = nam->GetAsyncBuildOutput();
+        ImGui::BeginChild("##BuildOutput", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() - 4.0f),
+                          true, ImGuiWindowFlags_HorizontalScrollbar);
+        if (output.empty())
+        {
+            ImGui::TextDisabled("(waiting for output...)");
+        }
+        else
+        {
+            ImGui::TextUnformatted(output.c_str());
+            // Auto-scroll to bottom while building.
+            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f)
+            {
+                ImGui::SetScrollHereY(1.0f);
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::TextDisabled("This window closes automatically when all addons finish.");
+
+        ImGui::EndPopup();
+    }
+}
+
 void EditorImguiDraw()
 {
     EngineState* engState = GetEngineState();
@@ -10694,6 +10777,10 @@ void EditorImguiDraw()
     {
         DrawMainMenuBar();
         DrawDockspace();
+
+        // Native-addon build progress (only renders while a build queue
+        // is active; closes itself when the queue drains).
+        DrawNativeAddonBuildModal();
 
         if (GetEditorState()->mShowTimelinePanel)
         {

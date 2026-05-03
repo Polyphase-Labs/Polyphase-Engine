@@ -2059,6 +2059,197 @@ bool NativeAddonManager::ReloadNativeAddon(const std::string& addonId, std::stri
     return LoadNativeAddon(addonId, outError);
 }
 
+// ===== Async build queue =====
+//
+// Force Rebuild used to call ReloadAll synchronously, which froze the editor
+// for the duration of every addon's compile (cl.exe + link.exe). Now we
+// queue the work and run each build script on a worker thread; the main
+// thread polls completion in TickAsyncBuilds() each frame and finalises
+// (writes meta, MOD_Loads, registers types). An ImGui modal in EditorImgui
+// renders progress while the queue is non-empty.
+
+bool NativeAddonManager::IsBuildingAsync() const
+{
+    return (mActiveBuild != nullptr) || !mBuildQueue.empty();
+}
+
+int NativeAddonManager::GetAsyncBuildTotal() const
+{
+    return mBuildQueueTotal;
+}
+
+int NativeAddonManager::GetAsyncBuildIndex() const
+{
+    return mBuildQueueIndex;
+}
+
+std::string NativeAddonManager::GetAsyncBuildAddonId() const
+{
+    return mActiveBuild ? mActiveBuild->addonId : std::string();
+}
+
+std::string NativeAddonManager::GetAsyncBuildOutput() const
+{
+    if (mActiveBuild == nullptr)
+        return std::string();
+    std::lock_guard<std::mutex> lock(mActiveBuild->outputMutex);
+    return mActiveBuild->output;
+}
+
+void NativeAddonManager::StartNextQueuedBuild()
+{
+    while (!mBuildQueue.empty() && mActiveBuild == nullptr)
+    {
+        std::string addonId = mBuildQueue.front();
+        mBuildQueue.erase(mBuildQueue.begin());
+        ++mBuildQueueIndex;
+
+        auto stateIt = mStates.find(addonId);
+        if (stateIt == mStates.end())
+        {
+            LogWarning("Async build skipped: addon '%s' not in mStates", addonId.c_str());
+            continue;
+        }
+        NativeAddonState& state = stateIt->second;
+
+        auto job = std::make_unique<AsyncAddonBuild>();
+        job->addonId = addonId;
+        job->fingerprint = ComputeFingerprint(addonId);
+        if (job->fingerprint.empty())
+        {
+            LogWarning("Async build skipped: empty fingerprint for '%s'", addonId.c_str());
+            continue;
+        }
+
+        std::string intermediateDir = GetIntermediateDir(addonId);
+        std::string outputDir = intermediateDir + job->fingerprint + "/";
+        job->outputPath = GetOutputPath(addonId, job->fingerprint);
+
+        if (!CreateDirectoryRecursive(outputDir))
+        {
+            LogError("Async build skipped: failed to create %s", outputDir.c_str());
+            continue;
+        }
+
+        if (!GenerateBuildScript(addonId, outputDir, job->outputPath, job->scriptPath))
+        {
+            LogError("Async build skipped: GenerateBuildScript failed for '%s'", addonId.c_str());
+            continue;
+        }
+
+        state.mBuildInProgress = true;
+        state.mBuildLog.clear();
+        state.mBuildError.clear();
+
+        LogDebug("Building native addon (async): %s [%d/%d]",
+                 addonId.c_str(), mBuildQueueIndex, mBuildQueueTotal);
+
+        AsyncAddonBuild* jobPtr = job.get();
+        job->thread = std::thread([jobPtr]()
+        {
+#if PLATFORM_WINDOWS
+            std::string cmd = "cmd /c \"" + jobPtr->scriptPath + "\"";
+#else
+            std::string cmd = "bash \"" + jobPtr->scriptPath + "\"";
+#endif
+            std::string out;
+            int exit = 0;
+            SYS_ExecFull(cmd.c_str(), &out, nullptr, &exit);
+            {
+                std::lock_guard<std::mutex> lock(jobPtr->outputMutex);
+                jobPtr->output = std::move(out);
+            }
+            jobPtr->exitCode.store(exit);
+            jobPtr->complete.store(true);
+        });
+
+        mActiveBuild = std::move(job);
+    }
+}
+
+void NativeAddonManager::TickAsyncBuilds()
+{
+    // No active build but queue has items: kick off the next one.
+    if (mActiveBuild == nullptr)
+    {
+        if (!mBuildQueue.empty())
+        {
+            StartNextQueuedBuild();
+        }
+        return;
+    }
+
+    // Active build still running: leave it alone.
+    if (!mActiveBuild->complete.load())
+        return;
+
+    // Active build finished — finalize on the main thread.
+    if (mActiveBuild->thread.joinable())
+        mActiveBuild->thread.join();
+
+    const std::string addonId = mActiveBuild->addonId;
+    const int  exitCode    = mActiveBuild->exitCode.load();
+    const bool exeExists   = SYS_DoesFileExist(mActiveBuild->outputPath.c_str(), false);
+    const bool buildOk     = (exitCode == 0) && exeExists;
+
+    auto stateIt = mStates.find(addonId);
+    if (stateIt != mStates.end())
+    {
+        NativeAddonState& state = stateIt->second;
+        state.mBuildInProgress = false;
+        state.mBuildSucceeded  = buildOk;
+        {
+            std::lock_guard<std::mutex> lock(mActiveBuild->outputMutex);
+            state.mBuildLog = mActiveBuild->output;
+        }
+
+        if (buildOk)
+        {
+            state.mFingerprint = mActiveBuild->fingerprint;
+            WriteAddonBuildMeta(mActiveBuild->outputPath, mActiveBuild->fingerprint);
+
+            // DLL is on disk and meta is fresh — LoadNativeAddon's NeedsBuild
+            // check will pass and it will proceed straight to MOD_Load and
+            // type/UI registration.
+            std::string err;
+            if (!LoadNativeAddon(addonId, err))
+            {
+                LogError("Failed to load addon '%s' after async build: %s",
+                         addonId.c_str(), err.c_str());
+            }
+        }
+        else
+        {
+            std::string err = "Build failed (exit code " + std::to_string(exitCode);
+            if (!exeExists) err += ", output not produced";
+            err += ")";
+            state.mBuildError = err;
+            LogError("Async build failed for '%s': %s", addonId.c_str(), err.c_str());
+            std::lock_guard<std::mutex> lock(mActiveBuild->outputMutex);
+            if (!mActiveBuild->output.empty())
+            {
+                LogError("Build output:\n%s", mActiveBuild->output.c_str());
+            }
+        }
+    }
+
+    mActiveBuild.reset();
+
+    if (mBuildQueue.empty())
+    {
+        // Session done.
+        LogDebug("Async addon build session complete (%d/%d).",
+                 mBuildQueueIndex, mBuildQueueTotal);
+        mBuildQueueTotal = 0;
+        mBuildQueueIndex = 0;
+        CallOnEditorPreInit();
+    }
+    else
+    {
+        StartNextQueuedBuild();
+    }
+}
+
 void NativeAddonManager::ForceRebuildAllNativeAddons()
 {
     LogDebug("Force-rebuilding all native addons for current host config...");
@@ -2111,11 +2302,49 @@ void NativeAddonManager::ForceRebuildAllNativeAddons()
         }
     }
 
-    // Now reload — each addon will rebuild from source because the cached
-    // DLLs were just removed.
-    ReloadAllNativeAddons();
+    // Determine which addons are currently expected to be loaded (mirrors
+    // the filtering done by ReloadAllNativeAddons), then enqueue them for
+    // async rebuild. TickAsyncBuilds() will drive the queue across frames
+    // so the editor stays interactive and the modal can render progress.
+    AddonManager* addonMgr = AddonManager::Get();
+    const std::vector<InstalledAddon>& installed =
+        addonMgr ? addonMgr->GetInstalledAddons() : std::vector<InstalledAddon>();
 
-    LogDebug("Force-rebuild of native addons complete.");
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    std::string packagesDir = projectDir + "Packages/";
+
+    mBuildQueue.clear();
+    for (const auto& pair : mStates)
+    {
+        const std::string& addonId = pair.first;
+        const NativeAddonState& state = pair.second;
+
+        bool isLocal = state.mSourcePath.find(packagesDir) == 0;
+        if (isLocal)
+        {
+            mBuildQueue.push_back(addonId);
+        }
+        else
+        {
+            for (const InstalledAddon& inst : installed)
+            {
+                if (inst.mId == addonId && inst.mEnabled && inst.mEnableNative)
+                {
+                    mBuildQueue.push_back(addonId);
+                    break;
+                }
+            }
+        }
+    }
+
+    mBuildQueueTotal = (int)mBuildQueue.size();
+    mBuildQueueIndex = 0;
+
+    LogDebug("Force-rebuild queued %d native addon(s); progress modal will track them.",
+             mBuildQueueTotal);
+
+    // Kick off the first build immediately. TickAsyncBuilds drives the rest.
+    StartNextQueuedBuild();
 }
 
 void NativeAddonManager::ReloadAllNativeAddons()
