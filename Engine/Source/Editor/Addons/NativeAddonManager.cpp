@@ -2280,16 +2280,19 @@ void NativeAddonManager::ForceRebuildAllNativeAddons()
         // cached output.
         UnloadNativeAddon(addonId);
 
-        // Wipe the current host's cached DLL so NeedsBuild() returns true
-        // and LoadNativeAddon() invokes a fresh BuildNativeAddon.
+        // Wipe the entire current-host fingerprint directory (DLL, PDB,
+        // .exp/.lib, .obj, build.bat, .meta) so NeedsBuild() returns true
+        // AND the relink isn't blocked by a stale .pdb that mspdbsrv still
+        // has a handle on (LNK1201). Removing only the .dll left LNK1201
+        // landmines on Force Rebuild.
         std::string fingerprint = ComputeFingerprint(addonId);
         if (!fingerprint.empty())
         {
-            std::string outputPath = GetOutputPath(addonId, fingerprint);
-            if (!outputPath.empty() && SYS_DoesFileExist(outputPath.c_str(), false))
+            std::string fingerprintDir = GetIntermediateDir(addonId) + fingerprint + "/";
+            if (DoesDirExist(fingerprintDir.c_str()))
             {
-                LogDebug("  removing stale cached DLL: %s", outputPath.c_str());
-                SYS_RemoveFile(outputPath.c_str());
+                LogDebug("  removing stale build dir: %s", fingerprintDir.c_str());
+                SYS_RemoveDirectory(fingerprintDir.c_str());
             }
 
             // Also clear any cached fingerprint stored on the state so the
@@ -3031,8 +3034,65 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     ss << "set(CMAKE_CXX_STANDARD 17)\n";
     ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n";
     ss << "\n";
-    ss << "# Polyphase Engine path\n";
-    ss << "set(POLYPHASE_PATH \"" << polyphasePathCMake << "\")\n";
+    // Resolve POLYPHASE_PATH at configure time. The probes mirror what the
+    // .vcxproj does: try the env var, then walk up looking for a
+    // Polyphase.sln (covers addon-near-engine layouts), then default
+    // install locations, then the captured generation-time path.
+    ss << "# Polyphase Engine path resolution.\n";
+    ss << "#\n";
+    ss << "# Priority order:\n";
+    ss << "#   1. -DPOLYPHASE_PATH=... or already set in parent script\n";
+    ss << "#   2. POLYPHASE_PATH environment variable\n";
+    ss << "#   3. Walk up from this CMakeLists looking for Polyphase.sln\n";
+    ss << "#      (catches addon-under-engine and sibling-repo layouts)\n";
+    ss << "#   4. Default install locations (C:/Polyphase, /opt/Polyphase)\n";
+    ss << "#   5. Engine path captured at generation time (last resort)\n";
+    ss << "# Walk up from this CMakeLists looking for either:\n";
+    ss << "#   - PolyphaseConfig.cmake : project-local engine path written\n";
+    ss << "#                             by the editor on project open. This\n";
+    ss << "#                             is the canonical answer for addons\n";
+    ss << "#                             living in <project>/Packages.\n";
+    ss << "#   - Polyphase.sln         : engine source root, for addons\n";
+    ss << "#                             checked out under or beside the\n";
+    ss << "#                             engine repo.\n";
+    ss << "function(_polyphase_find_via_walk OUT_VAR)\n";
+    ss << "    set(_p \"${CMAKE_CURRENT_SOURCE_DIR}\")\n";
+    ss << "    foreach(_i RANGE 1 6)\n";
+    ss << "        get_filename_component(_p \"${_p}\" DIRECTORY)\n";
+    ss << "        if(EXISTS \"${_p}/PolyphaseConfig.cmake\")\n";
+    ss << "            include(\"${_p}/PolyphaseConfig.cmake\")\n";
+    ss << "            if(DEFINED POLYPHASE_PATH AND NOT POLYPHASE_PATH STREQUAL \"\")\n";
+    ss << "                set(${OUT_VAR} \"${POLYPHASE_PATH}\" PARENT_SCOPE)\n";
+    ss << "                return()\n";
+    ss << "            endif()\n";
+    ss << "        endif()\n";
+    ss << "        if(EXISTS \"${_p}/Polyphase.sln\")\n";
+    ss << "            set(${OUT_VAR} \"${_p}\" PARENT_SCOPE)\n";
+    ss << "            return()\n";
+    ss << "        endif()\n";
+    ss << "    endforeach()\n";
+    ss << "    set(${OUT_VAR} \"\" PARENT_SCOPE)\n";
+    ss << "endfunction()\n";
+    ss << "\n";
+    ss << "if(NOT DEFINED POLYPHASE_PATH OR POLYPHASE_PATH STREQUAL \"\")\n";
+    ss << "    if(DEFINED ENV{POLYPHASE_PATH} AND NOT \"$ENV{POLYPHASE_PATH}\" STREQUAL \"\")\n";
+    ss << "        set(POLYPHASE_PATH \"$ENV{POLYPHASE_PATH}\")\n";
+    ss << "    else()\n";
+    ss << "        _polyphase_find_via_walk(_walk)\n";
+    ss << "        if(NOT _walk STREQUAL \"\")\n";
+    ss << "            set(POLYPHASE_PATH \"${_walk}\")\n";
+    ss << "        elseif(WIN32 AND EXISTS \"C:/Polyphase/Polyphase.exe\")\n";
+    ss << "            set(POLYPHASE_PATH \"C:/Polyphase\")\n";
+    ss << "        elseif(WIN32 AND EXISTS \"C:/Program Files/Polyphase/Polyphase.exe\")\n";
+    ss << "            set(POLYPHASE_PATH \"C:/Program Files/Polyphase\")\n";
+    ss << "        elseif(UNIX AND EXISTS \"/opt/Polyphase/PolyphaseEditor\")\n";
+    ss << "            set(POLYPHASE_PATH \"/opt/Polyphase\")\n";
+    ss << "        else()\n";
+    ss << "            set(POLYPHASE_PATH \"" << polyphasePathCMake << "\")\n";
+    ss << "        endif()\n";
+    ss << "    endif()\n";
+    ss << "endif()\n";
+    ss << "message(STATUS \"Polyphase: using POLYPHASE_PATH = ${POLYPHASE_PATH}\")\n";
     ss << "\n";
     ss << "# Gather source files\n";
     ss << "file(GLOB_RECURSE SOURCES \"Source/*.cpp\" \"Source/*.c\")\n";
@@ -3111,15 +3171,25 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     ss << "    " << exportMacroCMake << "\n";
     ss << ")\n";
     ss << "\n";
+    // Search both the installed-editor layout (libs next to Polyphase.exe
+    // or under <install>/lib/) and the engine-source-tree layout. Installed
+    // entries are listed first so a user building this addon against an
+    // installed editor doesn't accidentally pick up a dev-tree Polyphase.lib.
     ss << "# Link against Polyphase import library and dependencies\n";
     ss << "if(WIN32)\n";
     ss << "    if(CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
-    ss << "        set(POLYPHASE_LIB_PATH \"${POLYPHASE_PATH}/Standalone/Build/Windows/x64/DebugEditor\")\n";
+    ss << "        set(POLYPHASE_DEV_LIB_PATH \"${POLYPHASE_PATH}/Standalone/Build/Windows/x64/DebugEditor\")\n";
+    ss << "        set(POLYPHASE_DEV_LUA_PATH \"${POLYPHASE_PATH}/External/Lua/Build/Windows/x64/DebugEditor\")\n";
     ss << "    else()\n";
-    ss << "        set(POLYPHASE_LIB_PATH \"${POLYPHASE_PATH}/Standalone/Build/Windows/x64/ReleaseEditor\")\n";
+    ss << "        set(POLYPHASE_DEV_LIB_PATH \"${POLYPHASE_PATH}/Standalone/Build/Windows/x64/ReleaseEditor\")\n";
+    ss << "        set(POLYPHASE_DEV_LUA_PATH \"${POLYPHASE_PATH}/External/Lua/Build/Windows/x64/ReleaseEditor\")\n";
     ss << "    endif()\n";
-    ss << "    target_link_directories(" << binaryName << " PRIVATE ${POLYPHASE_LIB_PATH})\n";
-    ss << "    target_link_libraries(" << binaryName << " PRIVATE Polyphase)\n";
+    ss << "    target_link_directories(" << binaryName << " PRIVATE\n";
+    ss << "        \"${POLYPHASE_PATH}\"\n";
+    ss << "        \"${POLYPHASE_PATH}/lib\"\n";
+    ss << "        \"${POLYPHASE_DEV_LIB_PATH}\"\n";
+    ss << "        \"${POLYPHASE_DEV_LUA_PATH}\")\n";
+    ss << "    target_link_libraries(" << binaryName << " PRIVATE Polyphase Lua)\n";
 
     // Add dependency link directories and libraries
     std::string packagesDirCMake = normalizePath(packagesDir);
@@ -3252,7 +3322,105 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     ss << "  <ImportGroup Label=\"PropertySheets\" Condition=\"'$(Configuration)|$(Platform)'=='Release|x64'\">\n";
     ss << "    <Import Project=\"$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props\" Condition=\"exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')\" Label=\"LocalAppDataPlatform\" />\n";
     ss << "  </ImportGroup>\n";
-    ss << "  <PropertyGroup Label=\"UserMacros\" />\n";
+    // Compute relative path from the addon's project dir to the engine
+    // source root (using \ separators for MSBuild). If both ever stay in
+    // the same relative layout, this resolves correctly across machines
+    // without any env-var setup. We probe `<addon>/<rel>/Polyphase.sln`
+    // before falling back to install locations.
+    std::string addonRelToEngine;
+    {
+        // Manual relative-path computation (engine doesn't use <filesystem>).
+        // Both inputs are absolute. Normalise slashes, split on /, drop the
+        // common prefix, then ".." for each remaining segment in addonPath
+        // and append the engine's tail.
+        auto split = [](std::string p) {
+            std::vector<std::string> out;
+            for (char& c : p) if (c == '\\') c = '/';
+            // strip trailing slash
+            while (!p.empty() && (p.back() == '/' || p.back() == ' ')) p.pop_back();
+            size_t i = 0;
+            while (i < p.size())
+            {
+                size_t j = p.find('/', i);
+                if (j == std::string::npos) j = p.size();
+                if (j > i) out.push_back(p.substr(i, j - i));
+                i = j + 1;
+            }
+            return out;
+        };
+
+        std::vector<std::string> a = split(addonPath);
+        std::vector<std::string> e = split(polyphasePath);
+
+        // Drive letters / case-insensitive on Windows
+        auto eqi = [](const std::string& x, const std::string& y) {
+            if (x.size() != y.size()) return false;
+            for (size_t k = 0; k < x.size(); ++k)
+            {
+                char cx = x[k], cy = y[k];
+                if (cx >= 'A' && cx <= 'Z') cx = (char)(cx + 32);
+                if (cy >= 'A' && cy <= 'Z') cy = (char)(cy + 32);
+                if (cx != cy) return false;
+            }
+            return true;
+        };
+
+        size_t common = 0;
+        while (common < a.size() && common < e.size() && eqi(a[common], e[common]))
+            ++common;
+
+        // Different drive letters → no relative path possible.
+        if (common > 0)
+        {
+            std::string rel;
+            for (size_t k = common; k < a.size(); ++k) rel += "..\\";
+            for (size_t k = common; k < e.size(); ++k)
+            {
+                rel += e[k];
+                if (k + 1 < e.size()) rel += "\\";
+            }
+            // Trim trailing backslash for the Exists() check, but keep one
+            // before "Polyphase.sln" when concatenating.
+            while (!rel.empty() && rel.back() == '\\') rel.pop_back();
+            addonRelToEngine = rel;
+        }
+    }
+
+    // Resolve $(PolyphasePath) at build time so the project is portable
+    // across machines. Priority order:
+    //   1. PolyphasePath already set (parent .props, -p:PolyphasePath=...).
+    //   2. POLYPHASE_PATH env var (recommended dev/install setup).
+    //   3. PolyphaseDevPath env var (alt convention).
+    //   4. Generation-time relative layout: addon-near-engine survives the
+    //      whole tree being moved as long as relative positions stay the same.
+    //   5. Common dev layouts: addon under a Packages/ or Addons/ folder
+    //      next to the engine, sibling addon repo, etc. Walks ../ a few
+    //      levels looking for Polyphase.sln.
+    //   6. Default Windows install locations.
+    //   7. Generation-time absolute path (last resort, machine-specific).
+    ss << "  <PropertyGroup Label=\"UserMacros\">\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and '$(POLYPHASE_PATH)' != ''\">$(POLYPHASE_PATH)</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and '$(PolyphaseDevPath)' != ''\">$(PolyphaseDevPath)</PolyphasePath>\n";
+
+    if (!addonRelToEngine.empty())
+    {
+        ss << "    <!-- Relative layout from generation: addon ../engine -->\n";
+        ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('$(ProjectDir)" << addonRelToEngine << "\\Polyphase.sln')\">$([System.IO.Path]::GetFullPath('$(ProjectDir)" << addonRelToEngine << "'))</PolyphasePath>\n";
+    }
+
+    // Generic ../ walk for common addon-near-engine layouts. Each rule
+    // probes for Polyphase.sln to confirm the candidate is actually a
+    // Polyphase source root, not just any directory.
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('$(ProjectDir)..\\Polyphase.sln')\">$([System.IO.Path]::GetFullPath('$(ProjectDir)..'))</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('$(ProjectDir)..\\..\\Polyphase.sln')\">$([System.IO.Path]::GetFullPath('$(ProjectDir)..\\..'))</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('$(ProjectDir)..\\..\\..\\Polyphase.sln')\">$([System.IO.Path]::GetFullPath('$(ProjectDir)..\\..\\..'))</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('$(ProjectDir)..\\..\\..\\..\\Polyphase.sln')\">$([System.IO.Path]::GetFullPath('$(ProjectDir)..\\..\\..\\..'))</PolyphasePath>\n";
+
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('C:\\Polyphase\\Polyphase.exe')\">C:\\Polyphase</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('C:\\Program Files\\Polyphase\\Polyphase.exe')\">C:\\Program Files\\Polyphase</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == '' and Exists('C:\\Program Files (x86)\\Polyphase\\Polyphase.exe')\">C:\\Program Files (x86)\\Polyphase</PolyphasePath>\n";
+    ss << "    <PolyphasePath Condition=\"'$(PolyphasePath)' == ''\">" << polyphasePathVS << "</PolyphasePath>\n";
+    ss << "  </PropertyGroup>\n";
     ss << "  <PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='Debug|x64'\">\n";
     ss << "    <OutDir>$(ProjectDir)Build\\Debug\\</OutDir>\n";
     ss << "    <IntDir>$(ProjectDir)Build\\Intermediate\\Debug\\</IntDir>\n";
@@ -3284,12 +3452,14 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
         }
     }
 
-    // Build include directories string from manifest paths
+    // Build include directories string from manifest paths. Use the MSBuild
+    // macro $(PolyphasePath) instead of the absolute path captured at
+    // generation time so the project is portable across machines (UserMacros
+    // chain at the top of the .vcxproj resolves it per-build).
     std::string includesStr;
     for (const std::string& path : includePaths)
     {
-        std::string fullPath = polyphasePathVS + normalizePathVS(path);
-        includesStr += fullPath + ";";
+        includesStr += std::string("$(PolyphasePath)") + normalizePathVS(path) + ";";
     }
     // Add dependency addon Source directories
     for (const std::string& depId : metadata.mDependencies)
@@ -3313,23 +3483,17 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
         : metadata.mExportDefine;
     definesStr += exportMacro + ";";
 
-    // Get executable directory for installed editor lib paths
-    std::string exePath = SYS_GetExecutablePath();
-    std::string exeDirVS;
-    {
-        size_t lastSlash = exePath.find_last_of("/\\");
-        if (lastSlash != std::string::npos)
-        {
-            exeDirVS = normalizePathVS(exePath.substr(0, lastSlash + 1));
-        }
-    }
-
-    // Path to Polyphase import library and Lua library
-    // Include both installed editor paths and development build paths
-    std::string polyphaseLibPathDebug = exeDirVS + ";" + exeDirVS + "lib\\;" + polyphasePathVS + "\\Standalone\\Build\\Windows\\x64\\DebugEditor\\";
-    std::string polyphaseLibPathRelease = exeDirVS + ";" + exeDirVS + "lib\\;" + polyphasePathVS + "\\Standalone\\Build\\Windows\\x64\\ReleaseEditor\\";
-    std::string luaLibPathDebug = polyphasePathVS + "\\External\\Lua\\Build\\Windows\\x64\\DebugEditor\\";
-    std::string luaLibPathRelease = polyphasePathVS + "\\External\\Lua\\Build\\Windows\\x64\\ReleaseEditor\\";
+    // Library search paths use the $(PolyphasePath) MSBuild macro so they
+    // re-resolve correctly per machine (see UserMacros block above). Order:
+    //   1. $(PolyphasePath)          - installed editor: libs sit beside .exe
+    //   2. $(PolyphasePath)\lib      - alt installed layout
+    //   3. dev build output (DebugEditor / ReleaseEditor)
+    std::string polyphaseLibPathDebug =
+        "$(PolyphasePath)\\;$(PolyphasePath)\\lib\\;$(PolyphasePath)\\Standalone\\Build\\Windows\\x64\\DebugEditor\\";
+    std::string polyphaseLibPathRelease =
+        "$(PolyphasePath)\\;$(PolyphasePath)\\lib\\;$(PolyphasePath)\\Standalone\\Build\\Windows\\x64\\ReleaseEditor\\";
+    std::string luaLibPathDebug   = "$(PolyphasePath)\\External\\Lua\\Build\\Windows\\x64\\DebugEditor\\";
+    std::string luaLibPathRelease = "$(PolyphasePath)\\External\\Lua\\Build\\Windows\\x64\\ReleaseEditor\\";
 
     // Build library paths and dependencies for dependencies
     std::string depLibPaths;

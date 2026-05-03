@@ -276,6 +276,14 @@ public:
     // Actions
     void CreateNewProject(const char* folderPath = nullptr, bool cpp = false, const char* defaultSceneName = "SC_Default");
     void OpenProject(const char* path = nullptr);
+
+    // Drop Directory.Build.props + PolyphaseConfig.cmake at the project
+    // root recording the engine path. Lets addons under <project>/Packages
+    // build via Visual Studio / cmake without env-var setup. Called from
+    // OpenProject each time a project loads, so the recorded path stays in
+    // sync with whichever editor binary opened the project.
+    void WriteProjectLocalPolyphaseConfig();
+
     void OpenScene();
     void OpenScene(Scene* scene);
     void SaveScene(bool saveAs);
