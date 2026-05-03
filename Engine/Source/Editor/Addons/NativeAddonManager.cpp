@@ -2,6 +2,7 @@
 
 #include "NativeAddonManager.h"
 #include "AddonManager.h"
+#include "EditorState.h"
 #include "System/System.h"
 #include "System/ModuleLoader.h"
 #include "Engine.h"
@@ -34,6 +35,10 @@
 #include "Utilities.h"
 #include "Script.h"
 #include "Plugins/ImGuiPluginContext.h"
+
+#include <sys/stat.h>
+#include <time.h>
+#include <stdio.h>
 #include "Plugins/EditorUIHooks.h"
 
 #include "document.h"
@@ -1090,6 +1095,129 @@ std::vector<std::string> NativeAddonManager::GatherSourceFiles(const std::string
     return files;
 }
 
+// ===== Build meta sidecar =====
+//
+// Format: tiny key=value text file written next to the addon DLL after a
+// successful build. Used on subsequent loads to detect "stale relative to the
+// current host editor binary" — e.g. user rebuilt Polyphase.exe (which may
+// have changed engine ABI) and the cached addon DLL is now untrustworthy.
+// Fields:
+//   config       = "dbg" / "rel"
+//   built_at     = unix epoch seconds, time the addon was built
+//   engine_mtime = unix epoch seconds, mtime of Polyphase.exe at build time
+//   fingerprint  = the full source-fingerprint string, for sanity
+
+static int64_t StatFileMTime(const std::string& path)
+{
+    struct stat info;
+    if (stat(path.c_str(), &info) != 0)
+        return 0;
+    return static_cast<int64_t>(info.st_mtime);
+}
+
+static std::string GetMetaPathForOutput(const std::string& outputPath)
+{
+    return outputPath + ".meta";
+}
+
+static const char* HostConfigTag()
+{
+#if defined(_DEBUG)
+    return "dbg";
+#else
+    return "rel";
+#endif
+}
+
+static int64_t GetEngineBinaryMTime()
+{
+    std::string exePath = SYS_GetExecutablePath();
+    return exePath.empty() ? 0 : StatFileMTime(exePath);
+}
+
+void NativeAddonManager::WriteAddonBuildMeta(const std::string& outputPath,
+                                             const std::string& fingerprint)
+{
+    std::string metaPath = GetMetaPathForOutput(outputPath);
+    int64_t builtAt    = (int64_t)time(nullptr);
+    int64_t engineTime = GetEngineBinaryMTime();
+
+    char buf[512];
+    int len = snprintf(buf, sizeof(buf),
+        "config=%s\nbuilt_at=%lld\nengine_mtime=%lld\nfingerprint=%s\n",
+        HostConfigTag(),
+        (long long)builtAt,
+        (long long)engineTime,
+        fingerprint.c_str());
+
+    if (len <= 0 || len >= (int)sizeof(buf))
+        return;
+
+    FILE* f = fopen(metaPath.c_str(), "wb");
+    if (f == nullptr)
+    {
+        LogWarning("WriteAddonBuildMeta: failed to open %s", metaPath.c_str());
+        return;
+    }
+    fwrite(buf, 1, (size_t)len, f);
+    fclose(f);
+}
+
+// Returns true when the meta sidecar is missing, malformed, or describes a
+// build that doesn't match the current host config / current Polyphase.exe.
+bool NativeAddonManager::MetaIndicatesRebuildNeeded(const std::string& outputPath) const
+{
+    std::string metaPath = GetMetaPathForOutput(outputPath);
+    if (!SYS_DoesFileExist(metaPath.c_str(), false))
+    {
+        return true;  // never built (or pre-meta-format DLL) -> rebuild
+    }
+
+    FILE* f = fopen(metaPath.c_str(), "rb");
+    if (f == nullptr)
+        return true;
+
+    char buf[1024];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+
+    std::string content(buf);
+
+    auto readField = [&](const char* key) -> std::string {
+        std::string needle = std::string(key) + "=";
+        size_t pos = content.find(needle);
+        if (pos == std::string::npos) return "";
+        size_t valStart = pos + needle.size();
+        size_t valEnd = content.find('\n', valStart);
+        if (valEnd == std::string::npos) valEnd = content.size();
+        return content.substr(valStart, valEnd - valStart);
+    };
+
+    std::string metaConfig      = readField("config");
+    std::string metaEngineMTime = readField("engine_mtime");
+
+    if (metaConfig != HostConfigTag())
+    {
+        LogDebug("Addon meta config '%s' != host '%s'; rebuild needed",
+                 metaConfig.c_str(), HostConfigTag());
+        return true;
+    }
+
+    int64_t metaEngine = 0;
+    try { metaEngine = std::stoll(metaEngineMTime); } catch (...) { metaEngine = 0; }
+
+    int64_t curEngine = GetEngineBinaryMTime();
+    if (metaEngine != 0 && curEngine != 0 && metaEngine != curEngine)
+    {
+        LogDebug("Addon was built against Polyphase.exe mtime=%lld but current is %lld; rebuild needed",
+                 (long long)metaEngine, (long long)curEngine);
+        return true;
+    }
+
+    return false;
+}
+
 bool NativeAddonManager::NeedsBuild(const std::string& addonId)
 {
     auto it = mStates.find(addonId);
@@ -1106,7 +1234,20 @@ bool NativeAddonManager::NeedsBuild(const std::string& addonId)
 
     // Check if output exists with current fingerprint
     std::string outputPath = GetOutputPath(addonId, currentFingerprint);
-    return !SYS_DoesFileExist(outputPath.c_str(), false);
+    if (!SYS_DoesFileExist(outputPath.c_str(), false))
+    {
+        return true;
+    }
+
+    // DLL is on disk for the current source fingerprint, but it may be
+    // stale relative to the current host editor binary or the wrong CRT
+    // config. The meta sidecar carries that information.
+    if (MetaIndicatesRebuildNeeded(outputPath))
+    {
+        return true;
+    }
+
+    return false;
 }
 
 std::string NativeAddonManager::GetIntermediateDir(const std::string& addonId)
@@ -1612,6 +1753,11 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
 
     state.mBuildSucceeded = true;
     state.mFingerprint = fingerprint;
+
+    // Drop a meta sidecar next to the DLL so future loads can detect when
+    // the cached binary is stale relative to the current host editor.
+    WriteAddonBuildMeta(outputPath, fingerprint);
+
     LogDebug("Build succeeded for %s", addonId.c_str());
 
     return true;
@@ -1911,6 +2057,65 @@ bool NativeAddonManager::ReloadNativeAddon(const std::string& addonId, std::stri
 
     // Load again (will rebuild if needed)
     return LoadNativeAddon(addonId, outError);
+}
+
+void NativeAddonManager::ForceRebuildAllNativeAddons()
+{
+    LogDebug("Force-rebuilding all native addons for current host config...");
+
+    // CRITICAL: close every open edit-scene BEFORE unloading any addon.
+    // Live node instances whose C++ class lives in an addon DLL keep a
+    // vtable pointer into that DLL's mapped address range. Unloading the
+    // DLL invalidates those vtables, and the next frame's
+    // DrawScenePanel/GetNodeIcon -> node->As<...>() faults. This was
+    // observed crashing in GetNodeIcon line 176 on a Force Rebuild while
+    // SC_AttractScreen (which contains an addon-provided VideoPlayer3D)
+    // was open. Closing scenes first destroys those node instances so
+    // there's nothing left holding stale vtables.
+    EditorState* es = GetEditorState();
+    if (es != nullptr)
+    {
+        es->CloseAllEditScenes();
+    }
+
+    DiscoverNativeAddons();
+
+    for (auto& pair : mStates)
+    {
+        const std::string& addonId = pair.first;
+
+        // Unload first so the DLL handle isn't holding the file open. Reload
+        // would do this too but we want it to happen before deleting the
+        // cached output.
+        UnloadNativeAddon(addonId);
+
+        // Wipe the current host's cached DLL so NeedsBuild() returns true
+        // and LoadNativeAddon() invokes a fresh BuildNativeAddon.
+        std::string fingerprint = ComputeFingerprint(addonId);
+        if (!fingerprint.empty())
+        {
+            std::string outputPath = GetOutputPath(addonId, fingerprint);
+            if (!outputPath.empty() && SYS_DoesFileExist(outputPath.c_str(), false))
+            {
+                LogDebug("  removing stale cached DLL: %s", outputPath.c_str());
+                SYS_RemoveFile(outputPath.c_str());
+            }
+
+            // Also clear any cached fingerprint stored on the state so the
+            // load path recomputes.
+            auto it = mStates.find(addonId);
+            if (it != mStates.end())
+            {
+                it->second.mFingerprint.clear();
+            }
+        }
+    }
+
+    // Now reload — each addon will rebuild from source because the cached
+    // DLLs were just removed.
+    ReloadAllNativeAddons();
+
+    LogDebug("Force-rebuild of native addons complete.");
 }
 
 void NativeAddonManager::ReloadAllNativeAddons()

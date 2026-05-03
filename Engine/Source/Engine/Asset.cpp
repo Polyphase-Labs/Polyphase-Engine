@@ -188,7 +188,7 @@ void Asset::LoadFile(const char* path, AsyncLoadRequest* request)
         Create();
     }
 
-    LogDebug("Asset loaded: %s", mName.c_str());
+    //LogDebug("Asset loaded: %s", mName.c_str());
 }
 
 void Asset::SaveFile(const char* path, Platform platform)
@@ -216,7 +216,7 @@ void Asset::LoadEmbedded(const EmbeddedFile* embeddedAsset, AsyncLoadRequest* re
         Create();
     }
 
-    LogDebug("Asset loaded: %s", mName.c_str());
+    //LogDebug("Asset loaded: %s", mName.c_str());
 }
 
 void Asset::LoadStream(Stream& stream, Platform platform)

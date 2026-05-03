@@ -55,6 +55,23 @@ if errorlevel 1 (
     echo.
 )
 
+REM --- Make sure Polyphase.exe isn't running ---
+REM A running editor holds Polyphase.exe open, and the ReleaseEditor link
+REM step then fails with LNK1104 "cannot open file ...\Polyphase.exe" after a
+REM 17-minute build. Catch it up front instead.
+tasklist /FI "IMAGENAME eq Polyphase.exe" /NH 2>nul | find /I "Polyphase.exe" >nul
+if not errorlevel 1 (
+    echo ERROR: Polyphase.exe is currently running.
+    echo        The linker can't overwrite a running executable, so the engine
+    echo        build would fail at the link step with LNK1104.
+    echo        Close every running Polyphase editor instance and re-run.
+    echo.
+    echo        To force-close from this prompt:
+    echo            taskkill /F /IM Polyphase.exe
+    exit /b 1
+)
+echo   [OK] No running Polyphase.exe instances.
+
 echo.
 
 REM --- Step 1: Initialize submodules ---
@@ -121,16 +138,19 @@ if errorlevel 1 (
 )
 
 REM --- Verify the import libraries actually made it into the distribution ---
-if not exist "dist\Polyphase.lib" (
+REM stage_distribution.py defaults --output-dir to dist\Editor.
+if not exist "dist\Editor\Polyphase.lib" (
     echo ERROR: Polyphase.lib is missing from the staged distribution.
+    echo        Expected: dist\Editor\Polyphase.lib
     echo        The installer would ship without native-addon link support.
     exit /b 1
 )
-if not exist "dist\Lua.lib" (
+if not exist "dist\Editor\Lua.lib" (
     echo ERROR: Lua.lib is missing from the staged distribution.
+    echo        Expected: dist\Editor\Lua.lib
     exit /b 1
 )
-echo   [OK] Import libraries staged into dist\.
+echo   [OK] Import libraries staged into dist\Editor\.
 echo.
 
 REM --- Step 5: Build installer ---

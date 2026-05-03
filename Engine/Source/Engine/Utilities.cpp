@@ -647,7 +647,33 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
 
     SubSceneOverride over;
     over.mPath = FindRelativeNodePath(sceneRoot, node);
-    OCT_ASSERT(over.mPath != "");
+
+    // FindRelativeNodePath can return "" inside a scene-linked sub-tree when
+    // the SubRoot/parent linkage trips up the path walker (e.g. addon-
+    // provided nodes whose GetSubRoot semantics differ from stock nodes).
+    // For direct children of sceneRoot we can recover by using the child's
+    // own name as the path — that's the canonical single-step reference
+    // form. Without this fallback, the override for any such child is
+    // silently dropped: the inspector edit lives in memory but isn't
+    // recorded as a SubSceneOverride, so the next scene refresh reverts the
+    // value back to whatever the linked scene defaults to.
+    if (over.mPath == "" && node->GetParent() == sceneRoot)
+    {
+        over.mPath = node->GetName();
+    }
+
+    if (over.mPath == "")
+    {
+        LogWarning("GatherSubSceneOverrides: empty relative path for node '%s' under scene root '%s'; skipping",
+                   node->GetName().c_str(),
+                   sceneRoot->GetName().c_str());
+
+        for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
+        {
+            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
+        }
+        return;
+    }
 
     NodePtr defaultSceneRoot = sceneRoot->GetScene()->Instantiate();
     NodePtr defaultNode = ResolvePtr(ResolveNodePath(defaultSceneRoot.Get(), over.mPath));

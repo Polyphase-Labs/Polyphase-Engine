@@ -122,6 +122,17 @@ public:
      */
     bool NeedsBuild(const std::string& addonId);
 
+private:
+    /** Write a small key=value meta sidecar next to a freshly-built addon DLL. */
+    void WriteAddonBuildMeta(const std::string& outputPath,
+                             const std::string& fingerprint);
+
+    /** Read the meta sidecar and return true if the cached DLL is stale
+     *  (config tag differs, or recorded engine binary mtime differs from
+     *  the current Polyphase.exe). Missing/malformed meta also returns true. */
+    bool MetaIndicatesRebuildNeeded(const std::string& outputPath) const;
+public:
+
     // ===== Load/Unload Operations =====
 
     /**
@@ -156,6 +167,17 @@ public:
      * Discovers, builds changed addons, and reloads all.
      */
     void ReloadAllNativeAddons();
+
+    /**
+     * @brief Force-rebuild every native addon for the current host config.
+     *
+     * Unloads each addon, deletes its cached fingerprint directory under
+     * Intermediate/Plugins/<addon-id>/<fingerprint>/, then reloads — which
+     * triggers a fresh build because NeedsBuild() now sees no cached DLL.
+     * Use this when the cached DLL is stale or was built against a
+     * different host config and Reload alone won't recompile.
+     */
+    void ForceRebuildAllNativeAddons();
 
     /**
      * @brief Tick all loaded plugins (gameplay tick).

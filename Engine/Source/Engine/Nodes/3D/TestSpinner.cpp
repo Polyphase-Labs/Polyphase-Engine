@@ -52,26 +52,26 @@ void TestSpinner::Create()
     mRightLight1->SetRadius(10.0f);
 
 
-    // Print out all Actor factories.
-    {
-        LogDebug("----Node Types----");
-        std::vector<Factory*>& factoryList = Node::GetFactoryList();
-        
-        for (uint32_t i = 0; i < factoryList.size(); ++i)
-        {
-            LogDebug("NodeClass[%d] %s - %lu", i, factoryList[i]->GetClassName(), factoryList[i]->GetType());
-        }
-    }
+    //// Print out all Actor factories.
+    //{
+    //    LogDebug("----Node Types----");
+    //    std::vector<Factory*>& factoryList = Node::GetFactoryList();
+    //    
+    //    for (uint32_t i = 0; i < factoryList.size(); ++i)
+    //    {
+    //        LogDebug("NodeClass[%d] %s - %lu", i, factoryList[i]->GetClassName(), factoryList[i]->GetType());
+    //    }
+    //}
 
-    {
-        LogDebug("----Asset Types----");
-        std::vector<Factory*>& factoryList = Asset::GetFactoryList();
-        
-        for (uint32_t i = 0; i < factoryList.size(); ++i)
-        {
-            LogDebug("AssetClass[%d] %s - %lu", i, factoryList[i]->GetClassName(), factoryList[i]->GetType());
-        }
-    }
+    //{
+    //    LogDebug("----Asset Types----");
+    //    std::vector<Factory*>& factoryList = Asset::GetFactoryList();
+    //    
+    //    for (uint32_t i = 0; i < factoryList.size(); ++i)
+    //    {
+    //        LogDebug("AssetClass[%d] %s - %lu", i, factoryList[i]->GetClassName(), factoryList[i]->GetType());
+    //    }
+    //}
 
     //SetScriptFile("Engine/Scripts/Test.lua");
 

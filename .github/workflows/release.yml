@@ -85,16 +85,18 @@ jobs:
       - name: Verify staged import libraries
         shell: cmd
         run: |
-          if not exist "dist\Polyphase.lib" (
+          if not exist "dist\Editor\Polyphase.lib" (
             echo ERROR: Polyphase.lib is missing from the staged distribution.
+            echo        Expected: dist\Editor\Polyphase.lib
             echo        The installer would ship without native-addon link support.
             exit /b 1
           )
-          if not exist "dist\Lua.lib" (
+          if not exist "dist\Editor\Lua.lib" (
             echo ERROR: Lua.lib is missing from the staged distribution.
+            echo        Expected: dist\Editor\Lua.lib
             exit /b 1
           )
-          echo [OK] Import libraries staged into dist\.
+          echo [OK] Import libraries staged into dist\Editor\.
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress

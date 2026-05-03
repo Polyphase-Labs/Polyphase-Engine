@@ -676,6 +676,24 @@ static void DrawToolsAddonsMenu()
         }
     }
 
+    if (ImGui::MenuItem("Force Rebuild Native Addons"))
+    {
+        NativeAddonManager* nam = NativeAddonManager::Get();
+        if (nam != nullptr)
+        {
+            nam->ForceRebuildAllNativeAddons();
+            LogDebug("Native addons force-rebuilt.");
+        }
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Delete the cached DLL for the current host config (dbg/rel)\n"
+            "and recompile each native addon from source. Use when a stale\n"
+            "DLL from a different config is being loaded and a normal\n"
+            "Reload won't recompile it.");
+    }
+
     if (ImGui::MenuItem("Discover Native Addons"))
     {
         NativeAddonManager* nam = NativeAddonManager::Get();

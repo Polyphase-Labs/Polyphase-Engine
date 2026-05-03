@@ -2045,7 +2045,13 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
 {
     Node* node = prop.GetNode(index).Get();
     ActionManager* am = ActionManager::Get();
- 
+
+    // Group the entire property row (target/info/picker button + InputText)
+    // so we can attach a single drop target that covers the whole hit-box
+    // rather than only the (small) InputText. Without this, hitting the drop
+    // zone exactly was finicky and dropped payloads were silently missed.
+    ImGui::BeginGroup();
+
     if (IsControlDown())
     {
         if (ImGui::Button(ICON_MATERIAL_SYMBOLS_TARGET) && node)
@@ -2162,6 +2168,28 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
         ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Remove element [%d]", index);
+    }
+
+    ImGui::EndGroup();
+
+    // Drop target across the entire property row (target/info button +
+    // InputText + optional vector-delete button). Accepts a node payload
+    // dragged from the scene tree (DRAGDROP_NODE) and assigns it to this
+    // property slot.
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_NODE))
+        {
+            Node* droppedNode = (payload->Data != nullptr) ? *(Node**)payload->Data : nullptr;
+            if (droppedNode != nullptr &&
+                ownerType != PropertyOwnerType::Count &&
+                NodeMatchesProperty(prop, droppedNode, owner))
+            {
+                am->EXE_EditProperty(owner, ownerType, prop.mName, index, droppedNode);
+                sTempString = FindRelativeNodePath(src, droppedNode);
+            }
+        }
+        ImGui::EndDragDropTarget();
     }
 }
 

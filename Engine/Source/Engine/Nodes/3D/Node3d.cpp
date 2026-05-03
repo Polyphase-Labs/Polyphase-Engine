@@ -299,8 +299,17 @@ void Node3D::GatherProxyDraws(std::vector<DebugDraw>& inoutDraws)
 {
 #if DEBUG_DRAW_ENABLED
 
+    // Bail out cleanly when SM_Cube isn't ready. Originally added because
+    // BuildPhase1 packaging could call into here while the AssetManager was
+    // mid-iteration; root cause turned out to be addon-DLL heap corruption
+    // (fixed via NativeAddonManager force-rebuild + .meta sidecar). The
+    // null-guard is cheap and remains as defense-in-depth.
+    StaticMesh* cube = LoadAsset<StaticMesh>("SM_Cube");
+    if (cube == nullptr)
+        return;
+
     DebugDraw debugDraw;
-    debugDraw.mMesh = LoadAsset<StaticMesh>("SM_Cube");
+    debugDraw.mMesh = cube;
     debugDraw.mNode = this;
     debugDraw.mColor = glm::vec4(1.0f, 0.25f, 0.25f, 1.0f);
     debugDraw.mTransform = glm::scale(GetTransform(), { 0.2f, 0.2f, 0.2f });

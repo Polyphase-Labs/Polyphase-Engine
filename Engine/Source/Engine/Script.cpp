@@ -80,6 +80,22 @@ bool Script::HandleForeignScriptPropChange(Datum* datum, uint32_t index, const v
         {
             scriptProp->SetValue(newValue, index);
         }
+
+        // Push the new value to the live Lua state so self.<prop> reflects
+        // the inspector edit immediately. Without this, mScriptProps holds
+        // the new value (and serializes correctly) but the Lua-side field
+        // stays at whatever it was when CreateScriptInstance ran — which
+        // for a freshly-loaded scene is the default from GatherProperties
+        // (nil for Node refs that hadn't been resolved yet). The next PIE
+        // start would then read self.videoPlayer as nil despite the
+        // inspector clearly showing the assignment. Skip if scriptProp is
+        // a function — those aren't data we sync.
+        if (script->IsActive() &&
+            scriptProp->mType != DatumType::Function &&
+            scriptProp->GetCount() > 0)
+        {
+            script->UploadDatum(*scriptProp, scriptProp->mName.c_str());
+        }
     }
 
     return true;

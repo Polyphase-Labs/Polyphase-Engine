@@ -54,7 +54,7 @@ button:hover { background: var(--surface3); }
 button:active { background: var(--accent); }
 
 header { background: var(--activetab); }
-header:hover { background: var(--selectedtab); }
+/* header:hover { background: var(--selectedtab); } */
 header:active { background: var(--hovertab); }
 
 tab { color: var(--text); background: var(--bg-alt); }
