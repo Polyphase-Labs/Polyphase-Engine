@@ -44,4 +44,12 @@ IMGUI_API void ClearDockTabBarBg();
 IMGUI_API void InitDock();
 IMGUI_API void SetDockActive(const char* panel, const char* label);
 
+// Re-open a dock that was hidden via the right-click "Close Panel" menu
+// (or any code that flipped the dock's internal user_closed flag).
+IMGUI_API void OpenDock(const char* label);
+
+// True iff the dock is currently visible (not user-closed). Returns true
+// for unknown labels so callers default to "open".
+IMGUI_API bool IsDockOpen(const char* label);
+
 };

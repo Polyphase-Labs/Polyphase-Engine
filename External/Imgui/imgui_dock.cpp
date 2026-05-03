@@ -59,6 +59,8 @@ struct DockContext
             , first(true)
             , last_frame(0)
             , invalid_frames(0)
+            , pending_close(false)
+            , user_closed(false)
         {
             location[0] = 0;
             children[0] = children[1] = nullptr;
@@ -189,6 +191,19 @@ struct DockContext
         char location[16];
         bool opened;
         bool first;
+
+        // Set by the tab right-click "Close Panel" menu item. BeginDock
+        // checks this on entry and forces *opened = false so the panel's
+        // owner sees the close even when the close request came from a
+        // context menu on a non-active tab (where the existing close-button
+        // path can't reach). Initialised to false in the Dock constructor.
+        bool pending_close;
+
+        // For panels that pass opened==nullptr to BeginDock there's no
+        // caller-side bool to flip. user_closed is the dock-internal
+        // hide flag for those — set by the close path, cleared by
+        // ImGui::OpenDock().
+        bool user_closed;
     };
 
     ImVector<Dock*> m_docks;
@@ -726,6 +741,32 @@ struct DockContext
                     m_next_parent = dock_tab;
                 }
 
+                // Right-click on a tab → context menu with Close / Undock.
+                // Attached to the InvisibleButton above, so it works on any
+                // tab in the bar (active or not). PushID(dock_tab) keeps the
+                // popup id unique per tab even though all tabs share the
+                // same "##TabContext" string.
+                PushID(dock_tab);
+                if (BeginPopupContextItem("##TabContext", ImGuiPopupFlags_MouseButtonRight))
+                {
+                    if (MenuItem("Close Panel"))
+                    {
+                        dock_tab->pending_close = true;
+                    }
+                    bool isFloating = (dock_tab->status == Status_Float);
+                    if (MenuItem("Undock Panel", nullptr, false, !isFloating))
+                    {
+                        // Detach this tab from its tabbar/parent and let it
+                        // float as its own window. doUndock removes it from
+                        // the dock graph; setting Status_Float makes the next
+                        // BeginDock open it as a free-standing ImGui::Begin.
+                        doUndock(*dock_tab);
+                        dock_tab->status = Status_Float;
+                    }
+                    EndPopup();
+                }
+                PopID();
+
                 // Record tab rect for reorder
                 ImVec2 tabMin = GetItemRectMin();
                 ImVec2 tabMax = GetItemRectMax();
@@ -1067,6 +1108,36 @@ struct DockContext
         bool first = dock.first;
         if (dock.first && opened) *opened = dock.opened;
         dock.first = false;
+
+        // Honor a pending right-click "Close Panel" request. This works for
+        // tabs whose close-X isn't currently rendered (the existing close
+        // button only shows on the active tab) and for any panel where the
+        // user prefers a context-menu close. We update both the caller's
+        // bool (when supplied) and the internal dock.opened flag — the
+        // latter is what allows panels with no caller bool (nullptr) to
+        // be hidden via the dock-internal "user_closed" path below.
+        if (dock.pending_close)
+        {
+            dock.pending_close = false;
+            if (opened) *opened = false;
+            dock.user_closed = true;
+        }
+
+        // Panels that pass opened==nullptr have no caller-side bool to
+        // flip; for those, dock.user_closed is the source of truth. Bail
+        // out before any window or dock graph work happens; the user can
+        // re-open via ImGui::OpenDock(label).
+        if (opened == nullptr && dock.user_closed)
+        {
+            if (dock.status != Status_Float)
+            {
+                fillLocation(dock);
+                doUndock(dock);
+                dock.status = Status_Float;
+            }
+            return false;
+        }
+
         if (opened && !*opened)
         {
             if (dock.status != Status_Float)
@@ -1401,6 +1472,47 @@ void ImGui::ResetNextDockParent(const char* panel)
 {
     if (panel && g_docklist.count(panel))
         g_docklist[panel].m_next_parent = nullptr;
+}
+
+// Re-open a dock that was previously hidden via the right-click "Close
+// Panel" menu (or any code that set its user_closed flag). Walks every
+// known dock context for this label so it works regardless of which
+// dock panel currently owns it.
+void ImGui::OpenDock(const char* label)
+{
+    if (label == nullptr) return;
+    ImU32 id = ImHashStr(label, 0);
+    for (auto& kv : g_docklist)
+    {
+        DockContext& ctx = kv.second;
+        for (int i = 0; i < ctx.m_docks.size(); ++i)
+        {
+            if (ctx.m_docks[i] && ctx.m_docks[i]->id == id)
+            {
+                ctx.m_docks[i]->user_closed = false;
+                ctx.m_docks[i]->opened = true;
+                return;
+            }
+        }
+    }
+}
+
+bool ImGui::IsDockOpen(const char* label)
+{
+    if (label == nullptr) return false;
+    ImU32 id = ImHashStr(label, 0);
+    for (auto& kv : g_docklist)
+    {
+        DockContext& ctx = kv.second;
+        for (int i = 0; i < ctx.m_docks.size(); ++i)
+        {
+            if (ctx.m_docks[i] && ctx.m_docks[i]->id == id)
+            {
+                return !ctx.m_docks[i]->user_closed;
+            }
+        }
+    }
+    return true;  // unknown label = assume open (matches default-construct behaviour)
 }
 
 bool ImGui::BeginDockspace()
