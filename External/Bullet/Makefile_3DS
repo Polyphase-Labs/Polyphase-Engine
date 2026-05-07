@@ -193,12 +193,16 @@ CleanStaleDeps:
 	fi
 
 #---------------------------------------------------------------------------------
-all: CleanStaleDeps $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 
 OutputDir:
 	@[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 
-$(BUILD): OutputDir
+# CleanStaleDeps must finish before the inner make starts compiling, otherwise
+# `rm -f *.o *.d` races with parallel sub-make compilations and the earliest .o
+# files (alphabetically-first source dir) get deleted after they're written,
+# producing a libBullet.a step that fails with "btAxisSweep3.o: No such file".
+$(BUILD): CleanStaleDeps OutputDir
 	@[ -d $@ ] || mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_3DS
 

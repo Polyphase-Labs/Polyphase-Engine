@@ -1946,6 +1946,22 @@ void VulkanContext::RecreateSwapchain(bool recreateSurface)
         return;
     }
 
+    // Skip recreation while the surface is zero-sized (window minimized). Otherwise
+    // ChooseSwapExtent returns (0, 0), CreateDepthImage builds an Image with width 0,
+    // and Image::Image asserts. Renderer skips drawing while mWindowMinimized is set;
+    // we'll retry on the next failed acquire/present once the window is restored.
+    if (!recreateSurface && mSurface != VK_NULL_HANDLE)
+    {
+        VkSurfaceCapabilitiesKHR capabilities = {};
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mPhysicalDevice, mSurface, &capabilities) == VK_SUCCESS)
+        {
+            if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
+            {
+                return;
+            }
+        }
+    }
+
     DeviceWaitIdle();
 
     DestroySwapchain();

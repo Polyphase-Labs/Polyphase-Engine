@@ -101,7 +101,20 @@
       "PowerShell(msbuild *)",
       "Bash(Get-ChildItem *)",
       "PowerShell(ls *)",
-      "Bash(Findstr /n \"CookThpVideo\\\\|useThp\" \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\VideoPlayer\\\\testing\\\\GC\\\\VideoPlayer-Demo-GC\\\\Packages\\\\com.polyphase.formats.video\\\\Source\\\\Cook\\\\DolphinVideoCook.cpp\")"
+      "Bash(Findstr /n \"CookThpVideo\\\\|useThp\" \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\VideoPlayer\\\\testing\\\\GC\\\\VideoPlayer-Demo-GC\\\\Packages\\\\com.polyphase.formats.video\\\\Source\\\\Cook\\\\DolphinVideoCook.cpp\")",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-List FullName)",
+      "Bash(Select-Object -First 5)",
+      "Bash(/c/devkitPro/msys2/usr/bin/make.exe -np -f Makefile_3DS)",
+      "Bash(/c/devkitPro/msys2/usr/bin/make.exe -f -)",
+      "Bash(rm -f Build/3DS/libBullet.a)",
+      "Bash(/c/devkitPro/msys2/usr/bin/make.exe -f Makefile_3DS)",
+      "Bash(export DEVKITPRO=/c/devkitPro)",
+      "Bash(export DEVKITARM=/c/devkitPro/devkitARM)",
+      "Bash(env DEVKITPRO=/opt/devkitpro DEVKITARM='/opt/devkitpro/devkitARM' /c/devkitPro/msys2/usr/bin/make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\")",
+      "Bash(cmd.exe //c 'set DEVKITPRO=C:\\\\devkitPro&& set DEVKITARM=C:\\\\devkitPro\\\\devkitARM&& C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\External\\\\Bullet\" -f \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\External\\\\Bullet\\\\Makefile_3DS\" -n')",
+      "PowerShell($env:DEVKITPRO='C:\\\\devkitPro'; $env:DEVKITARM='C:\\\\devkitPro\\\\devkitARM'; & C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\" 2>&1 | Select-Object -First 20)",
+      "PowerShell($env:DEVKITPRO='C:\\\\devkitPro'; $env:DEVKITARM='C:\\\\devkitPro\\\\devkitARM'; & C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\" 2>&1 | Select-Object -Last 20)"
     ]
   }
 }
