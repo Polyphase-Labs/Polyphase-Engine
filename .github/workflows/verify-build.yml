@@ -3,6 +3,8 @@ name: Verify Build
 on:
   push:
     branches: ['version/*', 'beta/*']
+  pull_request:
+    branches: ['main', 'version/*']
 
 jobs:
   build-linux:
