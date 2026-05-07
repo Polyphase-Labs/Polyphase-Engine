@@ -336,9 +336,7 @@
       <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2d.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
     </Link>
-    <PostBuildEvent>
-      <Command>copy "$(TargetPath)" "$(SolutionDir)"</Command>
-    </PostBuildEvent>
+    <!-- PostBuildEvent now defined unconditionally below; same copy applies to all configs. -->
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -392,6 +390,20 @@
       <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <!--
+    Unconditional ItemDefinitionGroup: applies to ALL configurations. Restores
+    the post-build copy that used to put Polyphase.exe at the solution root so
+    callers (Tools\CI\run_local_verify.bat, dev shortcuts, etc.) always have a
+    predictable path to the latest build. The Feb 2026 vcxproj rewrite (commit
+    f3ceeaf40) lost this on every config except DebugEditor|x64; defining it
+    here covers everything in one place so we don't have to mirror the block
+    into nine separate ItemDefinitionGroups.
+  -->
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetPath)" "$(SolutionDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Generated\EmbeddedAssets.cpp">

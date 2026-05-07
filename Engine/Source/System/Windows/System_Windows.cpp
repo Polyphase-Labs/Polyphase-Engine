@@ -264,9 +264,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 void SYS_Initialize()
 {
     // Without the CoInitialize call I'm getting heap corruption??
-    // Apparently this is needed for anything using COM objects?? 
+    // Apparently this is needed for anything using COM objects??
     // I think XAudio and XInput require this.
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+    // Headless builds (-headless -project ... -build <Platform>) don't have a
+    // window or an ImGui context. Mirror System_Linux.cpp's early return so
+    // ImGui_ImplWin32_Init below isn't called without a context.
+    if (IsHeadless())
+    {
+        LogDebug("SYS_Initialize: Headless mode, skipping window creation");
+        return;
+    }
 
     EngineState* engineState = GetEngineState();
     HINSTANCE hInst = GetModuleHandle(NULL); // hInstance
@@ -361,6 +370,11 @@ void SYS_Initialize()
 
 void SYS_Shutdown()
 {
+    if (IsHeadless())
+    {
+        return;
+    }
+
 #if EDITOR
     ImGui_ImplWin32_Shutdown();
 #endif
@@ -368,6 +382,11 @@ void SYS_Shutdown()
 
 void SYS_Update()
 {
+    if (IsHeadless())
+    {
+        return;
+    }
+
     MSG     msg;
     BOOL    done = FALSE;
 

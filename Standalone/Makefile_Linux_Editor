@@ -141,6 +141,11 @@ MakeEngine:
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
 	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
+	@# Mirror the Windows post-build copy: stash the latest editor binary at
+	@# the repo root so callers (Tools/CI/run_local_verify.sh, dev shortcuts)
+	@# always have a stable path to the freshest build. Suppress errors so a
+	@# broken build doesn't mask the real failure with a copy error.
+	@cp -f "$(OUTPUT_DIR)/$(TARGET)Editor.elf" "$(CURDIR)/.." 2>/dev/null || true
 
 #---------------------------------------------------------------------------------
 clean:
