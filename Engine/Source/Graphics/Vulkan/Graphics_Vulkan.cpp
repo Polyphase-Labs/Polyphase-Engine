@@ -275,6 +275,14 @@ void GFX_DestroyTextureResource(Texture* texture)
     DestroyTextureResource(texture);
 }
 
+void GFX_UpdateTextureResourcePixels(Texture* /*texture*/, const uint8_t* /*src*/,
+                                     uint32_t /*srcWidth*/, uint32_t /*srcHeight*/)
+{
+    // Vulkan path goes through mResource.mImage->Update directly in
+    // Texture::UpdatePixels (#if API_VULKAN branch); this entry is never
+    // called on Vulkan builds and exists only to keep the link clean.
+}
+
 void GFX_CreateMaterialResource(Material* material)
 {
     if (IsHeadless()) return;

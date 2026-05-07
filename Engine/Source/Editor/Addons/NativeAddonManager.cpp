@@ -26,6 +26,7 @@
 #elif PLATFORM_LINUX
 #include <dlfcn.h>
 #include <link.h>
+#include <unistd.h>   // ::rmdir for TryClearAddonIntermediates fallback
 #endif
 #include "Engine/Gizmos.h"
 #include "Engine/Assets/TinyLLMAsset.h"
@@ -954,6 +955,48 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
     readStringArray("extraLibs",        outMetadata.mExtraLibs);
     readStringArray("copyBinaries",     outMetadata.mCopyBinaries);
 
+    // Per-platform overrides: top-level `nativePerPlatform.<PlatformName>.{extraDefines,
+    // extraIncludeDirs, extraLibDirs, extraLibs, copyBinaries}`. Resolved at build
+    // time by NativeModuleMetadata::ResolveExtras, which concatenates these onto
+    // the common arrays above. Platform names match GetPlatformString(Platform):
+    // "Windows", "Linux", "Android", "GameCube", "Wii", "3DS". Unknown keys are
+    // accepted but ignored at resolve time.
+    if (doc.HasMember("nativePerPlatform") && doc["nativePerPlatform"].IsObject())
+    {
+        const rapidjson::Value& byPlatform = doc["nativePerPlatform"];
+        for (rapidjson::Value::ConstMemberIterator it = byPlatform.MemberBegin();
+             it != byPlatform.MemberEnd(); ++it)
+        {
+            if (!it->name.IsString() || !it->value.IsObject()) continue;
+
+            const std::string platformName = it->name.GetString();
+            const rapidjson::Value& block = it->value;
+
+            auto readPlatformArray = [&](const char* key, std::vector<std::string>& out) {
+                if (block.HasMember(key) && block[key].IsArray())
+                {
+                    const rapidjson::Value& arr = block[key];
+                    for (rapidjson::SizeType i = 0; i < arr.Size(); ++i)
+                    {
+                        if (arr[i].IsString())
+                        {
+                            out.push_back(arr[i].GetString());
+                        }
+                    }
+                }
+            };
+
+            NativeModuleMetadata::PlatformExtras px;
+            readPlatformArray("extraDefines",     px.mExtraDefines);
+            readPlatformArray("extraIncludeDirs", px.mExtraIncludeDirs);
+            readPlatformArray("extraLibDirs",     px.mExtraLibDirs);
+            readPlatformArray("extraLibs",        px.mExtraLibs);
+            readPlatformArray("copyBinaries",     px.mCopyBinaries);
+
+            outMetadata.mPerPlatform[platformName] = std::move(px);
+        }
+    }
+
     return true;
 }
 
@@ -1011,8 +1054,9 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         }
     }
 
-    // Also hash package.json so edits to native.extraDefines/extraIncludeDirs/extraLibs/etc.
-    // invalidate the cached build and regenerate build.bat on next reload.
+    // Also hash package.json so edits to native.* / nativePerPlatform.* (extraDefines,
+    // extraIncludeDirs, extraLibDirs, extraLibs, copyBinaries) invalidate the cached
+    // build and regenerate build.bat on next reload.
     std::string packageJsonPath = state.mSourcePath + "package.json";
     Stream pkgStream;
     if (pkgStream.ReadFile(packageJsonPath.c_str(), false))
@@ -1041,6 +1085,96 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
     char fingerprint[32];
     snprintf(fingerprint, sizeof(fingerprint), "%s_%016llx", configTag, (unsigned long long)hash);
     return fingerprint;
+}
+
+std::vector<std::string> NativeAddonManager::TryClearAddonIntermediates(const std::string& addonId)
+{
+    std::vector<std::string> locked;
+
+    std::string fingerprint = ComputeFingerprint(addonId);
+    if (fingerprint.empty())
+    {
+        return locked;
+    }
+
+    std::string root = GetIntermediateDir(addonId) + fingerprint + "/";
+    if (!DoesDirExist(root.c_str()))
+    {
+        return locked;
+    }
+
+    // Walk the dir tree, attempting to delete every file. Files that resist
+    // deletion (locked by mspdbsrv.exe holding the .pdb, a debugger holding
+    // the .dll/.exp, an open editor with a stale handle, etc.) are reported
+    // back to the caller so it can pause the build and prompt the user.
+    //
+    // We deliberately try to delete EVERY file (not bail on first failure),
+    // so the modal lists all blockers at once instead of forcing the user
+    // through one prompt per file.
+    std::function<void(const std::string&)> walk;
+    walk = [&](const std::string& dir)
+    {
+        DirEntry entry;
+        SYS_OpenDirectory(dir, entry);
+        if (!entry.mValid)
+        {
+            return;
+        }
+
+        std::vector<std::string> subDirs;
+
+        while (entry.mValid)
+        {
+            if (strcmp(entry.mFilename, ".") != 0 &&
+                strcmp(entry.mFilename, "..") != 0)
+            {
+                std::string path = dir + entry.mFilename;
+
+                if (entry.mDirectory)
+                {
+                    subDirs.push_back(path + "/");
+                }
+                else
+                {
+                    bool deleted = false;
+#if PLATFORM_WINDOWS
+                    // Clear read-only / hidden flags first so DeleteFileA isn't
+                    // refused on a writable-but-marked-readonly file.
+                    SetFileAttributesA(path.c_str(), FILE_ATTRIBUTE_NORMAL);
+                    deleted = (DeleteFileA(path.c_str()) != 0);
+#else
+                    deleted = (::remove(path.c_str()) == 0);
+#endif
+                    if (!deleted)
+                    {
+                        locked.push_back(path);
+                    }
+                }
+            }
+
+            SYS_IterateDirectory(entry);
+        }
+        SYS_CloseDirectory(entry);
+
+        // Recurse after closing the directory handle (some platforms refuse
+        // to delete files while a Find handle on the parent is open).
+        for (const auto& sub : subDirs)
+        {
+            walk(sub);
+        }
+
+        // Best-effort dir removal — silently ignored if not empty (e.g. a
+        // child file was locked). The next build recreates it as needed.
+#if PLATFORM_WINDOWS
+        ::RemoveDirectoryA(dir.c_str());
+#else
+        ::rmdir(dir.c_str());
+#endif
+    };
+
+    walk(root);
+
+    return locked;
 }
 
 std::vector<std::string> NativeAddonManager::GatherSourceFiles(const std::string& sourceDir)
@@ -1342,6 +1476,20 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     std::vector<std::string> sourceFiles = GatherSourceFiles(sourceDir);
 
+    // Resolve per-platform extras for the host platform (this script only ever
+    // builds the editor-side hot-reload DLL on the host the editor runs on; the
+    // console packaging path uses its own resolve in ActionManager.cpp).
+#if PLATFORM_WINDOWS
+    const NativeModuleMetadata::PlatformExtras nativeExtras =
+        state.mNativeMetadata.ResolveExtras("Windows");
+#elif PLATFORM_LINUX
+    const NativeModuleMetadata::PlatformExtras nativeExtras =
+        state.mNativeMetadata.ResolveExtras("Linux");
+#else
+    const NativeModuleMetadata::PlatformExtras nativeExtras =
+        state.mNativeMetadata.ResolveExtras(""); // common only
+#endif
+
     // Get parent Packages directory for resolving sibling addon dependencies
     std::string packagesDir;
     {
@@ -1384,10 +1532,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // Mismatching /MD and /MDd yields two CRT heaps and _ITERATOR_DEBUG_LEVEL 0 vs 2, which
     // crashes at the first container destruction across modules (e.g. Node::mName destruction
     // while discovering addon-registered node classes).
+    // /std:c++17 matches the engine and the addon .vcxproj template (LanguageStandard
+    // stdcpp17). Without this, MSVC defaults to C++14 and addons can't use <filesystem>,
+    // structured bindings, etc.
 #if defined(_DEBUG)
-    ss << "cl.exe /nologo /EHsc /Od /Zi /LD /MDd /D_DEBUG ";
+    ss << "cl.exe /nologo /EHsc /std:c++17 /Od /Zi /LD /MDd /D_DEBUG ";
 #else
-    ss << "cl.exe /nologo /EHsc /O2 /LD /MD ";
+    ss << "cl.exe /nologo /EHsc /std:c++17 /O2 /LD /MD ";
 #endif
 
     // Add defines from manifest
@@ -1397,7 +1548,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1)
-    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
+    for (const std::string& define : nativeExtras.mExtraDefines)
     {
         ss << "/D" << define << " ";
     }
@@ -1423,7 +1574,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     // Extra include directories from the addon's package.json, resolved relative to the
     // addon's package root (e.g. "External/ffmpeg/include")
-    for (const std::string& inc : state.mNativeMetadata.mExtraIncludeDirs)
+    for (const std::string& inc : nativeExtras.mExtraIncludeDirs)
     {
         ss << "/I\"" << state.mSourcePath << inc << "/\" ";
     }
@@ -1472,7 +1623,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Extra lib directories from the addon's package.json, resolved relative to the addon root
-    for (const std::string& libDir : state.mNativeMetadata.mExtraLibDirs)
+    for (const std::string& libDir : nativeExtras.mExtraLibDirs)
     {
         ss << "/LIBPATH:\"" << state.mSourcePath << libDir << "/\" ";
     }
@@ -1484,7 +1635,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Extra libs from the addon's package.json
-    for (const std::string& lib : state.mNativeMetadata.mExtraLibs)
+    for (const std::string& lib : nativeExtras.mExtraLibs)
     {
         ss << lib << " ";
     }
@@ -1499,7 +1650,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     // Post-build: copy any binary directories (e.g. FFmpeg DLLs) next to the addon DLL so
     // dynamic dependencies resolve at load time.
-    if (!state.mNativeMetadata.mCopyBinaries.empty())
+    if (!nativeExtras.mCopyBinaries.empty())
     {
         // Derive the output directory from outputPath (strip the trailing filename).
         std::string outDir = outputPath;
@@ -1509,7 +1660,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
             outDir = outDir.substr(0, lastSlash + 1);
         }
 
-        for (const std::string& binDir : state.mNativeMetadata.mCopyBinaries)
+        for (const std::string& binDir : nativeExtras.mCopyBinaries)
         {
             std::string src = state.mSourcePath + binDir;
             // xcopy flags: /Y overwrite, /E recurse including empty dirs, /I treat dest as dir, /D only-newer
@@ -1533,8 +1684,10 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // layout, which doesn't exist on Linux — so on Linux we resolve FFmpeg
     // through the system instead. The marker is the conventional
     // POLYPHASE_WITH_FFMPEG define already used by the FFmpeg-bundling addon.
+    // Inspect the resolved (Linux-platform-aware) defines so addons that move
+    // POLYPHASE_WITH_FFMPEG under nativePerPlatform.Linux still trigger this.
     bool wantsFFmpeg = false;
-    for (const std::string& d : state.mNativeMetadata.mExtraDefines)
+    for (const std::string& d : nativeExtras.mExtraDefines)
     {
         if (d.rfind("POLYPHASE_WITH_FFMPEG", 0) == 0)
         {
@@ -1553,7 +1706,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libswresample)\n";
         ss << "\n";
     }
-    ss << "g++ -shared -fPIC -O2 \\\n";
+    ss << "g++ -shared -fPIC -O2 -std=c++17 \\\n";
 
     // Add defines from manifest
     for (const std::string& define : defines)
@@ -1562,7 +1715,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Extra defines from the addon's package.json (e.g. POLYPHASE_WITH_FFMPEG=1).
-    for (const std::string& define : state.mNativeMetadata.mExtraDefines)
+    for (const std::string& define : nativeExtras.mExtraDefines)
     {
         ss << "  -D" << define << " \\\n";
     }
@@ -1582,7 +1735,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 
     // Extra include dirs from the addon's package.json (resolved relative to the addon root).
     // Missing dirs are harmless — g++ ignores them with a warning.
-    for (const std::string& incDir : state.mNativeMetadata.mExtraIncludeDirs)
+    for (const std::string& incDir : nativeExtras.mExtraIncludeDirs)
     {
         ss << "  -I\"" << state.mSourcePath << incDir << "/\" \\\n";
     }
@@ -1680,6 +1833,30 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
     state.mBuildError.clear();
 
     LogDebug("Building native addon: %s", addonId.c_str());
+
+    // Pre-build sweep: try to clear stale intermediates before invoking the
+    // compiler/linker. If any file is locked (mspdbsrv keeping the .pdb open
+    // is the classic LNK1201 trigger), pause the build and surface a modal
+    // so the user can release the lock holder and Retry.
+    {
+        std::vector<std::string> stillLocked = TryClearAddonIntermediates(addonId);
+        if (!stillLocked.empty())
+        {
+            mBlocked.mActive = true;
+            mBlocked.mAddonId = addonId;
+            mBlocked.mLockedFiles = std::move(stillLocked);
+            mBlocked.mIntermediateDir = GetIntermediateDir(addonId);
+
+            outError = "Build blocked: " + std::to_string(mBlocked.mLockedFiles.size())
+                     + " intermediate file(s) locked. See modal for paths.";
+            state.mBuildInProgress = false;
+            state.mBuildSucceeded = false;
+            state.mBuildError = outError;
+            LogError("Build of '%s' paused: locked intermediate files. See popup.",
+                     addonId.c_str());
+            return false;
+        }
+    }
 
     // Compute fingerprint
     std::string fingerprint = ComputeFingerprint(addonId);
@@ -1894,6 +2071,33 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
 
     LogDebug("Successfully loaded native addon: %s (v%s)", desc.pluginName, desc.pluginVersion);
 
+    // Rehydrate any assets PurgeAssetsFromModule unloaded in the matching
+    // UnloadNativeAddon. The new DLL has re-registered its factories by this
+    // point (RegisterTypes / static initializers ran via MOD_Load above), so
+    // LoadAsset can recreate the Asset through the fresh factory and populate
+    // stub->mAsset again. Without this, save-after-reload no-ops because the
+    // stub stays empty until the user manually re-opens the asset.
+    if (!state.mPurgedAssetUuids.empty())
+    {
+        AssetManager* mgr = AssetManager::Get();
+        if (mgr != nullptr)
+        {
+            size_t reloaded = 0;
+            for (uint64_t uuid : state.mPurgedAssetUuids)
+            {
+                AssetStub* stub = mgr->GetAssetStubByUuid(uuid);
+                if (stub != nullptr && stub->mAsset == nullptr)
+                {
+                    mgr->LoadAsset(*stub);
+                    if (stub->mAsset != nullptr) ++reloaded;
+                }
+            }
+            LogDebug("Rehydrated %zu/%zu addon-typed asset(s) after reload of %s",
+                     reloaded, state.mPurgedAssetUuids.size(), addonId.c_str());
+        }
+        state.mPurgedAssetUuids.clear();
+    }
+
     return true;
 }
 
@@ -1992,6 +2196,129 @@ namespace
         // Other platforms (3DS, GC, Wii, Android) don't support native addon hot-reload yet.
     }
 #endif
+
+    // Free any loaded Asset instances whose vtable lives inside the given DLL.
+    // Must run before FreeLibrary so each ~Asset() / Asset::Destroy() call
+    // dispatches into still-mapped code. Skipping this leaves AssetStubs holding
+    // pointers to objects with dangling vtables — the next ImGui frame crashes
+    // in DrawAssetItems on stub->mAsset->GetTypeName().
+    //
+    // Appends the UUID of every purged stub (when non-zero) to outRehydrateUuids
+    // so the caller can reload them through the new factory once the DLL is
+    // back. The post-reload reload happens in LoadNativeAddon.
+    static void PurgeStubsAndCollectUuids(const std::vector<AssetStub*>& stubsToPurge,
+                                          std::vector<uint64_t>& outRehydrateUuids)
+    {
+        if (stubsToPurge.empty()) return;
+
+        LogDebug("PurgeAssetsFromModule: unloading %zu addon-typed asset instance(s)",
+                 stubsToPurge.size());
+
+        // Clear inspector if it points at any to-be-freed asset. The stub itself
+        // isn't deleted (only mAsset is nulled) so selected-stub pointers stay
+        // valid; subsequent LoadAsset will rehydrate from disk through the new
+        // factory after the DLL reloads.
+        EditorState* es = GetEditorState();
+        if (es != nullptr)
+        {
+            for (AssetStub* stub : stubsToPurge)
+            {
+                if (es->GetInspectedObject() == stub->mAsset)
+                {
+                    es->InspectObject(nullptr, true);
+                    break;
+                }
+            }
+        }
+
+        // Force-free regardless of refcount: refusing here leaves a live Asset*
+        // with a dangling vtable, which is strictly worse than dangling AssetRefs.
+        for (AssetStub* stub : stubsToPurge)
+        {
+            if (stub->mUuid != 0)
+            {
+                outRehydrateUuids.push_back(stub->mUuid);
+            }
+
+            stub->mAsset->Destroy();
+            delete stub->mAsset;
+            stub->mAsset = nullptr;
+        }
+    }
+
+#if PLATFORM_WINDOWS
+    void PurgeAssetsFromModule(void* moduleHandle, std::vector<uint64_t>& outRehydrateUuids)
+    {
+        if (moduleHandle == nullptr) return;
+
+        AssetManager* mgr = AssetManager::Get();
+        if (mgr == nullptr) return;
+
+        MODULEINFO info = {};
+        if (!GetModuleInformation(GetCurrentProcess(), (HMODULE)moduleHandle, &info, sizeof(info)))
+        {
+            LogWarning("PurgeAssetsFromModule: GetModuleInformation failed");
+            return;
+        }
+
+        const uintptr_t base = (uintptr_t)info.lpBaseOfDll;
+        const uintptr_t end  = base + info.SizeOfImage;
+
+        std::vector<AssetStub*> stubsToPurge;
+        for (auto& kv : mgr->GetAssetMap())
+        {
+            AssetStub* stub = kv.second;
+            if (stub == nullptr || stub->mAsset == nullptr) continue;
+
+            // First machine word of any C++ object with virtuals is the vtable
+            // pointer. Vtables live in .rdata of the module that compiled the
+            // class, so an addon-class instance has its vtable inside [base, end).
+            uintptr_t vtable = *reinterpret_cast<uintptr_t*>(stub->mAsset);
+            if (vtable >= base && vtable < end)
+            {
+                stubsToPurge.push_back(stub);
+            }
+        }
+
+        PurgeStubsAndCollectUuids(stubsToPurge, outRehydrateUuids);
+    }
+#elif PLATFORM_LINUX
+    void PurgeAssetsFromModule(void* moduleHandle, std::vector<uint64_t>& outRehydrateUuids)
+    {
+        if (moduleHandle == nullptr) return;
+
+        AssetManager* mgr = AssetManager::Get();
+        if (mgr == nullptr) return;
+
+        struct link_map* lm = nullptr;
+        if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+        {
+            LogWarning("PurgeAssetsFromModule: dlinfo failed (%s)", dlerror() ? dlerror() : "unknown");
+            return;
+        }
+        void* moduleBase = reinterpret_cast<void*>(lm->l_addr);
+
+        std::vector<AssetStub*> stubsToPurge;
+        for (auto& kv : mgr->GetAssetMap())
+        {
+            AssetStub* stub = kv.second;
+            if (stub == nullptr || stub->mAsset == nullptr) continue;
+
+            void* vtable = *reinterpret_cast<void**>(stub->mAsset);
+            Dl_info dlinf = {};
+            if (dladdr(vtable, &dlinf) != 0 && dlinf.dli_fbase == moduleBase)
+            {
+                stubsToPurge.push_back(stub);
+            }
+        }
+
+        PurgeStubsAndCollectUuids(stubsToPurge, outRehydrateUuids);
+    }
+#else
+    void PurgeAssetsFromModule(void* /*moduleHandle*/, std::vector<uint64_t>& /*outRehydrateUuids*/)
+    {
+    }
+#endif
 }
 
 bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
@@ -2030,6 +2357,18 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
         }
         mEngineAPI.editorUI->RemoveAllHooks(hookId);
     }
+
+    // Free any Asset instances whose class came from this DLL BEFORE FreeLibrary,
+    // so each destructor still dispatches into mapped code. Done before the factory
+    // strip so factory state is still around if a destructor needs it. The .oct
+    // file on disk is untouched; LoadAsset will rehydrate through the new factory
+    // after the DLL reloads.
+    //
+    // Append-only into mPurgedAssetUuids: if a previous Unload purged some uuids
+    // and the matching Load never happened (e.g. build failed), we want them
+    // queued through the next successful Load. LoadNativeAddon clears the list
+    // once it has rehydrated.
+    PurgeAssetsFromModule(state.mModuleHandle, state.mPurgedAssetUuids);
 
     // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE
     // FreeLibrary. Otherwise the lists hold dangling pointers and the next load of the
@@ -2125,6 +2464,30 @@ void NativeAddonManager::StartNextQueuedBuild()
         std::string outputDir = intermediateDir + job->fingerprint + "/";
         job->outputPath = GetOutputPath(addonId, job->fingerprint);
 
+        // Pre-build sweep: clear any stale intermediates and detect locked
+        // files BEFORE we run the linker. If a file is locked, pause the
+        // queue here — re-push the addon to the front and bail. The block
+        // modal lets the user free the file and retry, which calls
+        // StartNextQueuedBuild again to resume.
+        {
+            std::vector<std::string> stillLocked = TryClearAddonIntermediates(addonId);
+            if (!stillLocked.empty())
+            {
+                mBlocked.mActive = true;
+                mBlocked.mAddonId = addonId;
+                mBlocked.mLockedFiles = std::move(stillLocked);
+                mBlocked.mIntermediateDir = GetIntermediateDir(addonId);
+
+                // Put this addon back at the front so Retry resumes it first.
+                mBuildQueue.insert(mBuildQueue.begin(), addonId);
+                --mBuildQueueIndex;
+
+                LogError("Async build of '%s' paused: locked intermediate files. See popup.",
+                         addonId.c_str());
+                return;
+            }
+        }
+
         if (!CreateDirectoryRecursive(outputDir))
         {
             LogError("Async build skipped: failed to create %s", outputDir.c_str());
@@ -2165,6 +2528,57 @@ void NativeAddonManager::StartNextQueuedBuild()
 
         mActiveBuild = std::move(job);
     }
+}
+
+void NativeAddonManager::RetryBlockedBuild()
+{
+    if (!mBlocked.mActive)
+    {
+        return;
+    }
+
+    LogDebug("Retry: re-sweeping intermediates for blocked addon '%s'.",
+             mBlocked.mAddonId.c_str());
+
+    // Clear blocked state up front. If the sweep still finds locks, the
+    // build path will set it again with a fresh list.
+    mBlocked = BuildBlocked{};
+
+    // Two paths to resume:
+    //  - If we were in the middle of an async queue (mBuildQueue has the
+    //    addon at the front because StartNextQueuedBuild pushed it back),
+    //    drive the queue again. TickAsyncBuilds will pick it up next frame.
+    //  - Otherwise the block came from the synchronous BuildNativeAddon
+    //    path (LoadNativeAddon -> BuildNativeAddon, called from
+    //    ReloadAllNativeAddons). Re-trigger ReloadAllNativeAddons; its
+    //    skip-if-up-to-date logic means the previously-succeeded addons
+    //    aren't re-touched, only the failed one is retried.
+    if (!mBuildQueue.empty())
+    {
+        StartNextQueuedBuild();
+    }
+    else
+    {
+        ReloadAllNativeAddons();
+    }
+}
+
+void NativeAddonManager::CancelBlockedBuild()
+{
+    if (!mBlocked.mActive)
+    {
+        return;
+    }
+
+    LogDebug("Cancel: abandoning blocked build for '%s'.", mBlocked.mAddonId.c_str());
+
+    mBlocked = BuildBlocked{};
+
+    // Drain the async queue too — the user explicitly opted out of finishing
+    // this rebuild session, so don't silently start the next one.
+    mBuildQueue.clear();
+    mBuildQueueTotal = 0;
+    mBuildQueueIndex = 0;
 }
 
 void NativeAddonManager::TickAsyncBuilds()
@@ -2362,7 +2776,7 @@ void NativeAddonManager::ReloadAllNativeAddons()
     const std::vector<InstalledAddon>& installed = addonMgr ? addonMgr->GetInstalledAddons() : std::vector<InstalledAddon>();
 
     // Build set of enabled native addons
-    std::vector<std::string> toLoad;
+    std::vector<std::string> enabled;
 
     // Local packages are always loaded
     const std::string& projectDir = GetEngineState()->mProjectDirectory;
@@ -2378,7 +2792,7 @@ void NativeAddonManager::ReloadAllNativeAddons()
 
         if (isLocal)
         {
-            toLoad.push_back(addonId);
+            enabled.push_back(addonId);
         }
         else
         {
@@ -2387,20 +2801,98 @@ void NativeAddonManager::ReloadAllNativeAddons()
             {
                 if (inst.mId == addonId && inst.mEnabled && inst.mEnableNative)
                 {
-                    toLoad.push_back(addonId);
+                    enabled.push_back(addonId);
                     break;
                 }
             }
         }
     }
 
-    // Reload each addon
+    // Filter to only addons that actually need to be (re)loaded. An already-loaded
+    // addon whose source hasn't changed (NeedsBuild() == false) is skipped — touching
+    // it would unmap the DLL, invalidating vtables on every live Node-derived
+    // instance from that DLL and crashing the next frame in DrawScenePanel ->
+    // GetNodeIcon -> node->As<...>(). This is the same vtable hazard
+    // ForceRebuildAllNativeAddons guards against, but here we avoid it entirely
+    // for the no-change case so Ctrl+R / "Refresh Scripts" stays safe with open
+    // edit scenes when only Lua changed.
+    std::vector<std::string> toLoad;
+    bool anyCurrentlyLoaded = false;
+    for (const std::string& addonId : enabled)
+    {
+        auto it = mStates.find(addonId);
+        if (it == mStates.end()) continue;
+        const NativeAddonState& state = it->second;
+
+        bool isLoaded = (state.mModuleHandle != nullptr);
+        bool needsBuild = NeedsBuild(addonId);
+
+        if (isLoaded && !needsBuild)
+        {
+            // Up-to-date and live; leave vtables alone.
+            continue;
+        }
+
+        toLoad.push_back(addonId);
+        if (isLoaded)
+        {
+            anyCurrentlyLoaded = true;
+        }
+    }
+
+    if (toLoad.empty())
+    {
+        LogDebug("No native addons need reloading; skipping.");
+        return;
+    }
+
+    // At least one currently-loaded addon will be unloaded. Close edit scenes
+    // first so no live nodes hold vtable pointers into the DLL pages we're about
+    // to unmap (mirrors ForceRebuildAllNativeAddons).
+    if (anyCurrentlyLoaded)
+    {
+        EditorState* es = GetEditorState();
+        if (es != nullptr)
+        {
+            es->CloseAllEditScenes();
+        }
+    }
+
+    // Reload each addon that needs it. For addons whose source has changed
+    // (NeedsBuild()==true), unload first then let LoadNativeAddon trigger
+    // BuildNativeAddon, which itself runs a thorough pre-build sweep
+    // (TryClearAddonIntermediates) that surfaces any locked files via the
+    // build-blocked modal — handles the LNK1201 / mspdbsrv-locked-pdb case.
     for (const std::string& addonId : toLoad)
     {
-        std::string error;
-        if (!ReloadNativeAddon(addonId, error))
+        bool needsBuild = NeedsBuild(addonId);
+
+        if (needsBuild)
         {
-            LogWarning("Failed to reload native addon %s: %s", addonId.c_str(), error.c_str());
+            UnloadNativeAddon(addonId);
+
+            // Force LoadNativeAddon's path lookups to recompute against the
+            // current source (otherwise it could pick up a cached fingerprint).
+            auto stateIt = mStates.find(addonId);
+            if (stateIt != mStates.end())
+            {
+                stateIt->second.mFingerprint.clear();
+            }
+
+            std::string error;
+            if (!LoadNativeAddon(addonId, error))
+            {
+                LogWarning("Failed to reload native addon %s: %s", addonId.c_str(), error.c_str());
+            }
+        }
+        else
+        {
+            // Not currently loaded but should be (no source change) — straight load.
+            std::string error;
+            if (!ReloadNativeAddon(addonId, error))
+            {
+                LogWarning("Failed to reload native addon %s: %s", addonId.c_str(), error.c_str());
+            }
         }
     }
 

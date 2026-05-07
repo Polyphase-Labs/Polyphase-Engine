@@ -599,9 +599,13 @@ void Texture::UpdatePixels(const uint8_t* data, size_t byteSize)
         mResource.mImage->Update(data);
     }
 #else
-    // Streaming texture updates are currently only implemented for the Vulkan backend.
-    // Non-Vulkan platforms should fall back to recreating the texture resource.
-    OCT_ASSERT(0 && "Texture::UpdatePixels requires API_VULKAN");
+    // Non-Vulkan: backends that support streaming uploads implement
+    // GFX_UpdateTextureResourcePixels. C3D (3DS) routes through GX_DisplayTransfer
+    // for linear -> tiled DMA. GX (GameCube/Wii) is a no-op for now (streaming
+    // RGBA8 textures aren't wired up; videos on Dolphin would need either CPU
+    // tiling or a different texture-reupload path). Other backends fall through
+    // silently; the texture just keeps its previous frame on screen.
+    GFX_UpdateTextureResourcePixels(this, data, mWidth, mHeight);
 #endif
 }
 

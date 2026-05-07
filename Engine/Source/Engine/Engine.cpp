@@ -1266,6 +1266,19 @@ bool IsGameTickEnabled()
 void ReloadAllScripts(bool restartComponents)
 {
 #if LUA_ENABLED
+    // Pause Lua's incremental GC for the duration of the reload. ReloadAllScriptFiles
+    // calls lua_pcall on every class file's top-level chunk, which can trigger a GC
+    // step at any allocation. If a Node_Lua wrapper happens to be eligible for
+    // collection at that moment, NodeWrapperGarbageCollect runs reentrantly while
+    // we're tearing down/rebuilding script state — observed crashing in
+    // ~Datum/SYS_AlignedFree because a Node was deleted mid-flight via the GC
+    // path. Pausing GC here serialises destruction to a stable point.
+    lua_State* L = GetLua();
+    if (L != nullptr)
+    {
+        lua_gc(L, LUA_GCSTOP, 0);
+    }
+
     std::vector<Script*> scripts;
     std::vector<std::vector<Property> > scriptProps;
 
@@ -1307,6 +1320,14 @@ void ReloadAllScripts(bool restartComponents)
             scripts[i]->StartScript();
             scripts[i]->SetScriptProperties(scriptProps[i]);
         }
+    }
+
+    // Resume incremental GC. Don't force a full collection here — that would
+    // immediately re-fire any finalizers we just deferred, defeating the point.
+    // Let the next normal allocation drive collection at a stable boundary.
+    if (L != nullptr)
+    {
+        lua_gc(L, LUA_GCRESTART, 0);
     }
 
     LogDebug("--Reloaded All Scripts--");

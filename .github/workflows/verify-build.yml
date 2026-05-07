@@ -3,6 +3,8 @@ name: Verify Build
 on:
   push:
     branches: ['version/*', 'beta/*']
+  pull_request:
+    branches: ['main', 'version/*']
 
 jobs:
   build-linux:
@@ -50,3 +52,15 @@ jobs:
 
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
+
+      # The Linux engine build statically compiles Lua sources directly into
+      # libEngineEditor.a, so it does NOT produce a standalone libLua.a the
+      # way Windows does via Lua.vcxproj. release.yml needs libLua.a present
+      # for the staged distribution; build it here too so the verify workflow
+      # catches any breakage in the Lua Makefile before it reaches a release.
+      - name: Build libLua.a for native addons
+        run: |
+          make -C External/Lua a -j$(nproc)
+          mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor
+          cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+          test -f External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a

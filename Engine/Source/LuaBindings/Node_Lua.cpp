@@ -64,6 +64,20 @@ int NodeWrapperGarbageCollect(lua_State* L)
     luaL_checkudata(L, 1, NODE_WRAPPER_TABLE_NAME);
     Node_Lua* nodeLua = (Node_Lua*)lua_touserdata(L, 1);
 
+    // Bail out during process shutdown. By the time lua_close runs from
+    // Engine::Shutdown, sWorlds have been Destroy'd + delete'd and a number
+    // of subsystems (RuntimePluginManager, etc.) are gone. Finalising every
+    // remaining Node wrapper here means deleting Nodes whose Datums may
+    // reference already-torn-down state, which has been observed crashing
+    // in ~Datum -> SYS_AlignedFree. Lua will still reclaim the userdata
+    // buffer; any unreleased Node memory is reclaimed by process exit.
+    // Skipping the C++ destructor leaks RefCount + Node, but that's the
+    // last thing this process does.
+    if (IsShuttingDown())
+    {
+        return 0;
+    }
+
     Node_Lua::SetGcNodeId(nodeLua->mNode->GetNodeId());
 
     Node::Deleter(nodeLua->mNode.Get());

@@ -64,6 +64,16 @@ public:
     std::string mWiiloadIP;
 
     /**
+     * @brief IP address of 3DS for 3dslink (optional).
+     *
+     * When empty, 3dslink falls back to UDP broadcast discovery, which is
+     * unreliable on hosts with multiple NICs, Wi-Fi access points that
+     * isolate clients, or firewalls that block outbound 17491/UDP. Setting
+     * this passes `-a <ip>` to skip discovery.
+     */
+    std::string m3dsIP;
+
+    /**
      * @brief Builds the full launch command with placeholder substitution.
      * @param platform The target platform
      * @param outputPath Full path to the built executable

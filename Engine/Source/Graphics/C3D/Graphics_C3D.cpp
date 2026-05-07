@@ -513,6 +513,80 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
 {
     TextureResource* resource = texture->GetResource();
 
+    // Streaming texture path: raw RGBA8 pixels, no t3x backing. Used by runtime
+    // producers like VideoPlayer3D that push fresh frames each tick. The GPU
+    // wants tiled data, so we keep a linear scratch buffer here and DMA it
+    // through GX_DisplayTransfer (which swizzles linear -> tiled) on every
+    // UpdatePixels call.
+    //
+    // 3DS texture dimensions must be a POWER OF TWO, in [8, 1024]. citro3d's
+    // checkTexSize rejects anything else outright. Pad up to next PoT — the
+    // bottom/right edge becomes a black strip that's visible unless the
+    // renderer scales UVs to crop. Cook params should pick PoT dimensions
+    // (8, 16, 32, ..., 256, 512, 1024) for a clean fit; common video sizes:
+    //   - Top screen 16:9: 256x128 or 256x256 letterbox
+    //   - Bottom screen: 256x256
+    //   - Anything wider: 512x256 (4:1 fit) or 512x512
+    if (texture->GetFormat() == PixelFormat::RGBA8 &&
+        data.size() == size_t(texture->GetWidth()) * size_t(texture->GetHeight()) * 4)
+    {
+        // Next-power-of-two helper. Caps at 1024 (3DS GPU max).
+        auto nextPow2 = [](uint32_t v) -> uint32_t {
+            if (v <= 8u) return 8u;
+            uint32_t p = 8u;
+            while (p < v && p < 1024u) p <<= 1;
+            return p;
+        };
+        uint32_t texW = nextPow2(texture->GetWidth());
+        uint32_t texH = nextPow2(texture->GetHeight());
+        if (texW > 1024u) texW = 1024u;
+        if (texH > 1024u) texH = 1024u;
+
+        if (!C3D_TexInit(&resource->mTex, (u16)texW, (u16)texH, GPU_RGBA8))
+        {
+            LogError("C3D_TexInit failed for streaming RGBA8 texture %ux%u", texW, texH);
+            return;
+        }
+
+        resource->mTexWidth      = texW;
+        resource->mTexHeight     = texH;
+        resource->mLinearBufSize = texW * texH * 4;
+        resource->mLinearBuf     = linearAlloc(resource->mLinearBufSize);
+
+        // Tell the renderer how much of the physical PoT texture is actual
+        // content. The Quad / sprite vertex generators multiply their UVs by
+        // this so they sample only the top-left content region and never the
+        // black padding strips on the right/bottom.
+        const float uMax = float(texture->GetWidth())  / float(texW);
+        const float vMax = float(texture->GetHeight()) / float(texH);
+        texture->SetUVMax(glm::vec2(uMax, vMax));
+        if (resource->mLinearBuf == nullptr)
+        {
+            LogError("linearAlloc failed for streaming texture (%u bytes)", resource->mLinearBufSize);
+            return;
+        }
+        // Initialize to opaque black so the padded edge isn't garbage on first
+        // bind before UpdatePixels has run.
+        memset(resource->mLinearBuf, 0, resource->mLinearBufSize);
+        for (uint32_t i = 3; i < resource->mLinearBufSize; i += 4)
+        {
+            ((uint8_t*)resource->mLinearBuf)[i] = 0xFF; // alpha = 1
+        }
+
+        GPU_TEXTURE_FILTER_PARAM streamFilter = (texture->GetFilterType() == FilterType::Nearest)
+            ? GPU_NEAREST : GPU_LINEAR;
+        GPU_TEXTURE_WRAP_PARAM streamWrap;
+        switch (texture->GetWrapMode())
+        {
+            case WrapMode::Clamp:  streamWrap = GPU_CLAMP_TO_EDGE; break;
+            case WrapMode::Mirror: streamWrap = GPU_MIRRORED_REPEAT; break;
+            default:               streamWrap = GPU_REPEAT; break;
+        }
+        C3D_TexSetFilter(&resource->mTex, streamFilter, streamFilter);
+        C3D_TexSetWrap(&resource->mTex, streamWrap, streamWrap);
+        return;
+    }
+
     resource->mT3dsData = SYS_AlignedMalloc((uint32_t)data.size(), 32);
     memcpy(resource->mT3dsData, data.data(), data.size());
 
@@ -571,6 +645,109 @@ void GFX_DestroyTextureResource(Texture* texture)
         SYS_AlignedFree(resource->mT3dsData);
         resource->mT3dsData = nullptr;
     }
+    if (resource->mLinearBuf != nullptr)
+    {
+        linearFree(resource->mLinearBuf);
+        resource->mLinearBuf     = nullptr;
+        resource->mLinearBufSize = 0;
+    }
+    resource->mTexWidth  = 0;
+    resource->mTexHeight = 0;
+}
+
+// Streaming RGBA8 update: copy caller bytes into our linearAlloc'd scratch
+// (padding rows/cols with zeros if source dims are smaller than the C3D_Tex
+// physical dims), flush CPU cache, then GX_DisplayTransfer linear -> tiled
+// into the texture's GPU memory. The PPF (Pixel Processing Function) handles
+// the swizzle for us at DMA speed — much faster than CPU swizzle.
+void GFX_UpdateTextureResourcePixels(Texture* texture, const uint8_t* src,
+                                     uint32_t srcWidth, uint32_t srcHeight)
+{
+    TextureResource* resource = texture->GetResource();
+    if (resource == nullptr || resource->mLinearBuf == nullptr)
+    {
+        // Not a streaming texture (no linear scratch). Caller should only invoke
+        // UpdatePixels on streaming textures.
+        return;
+    }
+    if (src == nullptr || srcWidth == 0 || srcHeight == 0) return;
+
+    const uint32_t texW = resource->mTexWidth;
+    const uint32_t texH = resource->mTexHeight;
+    const uint32_t copyW = (srcWidth  < texW) ? srcWidth  : texW;
+    const uint32_t copyH = (srcHeight < texH) ? srcHeight : texH;
+
+    // Channel-order swap: callers pass RGBA bytes (stb_image / engine convention)
+    // but the 3DS GPU's GPU_RGBA8 expects ABGR byte order in memory (so the LE
+    // uint32 read decodes to R high, A low — i.e. components stored "high to
+    // low" as RGBA = bytes ABGR low-to-high). GX_DisplayTransfer only tiles,
+    // it doesn't swap channels, so we do it here per pixel during the row
+    // copy. Source byte 0 (R) -> dst byte 3, src 1 (G) -> dst 2, src 2 (B) ->
+    // dst 1, src 3 (A) -> dst 0.
+    auto swapRowRgbaToAbgr = [](uint8_t* outAbgr, const uint8_t* inRgba, uint32_t pixels) {
+        for (uint32_t i = 0; i < pixels; ++i)
+        {
+            outAbgr[i * 4 + 0] = inRgba[i * 4 + 3]; // A
+            outAbgr[i * 4 + 1] = inRgba[i * 4 + 2]; // B
+            outAbgr[i * 4 + 2] = inRgba[i * 4 + 1]; // G
+            outAbgr[i * 4 + 3] = inRgba[i * 4 + 0]; // R
+        }
+    };
+
+    uint8_t* dst = (uint8_t*)resource->mLinearBuf;
+    const uint32_t srcStride = srcWidth * 4u;
+    const uint32_t dstStride = texW * 4u;
+    for (uint32_t y = 0; y < copyH; ++y)
+    {
+        swapRowRgbaToAbgr(dst + y * dstStride, src + y * srcStride, copyW);
+        if (texW > copyW)
+        {
+            // Right padding stays opaque black: A=0xFF, B=G=R=0.
+            uint8_t* padStart = dst + y * dstStride + copyW * 4u;
+            for (uint32_t i = 0; i < (texW - copyW); ++i)
+            {
+                padStart[i * 4 + 0] = 0xFF; // A
+                padStart[i * 4 + 1] = 0;    // B
+                padStart[i * 4 + 2] = 0;    // G
+                padStart[i * 4 + 3] = 0;    // R
+            }
+        }
+    }
+    // Bottom pad rows: opaque black.
+    if (copyH < texH)
+    {
+        uint8_t* botStart = dst + copyH * dstStride;
+        const uint32_t botPixels = (texH - copyH) * texW;
+        for (uint32_t i = 0; i < botPixels; ++i)
+        {
+            botStart[i * 4 + 0] = 0xFF;
+            botStart[i * 4 + 1] = 0;
+            botStart[i * 4 + 2] = 0;
+            botStart[i * 4 + 3] = 0;
+        }
+    }
+
+    GSPGPU_FlushDataCache(resource->mLinearBuf, resource->mLinearBufSize);
+
+    // GX_DisplayTransfer wants the buffer-dimension macro; bytes are interpreted
+    // per the IN/OUT formats. Output tiled, input linear, no scaling.
+    //
+    // FLIP_VERT(1) is REQUIRED here: the GPU's tile-storage origin is bottom-
+    // left while a linear RGBA8 source from stb_image / video decode is top-
+    // down. Without the flag the rendered texture comes out upside down.
+    const u32 flags = GX_TRANSFER_FLIP_VERT(1) |
+                      GX_TRANSFER_OUT_TILED(1) |
+                      GX_TRANSFER_RAW_COPY(0)  |
+                      GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) |
+                      GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGBA8) |
+                      GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO);
+
+    GX_DisplayTransfer((u32*)resource->mLinearBuf,
+                       GX_BUFFER_DIM(texW, texH),
+                       (u32*)resource->mTex.data,
+                       GX_BUFFER_DIM(texW, texH),
+                       flags);
+    gspWaitForPPF();
 }
 
 // Material

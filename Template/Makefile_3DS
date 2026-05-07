@@ -190,7 +190,7 @@ CleanStaleDeps:
 	fi
 
 #---------------------------------------------------------------------------------
-all: CleanStaleDeps $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
+all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
 
 MakeEngine:
@@ -199,7 +199,10 @@ MakeEngine:
 OutputDir:
 	@[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 
-$(BUILD): MakeEngine OutputDir
+# CleanStaleDeps must finish before MakeEngine/$(BUILD) start, otherwise
+# `rm -f *.o *.d` races with parallel sub-make compilations and the earliest
+# .o files get deleted after they're written, breaking the archive step.
+$(BUILD): CleanStaleDeps MakeEngine OutputDir
 	@mkdir -p $@
 
 ifneq ($(GFXBUILD),$(BUILD))

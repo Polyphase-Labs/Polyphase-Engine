@@ -10672,10 +10672,216 @@ ImFont* GetEditorTerminalFont()
     return sTerminalFont;
 }
 
-// Progress modal shown while NativeAddonManager has an async build queue
-// active (Force Rebuild Native Addons, or any other future enqueueing path).
-// Tells the user which addon is compiling, where they are in the queue, and
-// surfaces the build's stdout tail so a failed compile is visible.
+// Open the host OS file manager and select / reveal the given path.
+//   Windows : explorer /select,"<path>"        — selects file, opens parent
+//   Linux   : xdg-open "<parentDir>"            — open the containing folder
+//             (no portable "select file" verb across desktop environments)
+static void RevealPathInOSFileManager(const std::string& path)
+{
+    if (path.empty()) return;
+
+    std::string absPath = SYS_GetAbsolutePath(path);
+
+#if PLATFORM_WINDOWS
+    for (char& c : absPath) { if (c == '/') c = '\\'; }
+    SYS_Exec(("explorer /select,\"" + absPath + "\"").c_str());
+#elif PLATFORM_LINUX
+    std::string dirPath = absPath;
+    size_t lastSlash = absPath.find_last_of('/');
+    if (lastSlash != std::string::npos) dirPath = absPath.substr(0, lastSlash);
+    SYS_Exec(("xdg-open \"" + dirPath + "\" &").c_str());
+#endif
+}
+
+// Build the "manual nuke" command the user can run from a privileged shell.
+// Includes path-separator fix-ups and per-OS shell selection.
+static std::string MakeIntermediateNukeCommand(const std::string& intermediateDir,
+                                               const char*& outShellLabel)
+{
+    std::string dir = intermediateDir;
+
+    // Strip trailing slash for nicer command output, but keep the leading
+    // drive letter (Windows) or root slash (POSIX).
+    while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
+
+#if PLATFORM_WINDOWS
+    for (char& c : dir) { if (c == '/') c = '\\'; }
+    outShellLabel = "cmd.exe (Run as administrator)";
+    return "rmdir /s /q \"" + dir + "\"";
+#elif PLATFORM_LINUX
+    outShellLabel = "Terminal";
+    return "sudo rm -rf \"" + dir + "\"";
+#else
+    outShellLabel = "shell";
+    return "rm -rf \"" + dir + "\"";
+#endif
+}
+
+static void DrawNativeAddonBuildBlockedModal()
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr) return;
+
+    const bool blocked = nam->IsBuildBlocked();
+    const char* kPopupName = "Native Addon Build Blocked##NativeAddonBlockedModal";
+
+    if (blocked && !ImGui::IsPopupOpen(kPopupName))
+    {
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(820, 480), ImGuiCond_FirstUseEver);
+
+    if (ImGui::BeginPopupModal(kPopupName, nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (!blocked)
+        {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        const auto& info = nam->GetBuildBlocked();
+
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f),
+                           "Build of '%s' is paused — intermediate files are locked.",
+                           info.mAddonId.c_str());
+        ImGui::Separator();
+
+        ImGui::TextWrapped(
+            "The compiler/linker can't overwrite these files because another "
+            "process is holding them open. Even an Administrator 'rmdir' will "
+            "report \"Access is denied\" — the lock is on a file handle, not a "
+            "permission. The two usual suspects:");
+        ImGui::Bullet();
+        ImGui::TextWrapped(
+            "Visual Studio debugger attached to Polyphase.exe. VS auto-loads "
+            "the addon's .pdb for source-level debugging and keeps it open "
+            "until you Stop Debugging (Shift+F5) or detach.");
+        ImGui::Bullet();
+        ImGui::TextWrapped(
+            "mspdbsrv.exe — the PDB server the linker spawns. It hangs around "
+            "between builds and can hold a stale handle on the old .pdb. "
+            "Killing it is safe; it respawns when next needed.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "The simplest fix is to delete the addon's entire Intermediate "
+            "folder once the holder is stopped — the build system recreates it. "
+            "Use the helpers below, or run the command in a privileged shell, "
+            "then click Retry.");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // ---- "Manual nuke" command box ----
+        const char* shellLabel = "shell";
+        const std::string nukeCmd = MakeIntermediateNukeCommand(
+            info.mIntermediateDir, shellLabel);
+
+        ImGui::TextDisabled("Run in %s:", shellLabel);
+#if PLATFORM_WINDOWS
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                           " (must be Administrator)");
+#elif PLATFORM_LINUX
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                           " (sudo prompts for password)");
+#endif
+
+        // Render the command in a read-only multiline input so it's easy to
+        // visually inspect and select. Uses a sized buffer copy because
+        // InputTextMultiline takes a non-const buffer.
+        {
+            static thread_local std::string sCmdBuf;
+            sCmdBuf = nukeCmd;
+            // ReadOnly + AutoSelectAll on focus makes drag-select natural.
+            ImGui::InputTextMultiline(
+                "##NABlockedNukeCmd",
+                sCmdBuf.data(), sCmdBuf.size() + 1,
+                ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 2.5f),
+                ImGuiInputTextFlags_ReadOnly);
+        }
+
+        if (ImGui::Button("Copy command", ImVec2(160, 0)))
+        {
+            ImGui::SetClipboardText(nukeCmd.c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Open Intermediate folder", ImVec2(220, 0)))
+        {
+            RevealPathInOSFileManager(info.mIntermediateDir);
+        }
+#if PLATFORM_WINDOWS
+        ImGui::SameLine();
+        // mspdbsrv.exe is the most common silent culprit on Windows. Killing it
+        // is safe — the linker respawns it on next invocation. Run with /F so
+        // it gets terminated even if it's busy on something else.
+        if (ImGui::Button("Kill mspdbsrv.exe", ImVec2(180, 0)))
+        {
+            SYS_Exec("taskkill /F /IM mspdbsrv.exe");
+            LogDebug("Sent taskkill to mspdbsrv.exe — click Retry to re-sweep.");
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Kills the Microsoft PDB server process if it's running.\n"
+                "Safe — it respawns when the next link needs it.\n"
+                "Click Retry afterwards to re-sweep.");
+        }
+#endif
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        ImGui::TextDisabled("Locked files (%d) — click a row to reveal in the OS file manager:",
+                            (int)info.mLockedFiles.size());
+
+        // Reserve room at the bottom for the action-button row.
+        const float buttonRowHeight = ImGui::GetFrameHeightWithSpacing() + 4.0f;
+        ImGui::BeginChild("##NABlockedFiles",
+                          ImVec2(0, -buttonRowHeight),
+                          true, ImGuiWindowFlags_HorizontalScrollbar);
+        for (size_t i = 0; i < info.mLockedFiles.size(); ++i)
+        {
+            const std::string& path = info.mLockedFiles[i];
+            ImGui::PushID((int)i);
+            // Selectable spans the full row width; clicking reveals the file
+            // in Explorer / Finder / xdg-open.
+            if (ImGui::Selectable(path.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick))
+            {
+                RevealPathInOSFileManager(path);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Click to reveal in OS file manager");
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+
+        if (ImGui::Button("Retry", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+            // Defer the call until after EndPopup so the modal isn't redrawn
+            // mid-state-change. RetryBlockedBuild may set mBlocked again if
+            // files are still locked, which will reopen the popup next frame.
+            nam->RetryBlockedBuild();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            nam->CancelBlockedBuild();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 static void DrawNativeAddonBuildModal()
 {
     NativeAddonManager* nam = NativeAddonManager::Get();
@@ -10781,6 +10987,10 @@ void EditorImguiDraw()
         // Native-addon build progress (only renders while a build queue
         // is active; closes itself when the queue drains).
         DrawNativeAddonBuildModal();
+
+        // Surface locked-intermediate-file blockers (LNK1201 etc.) with a
+        // Retry/Cancel prompt so the user can release the lock and resume.
+        DrawNativeAddonBuildBlockedModal();
 
         if (GetEditorState()->mShowTimelinePanel)
         {

@@ -339,10 +339,15 @@ static void InjectNativeAddonsIntoVcxproj(
         addonSourceRoots.push_back(sourceDir);
         GatherAddonSourceFiles(sourceDir, sourceFiles);
 
-        for (const std::string& d : addon.mNativeMetadata.mExtraDefines)     extraDefines.push_back(d);
-        for (const std::string& inc : addon.mNativeMetadata.mExtraIncludeDirs) extraIncludeDirs.push_back(addon.mSourcePath + inc);
-        for (const std::string& ld : addon.mNativeMetadata.mExtraLibDirs)     extraLibDirs.push_back(addon.mSourcePath + ld);
-        for (const std::string& lb : addon.mNativeMetadata.mExtraLibs)        extraLibs.push_back(lb);
+        // This injection is for the Windows shipped (.vcxproj) build, so resolve
+        // per-platform extras with platform="Windows". An addon putting FFmpeg
+        // libs under nativePerPlatform.Windows lands them in this build; one
+        // putting them under .GameCube does not.
+        const auto extras = addon.mNativeMetadata.ResolveExtras("Windows");
+        for (const std::string& d : extras.mExtraDefines)     extraDefines.push_back(d);
+        for (const std::string& inc : extras.mExtraIncludeDirs) extraIncludeDirs.push_back(addon.mSourcePath + inc);
+        for (const std::string& ld : extras.mExtraLibDirs)     extraLibDirs.push_back(addon.mSourcePath + ld);
+        for (const std::string& lb : extras.mExtraLibs)        extraLibs.push_back(lb);
     }
 
     // Inject ClCompile entries (generated registrar + every addon .cpp).
@@ -442,26 +447,31 @@ static void InjectNativeAddonsIntoVcxproj(
 
 // After the shipped game's exe has been copied to the Packaged directory, copy each addon's
 // `copyBinaries` directories (e.g. FFmpeg DLLs) next to the exe so runtime DLL loading works.
-static void CopyAddonBinariesToPackaged(const std::string& packagedDir)
+// platform selects which nativePerPlatform.<P>.copyBinaries entries also apply on top of the
+// common native.copyBinaries — e.g. an addon may bundle Windows-only FFmpeg DLLs under
+// nativePerPlatform.Windows.copyBinaries that should NOT be copied on a GameCube package.
+static void CopyAddonBinariesToPackaged(const std::string& packagedDir, Platform platform)
 {
     NativeAddonManager* nam = NativeAddonManager::Get();
     if (nam == nullptr) return;
     const std::vector<NativeAddonState> engineAddons = nam->GetEngineAddons();
+    const std::string platformName = GetPlatformString(platform);
     for (const NativeAddonState& addon : engineAddons)
     {
-        for (const std::string& binDir : addon.mNativeMetadata.mCopyBinaries)
+        const auto extras = addon.mNativeMetadata.ResolveExtras(platformName);
+        for (const std::string& binDir : extras.mCopyBinaries)
         {
             std::string src = addon.mSourcePath + binDir;
             if (DoesDirExist(src.c_str()))
             {
-                LogDebug("CopyAddonBinariesToPackaged: %s -> %s", src.c_str(), packagedDir.c_str());
+                LogDebug("CopyAddonBinariesToPackaged[%s]: %s -> %s", platformName.c_str(), src.c_str(), packagedDir.c_str());
                 SYS_CopyDirectory(src.c_str(), packagedDir.c_str());
             }
         }
     }
 }
 
-static void InjectNativeAddonSources(const std::string& makefilePath, const std::string& buildProjDir)
+static void InjectNativeAddonSources(const std::string& makefilePath, const std::string& buildProjDir, Platform platform)
 {
     LogWarning("[INJ] Start inject");
     NativeAddonManager* nam = NativeAddonManager::Get();
@@ -757,8 +767,16 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
 
             if (cppEnd != std::string::npos)
             {
+                // Append `+=` for the explicit basenames AND a `:= $(sort)` line
+                // to dedupe. The wildcard expansion above SOURCES may have
+                // already picked up these basenames; without dedupe each addon
+                // .cpp gets compiled twice and the linker chokes on duplicate
+                // symbols ("multiple definition of X" with same .o on both
+                // sides). $(sort) also alphabetizes, but build order doesn't
+                // matter and dedupe is the goal.
                 std::string cppAdd = "\nCPPFILES +=";
                 for (const std::string& f : addonCppBasenames) cppAdd += " " + f;
+                cppAdd += "\nCPPFILES := $(sort $(CPPFILES))";
                 makefileContent.insert(cppEnd, cppAdd);
             }
         }
@@ -771,8 +789,10 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
 
             if (cEnd != std::string::npos)
             {
+                // Same dedupe pattern as CPPFILES above.
                 std::string cAdd = "\nCFILES +=";
                 for (const std::string& f : addonCBasenames) cAdd += " " + f;
+                cAdd += "\nCFILES := $(sort $(CFILES))";
                 makefileContent.insert(cEnd, cAdd);
             }
         }
@@ -781,17 +801,21 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     // --- Extras from each addon's package.json ---
     // Append extraDefines as -DFOO=1 flags to CFLAGS; extraIncludeDirs as additional paths
     // on INCLUDES (or raw -I if INCLUDES not found); extraLibDirs and extraLibs as -L/-l flags
-    // on LIBS.
+    // on LIBS. Resolved per target platform so an addon's nativePerPlatform.GameCube
+    // (or .Wii / .3DS / .Linux / .Android) overrides land in the right Makefile and
+    // PC-only deps under nativePerPlatform.Windows don't bleed into a console build.
+    const std::string platformName = GetPlatformString(platform);
     std::vector<std::string> allExtraDefines;
     std::vector<std::string> allExtraIncludeDirs;
     std::vector<std::string> allExtraLibDirs;
     std::vector<std::string> allExtraLibs;
     for (const NativeAddonState& addon : engineAddons)
     {
-        for (const std::string& d : addon.mNativeMetadata.mExtraDefines)     allExtraDefines.push_back(d);
-        for (const std::string& inc : addon.mNativeMetadata.mExtraIncludeDirs) allExtraIncludeDirs.push_back(addon.mSourcePath + inc);
-        for (const std::string& ld : addon.mNativeMetadata.mExtraLibDirs)     allExtraLibDirs.push_back(addon.mSourcePath + ld);
-        for (const std::string& lb : addon.mNativeMetadata.mExtraLibs)        allExtraLibs.push_back(lb);
+        const auto extras = addon.mNativeMetadata.ResolveExtras(platformName);
+        for (const std::string& d : extras.mExtraDefines)     allExtraDefines.push_back(d);
+        for (const std::string& inc : extras.mExtraIncludeDirs) allExtraIncludeDirs.push_back(addon.mSourcePath + inc);
+        for (const std::string& ld : extras.mExtraLibDirs)     allExtraLibDirs.push_back(addon.mSourcePath + ld);
+        for (const std::string& lb : extras.mExtraLibs)        allExtraLibs.push_back(lb);
     }
 
     auto appendAfterLine = [&](const char* anchor, const std::string& append) {
@@ -1204,6 +1228,17 @@ void ActionManager::BuildPhase1()
             if (!alreadyLoaded)
             {
                 AssetManager::Get()->LoadAsset(*stub);
+            }
+
+            // LoadAsset can fail silently (missing source file, factory missing
+            // because its addon DLL didn't load, corrupt .oct). Skip the stub
+            // rather than dereferencing null — the build continues for the rest
+            // of the project instead of AV'ing in operator+.
+            if (stub->mAsset == nullptr)
+            {
+                LogWarning("Cook: skipping stub '%s' — asset failed to load", stub->mPath.c_str());
+                AppendBuildOutput("Warning: skipping asset (load failed): " + stub->mPath + "\n");
+                continue;
             }
 
             std::string packFile = packDir + stub->mAsset->GetName() + ".oct";
@@ -1844,7 +1879,7 @@ void ActionManager::BuildPhase1()
             SYS_CopyFile(scriptHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.h").c_str());
             SYS_CopyFile(scriptSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.cpp").c_str());
 
-            InjectNativeAddonSources(tmpMakefile, buildProjDir);
+            InjectNativeAddonSources(tmpMakefile, buildProjDir, platform);
 
             // Force Rebuild for Makefile platforms: make's timestamp-only dependency
             // tracking won't notice CFLAGS/LIBS changes from the just-injected addon
@@ -2263,9 +2298,9 @@ void ActionManager::FinalizeLocalBuild()
     }
 
     // Copy each addon's `copyBinaries` directories (e.g. FFmpeg DLLs) next to the exe so
-    // runtime DLL imports resolve. Platform-agnostic; the engine's LoadLibraryEx / dlopen
-    // paths search the exe's directory by default.
-    CopyAddonBinariesToPackaged(packagedDir);
+    // runtime DLL imports resolve. Resolved per target platform — addons that bundle
+    // host-specific binaries should put them under nativePerPlatform.<P>.copyBinaries.
+    CopyAddonBinariesToPackaged(packagedDir, platform);
 
     if (standalone)
     {
@@ -4116,6 +4151,17 @@ Asset* ActionManager::ImportAsset(const std::string& path)
     else if (extension == ".ttf" || extension == ".xml")
     {
         importTypes.push_back(Font::GetStaticType());
+    }
+    else
+    {
+        // Addon-registered extension dispatch (e.g. ".mp4" -> VideoClip from the
+        // video addon). Registered via AssetManager::RegisterImportExtension in
+        // each addon's plugin OnLoad.
+        TypeId addonType = LookupImportExtension(extension);
+        if (addonType != INVALID_TYPE_ID)
+        {
+            importTypes.push_back(addonType);
+        }
     }
 
     if (importTypes.size() == 0)

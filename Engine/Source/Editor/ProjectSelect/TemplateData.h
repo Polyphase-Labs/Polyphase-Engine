@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <stdint.h>
 
 /**
@@ -31,11 +32,57 @@ struct NativeModuleMetadata
 
     // Optional extras for addons that bundle third-party libraries (e.g. FFmpeg).
     // All relative paths resolve against the addon's package root (folder containing package.json).
+    // These are the COMMON arrays applied to every platform; per-platform overrides
+    // (mPerPlatform) are concatenated on top by ResolveExtras().
     std::vector<std::string> mExtraDefines;     // e.g. ["POLYPHASE_WITH_FFMPEG=1"]
     std::vector<std::string> mExtraIncludeDirs; // e.g. ["External/ffmpeg/include"]
     std::vector<std::string> mExtraLibDirs;     // e.g. ["External/ffmpeg/lib"]
     std::vector<std::string> mExtraLibs;        // e.g. ["avformat.lib", "avcodec.lib", ...]
     std::vector<std::string> mCopyBinaries;     // Dirs whose contents get copied next to the addon DLL post-build (e.g. ["External/ffmpeg/bin"])
+
+    // Per-platform extras. Same shape as the common arrays above; merged
+    // (concatenated, common-first) by ResolveExtras() when generating the build
+    // command for a specific target. Keys are GetPlatformString(Platform) values:
+    // "Windows", "Linux", "Android", "GameCube", "Wii", "3DS". Missing keys mean
+    // "no overrides for that platform". Lets PC-only deps (e.g. FFmpeg) live
+    // under nativePerPlatform.Windows so console builds don't try to link them.
+    struct PlatformExtras
+    {
+        std::vector<std::string> mExtraDefines;
+        std::vector<std::string> mExtraIncludeDirs;
+        std::vector<std::string> mExtraLibDirs;
+        std::vector<std::string> mExtraLibs;
+        std::vector<std::string> mCopyBinaries;
+    };
+    std::unordered_map<std::string, PlatformExtras> mPerPlatform;
+
+    // Returns the effective extras for a given platform: common arrays first,
+    // then mPerPlatform[platformName] appended (if present). Pass an empty string
+    // to get just the common arrays.
+    PlatformExtras ResolveExtras(const std::string& platformName) const
+    {
+        PlatformExtras out;
+        out.mExtraDefines     = mExtraDefines;
+        out.mExtraIncludeDirs = mExtraIncludeDirs;
+        out.mExtraLibDirs     = mExtraLibDirs;
+        out.mExtraLibs        = mExtraLibs;
+        out.mCopyBinaries     = mCopyBinaries;
+
+        if (!platformName.empty())
+        {
+            auto it = mPerPlatform.find(platformName);
+            if (it != mPerPlatform.end())
+            {
+                const PlatformExtras& over = it->second;
+                out.mExtraDefines.insert    (out.mExtraDefines.end(),     over.mExtraDefines.begin(),     over.mExtraDefines.end());
+                out.mExtraIncludeDirs.insert(out.mExtraIncludeDirs.end(), over.mExtraIncludeDirs.begin(), over.mExtraIncludeDirs.end());
+                out.mExtraLibDirs.insert    (out.mExtraLibDirs.end(),     over.mExtraLibDirs.begin(),     over.mExtraLibDirs.end());
+                out.mExtraLibs.insert       (out.mExtraLibs.end(),        over.mExtraLibs.begin(),        over.mExtraLibs.end());
+                out.mCopyBinaries.insert    (out.mCopyBinaries.end(),     over.mCopyBinaries.begin(),     over.mCopyBinaries.end());
+            }
+        }
+        return out;
+    }
 };
 
 /**
