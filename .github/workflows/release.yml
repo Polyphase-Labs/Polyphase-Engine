@@ -272,7 +272,9 @@ jobs:
 
       - name: Install console toolchain
         if: matrix.toolchain != 'none'
-        run: sudo bash Tools/CI/install_devkitpro.sh --platforms ${{ matrix.toolchain }}
+        # sudo -E preserves $GITHUB_ENV / $GITHUB_PATH so install_devkitpro.sh
+        # can append DEVKITPRO/DEVKITPPC/DEVKITARM for the next step.
+        run: sudo -E bash Tools/CI/install_devkitpro.sh --platforms ${{ matrix.toolchain }}
 
       - name: Clone test project
         run: bash Tools/CI/TestBuildProject/clone_test_project.sh "${{ env.TEST_PROJECT_REPO }}" ./test-project

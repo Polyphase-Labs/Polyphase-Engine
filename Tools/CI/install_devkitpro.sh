@@ -100,6 +100,18 @@ DEVKITPRO_DIR="/opt/devkitpro"
 DEVKITPPC_DIR="$DEVKITPRO_DIR/devkitPPC"
 DEVKITARM_DIR="$DEVKITPRO_DIR/devkitARM"
 
+# Detect the silent-fail mode: running under Actions (sudo elevated) but the
+# Actions env-var paths weren't preserved through sudo. Without this warning
+# the install completes "successfully" but the next step's make can't find
+# powerpc-eabi-gcc / arm-none-eabi-gcc and crashes with a confusing error.
+if [[ "${GITHUB_ACTIONS:-}" == "true" && -z "${GITHUB_ENV:-}" ]]; then
+  echo "WARNING: GITHUB_ENV is empty even though we appear to be running under" >&2
+  echo "         GitHub Actions. Toolchain env vars (DEVKITPRO/DEVKITPPC/" >&2
+  echo "         DEVKITARM) won't be exported to subsequent steps. This usually" >&2
+  echo "         means the workflow invoked us with 'sudo' instead of 'sudo -E'." >&2
+  echo "         Update the workflow to: sudo -E bash $0 ..." >&2
+fi
+
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
     echo "DEVKITPRO=$DEVKITPRO_DIR"
