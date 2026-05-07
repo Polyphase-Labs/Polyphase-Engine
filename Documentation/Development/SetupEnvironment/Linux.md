@@ -24,6 +24,7 @@ Note: arch users may get a dependency error when attempting to install `alsa-lib
 Note: libcurl4/curl is optional but required for the auto-update feature in the editor.
 Note: `libpulse`/`libpulse-dev` is required for streaming audio (used by the engine's `AUD_*Stream*` API and the VideoPlayer addon). Without it, video plays silently.
 Note: FFmpeg dev packages are only required if you build a project that uses the VideoPlayer addon. The engine itself does not depend on them.
+Note: On **Ubuntu 24.04+**, the ALSA runtime library was renamed from `libasound2` to `libasound2t64` as part of the [time_t 64-bit transition](https://wiki.debian.org/ReleaseGoals/64bit-time). The `-dev` package above (`libasound2-dev`) still works for building — apt resolves it transparently — but if you ship a built binary, end-user install lines that named `libasound2` directly will fail with *"Package 'libasound2' has no installation candidate"*. Use `libasound2t64` in runtime install instructions on 24.04+.
 
 ### Installing Dependencies
 

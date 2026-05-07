@@ -265,7 +265,10 @@ jobs:
       - name: Install runtime deps for the headless editor
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan1 libasound2 libxcb1 libpulse0
+          # libasound2 was renamed to libasound2t64 on Ubuntu 24.04 (time-64 ABI
+          # transition); install the real provider directly to avoid the
+          # "no installation candidate" failure on the virtual package.
+          sudo apt-get install -y libvulkan1 libasound2t64 libxcb1 libpulse0
 
       - name: Install console toolchain
         if: matrix.toolchain != 'none'
