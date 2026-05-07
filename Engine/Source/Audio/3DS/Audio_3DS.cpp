@@ -8,6 +8,9 @@
 
 #include <3ds.h>
 
+#include <cstring>
+#include <deque>
+
 // Audio backend: try NDSP first, fall back to CSND.
 enum AudioBackend
 {
@@ -18,6 +21,149 @@ enum AudioBackend
 
 static AudioBackend sBackend = AUDIO_BACKEND_NONE;
 static float sSampleRates[AUDIO_MAX_VOICES] = {};
+
+// ----------------------------------------------------------------------------------------
+// Streaming voices (NDSP backend only — see CSND note below).
+//
+// NDSP supports queued-buffer playback natively: ndspChnWaveBufAdd appends a wave buf
+// onto the channel's internal queue, and each wbuf transitions FREE -> QUEUED -> PLAYING
+// -> DONE as the DSP consumes it. We own a fixed pool of in-flight wbuf slots per voice
+// (the structs must persist while NDSP holds them) and overflow into a software FIFO of
+// pending buffers when the pool fills up.
+//
+// Buffer retirement is detected by polling each slot's wbuf.status against NDSP_WBUF_DONE.
+// AdvanceStream runs every frame from AUD_Update plus opportunistically inside
+// AUD_SubmitStreamBuffer (so the very first submit starts playback this frame instead of
+// next) and AUD_GetStreamPlayedSamples (so the audio-master video clock stays fresh).
+//
+// Voice channels: streaming uses NDSP channel indices [AUDIO_MAX_VOICES, +N) so they never
+// collide with the engine's 8-slot one-shot pool. NDSP exposes 24 channels total.
+//
+// CSND backend: csndPlaySound is one-shot only and lacks a queue mechanism that would
+// make video-sync'd streaming viable without per-frame channel restart hitches. When the
+// 3DS falls back to CSND (no DSP firmware), AUD_OpenStream returns 0 and the addon plays
+// the video silently — same as the pre-implementation stub behavior.
+//
+// Thread model: all AUD_* calls run on the engine main thread. No mutex needed.
+// ----------------------------------------------------------------------------------------
+
+static constexpr uint32_t kMaxStreamingVoices = 4;
+static constexpr uint32_t kStreamChannelBase  = AUDIO_MAX_VOICES;
+static constexpr uint32_t kStreamInFlightCap  = 4;
+// linearAlloc returns 16-byte aligned. We round buffer sizes to 32 bytes for DSP cache-
+// flush granularity (DSP_FlushDataCache works on cache lines).
+static constexpr uint32_t kStreamAlign = 32;
+
+struct StreamSlot
+{
+    ndspWaveBuf mWaveBuf = {};
+    uint8_t*    mData    = nullptr;  // linearAlloc'd; null = slot free
+    uint32_t    mFrames  = 0;        // useful frames (caller bytes / bytesPerFrame)
+};
+
+struct StreamPending
+{
+    uint8_t* mData       = nullptr;  // linearAlloc'd; ownership passes to a slot when promoted
+    uint32_t mPaddedSize = 0;        // alloc size, 32-byte multiple
+    uint32_t mFrames     = 0;
+};
+
+struct StreamVoice
+{
+    bool        mInUse        = false;
+    bool        mStarted      = false;
+    bool        mPaused       = false;
+    uint32_t    mChannel      = 0;       // NDSP channel index
+    uint16_t    mFormat       = 0;       // NDSP_FORMAT_*
+    uint32_t    mSampleRate   = 0;
+    uint32_t    mBytesPerFrame = 0;
+    float       mVolume       = 1.0f;
+
+    StreamSlot               mSlots[kStreamInFlightCap];
+    std::deque<StreamPending> mPending;
+
+    uint64_t    mPlayedFrames = 0;
+};
+
+static StreamVoice sStreams[kMaxStreamingVoices] = {};
+
+static uint16_t StreamVoiceFormat(uint32_t numChannels, uint32_t bitsPerSample)
+{
+    const bool stereo = (numChannels == 2);
+    const bool bit16  = (bitsPerSample == 16);
+    if (stereo) return bit16 ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_STEREO_PCM8;
+    return bit16 ? NDSP_FORMAT_MONO_PCM16 : NDSP_FORMAT_MONO_PCM8;
+}
+
+static void ApplyStreamMix(uint32_t channel, float volume)
+{
+    float mix[12];
+    memset(mix, 0, sizeof(mix));
+    mix[0] = volume; // front L
+    mix[1] = volume; // front R
+    ndspChnSetMix(channel, mix);
+}
+
+// Drains retired slots and promotes pending buffers into NDSP's queue.
+static void AdvanceStream(StreamVoice& sv)
+{
+    if (!sv.mInUse) return;
+
+    // 1) Reclaim slots that NDSP has finished with.
+    for (uint32_t i = 0; i < kStreamInFlightCap; ++i)
+    {
+        StreamSlot& s = sv.mSlots[i];
+        if (s.mData != nullptr && s.mWaveBuf.status == NDSP_WBUF_DONE)
+        {
+            sv.mPlayedFrames += s.mFrames;
+            linearFree(s.mData);
+            s.mData = nullptr;
+            s.mFrames = 0;
+            memset(&s.mWaveBuf, 0, sizeof(s.mWaveBuf));
+        }
+    }
+
+    // 2) Promote pending buffers into any free slots, up to NDSP's queue capacity.
+    for (uint32_t i = 0; i < kStreamInFlightCap; ++i)
+    {
+        if (sv.mPending.empty()) break;
+
+        StreamSlot& s = sv.mSlots[i];
+        if (s.mData != nullptr) continue; // slot busy
+
+        StreamPending p = sv.mPending.front();
+        sv.mPending.pop_front();
+
+        s.mData   = p.mData;
+        s.mFrames = p.mFrames;
+
+        memset(&s.mWaveBuf, 0, sizeof(s.mWaveBuf));
+        s.mWaveBuf.data_vaddr = s.mData;
+        s.mWaveBuf.nsamples   = p.mFrames;
+        s.mWaveBuf.looping    = false;
+
+        DSP_FlushDataCache(s.mData, p.mPaddedSize);
+        ndspChnWaveBufAdd(sv.mChannel, &s.mWaveBuf);
+
+        if (!sv.mStarted)
+        {
+            // First submit since open / flush. Pause-state is honored after we add
+            // the first buffer so the channel doesn't free-run during startup.
+            sv.mStarted = true;
+            if (sv.mPaused)
+            {
+                ndspChnSetPaused(sv.mChannel, true);
+            }
+        }
+    }
+}
+
+static StreamVoice* GetStreamFromId(uint32_t streamId)
+{
+    if (streamId == 0 || streamId > kMaxStreamingVoices) return nullptr;
+    StreamVoice& sv = sStreams[streamId - 1];
+    return sv.mInUse ? &sv : nullptr;
+}
 
 // NDSP state
 static ndspWaveBuf sWaveBufs[AUDIO_MAX_VOICES] = {};
@@ -84,7 +230,12 @@ void AUD_Shutdown()
 
 void AUD_Update()
 {
+    if (sBackend != AUDIO_BACKEND_NDSP) return;
 
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        AdvanceStream(sStreams[i]);
+    }
 }
 
 // Helper: convert interleaved stereo to mono by averaging L+R samples.
@@ -374,14 +525,188 @@ void AUD_ProcessWaveBuffer(SoundWave* soundWave)
     }
 }
 
-// Streaming voices — not implemented on 3DS. Returning 0 from AUD_OpenStream tells callers
-// (e.g. the VideoPlayer addon) to fall back to video-only playback.
-uint32_t AUD_OpenStream(uint32_t, uint32_t, uint32_t) { return 0; }
-void     AUD_CloseStream(uint32_t) {}
-int32_t  AUD_SubmitStreamBuffer(uint32_t, const uint8_t*, uint32_t) { return 0; }
-uint64_t AUD_GetStreamPlayedSamples(uint32_t) { return 0; }
-void     AUD_SetStreamVolume(uint32_t, float) {}
-void     AUD_SetStreamPaused(uint32_t, bool) {}
-void     AUD_FlushStream(uint32_t) {}
+// Streaming voices — push-based PCM output for addons that decode at runtime
+// (e.g. the VideoPlayer addon's audio track). NDSP backend only; CSND fallback
+// returns 0 so callers play video silently.
+
+uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    if (sBackend != AUDIO_BACKEND_NDSP)
+    {
+        // CSND fallback or audio uninitialized — no streaming path. Return 0 so the
+        // caller (VideoPlayer addon) gracefully falls back to video-only playback.
+        return 0;
+    }
+    if (numChannels != 1 && numChannels != 2)
+    {
+        LogWarning("AUD_OpenStream: only mono/stereo supported (got %u channels)", numChannels);
+        return 0;
+    }
+    if (bitsPerSample != 8 && bitsPerSample != 16)
+    {
+        LogWarning("AUD_OpenStream: only 8 / 16-bit PCM supported (got %u bps)", bitsPerSample);
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < kMaxStreamingVoices; ++i)
+    {
+        StreamVoice& sv = sStreams[i];
+        if (sv.mInUse) continue;
+
+        sv.mInUse         = true;
+        sv.mStarted       = false;
+        sv.mPaused        = false;
+        sv.mChannel       = kStreamChannelBase + i;
+        sv.mFormat        = StreamVoiceFormat(numChannels, bitsPerSample);
+        sv.mSampleRate    = sampleRate;
+        sv.mBytesPerFrame = numChannels * (bitsPerSample / 8);
+        sv.mVolume        = 1.0f;
+        sv.mPlayedFrames  = 0;
+        for (uint32_t s = 0; s < kStreamInFlightCap; ++s)
+        {
+            sv.mSlots[s].mData = nullptr;
+            sv.mSlots[s].mFrames = 0;
+            memset(&sv.mSlots[s].mWaveBuf, 0, sizeof(ndspWaveBuf));
+        }
+
+        ndspChnReset(sv.mChannel);
+        ndspChnSetInterp(sv.mChannel, NDSP_INTERP_LINEAR);
+        ndspChnSetRate(sv.mChannel, float(sampleRate));
+        ndspChnSetFormat(sv.mChannel, sv.mFormat);
+        ApplyStreamMix(sv.mChannel, sv.mVolume);
+
+        return i + 1; // 0 is the "not available" sentinel
+    }
+
+    LogWarning("AUD_OpenStream: no free streaming voices (pool size %u)", kMaxStreamingVoices);
+    return 0;
+}
+
+void AUD_CloseStream(uint32_t streamId)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr) return;
+
+    if (sv->mStarted)
+    {
+        ndspChnWaveBufClear(sv->mChannel);
+        ndspChnReset(sv->mChannel);
+    }
+    for (uint32_t s = 0; s < kStreamInFlightCap; ++s)
+    {
+        if (sv->mSlots[s].mData != nullptr)
+        {
+            linearFree(sv->mSlots[s].mData);
+            sv->mSlots[s].mData = nullptr;
+            sv->mSlots[s].mFrames = 0;
+            memset(&sv->mSlots[s].mWaveBuf, 0, sizeof(ndspWaveBuf));
+        }
+    }
+    for (StreamPending& p : sv->mPending)
+    {
+        if (p.mData != nullptr) linearFree(p.mData);
+    }
+    sv->mPending.clear();
+
+    sv->mInUse        = false;
+    sv->mStarted      = false;
+    sv->mPaused       = false;
+    sv->mPlayedFrames = 0;
+}
+
+int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr || data == nullptr || byteSize == 0) return 0;
+
+    // Round to 32 bytes for DSP_FlushDataCache granularity. Pad bytes are silence;
+    // the played-frames counter only counts caller-submitted useful frames so the
+    // clock isn't skewed by the padding.
+    const uint32_t padded = (byteSize + (kStreamAlign - 1)) & ~(kStreamAlign - 1);
+
+    StreamPending p;
+    p.mData = (uint8_t*)linearAlloc(padded);
+    if (p.mData == nullptr)
+    {
+        LogError("AUD_SubmitStreamBuffer: linearAlloc(%u) failed", padded);
+        return 0;
+    }
+    memcpy(p.mData, data, byteSize);
+    if (padded > byteSize)
+    {
+        memset(p.mData + byteSize, 0, padded - byteSize);
+    }
+    p.mPaddedSize = padded;
+    p.mFrames     = (sv->mBytesPerFrame > 0) ? (byteSize / sv->mBytesPerFrame) : 0;
+
+    sv->mPending.push_back(p);
+
+    // Kick the pipeline immediately so first-submit starts playback this frame.
+    AdvanceStream(*sv);
+
+    return int32_t(byteSize);
+}
+
+uint64_t AUD_GetStreamPlayedSamples(uint32_t streamId)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr) return 0;
+
+    AdvanceStream(*sv);
+    return sv->mPlayedFrames;
+}
+
+void AUD_SetStreamVolume(uint32_t streamId, float volume)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr) return;
+
+    if (volume < 0.0f) volume = 0.0f;
+    if (volume > 1.0f) volume = 1.0f;
+    sv->mVolume = volume;
+    ApplyStreamMix(sv->mChannel, sv->mVolume);
+}
+
+void AUD_SetStreamPaused(uint32_t streamId, bool paused)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr) return;
+    if (sv->mPaused == paused) return;
+
+    sv->mPaused = paused;
+    if (sv->mStarted)
+    {
+        ndspChnSetPaused(sv->mChannel, paused);
+    }
+}
+
+void AUD_FlushStream(uint32_t streamId)
+{
+    StreamVoice* sv = GetStreamFromId(streamId);
+    if (sv == nullptr) return;
+
+    if (sv->mStarted)
+    {
+        ndspChnWaveBufClear(sv->mChannel);
+    }
+    for (uint32_t s = 0; s < kStreamInFlightCap; ++s)
+    {
+        if (sv->mSlots[s].mData != nullptr)
+        {
+            linearFree(sv->mSlots[s].mData);
+            sv->mSlots[s].mData = nullptr;
+            sv->mSlots[s].mFrames = 0;
+            memset(&sv->mSlots[s].mWaveBuf, 0, sizeof(ndspWaveBuf));
+        }
+    }
+    for (StreamPending& p : sv->mPending)
+    {
+        if (p.mData != nullptr) linearFree(p.mData);
+    }
+    sv->mPending.clear();
+    // mPlayedFrames is left as-is per the AUD_FlushStream contract: callers snapshot
+    // it post-flush and treat subsequent readings as deltas.
+    sv->mStarted = false;
+}
 
 #endif

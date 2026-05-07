@@ -377,6 +377,86 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
 
     GX_InvalidateTexAll();
 
+    // Streaming texture path: raw RGBA8 pixels, no TPL backing. The GX hardware
+    // wants tiled GX_TF_RGBA8 (4x4 pixel blocks, AR plane then GB plane within
+    // each 64-byte block). We CPU-swizzle on every UpdatePixels call into a
+    // 32-byte-aligned scratch buffer that GX_InitTexObj points at.
+    //
+    // GX texture dimensions must be multiples of 4 (tile size). Pad up if
+    // needed; bottom/right padding becomes a black strip — the engine's Quad
+    // multiplies UVs by Texture::GetUVMax() to crop the visible region.
+    if (texture->GetFormat() == PixelFormat::RGBA8 &&
+        data.size() == size_t(texture->GetWidth()) * size_t(texture->GetHeight()) * 4)
+    {
+        auto roundUp4 = [](uint32_t v) { return (v + 3u) & ~3u; };
+        uint32_t texW = roundUp4(texture->GetWidth());
+        uint32_t texH = roundUp4(texture->GetHeight());
+        if (texW < 4u)    texW = 4u;
+        if (texH < 4u)    texH = 4u;
+        if (texW > 1024u) texW = 1024u;
+        if (texH > 1024u) texH = 1024u;
+
+        const uint32_t tiledSize = texW * texH * 4u;
+        resource->mTiledBuf = SYS_AlignedMalloc(tiledSize, 32);
+        if (resource->mTiledBuf == nullptr)
+        {
+            LogError("SYS_AlignedMalloc failed for streaming GX texture (%u bytes)", tiledSize);
+            return;
+        }
+        // Fill with opaque black: AR plane = (0xFF, 0x00) interleaved, GB plane = (0, 0).
+        uint8_t* tb = (uint8_t*)resource->mTiledBuf;
+        const uint32_t numBlocks = (texW / 4u) * (texH / 4u);
+        for (uint32_t b = 0; b < numBlocks; ++b)
+        {
+            uint8_t* arPlane = tb + b * 64u;
+            uint8_t* gbPlane = arPlane + 32u;
+            for (uint32_t i = 0; i < 16; ++i)
+            {
+                arPlane[i * 2 + 0] = 0xFF; // A
+                arPlane[i * 2 + 1] = 0x00; // R
+                gbPlane[i * 2 + 0] = 0x00; // G
+                gbPlane[i * 2 + 1] = 0x00; // B
+            }
+        }
+        DCFlushRange(resource->mTiledBuf, tiledSize);
+
+        resource->mTiledBufSize = tiledSize;
+        resource->mTexWidth     = texW;
+        resource->mTexHeight    = texH;
+
+        GX_InitTexObj(&resource->mGxTexObj,
+                      resource->mTiledBuf,
+                      (u16)texW, (u16)texH,
+                      GX_TF_RGBA8,
+                      GX_REPEAT, GX_REPEAT,
+                      GX_FALSE);
+
+        uint8_t streamMin = GX_LINEAR;
+        uint8_t streamMag = GX_LINEAR;
+        if (texture->GetFilterType() == FilterType::Nearest)
+        {
+            streamMin = GX_NEAR;
+            streamMag = GX_NEAR;
+        }
+        uint8_t streamWrap = GX_REPEAT;
+        switch (texture->GetWrapMode())
+        {
+            case WrapMode::Clamp:  streamWrap = GX_CLAMP;  break;
+            case WrapMode::Mirror: streamWrap = GX_MIRROR; break;
+            default:               streamWrap = GX_REPEAT; break;
+        }
+        GX_InitTexObjWrapMode(&resource->mGxTexObj, streamWrap, streamWrap);
+        GX_InitTexObjFilterMode(&resource->mGxTexObj, streamMin, streamMag);
+
+        // UV-crop ratio so the Quad sampler stops at the content's edge. The
+        // engine's Quad widget multiplies UVs by this in its vertex generator.
+        const float uMax = float(texture->GetWidth())  / float(texW);
+        const float vMax = float(texture->GetHeight()) / float(texH);
+        texture->SetUVMax(glm::vec2(uMax, vMax));
+
+        return;
+    }
+
     resource->mTplData = SYS_AlignedMalloc((uint32_t)data.size(), 32);
     memcpy(resource->mTplData, data.data(), data.size());
 
@@ -424,8 +504,77 @@ void GFX_DestroyTextureResource(Texture* texture)
         SYS_AlignedFree(resource->mTplData);
         resource->mTplData = nullptr;
     }
+    if (resource->mTiledBuf != nullptr)
+    {
+        SYS_AlignedFree(resource->mTiledBuf);
+        resource->mTiledBuf     = nullptr;
+        resource->mTiledBufSize = 0;
+    }
+    resource->mTexWidth  = 0;
+    resource->mTexHeight = 0;
 
     resource->mGxTexObj = { };
+}
+
+// Streaming RGBA8 upload for GX (GameCube/Wii). The GX_TF_RGBA8 format stores
+// each 4x4 pixel block as 64 bytes laid out in two 32-byte planes:
+//   - AR plane (32 bytes): for the 16 pixels in raster-within-block order,
+//     bytes (A0, R0, A1, R1, ..., A15, R15).
+//   - GB plane (32 bytes): same 16 pixels, bytes (G0, B0, G1, B1, ..., G15, B15).
+// Within the texture, blocks themselves are in raster order: block (bx, by) is
+// at byte offset (by * blocksPerRow + bx) * 64.
+//
+// Source is row-major RGBA8 with stb_image byte order (R, G, B, A per pixel).
+// We CPU-swizzle and then DCFlushRange so the GX hardware sees fresh data.
+//
+// Bandwidth note: 320x180 source -> ~57k pixels * (4 bytes read + 4 bytes
+// written) = ~460 KB per frame at 30fps = ~14 MB/s. Well within Wii's 1.94 GB/s
+// main-RAM bandwidth; the per-pixel byte ops dominate, not memory traffic.
+void GFX_UpdateTextureResourcePixels(Texture* texture, const uint8_t* src,
+                                     uint32_t srcWidth, uint32_t srcHeight)
+{
+    TextureResource* resource = texture->GetResource();
+    if (resource == nullptr || resource->mTiledBuf == nullptr) return;
+    if (src == nullptr || srcWidth == 0 || srcHeight == 0) return;
+
+    const uint32_t texW = resource->mTexWidth;
+    const uint32_t texH = resource->mTexHeight;
+    const uint32_t copyW = (srcWidth  < texW) ? srcWidth  : texW;
+    const uint32_t copyH = (srcHeight < texH) ? srcHeight : texH;
+    const uint32_t blocksPerRow = texW / 4u;
+
+    uint8_t* tb = (uint8_t*)resource->mTiledBuf;
+
+    for (uint32_t y = 0; y < copyH; ++y)
+    {
+        const uint32_t by = y / 4u;
+        const uint32_t py = y & 3u;
+        const uint8_t* srcRow = src + y * srcWidth * 4u;
+
+        for (uint32_t x = 0; x < copyW; ++x)
+        {
+            const uint32_t bx = x / 4u;
+            const uint32_t px = x & 3u;
+            const uint32_t blockIdx = by * blocksPerRow + bx;
+            const uint32_t pxIdx    = py * 4u + px;
+            uint8_t* arPlane = tb + blockIdx * 64u;
+            uint8_t* gbPlane = arPlane + 32u;
+
+            const uint8_t* sp = srcRow + x * 4u;
+            // Source bytes: R(0) G(1) B(2) A(3). GX layout: AR plane stores
+            // (A,R), GB plane stores (G,B) per pixel.
+            arPlane[pxIdx * 2 + 0] = sp[3]; // A
+            arPlane[pxIdx * 2 + 1] = sp[0]; // R
+            gbPlane[pxIdx * 2 + 0] = sp[1]; // G
+            gbPlane[pxIdx * 2 + 1] = sp[2]; // B
+        }
+        // Right-edge padding within partial blocks: leave whatever was there
+        // (initialized to opaque black at create time). No need to re-zero
+        // every frame.
+    }
+
+    DCFlushRange(resource->mTiledBuf, resource->mTiledBufSize);
+    GX_InvalidateTexAll();
 }
 
 // Material

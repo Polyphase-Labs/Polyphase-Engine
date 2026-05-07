@@ -132,6 +132,31 @@ AssetStub* FetchAssetStubByUuid(uint64_t uuid)
     return AssetManager::Get()->GetAssetStubByUuid(uuid);
 }
 
+#if EDITOR
+void RegisterImportExtension(const std::string& ext, TypeId type)
+{
+    AssetManager::Get()->RegisterImportExtension(ext, type);
+}
+
+TypeId LookupImportExtension(const std::string& ext)
+{
+    return AssetManager::Get()->LookupImportExtension(ext);
+}
+
+void AssetManager::RegisterImportExtension(const std::string& ext, TypeId type)
+{
+    if (ext.empty() || type == INVALID_TYPE_ID)
+        return;
+    mImportExtensionMap[ext] = type;
+}
+
+TypeId AssetManager::LookupImportExtension(const std::string& ext) const
+{
+    auto it = mImportExtensionMap.find(ext);
+    return (it == mImportExtensionMap.end()) ? INVALID_TYPE_ID : it->second;
+}
+#endif
+
 void AssetManager::Create()
 {
     Destroy();

@@ -129,9 +129,24 @@ struct TextureResource
     GXTexObj mGxTexObj = {};
     TPLFile mTplFile = {};
     void* mTplData = nullptr;
+    // Streaming RGBA8 path (video player). The GX hardware reads textures in
+    // 4x4-tile GX_TF_RGBA8 layout with separate AR/GB planes; CPU swizzles
+    // here every UpdatePixels. Padded to multiple of 4 in each dimension.
+    void*    mTiledBuf     = nullptr;
+    uint32_t mTiledBufSize = 0;
+    uint32_t mTexWidth     = 0;
+    uint32_t mTexHeight    = 0;
 #elif API_C3D
     C3D_Tex mTex = {};
     void* mT3dsData = nullptr;
+    // Streaming-texture path (raw RGBA8 input, e.g. video player). Allocated in
+    // linear memory so GX_DisplayTransfer can DMA it through the GPU's tiler
+    // into mTex on each UpdatePixels call. nullptr for normal cooked .t3x
+    // textures (which are pre-tiled at cook time).
+    void*    mLinearBuf     = nullptr;
+    uint32_t mLinearBufSize = 0;
+    uint32_t mTexWidth      = 0;  // physical (padded to 8-multiple) tex dims
+    uint32_t mTexHeight     = 0;
 #endif
 };
 

@@ -74,6 +74,12 @@ void GFX_EndGpuTimestamp(const char* name);
 void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data);
 void GFX_DestroyTextureResource(Texture* texture);
 
+// Streaming-RGBA8-texture upload. Currently implemented only for C3D (3DS);
+// Vulkan uses Texture::UpdatePixels' direct path via mResource.mImage->Update.
+// Other backends (GX) are no-ops. Typically called once per video frame.
+void GFX_UpdateTextureResourcePixels(Texture* texture, const uint8_t* src,
+                                     uint32_t srcWidth, uint32_t srcHeight);
+
 // Material
 void GFX_CreateMaterialResource(Material* material);
 void GFX_DestroyMaterialResource(Material* material);

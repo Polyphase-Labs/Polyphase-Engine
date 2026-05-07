@@ -71,6 +71,16 @@ POLYPHASE_API Asset* LoadAssetByUuid(uint64_t uuid);
 POLYPHASE_API void AsyncLoadAssetByUuid(uint64_t uuid, AssetRef* targetRef = nullptr);
 POLYPHASE_API AssetStub* FetchAssetStubByUuid(uint64_t uuid);
 
+#if EDITOR
+// Editor-only: addon-provided source-extension dispatch. Addons call this from
+// their plugin OnLoad to teach ActionManager::ImportAsset which Asset subclass
+// owns a given source-file extension (e.g. ".mp4" -> VideoClip). The extension
+// must include the leading dot and be lowercase; comparisons in the dispatcher
+// are case-sensitive to match the existing built-in branches.
+POLYPHASE_API void RegisterImportExtension(const std::string& ext, TypeId type);
+POLYPHASE_API TypeId LookupImportExtension(const std::string& ext);
+#endif
+
 template<typename T>
 T* FetchAsset(const std::string& name)
 {
@@ -207,6 +217,12 @@ public:
     // Raw (non-.oct) asset packaging registry. Populated during DiscoverDirectory.
     const std::vector<RawAssetEntry>& GetRawAssetEntries() const { return mRawAssetEntries; }
 
+    // Addon-provided source-extension dispatch (see free-function declarations
+    // above for usage). Stored on the manager so the table survives addon hot-
+    // reload as long as the addon re-registers in its OnLoad.
+    void RegisterImportExtension(const std::string& ext, TypeId type);
+    TypeId LookupImportExtension(const std::string& ext) const;
+
     // Read the {asset}.meta sidecar at <assetPath>.meta. Returns defaults with
     // mExists=false when the sidecar is missing or unparseable.
     static AssetMetaSidecar LoadAssetMeta(const std::string& assetPath);
@@ -226,6 +242,7 @@ public:
 protected:
     std::unordered_map<TypeId, glm::vec4> mAssetColorMap;
     std::vector<RawAssetEntry> mRawAssetEntries;
+    std::unordered_map<std::string, TypeId> mImportExtensionMap;
 #endif
 };
 

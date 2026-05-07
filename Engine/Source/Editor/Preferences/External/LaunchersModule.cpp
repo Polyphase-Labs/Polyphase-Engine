@@ -83,6 +83,23 @@ void LaunchersModule::Render()
     ImGui::TextDisabled("3dslink is used via 'Build & Run On Device'.");
     ImGui::TextDisabled("Requires devkitPro to be installed.");
 
+    ImGui::Text("3DS IP Address:");
+    ImGui::SetNextItemWidth(-1);
+    char threeDsIPBuffer[64];
+    strncpy(threeDsIPBuffer, m3dsIP.c_str(), sizeof(threeDsIPBuffer) - 1);
+    threeDsIPBuffer[sizeof(threeDsIPBuffer) - 1] = '\0';
+    if (ImGui::InputText("##3dsIP", threeDsIPBuffer, sizeof(threeDsIPBuffer)))
+    {
+        m3dsIP = threeDsIPBuffer;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Optional. IP address shown by Homebrew Launcher's netloader (Y).\n"
+                          "Leave blank to broadcast — required if broadcast discovery fails\n"
+                          "(multiple NICs, AP client isolation, firewall).");
+    }
+
     ImGui::Spacing();
     ImGui::Spacing();
 
@@ -126,6 +143,7 @@ void LaunchersModule::LoadSettings(const rapidjson::Document& doc)
     mAzaharPath = JsonSettings::GetString(doc, "azaharPath", "");
     mAzaharArgs = JsonSettings::GetString(doc, "azaharArgs", "{emulator} {output}");
     mWiiloadIP = JsonSettings::GetString(doc, "wiiloadIP", "");
+    m3dsIP = JsonSettings::GetString(doc, "threeDsIP", "");
 }
 
 void LaunchersModule::SaveSettings(rapidjson::Document& doc)
@@ -135,6 +153,7 @@ void LaunchersModule::SaveSettings(rapidjson::Document& doc)
     JsonSettings::SetString(doc, "azaharPath", mAzaharPath);
     JsonSettings::SetString(doc, "azaharArgs", mAzaharArgs);
     JsonSettings::SetString(doc, "wiiloadIP", mWiiloadIP);
+    JsonSettings::SetString(doc, "threeDsIP", m3dsIP);
 }
 
 bool LaunchersModule::IsEmulatorConfigured(Platform platform) const
@@ -237,6 +256,11 @@ std::string LaunchersModule::BuildLaunchCommand(Platform platform, const std::st
 
 std::string LaunchersModule::Build3dsLinkCommand(const std::string& outputPath) const
 {
+    // -a skips UDP broadcast discovery (the default mode that needs HBL's
+    // netloader to respond). Broadcast often silently fails on multi-NIC hosts
+    // and isolating Wi-Fi APs; passing the explicit IP is the reliable path.
+    std::string ipArg = m3dsIP.empty() ? "" : (" -a " + m3dsIP);
+
 #if PLATFORM_WINDOWS
     // On Windows, 3dslink.exe is at C:\devkitPro\tools\bin\3dslink.exe
     std::string threeDsLink = "C:\\devkitPro\\tools\\bin\\3dslink.exe";
@@ -252,11 +276,11 @@ std::string LaunchersModule::Build3dsLinkCommand(const std::string& outputPath) 
     ReplaceAll(normalizedPath, "/", "\\");
 
     // Use cmd /c with special quoting for paths with spaces
-    std::string cmd = "cmd /c \"\"" + threeDsLink + "\" \"" + normalizedPath + "\"\"";
+    std::string cmd = "cmd /c \"\"" + threeDsLink + "\"" + ipArg + " \"" + normalizedPath + "\"\"";
     return cmd;
 #else
     // On Linux, just run 3dslink directly
-    return "3dslink \"" + outputPath + "\"";
+    return "3dslink" + ipArg + " \"" + outputPath + "\"";
 #endif
 }
 

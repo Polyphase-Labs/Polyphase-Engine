@@ -435,11 +435,20 @@ void Quad::UpdateVertexData()
         mCornerRadius,
         uvX0, uvY0, uvX1, uvY1);
 
-    // Apply UV scale and offset to generated vertices
+    // Apply UV scale and offset to generated vertices.
+    //
+    // Texture-side mUvMax (defaults to 1,1) is multiplied in addition to the
+    // user-controlled mUvScale. Backends that pad the physical texture beyond
+    // the logical content size (e.g. 3DS PoT requirement padding 240x135 to
+    // 256x256) set this so the sampler stops at the content's edge instead of
+    // bleeding into the black padding strip. For normal textures it stays
+    // (1,1) and is a no-op.
+    Texture* uvTex = mTexture.Get<Texture>();
+    const glm::vec2 texUvMax = (uvTex != nullptr) ? uvTex->GetUVMax() : glm::vec2(1.0f, 1.0f);
     for (uint32_t i = 0; i < mNumVertices; ++i)
     {
-        mVertices[i].mTexcoord.x = (mVertices[i].mTexcoord.x + mUvOffset.x) * mUvScale.x;
-        mVertices[i].mTexcoord.y = (mVertices[i].mTexcoord.y + mUvOffset.y) * mUvScale.y;
+        mVertices[i].mTexcoord.x = (mVertices[i].mTexcoord.x + mUvOffset.x) * mUvScale.x * texUvMax.x;
+        mVertices[i].mTexcoord.y = (mVertices[i].mTexcoord.y + mUvOffset.y) * mUvScale.y * texUvMax.y;
     }
 }
 

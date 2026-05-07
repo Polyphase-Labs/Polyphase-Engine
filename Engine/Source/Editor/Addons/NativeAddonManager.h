@@ -69,6 +69,13 @@ struct NativeAddonState
 
     // Native metadata from package.json
     NativeModuleMetadata mNativeMetadata;
+
+    // UUIDs of assets that PurgeAssetsFromModule unloaded during the most
+    // recent UnloadNativeAddon. LoadNativeAddon drains this on its next
+    // successful load, calling LoadAsset on each so an addon-typed asset
+    // that was loaded before reload comes back loaded after — without this,
+    // the post-reload stub has mAsset=null and SaveAsset becomes a no-op.
+    std::vector<uint64_t> mPurgedAssetUuids;
 };
 
 /**
@@ -208,6 +215,34 @@ public:
     /** Snapshot of the current build's stdout (returned by value because
      *  the worker thread mutates the underlying buffer under a mutex). */
     std::string GetAsyncBuildOutput() const;
+
+    // ===== Build-blocked state (locked intermediate files) =====
+    //
+    // Before a build runs, BuildNativeAddon / StartNextQueuedBuild sweep the
+    // addon's intermediate fingerprint dir and try to delete every file. If
+    // any file is locked (most commonly the .pdb held open by mspdbsrv.exe
+    // across DLL unload, producing LNK1201 at link time), the sweep records
+    // the offending paths and the build is paused. The editor surfaces a
+    // modal listing the locked files with Retry / Cancel — Retry re-sweeps
+    // and resumes if clean, Cancel abandons the operation.
+    struct BuildBlocked
+    {
+        bool                     mActive = false;
+        std::string              mAddonId;
+        std::vector<std::string> mLockedFiles;
+        // Absolute path to <project>/Intermediate/Plugins/<addonId>/ — the
+        // simplest manual fix is to delete this entire directory. The modal
+        // surfaces this as a copy-paste shell command.
+        std::string              mIntermediateDir;
+    };
+    bool                IsBuildBlocked() const   { return mBlocked.mActive; }
+    const BuildBlocked& GetBuildBlocked() const  { return mBlocked; }
+    /** User clicked Retry: re-trigger the reload that was blocked. The reload
+     *  pipeline is idempotent — already-loaded, up-to-date addons are skipped,
+     *  so this re-attempts the addon that previously failed. */
+    void RetryBlockedBuild();
+    /** User clicked Cancel: clear blocked state without retrying. */
+    void CancelBlockedBuild();
 
     /**
      * @brief Tick all loaded plugins (gameplay tick).
@@ -368,6 +403,14 @@ private:
                              const std::string& outputPath, std::string& outScriptPath);
     std::vector<std::string> GatherSourceFiles(const std::string& sourceDir);
 
+    /** Walk the addon's intermediate fingerprint directory and try to delete
+     *  every file. Returns the list of paths that could not be deleted (held
+     *  open by another process). On success the directory is left empty (or
+     *  removed entirely if the OS allows). The caller decides what to do
+     *  with a non-empty result — typically: stop the build and surface a
+     *  modal so the user can release the lock holder. */
+    std::vector<std::string> TryClearAddonIntermediates(const std::string& addonId);
+
     // Engine API setup
     void InitializeEngineAPI();
 
@@ -410,6 +453,9 @@ private:
     std::vector<std::string>         mBuildQueue;
     int                              mBuildQueueTotal = 0;
     int                              mBuildQueueIndex = 0;  // 1-based, advanced when a build starts
+
+    // Set when a pre-build sweep finds locked files in the intermediate dir.
+    BuildBlocked                     mBlocked;
 
     // Internal helpers
     void StartNextQueuedBuild();
