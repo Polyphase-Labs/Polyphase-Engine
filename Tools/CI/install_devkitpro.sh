@@ -130,5 +130,13 @@ fi
 echo
 echo "devkitPro install complete."
 echo "  DEVKITPRO=$DEVKITPRO_DIR"
-[[ $WANT_PPC -eq 1 ]] && echo "  DEVKITPPC=$DEVKITPPC_DIR"
-[[ $WANT_ARM -eq 1 ]] && echo "  DEVKITARM=$DEVKITARM_DIR"
+if [[ $WANT_PPC -eq 1 ]]; then echo "  DEVKITPPC=$DEVKITPPC_DIR"; fi
+if [[ $WANT_ARM -eq 1 ]]; then echo "  DEVKITARM=$DEVKITARM_DIR"; fi
+
+# Explicit exit 0: bash's exit status is the last command's status. The
+# `[[ ]] && echo` form above would short-circuit to status 1 when WANT_ARM=0
+# (i.e., --platforms ppc), failing the entire workflow step despite the
+# install having succeeded. The if/fi blocks above already handle that case
+# correctly, but anchor the success here so a future tail-line refactor can't
+# silently regress it. (3DS worked, Wii/GameCube didn't, until this.)
+exit 0

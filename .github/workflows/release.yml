@@ -258,9 +258,14 @@ jobs:
           name: polyphase-editor-tree
 
       - name: Restore script + binary execute bits
+        # actions/upload-artifact strips POSIX exec bits, so re-chmod every
+        # shell script under engine/tooling paths the headless editor invokes
+        # at runtime (most notably Engine/Shaders/GLSL/compile.sh).
         run: |
           chmod +x Standalone/Build/Linux/PolyphaseEditor.elf
-          chmod +x Tools/CI/*.sh Tools/CI/thirdparty/install-devkitpro-pacman || true
+          chmod +x Tools/CI/thirdparty/install-devkitpro-pacman || true
+          find Tools Engine Standalone -type f -name '*.sh' -print0 \
+            | xargs -0 -r chmod +x
 
       - name: Install runtime deps for the headless editor
         run: |
