@@ -164,6 +164,18 @@ jobs:
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
 
+      # The Linux engine build statically compiles Lua sources directly into
+      # libEngineEditor.a, so it does NOT produce a standalone libLua.a the way
+      # the Windows Lua.vcxproj produces Lua.lib. Build libLua.a separately so
+      # stage_distribution.py can ship it for native-addon link support. Use
+      # the `a` target (archive only) to avoid pulling in -lreadline for the
+      # lua/luac binaries we don't need.
+      - name: Build libLua.a for native addons
+        run: |
+          make -C External/Lua a -j$(nproc)
+          mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor
+          cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+
       # stage_distribution.py only WARNS when libLua.a is missing, which
       # produces a broken package where native addons must fall back to a
       # system Lua. Fail the workflow here so the issue is caught loudly.
