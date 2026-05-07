@@ -336,9 +336,7 @@
       <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2d.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
     </Link>
-    <PostBuildEvent>
-      <Command>copy "$(TargetPath)" "$(SolutionDir)"</Command>
-    </PostBuildEvent>
+    <!-- PostBuildEvent now defined unconditionally below; same copy applies to all configs. -->
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -392,6 +390,26 @@
       <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+  </ItemDefinitionGroup>
+  <!--
+    Editor-only post-build copy. Mirrors the freshest editor build to the
+    solution root so dev shortcuts and Tools\CI\TestBuildProject\* find a
+    predictable Polyphase.exe path. SCOPED to *Editor configs intentionally:
+
+      - DebugEditor / ReleaseEditor produce Polyphase.exe (the editor) - safe
+        to mirror to the root, that's the binary devs iterate on.
+      - Debug / Release / ReleaseSteam produce the GAME Polyphase.exe. When a
+        running editor calls devenv to build "Release|x64" (the headless game
+        package step), copying the result to the solution root would race the
+        running editor binary at $(SolutionDir)Polyphase.exe and fail with a
+        sharing violation, breaking FinalizeLocalBuild's integrity check. So
+        we deliberately DON'T mirror those configs - they stay in their build
+        output dir for the editor's packaging step to copy from.
+  -->
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'DebugEditor' Or '$(Configuration)' == 'ReleaseEditor'">
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetPath)" "$(SolutionDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Generated\EmbeddedAssets.cpp">

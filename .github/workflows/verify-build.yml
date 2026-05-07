@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: ['main', 'version/*']
 
+env:
+  # Test project used by verify-test-project. Swap by editing these two lines.
+  TEST_PROJECT_REPO: https://github.com/mholtkamp/octo-bombers
+  TEST_PROJECT_SUBDIR: Bomber   # subdirectory inside the clone that contains the .octp
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -64,3 +69,71 @@ jobs:
           mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor
           cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
           test -f External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+
+      # Upload the editor binary plus the source/headers/Makefiles the headless
+      # editor needs at runtime (it shells out to make for per-platform game
+      # builds). The verify-test-project matrix downloads this so it doesn't have to
+      # rebuild the engine 4x.
+      - name: Upload editor + runtime tree for verify-test-project
+        uses: actions/upload-artifact@v4
+        with:
+          name: polyphase-editor-tree
+          path: |
+            Standalone/Build/Linux/PolyphaseEditor.elf
+            Engine
+            External
+            Standalone
+            Template
+            Tools
+            Plugins
+          retention-days: 1
+          if-no-files-found: error
+
+  verify-test-project:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    strategy:
+      # Independent toolchains; surface every platform's failure on a single run.
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: Linux,    toolchain: none }
+          - { platform: Wii,      toolchain: ppc  }
+          - { platform: GameCube, toolchain: ppc  }
+          - { platform: 3DS,      toolchain: arm  }
+    steps:
+      - name: Download editor + runtime tree
+        uses: actions/download-artifact@v4
+        with:
+          name: polyphase-editor-tree
+
+      - name: Restore script + binary execute bits
+        run: |
+          chmod +x Standalone/Build/Linux/PolyphaseEditor.elf
+          chmod +x Tools/CI/*.sh Tools/CI/thirdparty/install-devkitpro-pacman || true
+
+      - name: Install runtime deps for the headless editor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 libasound2 libxcb1 libpulse0
+
+      - name: Install console toolchain
+        if: matrix.toolchain != 'none'
+        run: sudo bash Tools/CI/install_devkitpro.sh --platforms ${{ matrix.toolchain }}
+
+      - name: Clone test project
+        run: bash Tools/CI/TestBuildProject/clone_test_project.sh "${{ env.TEST_PROJECT_REPO }}" ./test-project
+
+      - name: Verify build for ${{ matrix.platform }}
+        run: |
+          bash Tools/CI/TestBuildProject/verify_project_build.sh \
+            Standalone/Build/Linux/PolyphaseEditor.elf \
+            "./test-project/${{ env.TEST_PROJECT_SUBDIR }}" \
+            ${{ matrix.platform }}
+
+      # Hosted runners are ephemeral so cleanup is a formality, but it keeps
+      # the script exercised and is required if this ever runs on a self-hosted
+      # runner.
+      - name: Cleanup local clone
+        if: always()
+        run: bash Tools/CI/TestBuildProject/cleanup_test_project.sh ./test-project || true
