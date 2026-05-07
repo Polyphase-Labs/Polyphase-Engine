@@ -49,7 +49,13 @@ if [[ ! -d "$PROJECT_ABS" ]]; then
   echo "ERROR: project directory not found: $PROJECT_ABS" >&2
   exit 2
 fi
-if ! ls "$PROJECT_ABS"/*.octp >/dev/null 2>&1; then
+# LoadProject() in the editor derives mProjectDirectory by stripping the last
+# component off the path you pass to -project. Passing the bare directory
+# means the LAST component (e.g. "Bomber") gets treated as a file name and
+# stripped off — Packaged/ then lands one level too high. Pass the .octp file
+# path explicitly so mProjectDirectory resolves to the dir containing it.
+OCTP_FILE="$(ls "$PROJECT_ABS"/*.octp 2>/dev/null | head -n1)"
+if [[ -z "$OCTP_FILE" ]]; then
   echo "ERROR: no .octp project file found in $PROJECT_ABS" >&2
   exit 2
 fi
@@ -57,6 +63,7 @@ fi
 echo "==> verify_project_build"
 echo "    editor:   $EDITOR_ABS"
 echo "    project:  $PROJECT_ABS"
+echo "    octp:     $OCTP_FILE"
 echo "    platform: $PLATFORM"
 echo "    expect:   Packaged/$PLATFORM/*$EXT"
 echo
@@ -66,7 +73,7 @@ LOG_FILE="$(mktemp -t polyphase-verify-XXXXXX.log)"
 trap 'rm -f "$LOG_FILE"' EXIT
 
 set +e
-"$EDITOR_ABS" -headless -project "$PROJECT_ABS" -build "$PLATFORM" embedded \
+"$EDITOR_ABS" -headless -project "$OCTP_FILE" -build "$PLATFORM" embedded \
   2>&1 | tee "$LOG_FILE"
 EDITOR_RC=${PIPESTATUS[0]}
 set -e

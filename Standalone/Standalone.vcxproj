@@ -392,15 +392,21 @@
     </Link>
   </ItemDefinitionGroup>
   <!--
-    Unconditional ItemDefinitionGroup: applies to ALL configurations. Restores
-    the post-build copy that used to put Polyphase.exe at the solution root so
-    callers (Tools\CI\run_local_verify.bat, dev shortcuts, etc.) always have a
-    predictable path to the latest build. The Feb 2026 vcxproj rewrite (commit
-    f3ceeaf40) lost this on every config except DebugEditor|x64; defining it
-    here covers everything in one place so we don't have to mirror the block
-    into nine separate ItemDefinitionGroups.
+    Editor-only post-build copy. Mirrors the freshest editor build to the
+    solution root so dev shortcuts and Tools\CI\TestBuildProject\* find a
+    predictable Polyphase.exe path. SCOPED to *Editor configs intentionally:
+
+      - DebugEditor / ReleaseEditor produce Polyphase.exe (the editor) - safe
+        to mirror to the root, that's the binary devs iterate on.
+      - Debug / Release / ReleaseSteam produce the GAME Polyphase.exe. When a
+        running editor calls devenv to build "Release|x64" (the headless game
+        package step), copying the result to the solution root would race the
+        running editor binary at $(SolutionDir)Polyphase.exe and fail with a
+        sharing violation, breaking FinalizeLocalBuild's integrity check. So
+        we deliberately DON'T mirror those configs - they stay in their build
+        output dir for the editor's packaging step to copy from.
   -->
-  <ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'DebugEditor' Or '$(Configuration)' == 'ReleaseEditor'">
     <PostBuildEvent>
       <Command>copy /Y "$(TargetPath)" "$(SolutionDir)"</Command>
     </PostBuildEvent>

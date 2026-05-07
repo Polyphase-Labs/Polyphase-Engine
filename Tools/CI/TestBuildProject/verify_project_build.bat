@@ -48,8 +48,13 @@ if not exist "%PROJECT_ABS%\" (
   exit /b 2
 )
 
+REM LoadProject() in the editor derives mProjectDirectory by stripping the last
+REM component off the path you pass to -project. Passing the bare directory
+REM means the last component (e.g. "Bomber") gets treated as a file name and
+REM stripped off -- Packaged\ then lands one level too high. Pass the .octp
+REM file path explicitly so mProjectDirectory resolves to the dir containing it.
 set "FOUND_OCTP="
-for %%F in ("%PROJECT_ABS%\*.octp") do set "FOUND_OCTP=%%F"
+for %%F in ("%PROJECT_ABS%\*.octp") do if not defined FOUND_OCTP set "FOUND_OCTP=%%F"
 if "%FOUND_OCTP%"=="" (
   echo ERROR: no .octp project file found in %PROJECT_ABS% 1>&2
   exit /b 2
@@ -58,6 +63,7 @@ if "%FOUND_OCTP%"=="" (
 echo ==^> verify_project_build
 echo     editor:   %EDITOR_ABS%
 echo     project:  %PROJECT_ABS%
+echo     octp:     %FOUND_OCTP%
 echo     platform: %PLATFORM%
 echo     expect:   Packaged\%PLATFORM%\*%EXT%
 echo.
@@ -65,7 +71,7 @@ echo.
 set "LOG_FILE=%TEMP%\polyphase-verify-%RANDOM%-%RANDOM%.log"
 
 REM Run the headless build, teeing output to a log we can dump on failure.
-"%EDITOR_ABS%" -headless -project "%PROJECT_ABS%" -build %PLATFORM% embedded > "%LOG_FILE%" 2>&1
+"%EDITOR_ABS%" -headless -project "%FOUND_OCTP%" -build %PLATFORM% embedded > "%LOG_FILE%" 2>&1
 set "EDITOR_RC=%ERRORLEVEL%"
 type "%LOG_FILE%"
 
