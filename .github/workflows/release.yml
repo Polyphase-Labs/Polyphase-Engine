@@ -243,43 +243,54 @@ jobs:
   verify-test-project:
     needs: build-linux
     runs-on: ubuntu-latest
+    # See verify-build.yml for the rationale: pkg.devkitpro.org sits behind
+    # Cloudflare and 403's `apt-get install devkitpro-pacman` intermittently.
+    # Using the prebuilt devkitPro Docker images bypasses the package fetch
+    # entirely. Linux uses ubuntu:24.04 to match the editor's build env.
+    container:
+      image: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: Linux,    toolchain: none }
-          - { platform: Wii,      toolchain: ppc  }
-          - { platform: GameCube, toolchain: ppc  }
-          - { platform: 3DS,      toolchain: arm  }
+          - { platform: Linux,    container: 'ubuntu:24.04' }
+          - { platform: Wii,      container: 'devkitpro/devkitppc:latest' }
+          - { platform: GameCube, container: 'devkitpro/devkitppc:latest' }
+          - { platform: 3DS,      container: 'devkitpro/devkitarm:latest' }
     steps:
+      - name: Install runtime deps and shell tools
+        # Containers are minimal — install everything the editor + scripts need.
+        # No sudo because we're root inside the container.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            libvulkan1 libasound2t64 libxcb1 libpulse0 \
+            git ca-certificates findutils xz-utils
+
       - name: Download editor + runtime tree
         uses: actions/download-artifact@v4
         with:
           name: polyphase-editor-tree
 
       - name: Restore script + binary execute bits
-        # actions/upload-artifact strips POSIX exec bits, so re-chmod every
-        # shell script under engine/tooling paths the headless editor invokes
-        # at runtime (most notably Engine/Shaders/GLSL/compile.sh).
         run: |
           chmod +x Standalone/Build/Linux/PolyphaseEditor.elf
-          chmod +x Tools/CI/thirdparty/install-devkitpro-pacman || true
           find Tools Engine Standalone -type f -name '*.sh' -print0 \
             | xargs -0 -r chmod +x
 
-      - name: Install runtime deps for the headless editor
+      - name: Surface devkitPro env vars for the headless editor's make
+        if: matrix.platform != 'Linux'
         run: |
-          sudo apt-get update
-          # libasound2 was renamed to libasound2t64 on Ubuntu 24.04 (time-64 ABI
-          # transition); install the real provider directly to avoid the
-          # "no installation candidate" failure on the virtual package.
-          sudo apt-get install -y libvulkan1 libasound2t64 libxcb1 libpulse0
-
-      - name: Install console toolchain
-        if: matrix.toolchain != 'none'
-        # sudo -E preserves $GITHUB_ENV / $GITHUB_PATH so install_devkitpro.sh
-        # can append DEVKITPRO/DEVKITPPC/DEVKITARM for the next step.
-        run: sudo -E bash Tools/CI/install_devkitpro.sh --platforms ${{ matrix.toolchain }}
+          {
+            echo "DEVKITPRO=/opt/devkitpro"
+            echo "DEVKITPPC=/opt/devkitpro/devkitPPC"
+            echo "DEVKITARM=/opt/devkitpro/devkitARM"
+          } >> "$GITHUB_ENV"
+          {
+            echo "/opt/devkitpro/tools/bin"
+            echo "/opt/devkitpro/devkitPPC/bin"
+            echo "/opt/devkitpro/devkitARM/bin"
+          } >> "$GITHUB_PATH"
 
       - name: Clone test project
         run: bash Tools/CI/TestBuildProject/clone_test_project.sh "${{ env.TEST_PROJECT_REPO }}" ./test-project

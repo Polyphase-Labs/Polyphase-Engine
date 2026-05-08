@@ -92,50 +92,68 @@ jobs:
   verify-test-project:
     needs: build-linux
     runs-on: ubuntu-latest
+    # Run each matrix entry inside the appropriate prebuilt devkitPro image
+    # for consoles, or a vanilla ubuntu:24.04 for Linux. We previously tried
+    # `apt-get install devkitpro-pacman` on the runner host but pkg.devkitpro.org
+    # sits behind Cloudflare and intermittently 403's the package fetch, even
+    # with retries. The Docker images bake the toolchain in and bypass that
+    # whole problem. Editor was built on ubuntu:24.04, so devkitPro images
+    # need a glibc >= 2.39 to load it (devkitpro images are currently 24.04-
+    # based, so this works). If glibc compat ever breaks, build the editor
+    # inside the same container instead.
+    container:
+      image: ${{ matrix.container }}
     strategy:
       # Independent toolchains; surface every platform's failure on a single run.
       fail-fast: false
       matrix:
         include:
-          - { platform: Linux,    toolchain: none }
-          - { platform: Wii,      toolchain: ppc  }
-          - { platform: GameCube, toolchain: ppc  }
-          - { platform: 3DS,      toolchain: arm  }
+          - { platform: Linux,    container: 'ubuntu:24.04' }
+          - { platform: Wii,      container: 'devkitpro/devkitppc:latest' }
+          - { platform: GameCube, container: 'devkitpro/devkitppc:latest' }
+          - { platform: 3DS,      container: 'devkitpro/devkitarm:latest' }
     steps:
+      # Containers are minimal — install everything the editor + scripts need
+      # at runtime. No sudo because we're root inside the container. apt-get
+      # update is harmless on the devkitPro images (Debian/Ubuntu base).
+      - name: Install runtime deps and shell tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            libvulkan1 libasound2t64 libxcb1 libpulse0 \
+            git ca-certificates findutils xz-utils
+
       - name: Download editor + runtime tree
         uses: actions/download-artifact@v4
         with:
           name: polyphase-editor-tree
 
       - name: Restore script + binary execute bits
-        # actions/upload-artifact strips POSIX exec bits, so we have to
-        # re-chmod everything the headless editor will exec at runtime. Last
-        # gotcha caught: Engine/Shaders/GLSL/compile.sh lost +x, the editor's
-        # build thread bailed silently with "Permission denied", and no .elf
-        # was produced. find-based chmod catches all .sh under engine/tooling
-        # paths in one shot so a new build script can't quietly regress.
+        # actions/upload-artifact strips POSIX exec bits — re-chmod everything
+        # the headless editor will exec at runtime (build threads exec
+        # Engine/Shaders/GLSL/compile.sh and various Tools/* scripts).
         run: |
           chmod +x Standalone/Build/Linux/PolyphaseEditor.elf
-          chmod +x Tools/CI/thirdparty/install-devkitpro-pacman || true
           find Tools Engine Standalone -type f -name '*.sh' -print0 \
             | xargs -0 -r chmod +x
 
-      - name: Install runtime deps for the headless editor
+      - name: Surface devkitPro env vars for the headless editor's make
+        if: matrix.platform != 'Linux'
+        # devkitpro/* images export DEVKITPRO via /etc/environment, but Actions
+        # steps don't source that. Set them explicitly so when the headless
+        # editor shells out to make, the per-platform Makefile finds the
+        # toolchain (powerpc-eabi-gcc / arm-none-eabi-gcc).
         run: |
-          sudo apt-get update
-          # libasound2 was renamed to libasound2t64 on Ubuntu 24.04 (time-64 ABI
-          # transition). On 24.04, libasound2 is a virtual package with no
-          # installation candidate; install the real package directly.
-          sudo apt-get install -y libvulkan1 libasound2t64 libxcb1 libpulse0
-
-      - name: Install console toolchain
-        if: matrix.toolchain != 'none'
-        # sudo -E preserves $GITHUB_ENV / $GITHUB_PATH through the elevation,
-        # so install_devkitpro.sh can append DEVKITPRO/DEVKITPPC/DEVKITARM and
-        # the bin paths back to subsequent steps. Without -E those vars are
-        # stripped, the script silently skips its env-export block, and the
-        # next step's `make` can't find powerpc-eabi-gcc / arm-none-eabi-gcc.
-        run: sudo -E bash Tools/CI/install_devkitpro.sh --platforms ${{ matrix.toolchain }}
+          {
+            echo "DEVKITPRO=/opt/devkitpro"
+            echo "DEVKITPPC=/opt/devkitpro/devkitPPC"
+            echo "DEVKITARM=/opt/devkitpro/devkitARM"
+          } >> "$GITHUB_ENV"
+          {
+            echo "/opt/devkitpro/tools/bin"
+            echo "/opt/devkitpro/devkitPPC/bin"
+            echo "/opt/devkitpro/devkitARM/bin"
+          } >> "$GITHUB_PATH"
 
       - name: Clone test project
         run: bash Tools/CI/TestBuildProject/clone_test_project.sh "${{ env.TEST_PROJECT_REPO }}" ./test-project
