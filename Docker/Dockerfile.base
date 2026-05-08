@@ -36,7 +36,18 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install base dependencies
-RUN apt-get update && apt-get install -y \
+#
+# Required by the engine + Polyphase CI workflows:
+#   g++/make           - engine + game compile
+#   libx11/asound/pulse/vorbis-dev - engine link deps
+#   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
+#   git                - actions/checkout + submodules
+#   pkg-config         - addon build scripts resolve FFmpeg etc.
+#   xz-utils           - tar.xz extraction (Vulkan SDK)
+#   sudo, gnupg        - dkp-pacman keyring + post-install hooks
+#   python3            - Tools/generate_embedded_stubs.py runs in build-linux
+#   dpkg-dev           - Installers/build_deb_linux.sh uses dpkg-deb
+RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     make \
     libx11-dev \
@@ -51,6 +62,8 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     sudo \
     gnupg \
+    python3 \
+    dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Vulkan SDK 1.3.275.0
