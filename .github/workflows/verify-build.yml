@@ -70,11 +70,22 @@ jobs:
       # for the staged distribution; build it here too so the verify workflow
       # catches any breakage in the Lua Makefile before it reaches a release.
       - name: Build libLua.a for native addons
+        # The upstream External/Lua/Makefile compiles its .o files IN-TREE
+        # (External/Lua/lapi.o, lauxlib.o, ...). Those are x86-64 here, and
+        # if they leak into the artifact uploaded for verify-test-project, the
+        # Wii/GameCube/3DS engine Makefiles' VPATH (which includes
+        # ../External/Lua) finds them, considers them up-to-date vs the .c
+        # sources, and archives x86-64 .o into libEngine.a -> powerpc-eabi-ld
+        # rejects with "Relocations in generic ELF (EM: 62)". `make clean`
+        # wipes the in-tree .o (and the in-tree liblua.a — we already copied
+        # it to Build/Linux/x64/ReleaseEditor/ before cleaning).
         run: |
           make -C External/Lua a -j$(nproc)
           mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor
           cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
           test -f External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+          make -C External/Lua clean
+          test -f External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a  # survives the clean
 
       # Upload the editor binary plus the source/headers/Makefiles the headless
       # editor needs at runtime (it shells out to make for per-platform game
@@ -180,6 +191,17 @@ jobs:
             fi
           fi
           rm -f ldd-err.txt
+
+      - name: Install glslc (Linux verify only)
+        if: matrix.platform == 'Linux'
+        # The headless editor's BuildPhase1 unconditionally re-runs
+        # Engine/Shaders/GLSL/compile.sh on Vulkan platforms (Linux/Windows/
+        # Android) even though the artifact already contains pre-compiled
+        # SPIR-V. compile.sh exits 1 if `glslc` is missing, which kills the
+        # build flow. ubuntu:24.04 ships `glslc` in noble's main repo (it's
+        # the binary from libshaderc); install it here. Wii/GC/3DS don't run
+        # this path, so no need on the devkitPro containers.
+        run: apt-get install -y --no-install-recommends glslc
 
       - name: Surface devkitPro env vars for the headless editor's make
         if: matrix.platform != 'Linux'

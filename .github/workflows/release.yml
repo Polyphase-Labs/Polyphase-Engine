@@ -182,10 +182,16 @@ jobs:
       # the `a` target (archive only) to avoid pulling in -lreadline for the
       # lua/luac binaries we don't need.
       - name: Build libLua.a for native addons
+        # The in-tree .o files left behind by External/Lua/Makefile would
+        # pollute the artifact and break Wii/GC/3DS verify (PPC ld rejects
+        # x86-64 lapi.o). `make clean` removes them; the staged libLua.a
+        # at Build/Linux/x64/ReleaseEditor/ survives because clean only
+        # touches in-tree paths.
         run: |
           make -C External/Lua a -j$(nproc)
           mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor
           cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+          make -C External/Lua clean
 
       # stage_distribution.py only WARNS when libLua.a is missing, which
       # produces a broken package where native addons must fall back to a
@@ -314,6 +320,14 @@ jobs:
             fi
           fi
           rm -f ldd-err.txt
+
+      - name: Install glslc (Linux verify only)
+        if: matrix.platform == 'Linux'
+        # Editor's BuildPhase1 invokes Engine/Shaders/GLSL/compile.sh on
+        # Vulkan platforms; that script needs `glslc` (libshaderc binary),
+        # which ubuntu:24.04 ships in noble/main but the devkitPro Bookworm
+        # images don't need (consoles don't go through this path).
+        run: apt-get install -y --no-install-recommends glslc
 
       - name: Surface devkitPro env vars for the headless editor's make
         if: matrix.platform != 'Linux'
