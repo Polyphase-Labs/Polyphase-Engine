@@ -1092,6 +1092,18 @@ void ActionManager::AppendBuildOutput(const std::string& text)
     std::lock_guard<std::mutex> lock(mBuildState.mOutputMutex);
     mBuildState.mOutput += text;
     mBuildState.mOutputDirty = true;
+
+    // In headless mode the build modal isn't shown, so the streamed compile
+    // output (make / devenv / shader compiler stdout+stderr) was being silently
+    // collected into mOutput and never surfaced. Mirror it to stdout so CI
+    // logs and dev `-headless` runs can actually see what the build did when
+    // it fails. fputs avoids LogDebug's prefix/newline so multi-line make
+    // output lands verbatim.
+    if (IsHeadless())
+    {
+        fputs(text.c_str(), stdout);
+        fflush(stdout);
+    }
 }
 
 void ActionManager::CancelBuild()

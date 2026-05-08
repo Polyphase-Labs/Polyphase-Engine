@@ -65,7 +65,45 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Step 1: install devkitPro pacman (idempotent — the bundled script no-ops if
 # the apt repo and key already exist).
-bash "$SCRIPT_DIR/thirdparty/install-devkitpro-pacman"
+#
+# Failure mode we tolerate: pkg.devkitpro.org sits behind Cloudflare and
+# occasionally serves a 403 to apt's default user-agent. The
+# `apt-get install devkitpro-pacman` step in the bundled installer has a
+# post-install hook that runs `dkp-pacman -Sy` against pkg.devkitpro.org;
+# when that 403's, dpkg fails with exit 1 even though the binary itself was
+# unpacked successfully (apt unpacks before running postinst).
+#
+# Workaround: if the installer fails, check whether dkp-pacman is callable.
+# If yes, retry the database sync ourselves with backoff (Cloudflare's bot
+# challenge usually resolves within a few seconds), then `dpkg --configure -a`
+# to mark the package configured so apt is happy on subsequent runs.
+if ! bash "$SCRIPT_DIR/thirdparty/install-devkitpro-pacman"; then
+  echo "WARNING: install-devkitpro-pacman exited non-zero (likely Cloudflare 403)." >&2
+  if ! command -v dkp-pacman >/dev/null 2>&1; then
+    echo "ERROR: dkp-pacman binary is not on PATH — install genuinely failed." >&2
+    exit 1
+  fi
+
+  echo "Retrying database sync directly (up to 5 attempts with backoff)..." >&2
+  sync_ok=0
+  for attempt in 1 2 3 4 5; do
+    sleep $(( attempt * 3 ))
+    if dkp-pacman -Syy --noconfirm; then
+      sync_ok=1
+      break
+    fi
+    echo "  attempt $attempt failed, retrying..." >&2
+  done
+
+  if [[ $sync_ok -ne 1 ]]; then
+    echo "ERROR: dkp-pacman database sync failed after 5 attempts." >&2
+    echo "       pkg.devkitpro.org may be returning 403 from Cloudflare." >&2
+    exit 1
+  fi
+
+  # Resync apt's view: postinst left dpkg with the package half-configured.
+  dpkg --configure -a || true
+fi
 
 # Step 2: register the libogc2 keyring + repo (mirrors Docker/Dockerfile:86-92).
 # libogc2 packages are signed by a key not in the default devkitpro keyring.
@@ -85,13 +123,29 @@ Server = https://packages.extremscorner.org/devkitpro/linux/$arch
 EOF
 fi
 
-# Step 3: install requested packages.
+# Step 3: install requested packages. Retry on transient failure because
+# pkg.devkitpro.org / packages.libogc2.org sit behind Cloudflare and can
+# 403 individual fetches even after a successful database sync.
 PACKAGES=()
-[[ $WANT_PPC -eq 1 ]] && PACKAGES+=(wii-dev gamecube-tools-git libogc2 libogc2-libdvm)
-[[ $WANT_ARM -eq 1 ]] && PACKAGES+=(3ds-dev)
+if [[ $WANT_PPC -eq 1 ]]; then PACKAGES+=(wii-dev gamecube-tools-git libogc2 libogc2-libdvm); fi
+if [[ $WANT_ARM -eq 1 ]]; then PACKAGES+=(3ds-dev); fi
 
 if [[ ${#PACKAGES[@]} -gt 0 ]]; then
-  dkp-pacman -Syyu --noconfirm "${PACKAGES[@]}"
+  install_ok=0
+  for attempt in 1 2 3 4 5; do
+    if [[ $attempt -gt 1 ]]; then
+      echo "Retrying package install (attempt $attempt of 5)..." >&2
+      sleep $(( attempt * 3 ))
+    fi
+    if dkp-pacman -Syyu --noconfirm "${PACKAGES[@]}"; then
+      install_ok=1
+      break
+    fi
+  done
+  if [[ $install_ok -ne 1 ]]; then
+    echo "ERROR: dkp-pacman package install failed after 5 attempts." >&2
+    exit 1
+  fi
 fi
 
 # Step 4: surface env vars. Under GitHub Actions, write to $GITHUB_ENV and
@@ -130,5 +184,13 @@ fi
 echo
 echo "devkitPro install complete."
 echo "  DEVKITPRO=$DEVKITPRO_DIR"
-[[ $WANT_PPC -eq 1 ]] && echo "  DEVKITPPC=$DEVKITPPC_DIR"
-[[ $WANT_ARM -eq 1 ]] && echo "  DEVKITARM=$DEVKITARM_DIR"
+if [[ $WANT_PPC -eq 1 ]]; then echo "  DEVKITPPC=$DEVKITPPC_DIR"; fi
+if [[ $WANT_ARM -eq 1 ]]; then echo "  DEVKITARM=$DEVKITARM_DIR"; fi
+
+# Explicit exit 0: bash's exit status is the last command's status. The
+# `[[ ]] && echo` form above would short-circuit to status 1 when WANT_ARM=0
+# (i.e., --platforms ppc), failing the entire workflow step despite the
+# install having succeeded. The if/fi blocks above already handle that case
+# correctly, but anchor the success here so a future tail-line refactor can't
+# silently regress it. (3DS worked, Wii/GameCube didn't, until this.)
+exit 0
