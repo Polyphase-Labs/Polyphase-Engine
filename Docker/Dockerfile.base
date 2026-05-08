@@ -39,6 +39,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #
 # Required by the engine + Polyphase CI workflows:
 #   g++/make           - engine + game compile
+#   cmake              - Tools/prebuild_libgit2.sh + addon CMake projects
 #   libx11/asound/pulse/vorbis-dev - engine link deps
 #   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
 #   git                - actions/checkout + submodules
@@ -50,6 +51,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     make \
+    cmake \
     libx11-dev \
     libasound2-dev \
     libpulse-dev \

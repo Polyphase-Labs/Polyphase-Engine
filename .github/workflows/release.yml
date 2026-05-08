@@ -139,15 +139,20 @@ jobs:
           git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
-      # Tools the polyphase-bare image doesn't (yet) bake in. Cheap to install.
-      # python3   - asset stub generator
-      # dpkg-dev  - .deb packaging
-      - name: Ensure python3 + dpkg-dev are available
+      # Backstop in case the polyphase-bare image hasn't been rebuilt yet
+      # with the latest Dockerfile.base additions. Idempotent: a no-op once
+      # the image catches up.
+      #   python3   - asset stub generator
+      #   dpkg-dev  - .deb packaging (dpkg-deb binary)
+      #   cmake     - libgit2 prebuild
+      - name: Ensure python3 + dpkg-dev + cmake are available
         run: |
           missing=()
           command -v python3 >/dev/null 2>&1 || missing+=(python3)
           command -v dpkg-deb >/dev/null 2>&1 || missing+=(dpkg-dev)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
           if [ ${#missing[@]} -gt 0 ]; then
+            echo "Installing missing tools: ${missing[*]}"
             apt-get update
             apt-get install -y --no-install-recommends "${missing[@]}"
           fi

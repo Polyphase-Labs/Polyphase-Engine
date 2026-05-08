@@ -37,12 +37,21 @@ jobs:
           git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
-      # python3 isn't in Dockerfile.base yet; install it cheap if missing so
-      # the embedded-asset stub generator can run. (~5s, idempotent.)
-      - name: Ensure python3 is available
+      # Backstop in case the polyphase-bare image hasn't been rebuilt yet
+      # with the latest Dockerfile.base additions. Idempotent: if every tool
+      # is already there, this is a ~5ms no-op. Once the image catches up
+      # this whole step short-circuits without an apt-get update at all.
+      #   python3 - Tools/generate_embedded_stubs.py
+      #   cmake   - Tools/prebuild_libgit2.sh
+      - name: Ensure python3 + cmake are available
         run: |
-          if ! command -v python3 >/dev/null 2>&1; then
-            apt-get update && apt-get install -y --no-install-recommends python3
+          missing=()
+          command -v python3 >/dev/null 2>&1 || missing+=(python3)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Installing missing tools: ${missing[*]}"
+            apt-get update
+            apt-get install -y --no-install-recommends "${missing[@]}"
           fi
 
       - name: Compile shaders
