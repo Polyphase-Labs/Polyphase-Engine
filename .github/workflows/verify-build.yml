@@ -26,6 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: polyphaselabs/polyphase-bare:latest
+    # GH Actions defaults `run:` to `sh -e` (dash) inside `container:` jobs.
+    # We use bash idioms (arrays, [[ ]], pipefail) in several places, and the
+    # polyphase-bare image always has bash, so flip the default once.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -41,13 +47,15 @@ jobs:
       # with the latest Dockerfile.base additions. Idempotent: if every tool
       # is already there, this is a ~5ms no-op. Once the image catches up
       # this whole step short-circuits without an apt-get update at all.
-      #   python3 - Tools/generate_embedded_stubs.py
-      #   cmake   - Tools/prebuild_libgit2.sh
-      - name: Ensure python3 + cmake are available
+      #   python3     - Tools/generate_embedded_stubs.py
+      #   cmake       - Tools/prebuild_libgit2.sh
+      #   libssl-dev  - libgit2 HTTPS backend (SelectHTTPSBackend.cmake)
+      - name: Ensure python3 + cmake + libssl-dev are available
         run: |
           missing=()
           command -v python3 >/dev/null 2>&1 || missing+=(python3)
           command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          [ -f /usr/include/openssl/ssl.h ] || missing+=(libssl-dev)
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Installing missing tools: ${missing[*]}"
             apt-get update
@@ -119,6 +127,9 @@ jobs:
     # steps needed — every matrix entry runs in the same baked environment.
     container:
       image: polyphaselabs/polyphase-bare:latest
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
