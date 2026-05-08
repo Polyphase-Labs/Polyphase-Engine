@@ -260,12 +260,19 @@ jobs:
     steps:
       - name: Install runtime deps and shell tools
         # Containers are minimal — install everything the editor + scripts need.
-        # No sudo because we're root inside the container.
+        # No sudo because we're root inside the container. ALSA package name
+        # is libasound2t64 on Ubuntu 24.04+ and libasound2 on Debian Bookworm
+        # (which is what the devkitPro images use); pick whichever exists.
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            libvulkan1 libasound2t64 libxcb1 libpulse0 \
-            git ca-certificates findutils xz-utils
+            libvulkan1 libxcb1 libpulse0 libssl3 \
+            git ca-certificates findutils xz-utils binutils
+          if apt-cache show libasound2t64 >/dev/null 2>&1; then
+            apt-get install -y --no-install-recommends libasound2t64
+          else
+            apt-get install -y --no-install-recommends libasound2
+          fi
 
       - name: Download editor + runtime tree
         uses: actions/download-artifact@v4
@@ -277,6 +284,29 @@ jobs:
           chmod +x Standalone/Build/Linux/PolyphaseEditor.elf
           find Tools Engine Standalone -type f -name '*.sh' -print0 \
             | xargs -0 -r chmod +x
+
+      - name: Verify editor can load (glibc / dyn-link sanity check)
+        # devkitPro images are Debian Bookworm (glibc 2.36); editor was built
+        # on ubuntu-latest (glibc 2.39). Fail fast with a clear message if a
+        # newer-glibc symbol blocks loading.
+        run: |
+          echo "Container glibc:"
+          ldd --version | head -1 || true
+          echo "Editor glibc requirements:"
+          objdump -T Standalone/Build/Linux/PolyphaseEditor.elf 2>/dev/null \
+            | awk '/GLIBC_/ { print $5 }' | sort -u || true
+          echo "Editor link check:"
+          if ! ldd Standalone/Build/Linux/PolyphaseEditor.elf; then
+            echo "WARNING: ldd reported issues — editor may not load." >&2
+          fi
+          if ! Standalone/Build/Linux/PolyphaseEditor.elf -h >/dev/null 2>ldd-err.txt; then
+            if grep -q 'GLIBC' ldd-err.txt; then
+              echo "FATAL: editor binary needs newer glibc than container provides." >&2
+              cat ldd-err.txt >&2
+              exit 1
+            fi
+          fi
+          rm -f ldd-err.txt
 
       - name: Surface devkitPro env vars for the headless editor's make
         if: matrix.platform != 'Linux'
