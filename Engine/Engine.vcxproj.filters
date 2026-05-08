@@ -1496,7 +1496,7 @@
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
-    <ClCompile Include="FeatureFlags.cpp">
+    <ClCompile Include="Source\Editor\FeatureFlags.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
     <ClCompile Include="..\External\imgui-node-editor\imgui_node_editor.cpp">
@@ -2928,7 +2928,7 @@
     <ClInclude Include="Source\Plugins\RuntimePluginManager.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
-    <ClInclude Include="FeatureFlags.h">
+    <ClInclude Include="Source\Editor\FeatureFlags.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\NodeGraph\NodeGraphPanel.h">

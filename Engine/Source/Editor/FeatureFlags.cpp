@@ -1,4 +1,9 @@
-#include "FeatureFlags.h"
+// FeatureFlagsEditor is declared in FeatureFlags.h only when EDITOR=1.
+// Mirror that guard here so non-editor builds (Release / ReleaseSteam / etc.)
+// compile this TU as empty instead of erroring on the undefined type.
+#if EDITOR
+
+#include "FeatureFlags.h"  // IWYU pragma: keep — declares FeatureFlagsEditor + GetFeatureFlagsEditor used below
 #include <cstdlib>
 #include <cstring>
 
@@ -24,3 +29,5 @@ FeatureFlagsEditor& GetFeatureFlagsEditor()
 	static FeatureFlagsEditor sFeatureFlagsEditor = InitializeFeatureFlags();
 	return sFeatureFlagsEditor;
 }
+
+#endif // EDITOR

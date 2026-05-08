@@ -326,10 +326,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      # Pattern excludes `polyphase-editor-tree` — that's CI scaffolding for
+      # the verify-test-project job (whole engine source tree including
+      # External/bullet3/build3/premake*.exe and External/vswhere/vswhere.exe),
+      # not user-facing. Without this filter those extra .exe's were leaking
+      # into the GitHub Release alongside the installer.
+      - name: Download user-facing release artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: '{windows-installer,linux-deb,linux-tarball}'
           merge-multiple: true
 
       - name: List release assets
@@ -339,7 +345,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # Tight globs — only the specific installer/package files we
+          # produce, not whatever .exe happens to be in the download tree.
           files: |
-            release-assets/**/*.exe
-            release-assets/**/*.deb
-            release-assets/**/*.tar.gz
+            release-assets/**/PolyphaseSetup-*.exe
+            release-assets/**/polyphase-engine_*_amd64.deb
+            release-assets/**/PolyphaseEditor-linux-x64.tar.gz

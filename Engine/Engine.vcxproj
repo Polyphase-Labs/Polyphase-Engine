@@ -622,7 +622,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="FeatureFlags.cpp" />
+    <ClCompile Include="Source\Editor\FeatureFlags.cpp" />
     <ClCompile Include="..\External\imgui-node-editor\imgui_node_editor.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Android-arm64-v8a'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -1178,7 +1178,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="FeatureFlags.h" />
+    <ClInclude Include="Source\Editor\FeatureFlags.h" />
     <ClInclude Include="Source\Audio\Audio.h" />
     <ClInclude Include="Source\Audio\AudioConstants.h" />
     <ClInclude Include="Source\Audio\AudioTypes.h" />
