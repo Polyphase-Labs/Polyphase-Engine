@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y \
     make \
     libx11-dev \
     libasound2-dev \
+    libpulse-dev \
     wget \
     curl \
     ca-certificates \
@@ -110,26 +111,6 @@ RUN yes | dkp-pacman -Scc
 RUN mkdir -p /polyphase /game /project /intermediate
 WORKDIR /polyphase
 
-# Copy source
-COPY . /polyphase/
-
-# Initialize submodules if needed
-RUN if [ -f .gitmodules ]; then \
-        git config --global --add safe.directory /polyphase && \
-        git submodule update --init --recursive || true; \
-    fi
-
-# Compile shaders
-WORKDIR /polyphase/Engine/Shaders/GLSL
-RUN chmod +x compile.sh && ./compile.sh
-
-WORKDIR /polyphase
-
-# ============================================================================
-# Pre-build Linux Editor (for headless asset cooking)
-# ============================================================================
-RUN cd /polyphase/Standalone && make -j$(nproc) -f Makefile_Linux_Editor
-RUN cp /polyphase/Standalone/Build/Linux/PolyphaseEditor.elf /polyphase/PolyphaseEditor.elf
 
 VOLUME /game
 VOLUME /project

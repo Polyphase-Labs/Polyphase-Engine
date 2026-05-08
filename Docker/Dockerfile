@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y \
     make \
     libx11-dev \
     libasound2-dev \
+    libpulse-dev \
     wget \
     curl \
     ca-certificates \
