@@ -22,7 +22,16 @@
 #   Interactive:
 #     docker run -it --rm -v ./output:/game -v ./MyGame:/project polyphase-engine bash
 
-FROM ubuntu:24.04
+# Pinned to 22.04 (glibc 2.35, gcc 11 / GLIBCXX_3.4.30) so the editor binary
+# we build inside this image is forward-compatible with:
+#   - Debian Bookworm (glibc 2.36, devkitPro images)
+#   - Ubuntu 22.04 / 24.04+ (glibc 2.35+ / 2.39+)
+#   - RHEL 9, recent Fedoras, etc.
+# An ubuntu:24.04 base would link against glibc 2.38+ and GLIBCXX_3.4.32+
+# (gcc 13), which excludes Bookworm and many user systems. Keep this in sync
+# with the `runs-on: ubuntu-22.04` pin in .github/workflows/{verify-build,
+# release}.yml's build-linux job for the same reason.
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 

@@ -119,7 +119,13 @@ jobs:
   #  Linux: Build engine + create .deb and tarball
   # =========================================================================
   build-linux:
-    runs-on: ubuntu-latest
+    # Pinned to 22.04 (glibc 2.35, gcc 11 / GLIBCXX_3.4.30) so the released
+    # editor binary runs on the broadest set of Linux distros (Debian Bookworm,
+    # Ubuntu 22.04+, RHEL 9, etc.) and on the Bookworm-based devkitPro images
+    # used by the verify-test-project matrix. ubuntu-latest (24.04) links
+    # against glibc 2.38/GLIBCXX_3.4.32 which excludes Bookworm and many
+    # currently-deployed user systems.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -286,9 +292,10 @@ jobs:
             | xargs -0 -r chmod +x
 
       - name: Verify editor can load (glibc / dyn-link sanity check)
-        # devkitPro images are Debian Bookworm (glibc 2.36); editor was built
-        # on ubuntu-latest (glibc 2.39). Fail fast with a clear message if a
-        # newer-glibc symbol blocks loading.
+        # Editor is built on ubuntu-22.04 (glibc 2.35) so it loads on both
+        # Bookworm (devkitPro images, 2.36) and ubuntu:24.04 (Linux verify).
+        # Sanity guard: if the build runner drifts to a newer libc the FATAL
+        # message surfaces here instead of much deeper in the build flow.
         run: |
           echo "Container glibc:"
           ldd --version | head -1 || true
