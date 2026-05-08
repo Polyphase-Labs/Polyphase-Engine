@@ -112,6 +112,13 @@ Source: "..\..\dist\Editor\Engine\Engine.vcxproj"; DestDir: "{app}\Engine"; Flag
 Source: "..\..\dist\Editor\Engine\Engine.vcxproj.filters"; DestDir: "{app}\Engine"; Flags: ignoreversion skipifsourcedoesntexist; Components: sdk
 Source: "..\..\dist\Editor\Engine\CMakeLists.txt"; DestDir: "{app}\Engine"; Flags: ignoreversion skipifsourcedoesntexist; Components: sdk
 
+; --- SDK: Import libraries for native addon link step ---
+; Without these, BuildNativeAddon's generated build.bat fails with LNK1181
+; on Polyphase.lib / Lua.lib and the addon DLL is silently never produced,
+; surfacing later as Scene.cpp's "type=..., unknown type?" warning.
+Source: "..\..\dist\Editor\Polyphase.lib"; DestDir: "{app}"; Flags: ignoreversion; Components: sdk
+Source: "..\..\dist\Editor\Lua.lib"; DestDir: "{app}"; Flags: ignoreversion; Components: sdk
+
 ; --- SDK: External ---
 Source: "..\..\dist\Editor\External\*"; DestDir: "{app}\External"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
 

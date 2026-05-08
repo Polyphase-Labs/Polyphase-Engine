@@ -59,8 +59,15 @@ REM --- Make sure Polyphase.exe isn't running ---
 REM A running editor holds Polyphase.exe open, and the ReleaseEditor link
 REM step then fails with LNK1104 "cannot open file ...\Polyphase.exe" after a
 REM 17-minute build. Catch it up front instead.
-tasklist /FI "IMAGENAME eq Polyphase.exe" /NH 2>nul | find /I "Polyphase.exe" >nul
-if not errorlevel 1 (
+REM
+REM Uses PowerShell's Get-Process so the check is locale-independent and
+REM doesn't depend on tasklist's "INFO: No tasks are running..." stderr
+REM behavior, which produced false positives on some Windows builds.
+REM Set POLYPHASE_SKIP_RUNNING_CHECK=1 to bypass.
+if defined POLYPHASE_SKIP_RUNNING_CHECK goto :running_check_skipped
+
+powershell -NoProfile -Command "if (Get-Process -Name 'Polyphase' -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+if errorlevel 1 (
     echo ERROR: Polyphase.exe is currently running.
     echo        The linker can't overwrite a running executable, so the engine
     echo        build would fail at the link step with LNK1104.
@@ -68,9 +75,18 @@ if not errorlevel 1 (
     echo.
     echo        To force-close from this prompt:
     echo            taskkill /F /IM Polyphase.exe
+    echo.
+    echo        To bypass this check, only if you are sure nothing is running:
+    echo            set POLYPHASE_SKIP_RUNNING_CHECK=1
     exit /b 1
 )
 echo   [OK] No running Polyphase.exe instances.
+goto :running_check_done
+
+:running_check_skipped
+echo   [SKIP] Running-process check disabled by POLYPHASE_SKIP_RUNNING_CHECK.
+
+:running_check_done
 
 echo.
 
