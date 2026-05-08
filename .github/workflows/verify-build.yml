@@ -192,16 +192,58 @@ jobs:
           fi
           rm -f ldd-err.txt
 
-      - name: Install glslc (Linux verify only)
+      - name: Install Linux compile toolchain (Linux verify only)
         if: matrix.platform == 'Linux'
-        # The headless editor's BuildPhase1 unconditionally re-runs
-        # Engine/Shaders/GLSL/compile.sh on Vulkan platforms (Linux/Windows/
-        # Android) even though the artifact already contains pre-compiled
-        # SPIR-V. compile.sh exits 1 if `glslc` is missing, which kills the
-        # build flow. ubuntu:24.04 ships `glslc` in noble's main repo (it's
-        # the binary from libshaderc); install it here. Wii/GC/3DS don't run
-        # this path, so no need on the devkitPro containers.
-        run: apt-get install -y --no-install-recommends glslc
+        # ubuntu:24.04 is minimal — no `make`, no g++, no glslc by default.
+        # The headless editor invokes:
+        #   - Engine/Shaders/GLSL/compile.sh   (calls glslc -- noble main has it)
+        #   - make -C Standalone -f Makefile_TEMP -j 12   (needs make + g++)
+        # Without these the build flow exits with "make: not found" / "glslc
+        # not detected". devkitPro images (Wii/GC/3DS) already have make+gcc
+        # for cross-compilation host tools, so this only applies to Linux.
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential glslc
+
+      - name: Install libogc2 (Wii / GameCube only)
+        if: matrix.platform == 'Wii' || matrix.platform == 'GameCube'
+        # devkitpro/devkitppc:latest ships libogc (the original) but the
+        # engine's Makefile_GCN / Makefile_Wii include
+        # $(DEVKITPRO)/libogc2/{gamecube,wii}_rules — that's libogc2, the
+        # modern Extrems fork. Add the libogc2 repo + key to dkp-pacman and
+        # install libogc2 + libogc2-libdvm. Retry on the Cloudflare 403's
+        # we've seen on pkg.devkitpro.org (libogc2 mirrors are usually
+        # fine; the failure mode is the database sync against the upstream).
+        run: |
+          set -e
+          LIBOGC2_KEY="C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE"
+          if ! dkp-pacman-key --list-keys "$LIBOGC2_KEY" >/dev/null 2>&1; then
+            dkp-pacman-key --recv-keys "$LIBOGC2_KEY" --keyserver keyserver.ubuntu.com
+            dkp-pacman-key --lsign-key "$LIBOGC2_KEY"
+          fi
+          if ! grep -q '\[libogc2-devkitpro\]' /opt/devkitpro/pacman/etc/pacman.conf; then
+            {
+              echo ''
+              echo '[libogc2-devkitpro]'
+              echo 'Server = https://packages.libogc2.org/devkitpro/linux/$arch'
+              echo 'Server = https://packages.extremscorner.org/devkitpro/linux/$arch'
+            } >> /opt/devkitpro/pacman/etc/pacman.conf
+          fi
+          install_ok=0
+          for attempt in 1 2 3 4 5; do
+            if [ $attempt -gt 1 ]; then
+              echo "Retrying libogc2 install (attempt $attempt of 5)..." >&2
+              sleep $((attempt * 3))
+            fi
+            if dkp-pacman -Syyu --noconfirm libogc2 libogc2-libdvm; then
+              install_ok=1
+              break
+            fi
+          done
+          if [ $install_ok -ne 1 ]; then
+            echo "ERROR: libogc2 install failed after 5 attempts (Cloudflare 403?)" >&2
+            exit 1
+          fi
 
       - name: Surface devkitPro env vars for the headless editor's make
         if: matrix.platform != 'Linux'
