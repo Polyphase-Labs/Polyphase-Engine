@@ -217,6 +217,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: polyphase-editor-tree
+          # Exclude Intermediate/ everywhere — gcc's -MMD .d files have
+          # absolute paths from the build-host runner, which break make in
+          # the verify container (different workspace path).
           path: |
             Standalone/Build/Linux/PolyphaseEditor.elf
             Engine
@@ -225,6 +228,8 @@ jobs:
             Template
             Tools
             Plugins
+            !**/Intermediate
+            !**/Intermediate/**
           retention-days: 1
           if-no-files-found: error
 
@@ -334,10 +339,10 @@ jobs:
 
       - name: Install libogc2 (Wii / GameCube only)
         if: matrix.platform == 'Wii' || matrix.platform == 'GameCube'
-        # devkitpro/devkitppc:latest ships libogc; engine Makefiles include
-        # $(DEVKITPRO)/libogc2/{gamecube,wii}_rules (the modern Extrems fork).
-        # Add the libogc2 repo + key to dkp-pacman, then install with retries
-        # for the intermittent Cloudflare 403's on pkg.devkitpro.org.
+        # See verify-build.yml for the rationale: temp pacman.conf with only
+        # the libogc2-devkitpro repo, so we never sync pkg.devkitpro.org
+        # (which Cloudflare 403's). Local DB resolves transitive devkitPPC
+        # deps as already-installed.
         run: |
           set -e
           LIBOGC2_KEY="C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE"
@@ -345,29 +350,40 @@ jobs:
             dkp-pacman-key --recv-keys "$LIBOGC2_KEY" --keyserver keyserver.ubuntu.com
             dkp-pacman-key --lsign-key "$LIBOGC2_KEY"
           fi
-          if ! grep -q '\[libogc2-devkitpro\]' /opt/devkitpro/pacman/etc/pacman.conf; then
-            {
-              echo ''
-              echo '[libogc2-devkitpro]'
-              echo 'Server = https://packages.libogc2.org/devkitpro/linux/$arch'
-              echo 'Server = https://packages.extremscorner.org/devkitpro/linux/$arch'
-            } >> /opt/devkitpro/pacman/etc/pacman.conf
-          fi
+          TMP_CONF=/tmp/pacman-libogc2.conf
+          {
+            echo '[options]'
+            echo 'Architecture = auto'
+            echo 'SigLevel = Required DatabaseOptional'
+            echo 'LocalFileSigLevel = Optional'
+            echo 'GPGDir = /opt/devkitpro/pacman/etc/pacman.d/gnupg/'
+            echo ''
+            echo '[libogc2-devkitpro]'
+            echo 'Server = https://packages.libogc2.org/devkitpro/linux/$arch'
+            echo 'Server = https://packages.extremscorner.org/devkitpro/linux/$arch'
+          } > "$TMP_CONF"
           install_ok=0
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3; do
             if [ $attempt -gt 1 ]; then
-              echo "Retrying libogc2 install (attempt $attempt of 5)..." >&2
+              echo "Retrying libogc2 install (attempt $attempt of 3)..." >&2
               sleep $((attempt * 3))
             fi
-            if dkp-pacman -Syyu --noconfirm libogc2 libogc2-libdvm; then
+            if dkp-pacman --config "$TMP_CONF" \
+                          --dbpath /opt/devkitpro/pacman/var/lib/pacman \
+                          -Syy --noconfirm \
+               && dkp-pacman --config "$TMP_CONF" \
+                             --dbpath /opt/devkitpro/pacman/var/lib/pacman \
+                             -S --noconfirm libogc2 libogc2-libdvm; then
               install_ok=1
               break
             fi
           done
           if [ $install_ok -ne 1 ]; then
-            echo "ERROR: libogc2 install failed after 5 attempts (Cloudflare 403?)" >&2
+            echo "ERROR: libogc2 install failed" >&2
             exit 1
           fi
+          test -f /opt/devkitpro/libogc2/gamecube_rules
+          test -f /opt/devkitpro/libogc2/wii_rules
 
       - name: Surface devkitPro env vars for the headless editor's make
         if: matrix.platform != 'Linux'
