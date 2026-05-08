@@ -46,6 +46,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   g++/make           - engine + game compile
 #   cmake              - Tools/prebuild_libgit2.sh + addon CMake projects
 #   libx11/asound/pulse/vorbis-dev - engine link deps
+#   libssl-dev         - libgit2 HTTPS backend (SelectHTTPSBackend.cmake)
 #   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
 #   git                - actions/checkout + submodules
 #   pkg-config         - addon build scripts resolve FFmpeg etc.
@@ -60,12 +61,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-dev \
     libasound2-dev \
     libpulse-dev \
+    libvorbis-dev \
+    libssl-dev \
     wget \
     curl \
     ca-certificates \
     git \
     pkg-config \
-    libvorbis-dev \
     xz-utils \
     sudo \
     gnupg \

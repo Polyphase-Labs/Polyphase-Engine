@@ -147,15 +147,19 @@ jobs:
       # Backstop in case the polyphase-bare image hasn't been rebuilt yet
       # with the latest Dockerfile.base additions. Idempotent: a no-op once
       # the image catches up.
-      #   python3   - asset stub generator
-      #   dpkg-dev  - .deb packaging (dpkg-deb binary)
-      #   cmake     - libgit2 prebuild
-      - name: Ensure python3 + dpkg-dev + cmake are available
+      #   python3     - asset stub generator
+      #   dpkg-dev    - .deb packaging (dpkg-deb binary)
+      #   cmake       - libgit2 prebuild
+      #   libssl-dev  - libgit2 HTTPS backend (SelectHTTPSBackend.cmake);
+      #                 without it cmake bails with "Unable to autodetect a
+      #                 usable HTTPS backend".
+      - name: Ensure python3 + dpkg-dev + cmake + libssl-dev are available
         run: |
           missing=()
           command -v python3 >/dev/null 2>&1 || missing+=(python3)
           command -v dpkg-deb >/dev/null 2>&1 || missing+=(dpkg-dev)
           command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          [ -f /usr/include/openssl/ssl.h ] || missing+=(libssl-dev)
           if [ ${#missing[@]} -gt 0 ]; then
             echo "Installing missing tools: ${missing[*]}"
             apt-get update
