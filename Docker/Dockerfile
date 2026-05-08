@@ -22,23 +22,35 @@
 #   Interactive:
 #     docker run -it --rm -v ./output:/game -v ./MyGame:/project polyphase-engine bash
 
-# Pinned to 22.04 (glibc 2.35, gcc 11 / GLIBCXX_3.4.30) so the editor binary
-# we build inside this image is forward-compatible with:
-#   - Debian Bookworm (glibc 2.36, devkitPro images)
-#   - Ubuntu 22.04 / 24.04+ (glibc 2.35+ / 2.39+)
-#   - RHEL 9, recent Fedoras, etc.
-# An ubuntu:24.04 base would link against glibc 2.38+ and GLIBCXX_3.4.32+
-# (gcc 13), which excludes Bookworm and many user systems. Keep this in sync
-# with the `runs-on: ubuntu-22.04` pin in .github/workflows/{verify-build,
-# release}.yml's build-linux job for the same reason.
-FROM ubuntu:22.04
+# Base must be Debian Bookworm or newer because devkitPro's pacman ships
+# toolchain binaries (powerpc-eabi-gcc/g++, arm-none-eabi-gcc/g++) that are
+# themselves built against glibc 2.36+. An older base (Ubuntu 22.04 = glibc
+# 2.35) installs them successfully but they crash at runtime with:
+#     powerpc-eabi-g++: /lib/x86_64-linux-gnu/libc.so.6:
+#         version `GLIBC_2.36' not found (required by powerpc-eabi-g++)
+# Bookworm (glibc 2.36, gcc 12 / GLIBCXX_3.4.31) is the floor for everything
+# we need. Editor binaries built here will need glibc 2.36+ to run, which
+# covers Bookworm, Ubuntu 24.04+, RHEL 9.4+, and Fedora 36+.
+# Keep this in sync with Docker/Dockerfile.base.
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base dependencies
-RUN apt-get update && apt-get install -y \
+# Install base dependencies. Mirrors Dockerfile.base — keep in sync.
+#   g++/make           - engine + game compile
+#   cmake              - Tools/prebuild_libgit2.sh + addon CMake projects
+#   libx11/asound/pulse/vorbis-dev - engine link deps
+#   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
+#   git                - submodules
+#   pkg-config         - addon build scripts resolve FFmpeg etc.
+#   xz-utils           - tar.xz extraction (Vulkan SDK)
+#   sudo, gnupg        - dkp-pacman keyring + post-install hooks
+#   python3            - Tools/generate_embedded_stubs.py
+#   dpkg-dev           - Installers/build_deb_linux.sh uses dpkg-deb
+RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     make \
+    cmake \
     libx11-dev \
     libasound2-dev \
     libpulse-dev \
@@ -51,6 +63,8 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     sudo \
     gnupg \
+    python3 \
+    dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Vulkan SDK 1.3.275.0

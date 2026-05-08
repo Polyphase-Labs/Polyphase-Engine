@@ -120,12 +120,13 @@ jobs:
   # =========================================================================
   build-linux:
     runs-on: ubuntu-latest
-    # All-in-one build env (Docker/Dockerfile.base): ubuntu:22.04 + g++ +
-    # Vulkan SDK + glslc + devkitPro + libogc2 + curl-impersonate. Replaces
-    # the per-step apt installs that ballooned to 20+ min on slow mirrors.
-    # Building the editor here guarantees forward-compatibility with all
-    # downstream consumers (Bookworm, 24.04, RHEL 9, etc.) since the image
-    # is glibc 2.35.
+    # All-in-one build env (Docker/Dockerfile.base): debian:bookworm-slim
+    # (glibc 2.36, gcc 12) + Vulkan SDK + glslc + devkitPro + libogc2 +
+    # curl-impersonate. Replaces the per-step apt installs that ballooned
+    # to 20+ min on slow mirrors. Bookworm is the minimum base because
+    # devkitPro's pre-built toolchain binaries themselves need glibc 2.36+.
+    # Editor binaries built here run on Bookworm, Ubuntu 24.04+, RHEL 9.4+,
+    # and Fedora 36+.
     container:
       image: polyphaselabs/polyphase-bare:latest
     # Container jobs default to dash; flip to bash so array/[[ ]]/pipefail work.

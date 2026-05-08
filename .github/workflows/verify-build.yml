@@ -12,13 +12,17 @@ env:
   TEST_PROJECT_SUBDIR: Bomber   # subdirectory inside the clone that contains the .octp
 
   # All-in-one build environment maintained at Docker/Dockerfile.base and
-  # published to Docker Hub. It bundles ubuntu:22.04 (glibc 2.35) + g++/make,
-  # Vulkan SDK + glslc, devkitPro pacman, devkitPPC + devkitARM toolchains,
-  # libogc2 + libogc2-libdvm + 3ds-dev + wii-dev + gamecube-tools-git, and
-  # curl-impersonate for Cloudflare bypass on rebuilds. Using one image for
-  # both build-linux and verify-test-project guarantees ABI compatibility
-  # (no glibc/GLIBCXX cross-version surprises) and removes the per-step
-  # apt installs entirely (~25 min off cold runs).
+  # published to Docker Hub. It bundles debian:bookworm-slim (glibc 2.36,
+  # gcc 12) + g++/make, Vulkan SDK + glslc, devkitPro pacman, devkitPPC +
+  # devkitARM toolchains, libogc2 + libogc2-libdvm + 3ds-dev + wii-dev +
+  # gamecube-tools-git, and curl-impersonate for Cloudflare bypass on
+  # rebuilds. Bookworm is the minimum base because devkitPro's toolchain
+  # binaries (powerpc-eabi-g++, arm-none-eabi-g++) themselves require
+  # glibc 2.36+; an older base would install them but they'd crash at
+  # runtime with "GLIBC_2.36 not found".
+  # Using one image for both build-linux and verify-test-project guarantees
+  # ABI compatibility and removes the per-step apt installs entirely
+  # (~25 min off cold runs).
   POLYPHASE_BASE_IMAGE: polyphaselabs/polyphase-bare:latest
 
 jobs:

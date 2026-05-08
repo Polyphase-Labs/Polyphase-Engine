@@ -22,16 +22,21 @@
 #   Interactive:
 #     docker run -it --rm -v ./output:/game -v ./MyGame:/project polyphase-engine bash
 
-# Pinned to 22.04 (glibc 2.35, gcc 11 / GLIBCXX_3.4.30) so the editor binary
-# we build inside this image is forward-compatible with:
-#   - Debian Bookworm (glibc 2.36, devkitPro images)
-#   - Ubuntu 22.04 / 24.04+ (glibc 2.35+ / 2.39+)
-#   - RHEL 9, recent Fedoras, etc.
-# An ubuntu:24.04 base would link against glibc 2.38+ and GLIBCXX_3.4.32+
-# (gcc 13), which excludes Bookworm and many user systems. Keep this in sync
-# with the `runs-on: ubuntu-22.04` pin in .github/workflows/{verify-build,
-# release}.yml's build-linux job for the same reason.
-FROM ubuntu:22.04
+# Base must be Debian Bookworm or newer because devkitPro's pacman ships
+# toolchain binaries (powerpc-eabi-gcc/g++, arm-none-eabi-gcc/g++) that are
+# themselves built against glibc 2.36+. An older base (Ubuntu 22.04 = glibc
+# 2.35) installs them successfully but they crash at runtime with:
+#     powerpc-eabi-g++: /lib/x86_64-linux-gnu/libc.so.6:
+#         version `GLIBC_2.36' not found (required by powerpc-eabi-g++)
+# Bookworm gets us glibc 2.36 (gcc 12 / GLIBCXX_3.4.31) which is the floor
+# for everything we need. Editor binaries built inside this image will need
+# glibc 2.36+ to run, which covers:
+#   - Debian Bookworm itself
+#   - Ubuntu 24.04 LTS and newer
+#   - RHEL 9.4+, Fedora 36+
+# Ubuntu 22.04 LTS users won't be able to run the editor; that's an
+# acceptable trade-off given devkitPro's own glibc floor.
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
