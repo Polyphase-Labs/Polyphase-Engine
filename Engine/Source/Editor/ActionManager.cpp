@@ -5706,6 +5706,162 @@ void ActionManager::BeginReimportScene(AssetStub* sceneStub)
     HandleReimportSceneCallback(filePaths);
 }
 
+void ActionManager::BeginReimportAssetWithNewFile(AssetStub* stub)
+{
+    if (GetEngineState()->mProjectPath == "")
+    {
+        LogWarning("Cannot reimport asset. No project loaded.");
+        return;
+    }
+
+    if (stub == nullptr || stub->mType == INVALID_TYPE_ID)
+    {
+        LogWarning("Cannot reimport asset. Invalid asset stub.");
+        return;
+    }
+
+    if (stub->mEngineAsset)
+    {
+        LogWarning("Cannot reimport engine asset.");
+        return;
+    }
+
+    // Scenes have a dedicated import-options modal flow.
+    if (stub->mType == Scene::GetStaticType())
+    {
+        BeginReimportScene(stub);
+        return;
+    }
+
+    std::vector<std::string> filePaths = SYS_OpenFileDialog();
+    if (filePaths.empty() || filePaths[0].empty())
+        return;
+
+    const std::string newSourcePath = filePaths[0];
+
+    size_t dotIdx = newSourcePath.find_last_of('.');
+    if (dotIdx == std::string::npos)
+    {
+        LogWarning("Cannot reimport asset. Source file has no extension: %s", newSourcePath.c_str());
+        return;
+    }
+
+    std::string extension = newSourcePath.substr(dotIdx);
+    for (char& c : extension) c = (char)tolower((unsigned char)c);
+
+    TypeId expected = stub->mType;
+    bool extensionOk = false;
+
+    if (expected == Texture::GetStaticType())
+    {
+        extensionOk = (extension == ".png" ||
+                       extension == ".bmp" ||
+                       extension == ".jpeg" ||
+                       extension == ".jpg" ||
+                       extension == ".tga");
+    }
+    else if (expected == StaticMesh::GetStaticType() ||
+             expected == SkeletalMesh::GetStaticType())
+    {
+        extensionOk = (extension == ".dae" ||
+                       extension == ".fbx" ||
+                       extension == ".glb" ||
+                       extension == ".gltf" ||
+                       extension == ".obj");
+    }
+    else if (expected == SoundWave::GetStaticType())
+    {
+        extensionOk = (extension == ".wav");
+    }
+    else if (expected == Font::GetStaticType())
+    {
+        extensionOk = (extension == ".ttf" || extension == ".xml");
+    }
+    else
+    {
+        TypeId addonType = LookupImportExtension(extension);
+        extensionOk = (addonType != INVALID_TYPE_ID && addonType == expected);
+    }
+
+    if (!extensionOk)
+    {
+        LogWarning("Cannot reimport asset. Source extension '%s' does not match asset type '%s'.",
+                   extension.c_str(),
+                   Asset::GetNameFromTypeId(expected));
+        return;
+    }
+
+    AssetManager* assMan = AssetManager::Get();
+
+    if (stub->mAsset == nullptr)
+    {
+        assMan->LoadAsset(*stub);
+    }
+
+    const uint64_t preservedUuid = stub->mUuid;
+    const std::string preservedName = stub->mName;
+    Asset* const oldAsset = stub->mAsset;
+
+    Asset* newAsset = Asset::CreateInstance(expected);
+    if (newAsset == nullptr)
+    {
+        LogError("Failed to create new asset instance for reimport.");
+        return;
+    }
+
+    newAsset->SetName(preservedName);
+
+    ImportOptions options;
+    if (expected == StaticMesh::GetStaticType() ||
+        expected == SkeletalMesh::GetStaticType())
+    {
+        options.SetOptionValue("meshIndex", 0);
+    }
+
+    bool success = newAsset->Import(newSourcePath, &options);
+    if (!success)
+    {
+        LogError("Failed to reimport asset '%s' from %s",
+                 preservedName.c_str(),
+                 newSourcePath.c_str());
+        delete newAsset;
+        return;
+    }
+
+    // Restore stub identity onto the new asset (Import may have stamped fresh values).
+    newAsset->SetName(preservedName);
+    newAsset->SetUuid(preservedUuid);
+
+    if (oldAsset != nullptr && GetEditorState()->GetInspectedObject() == oldAsset)
+    {
+        GetEditorState()->InspectObject(nullptr, true);
+    }
+
+#if ASSET_LIVE_REF_TRACKING
+    if (oldAsset != nullptr)
+    {
+        AssetRef::ReplaceReferencesToAsset(oldAsset, newAsset);
+    }
+#endif
+
+    if (oldAsset != nullptr)
+    {
+        oldAsset->Destroy();
+        delete oldAsset;
+    }
+    stub->mAsset = newAsset;
+
+    newAsset->SetDirtyFlag();
+    assMan->SaveAsset(*stub);
+
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr) hookMgr->FireOnAssetImported(stub->mName.c_str());
+
+    LogDebug("Reimported asset '%s' from %s",
+             preservedName.c_str(),
+             newSourcePath.c_str());
+}
+
 void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*, std::string> >& assets,
     std::vector<EmbeddedRawAssetEntry>& rawAssets,
     const char* headerPath,

@@ -5897,6 +5897,14 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             actMan->ImportTinyLLMTokenizer();
         }
 
+        if (stub && !readOnly)
+        {
+            if (ImGui::Selectable("Reimport With New File"))
+            {
+                actMan->BeginReimportAssetWithNewFile(stub);
+            }
+        }
+
         ImGui::EndMenu();
 		}
 

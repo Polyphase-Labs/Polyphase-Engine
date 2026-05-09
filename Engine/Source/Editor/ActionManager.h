@@ -303,6 +303,7 @@ public:
     void ImportScene(const SceneImportOptions& options);
     void BeginImportScene();
     void BeginReimportScene(AssetStub* sceneStub);
+    void BeginReimportAssetWithNewFile(AssetStub* stub);
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);
     void DrawBuildModal();
