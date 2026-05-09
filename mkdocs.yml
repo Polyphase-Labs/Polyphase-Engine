@@ -33,6 +33,7 @@ nav:
       - FAQ: Info/FAQ.md
 
   - Development:
+      - Contributing: Development/Contributing.md
       - Install Environment:
           - Windows: Development/SetupEnvironment/Windows.md
           - Linux: Development/SetupEnvironment/Linux.md
@@ -88,13 +89,16 @@ nav:
       - Native Addons:
           - Overview: Development/NativeAddon/NativeAddon.md
           - General Examples:
+              - Coin: Development/NativeAddon/Examples/Coin.md
+              - Custom Asset Type: Development/NativeAddon/Examples/CustomAssetType.md
               - Custom Context Menu Item: Development/NativeAddon/Examples/CustomContextMenuItem.md
               - Custom Debug Window: Development/NativeAddon/Examples/CustomDebugWindow.md
+              - Custom Graph Node: Development/NativeAddon/Examples/CustomGraphNode.md
               - Custom Menu Item: Development/NativeAddon/Examples/CustomMenuItem.md
               - Custom Script Inspector: Development/NativeAddon/Examples/CustomScriptInspector.md
               - Custom Theme: Development/NativeAddon/Examples/CustomTheme.md
               - Debug Log: Development/NativeAddon/Examples/DebugLog.md
-              - Coin: Development/NativeAddon/Examples/Coin.md
+              - External Library: Development/NativeAddon/Examples/ExternalLibrary.md
               - Select Handler: Development/NativeAddon/Examples/SelectHandler.md
           - Editor Examples:
               - Add Node Menu: Development/NativeAddon/Examples/Editor/AddNodeMenu.md

@@ -94,6 +94,12 @@ std::string AddonCreator::GenerateIdFromName(const std::string& name)
             id += static_cast<char>(std::tolower(c));
             lastWasHyphen = false;
         }
+        else if (c == '.')
+        {
+            // Preserve dots so reverse-domain ids (e.g. "com.formats.video") survive.
+            id += '.';
+            lastWasHyphen = false;
+        }
         else if (c == ' ' || c == '_' || c == '-')
         {
             if (!lastWasHyphen && !id.empty())

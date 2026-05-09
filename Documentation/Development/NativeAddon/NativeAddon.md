@@ -49,7 +49,7 @@ The `package.json` file must include a `native` block to enable native code supp
         "sourceDir": "Source",
         "binaryName": "myaddon",
         "entrySymbol": "PolyphasePlugin_GetDesc",
-        "apiVersion": 2
+        "apiVersion": 3
     }
 }
 ```
@@ -97,16 +97,12 @@ The `package.json` file must include a `native` block to enable native code supp
 
 Every native addon must implement a single exported function that returns a plugin descriptor:
 
+> **Canonical API version:** Read `POLYPHASE_PLUGIN_API_VERSION` from `Engine/Source/Plugins/PolyphasePluginAPI.h` — the current value is `3`. The `apiVersion` field in your `package.json` and your descriptor must match. Older snippets that show `2` are stale.
+
 ```cpp
 // MyAddon.cpp
 
 #include "PolyphasePluginAPI.h"
-
-// Static registration for built games (only when compiled-in, not DLL)
-#if !defined(OCTAVE_PLUGIN_EXPORT)
-#include "Plugins/RuntimePluginManager.h"
-POLYPHASE_REGISTER_PLUGIN(MyAddon, PolyphasePlugin_GetDesc)
-#endif
 
 static PolyphaseEngineAPI* sAPI = nullptr;
 
@@ -163,14 +159,13 @@ static void RegisterTypes(void* nodeFactory)
 }
 
 // Optional: Register Lua script functions
-static void RegisterScriptFuncs(void* luaState)
+static void RegisterScriptFuncs(lua_State* L)
 {
-    // lua_State* L = static_cast<lua_State*>(luaState);
     // Register your Lua bindings here
 }
 
-// Required: Plugin descriptor export
-extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)
+// Common descriptor-fill body. Both entry-point variants below call this.
+static int FillDesc(PolyphasePluginDesc* desc)
 {
     desc->apiVersion = OCTAVE_PLUGIN_API_VERSION;
     desc->pluginName = "My Addon";
@@ -189,12 +184,33 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
     desc->RegisterScriptFuncs = RegisterScriptFuncs;
     desc->RegisterEditorUI = nullptr;  // See "Extending the Editor UI" section
 
-    // Editor lifecycle hooks (API v2+, set to nullptr if not needed)
+    // Editor lifecycle hooks (set to nullptr if not needed)
     desc->OnEditorPreInit = nullptr;   // Before editor ImGui is fully initialized
     desc->OnEditorReady = nullptr;     // After editor is fully initialized
 
     return 0;  // Success
 }
+
+// Required: Plugin descriptor export. The symbol name differs between editor
+// hot-load (DLL, looked up via GetProcAddress) and shipped builds (statically
+// linked alongside other addons). See "Static Plugin Registration" below.
+#if EDITOR
+extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
+#else
+// Shipped build: each addon exports a uniquely-named symbol so multiple addons
+// can coexist in one executable. The suffix is the addon id with every char
+// outside [A-Za-z0-9_] replaced by underscore (so com.example.myaddon →
+// com_example_myaddon). The editor regenerates a matching `AddonPlugins.cpp`
+// that POLYPHASE_REGISTER_PLUGINs each suffixed symbol — you do not write the
+// macro yourself.
+extern "C" int PolyphasePlugin_GetDesc_MyAddon(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
+#endif
 ```
 
 ---
@@ -222,18 +238,18 @@ struct PolyphasePluginDesc
 
     // Registration callbacks
     void (*RegisterTypes)(void* nodeFactory);
-    void (*RegisterScriptFuncs)(void* luaState);
+    void (*RegisterScriptFuncs)(lua_State* L);
 
     // Editor UI extension (editor builds only, set to nullptr otherwise)
     void (*RegisterEditorUI)(EditorUIHooks* hooks, uint64_t hookId);
 
-    // Editor lifecycle callbacks (API version 2+, editor builds only)
+    // Editor lifecycle callbacks (editor builds only)
     void (*OnEditorPreInit)();   // Called before editor ImGui is fully initialized
     void (*OnEditorReady)();     // Called after editor is fully initialized, before main loop
 };
 ```
 
-> **API Version Note:** The `OnEditorPreInit` and `OnEditorReady` fields were added in API version 2. Plugins built with API version 1 are still compatible - the engine zeros out these fields automatically.
+> **API Version Note:** The current `POLYPHASE_PLUGIN_API_VERSION` is `3`. The `OnEditorPreInit` / `OnEditorReady` fields were added in version 2; older plugins remain compatible — the engine zeros out fields it doesn't recognise. Always read the canonical value from `Engine/Source/Plugins/PolyphasePluginAPI.h` rather than hard-coding it.
 
 ### Tick Callbacks
 
@@ -913,10 +929,8 @@ static int Lua_MyFunction(lua_State* L)
     return 1;  // Number of return values
 }
 
-static void RegisterScriptFuncs(void* luaState)
+static void RegisterScriptFuncs(lua_State* L)
 {
-    lua_State* L = static_cast<lua_State*>(luaState);
-
     // Create a table for your addon's functions
     lua_newtable(L);
 
@@ -1063,33 +1077,44 @@ The build system will:
 
 ### Static Plugin Registration
 
-In built games (non-editor), plugins are statically linked and must register themselves at startup. Use the `POLYPHASE_REGISTER_PLUGIN` macro:
+In built games (non-editor), addons are statically linked and registered at startup via the `POLYPHASE_REGISTER_PLUGIN` macro — but **the editor generates that registrar for you**. You should not write it yourself.
+
+Each addon exports two differently-named entry-point symbols depending on build mode:
+
+| Build mode  | Exported symbol                                      | How it's invoked                                                                         |
+|-------------|------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| Editor      | `PolyphasePlugin_GetDesc`                            | `GetProcAddress` / `dlsym` on the loaded DLL.                                             |
+| Shipped     | `PolyphasePlugin_GetDesc_<sanitized_id>`             | A `POLYPHASE_REGISTER_PLUGIN` call in `Generated/AddonPlugins.cpp`, generated by the editor. |
+
+The sanitized id replaces every character outside `[A-Za-z0-9_]` with `_`, so `com.example.myaddon` becomes `com_example_myaddon` (see `Engine/Source/Editor/ActionManager.cpp` — the `SanitizeAddonIdForSymbol` helper around line 193 and the registrar emitter around line 233 / 872).
+
+Your addon's source therefore looks like this:
 
 ```cpp
 #include "PolyphasePluginAPI.h"
 
-// Forward declaration
-extern "C" int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc);
+// ... OnLoad / OnUnload / Tick / RegisterTypes / RegisterScriptFuncs / FillDesc ...
 
-// Static registration for built games (only when compiled-in, not DLL)
-#if !defined(OCTAVE_PLUGIN_EXPORT)
-#include "Plugins/RuntimePluginManager.h"
-POLYPHASE_REGISTER_PLUGIN(MyAddon, PolyphasePlugin_GetDesc)
+#if EDITOR
+extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
+#else
+// Suffix uses your sanitized addon id. For an addon whose package.json
+// "name" is "com.example.myaddon", the suffix is com_example_myaddon.
+extern "C" int PolyphasePlugin_GetDesc_com_example_myaddon(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
 #endif
-
-// ... rest of plugin code ...
 ```
 
-**Important:** The `#if !defined(OCTAVE_PLUGIN_EXPORT)` guard ensures this code only runs when the plugin is compiled into the game, not when it's built as a DLL for hot-loading in the editor.
+The editor writes `Generated/AddonPlugins.cpp` containing one `POLYPHASE_REGISTER_PLUGIN(<sanitized_id>, PolyphasePlugin_GetDesc_<sanitized_id>)` line per enabled addon, plus the matching `extern "C"` forward declaration. The `RuntimePluginManager` invokes those at static init time during engine startup and then calls `OnLoad` during the normal init sequence.
 
-### How It Works
+**Run** **Tools → Addons → Regenerate Native Addon Dependencies** **after** adding, removing, or renaming an addon — that's what regenerates `AddonPlugins.cpp`. Without it, the shipped build will fail to link with `undefined reference to PolyphasePlugin_GetDesc_<id>`.
 
-| Context | Loading Method | `OCTAVE_PLUGIN_EXPORT` Defined |
-|---------|----------------|-------------------------------|
-| Editor (hot-load) | Dynamic DLL loading | Yes |
-| Built game | Static registration | No |
-
-In the editor, plugins are loaded as DLLs and `PolyphasePlugin_GetDesc` is called via `GetProcAddress`/`dlsym`. In built games, the `POLYPHASE_REGISTER_PLUGIN` macro registers the plugin at static initialization time, and the `RuntimePluginManager` calls `OnLoad` during engine startup.
+> **Migration note:** Older addons that wrote `POLYPHASE_REGISTER_PLUGIN(MyAddon, PolyphasePlugin_GetDesc)` themselves (typically inside an `#if !defined(OCTAVE_PLUGIN_EXPORT)` block) should remove that line, switch to the dual-entry pattern above, and run **Tools → Addons → Regenerate Native Addon Dependencies** so the editor-generated registrar takes over.
 
 ### Platform-Specific Code
 
@@ -1126,6 +1151,96 @@ static void Tick(float deltaTime)
 ```
 
 In built games, `TickEditor` is NOT called (it's editor-only). Only `Tick` is called during the game loop.
+
+---
+
+## Per-Platform Build Configuration & External Libraries
+
+Native addons can declare extra compiler/linker inputs and per-platform overrides directly in `package.json`. This is how you bundle third-party libraries (FFmpeg, OpenAL, Bullet, …) and how you keep platform-specific decoders/backends out of unsupported targets.
+
+### Common (cross-platform) extras
+
+The top-level `native` block accepts five optional arrays applied to **every** platform:
+
+| Field              | Effect                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `extraDefines`     | Added to the compiler command line as preprocessor definitions.                              |
+| `extraIncludeDirs` | Added to the include search path. Paths are resolved relative to the addon directory.        |
+| `extraLibDirs`     | Added to the linker library search path.                                                     |
+| `extraLibs`        | Linker inputs (e.g. `avcodec.lib`, `pulse-simple`).                                          |
+| `copyBinaries`     | Files or directories copied next to the built addon binary post-build (typically runtime DLLs). |
+
+```json
+{
+    "native": {
+        "target": "engine",
+        "sourceDir": "Source",
+        "binaryName": "myaddon",
+        "apiVersion": 3,
+        "extraDefines": ["MYADDON_FEATURE_X=1"],
+        "extraIncludeDirs": ["External/somelib/include"]
+    }
+}
+```
+
+### Per-platform overrides
+
+The `nativePerPlatform.<PlatformName>` block lets you append platform-specific values without polluting other targets. Recognised platform names match `GetPlatformString(Platform)`:
+
+```
+"Windows"  "Linux"  "Android"  "GameCube"  "Wii"  "3DS"
+```
+
+Unknown platform names are silently ignored at resolve time — typos are not flagged.
+
+```json
+{
+    "name": "com.example.myaudio",
+    "version": "1.0.0",
+    "native": {
+        "target": "engine",
+        "sourceDir": "Source",
+        "binaryName": "com.example.myaudio",
+        "apiVersion": 3
+    },
+    "nativePerPlatform": {
+        "Windows": {
+            "extraDefines": ["MYAUDIO_WITH_FFMPEG=1"],
+            "extraIncludeDirs": ["External/ffmpeg/include"],
+            "extraLibDirs":     ["External/ffmpeg/lib"],
+            "extraLibs":        ["avformat.lib", "avcodec.lib", "avutil.lib"],
+            "copyBinaries":     ["External/ffmpeg/bin"]
+        },
+        "Linux": {
+            "extraDefines": ["MYAUDIO_WITH_FFMPEG=1"]
+        },
+        "GameCube": {},
+        "Wii": {},
+        "3DS": {}
+    }
+}
+```
+
+The matching directory layout for the Windows entry above:
+
+```
+Packages/com.example.myaudio/
+    package.json
+    Source/
+    External/
+        ffmpeg/
+            include/        (third-party headers)
+            lib/            (import libs: avformat.lib, ...)
+            bin/            (runtime DLLs: avformat-62.dll, ...)
+```
+
+### Practical guidance
+
+- **Vendor on Windows; system-link on Linux.** Prebuilt `.lib` + `.dll` pairs under `External/<lib>/` are the de-facto Windows pattern. On Linux, prefer the system package (`pkg-config`) and only set `extraDefines` to enable the matching feature flag in your code.
+- **Consoles get their own backend.** GameCube / Wii / 3DS targets in the example above pass empty objects so they don't pull in FFmpeg. Implement a console-only fallback (e.g. a custom decoder) and gate it with `#if PLATFORM_DOLPHIN` / `#if PLATFORM_3DS`.
+- **Keep platform-specific code in `#if` blocks** so the build link-completes everywhere even if the active backend is stubbed out — this prevents "missing symbol" surprises during a console package.
+- **Manifest changes invalidate the fingerprint.** Any edit to `native.*` or `nativePerPlatform.*.*` triggers a rebuild of the affected addon (see `NativeAddonManager::ComputeFingerprint`).
+- **Worked example.** The VideoPlayer addon at `Addons/VideoPlayer/.../com.polyphase.formats.video/` uses this exact pattern to integrate FFmpeg on Windows/Linux and ship a console-native decoder on GameCube/Wii/3DS — read its `package.json` and the matching `External/ffmpeg/` layout. See also [External Library Integration](Examples/ExternalLibrary.md).
 
 ---
 
@@ -1172,7 +1287,7 @@ Here's a complete native addon example with tick callbacks:
         "target": "engine",
         "sourceDir": "Source",
         "binaryName": "hellonative",
-        "apiVersion": 2
+        "apiVersion": 3
     }
 }
 ```
@@ -1182,12 +1297,6 @@ Use `"target": "editor"` if your addon should only run in the editor and not be 
 **Source/HelloNative.cpp:**
 ```cpp
 #include "PolyphasePluginAPI.h"
-
-// Static registration for built games (only when compiled-in, not DLL)
-#if !defined(OCTAVE_PLUGIN_EXPORT)
-#include "Plugins/RuntimePluginManager.h"
-POLYPHASE_REGISTER_PLUGIN(HelloNative, PolyphasePlugin_GetDesc)
-#endif
 
 static PolyphaseEngineAPI* sAPI = nullptr;
 static float sTotalTime = 0.0f;
@@ -1222,7 +1331,7 @@ static void TickEditor(float deltaTime)
     // Editor visualization, debug overlays, etc.
 }
 
-extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)
+static int FillDesc(PolyphasePluginDesc* desc)
 {
     desc->apiVersion = OCTAVE_PLUGIN_API_VERSION;
     desc->pluginName = "Hello Native";
@@ -1241,12 +1350,26 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
     desc->RegisterScriptFuncs = nullptr;
     desc->RegisterEditorUI = nullptr;
 
-    // Editor lifecycle (API v2+)
+    // Editor lifecycle
     desc->OnEditorPreInit = nullptr;
     desc->OnEditorReady = nullptr;
 
     return 0;
 }
+
+#if EDITOR
+extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
+#else
+// Shipped: suffix is the sanitized addon id (non-alphanumerics → '_'). Run
+// Tools → Addons → Regenerate Native Addon Dependencies after renaming.
+extern "C" int PolyphasePlugin_GetDesc_hellonative(PolyphasePluginDesc* desc)
+{
+    return FillDesc(desc);
+}
+#endif
 ```
 
 ---
@@ -1264,6 +1387,9 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
 - [Custom Inspector](Examples/CustomScriptInspector.md) - Custom node inspectors
 - [Custom Context Menu](Examples/CustomContextMenuItem.md) - Right-click context menus
 - [Rotator3D](Examples/Rotator3D.md) - Gameplay tick example
+- [Custom Asset Type](Examples/CustomAssetType.md) - Defining a new asset class with importer + serialization
+- [Custom Graph Node](Examples/CustomGraphNode.md) - Adding a visual-scripting node from an addon
+- [External Library Integration](Examples/ExternalLibrary.md) - Bundling third-party libraries with per-platform overrides
 
 ### Editor Hook Examples
 

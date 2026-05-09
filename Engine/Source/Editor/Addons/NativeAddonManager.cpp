@@ -3162,6 +3162,13 @@ std::string NativeAddonManager::GenerateIdFromName(const std::string& name)
             id += static_cast<char>(std::tolower(c));
             lastWasHyphen = false;
         }
+        else if (c == '.')
+        {
+            // Preserve dots so reverse-domain ids (e.g. "com.formats.video") survive
+            // through the addon folder name and binary name.
+            id += '.';
+            lastWasHyphen = false;
+        }
         else if (c == ' ' || c == '_' || c == '-')
         {
             if (!lastWasHyphen && !id.empty())

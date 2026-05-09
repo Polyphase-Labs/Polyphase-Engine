@@ -115,7 +115,9 @@
       "Bash(cmd.exe //c 'set DEVKITPRO=C:\\\\devkitPro&& set DEVKITARM=C:\\\\devkitPro\\\\devkitARM&& C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\External\\\\Bullet\" -f \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\External\\\\Bullet\\\\Makefile_3DS\" -n')",
       "PowerShell($env:DEVKITPRO='C:\\\\devkitPro'; $env:DEVKITARM='C:\\\\devkitPro\\\\devkitARM'; & C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\" 2>&1 | Select-Object -First 20)",
       "PowerShell($env:DEVKITPRO='C:\\\\devkitPro'; $env:DEVKITARM='C:\\\\devkitPro\\\\devkitARM'; & C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\" 2>&1 | Select-Object -Last 20)",
-      "Bash(Select-Object -First 10)"
+      "Bash(Select-Object -First 10)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Format-Table)"
     ]
   }
 }
