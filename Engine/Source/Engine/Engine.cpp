@@ -309,6 +309,35 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
 {
     for (int32_t i = 0; i < argc; ++i)
     {
+        // Positional .octp file or project directory (e.g. when the OS launches
+        // Polyphase by double-clicking a .octp). Absolutize now — we may chdir
+        // before this path is consumed.
+        if (i > 0 && argv[i][0] != '-')
+        {
+            const char* arg = argv[i];
+            size_t len = strlen(arg);
+
+            bool looksLikeOctp = false;
+            if (len > 5)
+            {
+                const char* tail = arg + len - 5;
+                if (tail[0] == '.' &&
+                    (tail[1] == 'o' || tail[1] == 'O') &&
+                    (tail[2] == 'c' || tail[2] == 'C') &&
+                    (tail[3] == 't' || tail[3] == 'T') &&
+                    (tail[4] == 'p' || tail[4] == 'P'))
+                {
+                    looksLikeOctp = true;
+                }
+            }
+
+            if (looksLikeOctp || DoesDirExist(arg))
+            {
+                sEngineConfig.mProjectPath = SYS_GetAbsolutePath(arg);
+                continue;
+            }
+        }
+
         if (strcmp(argv[i], "-project") == 0)
         {
             OCT_ASSERT(i + 1 < argc);

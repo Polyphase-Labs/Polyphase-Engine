@@ -67,6 +67,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "addtopath"; Description: "Add Polyphase to system PATH"; GroupDescription: "System integration:"
 Name: "setpolyphasepath"; Description: "Set POLYPHASE_PATH environment variable"; GroupDescription: "System integration:"; Flags: checkedonce
 Name: "associateoctp"; Description: "Associate .octp files with Polyphase"; GroupDescription: "System integration:"
+Name: "shellcontext"; Description: "Add 'Open with Polyphase' to folder right-click menu"; GroupDescription: "System integration:"
 
 [Files]
 ; --- Core: Binary ---
@@ -141,11 +142,26 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
-; .octp file association
+; .octp file association — double-click opens via the default "Open" verb.
 Root: HKCU; Subkey: "Software\Classes\.octp"; ValueType: string; ValueData: "PolyphaseProject"; Flags: uninsdeletevalue; Tasks: associateoctp
 Root: HKCU; Subkey: "Software\Classes\PolyphaseProject"; ValueType: string; ValueData: "Polyphase Engine Project"; Flags: uninsdeletekey; Tasks: associateoctp
 Root: HKCU; Subkey: "Software\Classes\PolyphaseProject\DefaultIcon"; ValueType: string; ValueData: "{app}\Standalone\Polyphase.ico,0"; Tasks: associateoctp
 Root: HKCU; Subkey: "Software\Classes\PolyphaseProject\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" -project ""%1"""; Tasks: associateoctp
+
+; Explicit "Open with Polyphase" verb on .octp right-click menu (alongside default Open).
+Root: HKCU; Subkey: "Software\Classes\PolyphaseProject\shell\OpenWithPolyphase"; ValueType: string; ValueData: "Open with Polyphase"; Flags: uninsdeletekey; Tasks: associateoctp
+Root: HKCU; Subkey: "Software\Classes\PolyphaseProject\shell\OpenWithPolyphase"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyAppExeName},0"; Tasks: associateoctp
+Root: HKCU; Subkey: "Software\Classes\PolyphaseProject\shell\OpenWithPolyphase\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associateoctp
+
+; "Open with Polyphase" on right-click of a folder in Explorer.
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\OpenWithPolyphase"; ValueType: string; ValueData: "Open with Polyphase"; Flags: uninsdeletekey; Tasks: shellcontext
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\OpenWithPolyphase"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyAppExeName},0"; Tasks: shellcontext
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\OpenWithPolyphase\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%V"""; Tasks: shellcontext
+
+; "Open with Polyphase" on right-click in the empty background of an open folder.
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\OpenWithPolyphase"; ValueType: string; ValueData: "Open with Polyphase"; Flags: uninsdeletekey; Tasks: shellcontext
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\OpenWithPolyphase"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\{#MyAppExeName},0"; Tasks: shellcontext
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\OpenWithPolyphase\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%V"""; Tasks: shellcontext
 
 [UninstallDelete]
 ; Clean up imgui.ini and any temp files at app root, but NOT Engine/Saves

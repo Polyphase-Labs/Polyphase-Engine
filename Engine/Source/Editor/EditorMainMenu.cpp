@@ -345,7 +345,38 @@ static void DrawFileMenu(bool& openSaveSceneAsModal)
     if (ImGui::MenuItem("Project Select..."))
         GetProjectSelectWindow()->Open();
 
-    
+    if (ImGui::BeginMenu("Recent Projects"))
+    {
+        const std::vector<std::string>& recentProjects = GetEditorState()->mRecentProjects;
+
+        if (recentProjects.empty())
+        {
+            ImGui::TextDisabled("(No recent projects)");
+        }
+        else
+        {
+            for (size_t i = 0; i < recentProjects.size(); ++i)
+            {
+                const std::string& projPath = recentProjects[i];
+
+                std::string label = projPath;
+                size_t slash = label.find_last_of("/\\");
+                if (slash != std::string::npos)
+                    label = label.substr(slash + 1);
+
+                ImGui::PushID((int)i);
+                if (ImGui::MenuItem(label.c_str()))
+                {
+                    am->OpenProject(projPath.c_str());
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", projPath.c_str());
+                ImGui::PopID();
+            }
+        }
+
+        ImGui::EndMenu();
+    }
 
     ImGui::Separator();
 

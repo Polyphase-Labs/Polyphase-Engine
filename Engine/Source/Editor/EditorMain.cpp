@@ -192,6 +192,21 @@ void EditorMain(int32_t argc, char** argv)
 
     ReadCommandLineArgs(argc, argv);
 
+    // If the editor's built-in assets aren't reachable from the current working
+    // directory (e.g. the OS launched the editor by double-clicking a .octp file
+    // and set cwd to the project folder), pivot cwd to the executable's directory
+    // so every "Engine/Assets/..." relative-path lookup resolves. ReadCommandLineArgs
+    // has already absolutized the project path, so the pivot doesn't strand it.
+    if (!SYS_DoesFileExist("Engine/Assets/Fonts/F_InterRegular18.ttf", false))
+    {
+        std::string exePath = SYS_GetExecutablePath();
+        size_t lastSlash = exePath.find_last_of("\\/");
+        if (lastSlash != std::string::npos)
+        {
+            SYS_SetWorkingDirectory(exePath.substr(0, lastSlash));
+        }
+    }
+
     {
         EngineConfig* mutableConfig = GetMutableEngineConfig();
         OctPreInitialize(*mutableConfig);
