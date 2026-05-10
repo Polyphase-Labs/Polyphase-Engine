@@ -13,6 +13,23 @@ env:
   TEST_PROJECT_REPO: https://github.com/mholtkamp/octo-bombers
   TEST_PROJECT_SUBDIR: Bomber   # subdirectory inside the clone that contains the .octp
 
+  # Docker Hub image names. Override per-repo via repository variables of the
+  # same name (Settings → Secrets and variables → Actions → Variables) if the
+  # fork publishes under a different org.
+  #
+  # The bare image is the canonical base for any container that needs the
+  # engine's build toolchain (devkitPPC/ARM, Vulkan SDK, libogc2, etc.) but
+  # doesn't want the engine source baked in. The Polyphase CodeAgent OpenClaw
+  # container, this very workflow's build-linux/verify-test-project jobs, and
+  # any third-party tooling FROM this image. Built from Docker/Dockerfile.base.
+  DEFAULT_BARE_IMAGE: polyphaselabs/polyphase-bare
+
+  # The full image bakes the prebuilt Linux Editor + build-{editor,linux,
+  # 3ds,gcn,wii} helper scripts on top of the bare toolchain. End-users
+  # bind-mount their project and call build-* to ship to a platform without
+  # touching the toolchain themselves. Built from Docker/Dockerfile.
+  DEFAULT_ENGINE_IMAGE: polyphaselabs/polyphase-engine
+
 jobs:
   # =========================================================================
   #  Windows: Build engine + create Inno Setup installer
@@ -336,6 +353,183 @@ jobs:
       - name: Cleanup local clone
         if: always()
         run: bash Tools/CI/TestBuildProject/cleanup_test_project.sh ./test-project || true
+
+  # =========================================================================
+  #  Publish Docker images to Docker Hub
+  #
+  #  Builds and pushes two images:
+  #
+  #    1. polyphaselabs/polyphase-bare   — Docker/Dockerfile.base
+  #       Pure toolchain (Debian Bookworm + GCC 12 + Vulkan SDK + glslc +
+  #       devkitPPC/ARM + libogc2 + 3ds-dev/wii-dev/gamecube-tools-git +
+  #       curl-impersonate). NO engine source. This is the canonical base
+  #       layer the engine's own CI uses (see build-linux's `container:`
+  #       and verify-test-project), and the base layer the Polyphase
+  #       CodeAgent OpenClaw container FROMs so its agents can compile
+  #       every supported non-Windows target from inside the container.
+  #
+  #    2. polyphaselabs/polyphase-engine — Docker/Dockerfile
+  #       Bare image + cloned engine + prebuilt Linux Editor +
+  #       build-{editor,linux,3ds,gcn,wii} entrypoint scripts. End-user
+  #       facing — bind-mount a project and call `build-3ds` etc. without
+  #       installing any toolchain locally.
+  #
+  #  Gated on verify-test-project so we only publish images when the
+  #  Linux toolchain produced a working editor that successfully packaged
+  #  the test project on every supported console.
+  #
+  #  Required repository secrets:
+  #    DOCKERHUB_USERNAME — Docker Hub login (e.g. "polyphaselabs").
+  #    DOCKERHUB_TOKEN    — Docker Hub access token with Read & Write on
+  #                         both target repos. Created at
+  #                         https://hub.docker.com/settings/security.
+  #
+  #  Optional repository variables (override env defaults above):
+  #    DOCKERHUB_BARE_IMAGE   — override the bare image namespace/name.
+  #    DOCKERHUB_ENGINE_IMAGE — override the full image namespace/name.
+  # =========================================================================
+  publish-docker-images:
+    needs: verify-test-project
+    runs-on: ubuntu-latest
+    # If forks haven't set up Docker Hub creds yet, skip cleanly instead of
+    # failing the whole release. The secret check has to be guarded outside
+    # `if:` (secrets can't be evaluated in `if:`) — we re-check inside steps.
+    steps:
+      - name: Skip if Docker Hub credentials are missing
+        id: gate
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "::warning::DOCKERHUB_USERNAME / DOCKERHUB_TOKEN not set; skipping image publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/checkout@v4
+        with:
+          # Submodules are needed by Docker/Dockerfile because it does
+          # `COPY . /polyphase/` and then runs `make` against the source
+          # tree, which expects bullet3 / PolyVox / libgit2 / etc. to be
+          # present. Dockerfile.base doesn't need them but actions/checkout
+          # is cheap; do it once.
+          submodules: recursive
+
+      - name: Mark workspace safe (for any local git ops inside the build)
+        if: steps.gate.outputs.publish == 'true'
+        run: git config --global --add safe.directory '*'
+
+      # Resolve final image names + the set of tags to publish. mirrors
+      # the metadata-action call below but the bare image and the engine
+      # image get the same set of tags so they stay version-aligned.
+      - name: Resolve image refs
+        if: steps.gate.outputs.publish == 'true'
+        id: meta
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#v}"
+          bare="${{ vars.DOCKERHUB_BARE_IMAGE }}"
+          engine="${{ vars.DOCKERHUB_ENGINE_IMAGE }}"
+          [ -n "$bare" ]   || bare="${{ env.DEFAULT_BARE_IMAGE }}"
+          [ -n "$engine" ] || engine="${{ env.DEFAULT_ENGINE_IMAGE }}"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bare=$bare"       >> "$GITHUB_OUTPUT"
+          echo "engine=$engine"   >> "$GITHUB_OUTPUT"
+          echo "::notice::Publishing $bare:$version and $engine:$version"
+
+      # Only linux/amd64 — devkitPro toolchain binaries and Vulkan SDK
+      # tarball are x86_64-only. No QEMU needed for cross-arch.
+      - name: Set up Docker Buildx
+        if: steps.gate.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.gate.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ---- Bare image (Docker/Dockerfile.base) ----
+      - name: Compute tags + labels for bare image
+        if: steps.gate.outputs.publish == 'true'
+        id: bare_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta.outputs.bare }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push bare image
+        if: steps.gate.outputs.publish == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Docker/Dockerfile.base
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.bare_meta.outputs.tags }}
+          labels: ${{ steps.bare_meta.outputs.labels }}
+          # Cache via GHA so re-runs (e.g. manual workflow_dispatch on the
+          # same tag) reuse the toolchain install layers. The bare image
+          # is fully self-contained — no engine source — so the cache
+          # invalidates only when Dockerfile.base or the Vulkan/devkitPro
+          # versions change.
+          cache-from: type=gha,scope=docker-bare
+          cache-to: type=gha,mode=max,scope=docker-bare
+
+      # ---- Full engine image (Docker/Dockerfile) ----
+      - name: Compute tags + labels for engine image
+        if: steps.gate.outputs.publish == 'true'
+        id: engine_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta.outputs.engine }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push engine image
+        if: steps.gate.outputs.publish == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.engine_meta.outputs.tags }}
+          labels: ${{ steps.engine_meta.outputs.labels }}
+          # Separate cache scope so a Dockerfile-only edit doesn't churn
+          # the bare-image cache (the full image's first ~75% of layers
+          # match Dockerfile.base, but they're separate buildx graphs).
+          cache-from: type=gha,scope=docker-engine
+          cache-to: type=gha,mode=max,scope=docker-engine
+
+      - name: Summary
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          {
+            echo "## Docker images published"
+            echo ""
+            echo "Bare toolchain (used by CI + OpenClaw agents):"
+            echo '```'
+            echo "docker pull ${{ steps.meta.outputs.bare }}:${{ steps.meta.outputs.version }}"
+            echo "docker pull ${{ steps.meta.outputs.bare }}:latest"
+            echo '```'
+            echo ""
+            echo "Full engine + prebuilt editor (end-user shipping container):"
+            echo '```'
+            echo "docker pull ${{ steps.meta.outputs.engine }}:${{ steps.meta.outputs.version }}"
+            echo "docker pull ${{ steps.meta.outputs.engine }}:latest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # =========================================================================
   #  Create GitHub Release with all artifacts
