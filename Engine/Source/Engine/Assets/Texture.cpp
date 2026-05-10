@@ -576,9 +576,9 @@ bool Texture::LoadFromMemory(const uint8_t* data, size_t size, Texture& out)
         return false;
     }
 
-    int32_t texWidth   = 0;
-    int32_t texHeight  = 0;
-    int32_t texChannels = 0;
+    int texWidth   = 0;
+    int texHeight  = 0;
+    int texChannels = 0;
     stbi_uc* pixels = stbi_load_from_memory(
         data, (int)size, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
