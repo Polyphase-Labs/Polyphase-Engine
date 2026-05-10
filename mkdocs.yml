@@ -83,6 +83,8 @@ nav:
           - Tracks and Clips: Development/Timeline/TracksAndClips.md
           - Lua API: Development/Timeline/LuaAPI.md
           - Creating Custom Tracks: Development/Timeline/CreatingCustomTracks.md
+      - Networking:
+          - HTTP Client: Development/Networking/Http.md
       - Save Data: Development/SaveData.md
       - Serial:
           - Overview: Development/Serial.md
@@ -155,6 +157,9 @@ nav:
           - Math: Lua/Systems/Math.md
           - Script: Lua/Systems/Script.md
           - Asset Manager: Lua/Systems/AssetManager.md
+
+      - Networking:
+          - Http: Lua/Networking/Http.md
 
       - Assets:
           - Asset: Lua/Assets/Asset.md

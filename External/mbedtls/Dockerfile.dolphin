@@ -1,0 +1,30 @@
+# Build environment for cross-compiling mbedTLS to Wii / GameCube using
+# devkitPro's official devkitPPC image. Used by build_dolphin_docker.sh.
+#
+# devkitPPC + libogc come pre-installed in the base image; we just add the
+# perl and python deps mbedTLS's library/Makefile expects.
+
+FROM devkitpro/devkitppc:latest
+
+RUN apt-get update -qq \
+    && apt-get install -qq -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        perl \
+        ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# jsonschema >= 4.18 pulls in rpds-py which needs Rust. Pin to the pure-Python
+# 4.17.x line — mbedTLS's generate_driver_wrappers.py is happy with it.
+# --break-system-packages handles PEP 668 on Debian-based images.
+RUN python3 -m pip install --break-system-packages \
+        "jsonschema<4.18" "jinja2" \
+    || python3 -m pip install "jsonschema<4.18" "jinja2"
+
+# mbedTLS's Makefile invokes `python` (no version suffix); make sure that
+# resolves to python3.
+RUN ln -sf "$(command -v python3)" /usr/local/bin/python
+
+# DEVKITPPC / DEVKITPRO are already exported by the base image; double-check.
+ENV PATH="/opt/devkitpro/devkitPPC/bin:${PATH}"

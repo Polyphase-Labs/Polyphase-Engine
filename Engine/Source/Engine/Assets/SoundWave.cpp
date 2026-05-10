@@ -314,6 +314,141 @@ void SoundWave::Destroy()
 }
 
 
+bool SoundWave::LoadFromMemory(const uint8_t* data, size_t size, const char* formatHint, SoundWave& out)
+{
+    if (data == nullptr || size < 44)
+    {
+        return false;
+    }
+
+    // Detect format. RIFF/WAVE = WAV, "OggS" at offset 0 = OGG. Hint wins.
+    bool isWav = false;
+    bool isOgg = false;
+    if (formatHint != nullptr && *formatHint != '\0')
+    {
+        isWav = (strcmp(formatHint, "wav") == 0);
+        isOgg = (strcmp(formatHint, "ogg") == 0);
+    }
+    if (!isWav && !isOgg)
+    {
+        if (size >= 12
+            && memcmp(data, "RIFF", 4) == 0
+            && memcmp(data + 8, "WAVE", 4) == 0)
+        {
+            isWav = true;
+        }
+        else if (size >= 4 && memcmp(data, "OggS", 4) == 0)
+        {
+            isOgg = true;
+        }
+    }
+
+    if (isOgg)
+    {
+        // OGG runtime decode is not currently supported via this entry point —
+        // AUD_DecodeVorbis takes a Stream& but allocates and parses inside the
+        // engine audio module which itself depends on the cooked-asset format.
+        // Until the audio module exposes a memory-buffer entry point, callers
+        // who need OGG-from-bytes should construct an Asset and route through
+        // LoadStream(Stream(..)) instead.
+        LogWarning("SoundWave::LoadFromMemory does not yet support OGG. Use WAV.");
+        return false;
+    }
+
+    if (!isWav)
+    {
+        return false;
+    }
+
+    // Walk the RIFF/WAVE chunks. Layout:
+    //   offset  size  field
+    //        0     4  "RIFF"
+    //        4     4  file size (-8)
+    //        8     4  "WAVE"
+    //       12     4  "fmt " chunk id
+    //       16     4  fmt chunk size (16 for PCM)
+    //       20     2  audio format (1 = PCM)
+    //       22     2  num channels
+    //       24     4  sample rate
+    //       28     4  byte rate
+    //       32     2  block align
+    //       34     2  bits per sample
+    //       (next chunks: "data", optionally "fact", "LIST", etc.)
+    if (memcmp(data + 8, "WAVE", 4) != 0
+        || memcmp(data + 12, "fmt ", 4) != 0)
+    {
+        return false;
+    }
+
+    const uint16_t audioFormat = *((const uint16_t*)(data + 20));
+    if (audioFormat != 1)
+    {
+        LogError("SoundWave::LoadFromMemory unsupported WAV audio format %u (expected PCM=1)", (unsigned)audioFormat);
+        return false;
+    }
+
+    const uint16_t numChannels   = *((const uint16_t*)(data + 22));
+    const uint32_t sampleRate    = *((const uint32_t*)(data + 24));
+    const uint32_t byteRate      = *((const uint32_t*)(data + 28));
+    const uint16_t blockAlign    = *((const uint16_t*)(data + 32));
+    const uint16_t bitsPerSample = *((const uint16_t*)(data + 34));
+
+    const uint32_t fmtSize = *((const uint32_t*)(data + 16));
+    size_t offset = 20 + fmtSize;       // first byte after fmt chunk body
+
+    // Find the data chunk (skip any LIST/fact/JUNK chunks).
+    const uint8_t* sampleData = nullptr;
+    uint32_t       sampleSize = 0;
+    while (offset + 8 <= size)
+    {
+        const char* id = (const char*)(data + offset);
+        const uint32_t chunkSize = *((const uint32_t*)(data + offset + 4));
+        if (memcmp(id, "data", 4) == 0)
+        {
+            sampleData = data + offset + 8;
+            sampleSize = chunkSize;
+            break;
+        }
+        offset += 8 + chunkSize;
+        if (chunkSize & 1) ++offset;     // chunks are word-aligned
+    }
+    if (sampleData == nullptr)
+    {
+        return false;
+    }
+    if ((size_t)(sampleData - data) + sampleSize > size)
+    {
+        sampleSize = (uint32_t)(size - (sampleData - data));
+    }
+
+    const bool validBitDepth     = (bitsPerSample == 8 || bitsPerSample == 16);
+    const bool validNumChannels  = (numChannels   == 1 || numChannels   == 2);
+    if (!validBitDepth || !validNumChannels)
+    {
+        LogError("SoundWave::LoadFromMemory unsupported WAV format: bd=%u ch=%u", (unsigned)bitsPerSample, (unsigned)numChannels);
+        return false;
+    }
+
+    const uint32_t bytesPerSample = bitsPerSample / 8;
+    const uint32_t numSamples = sampleSize / bytesPerSample;
+
+    out.mWaveDataSize = sampleSize;
+    out.mWaveData     = (uint8_t*)SYS_AlignedMalloc(sampleSize, 32);
+    memcpy(out.mWaveData, sampleData, sampleSize);
+
+    out.mNumChannels   = (uint32_t)numChannels;
+    out.mBitsPerSample = (uint32_t)bitsPerSample;
+    out.mSampleRate    = sampleRate;
+    out.mNumSamples    = numSamples;
+    out.mBlockAlign    = blockAlign;
+    out.mByteRate      = byteRate;
+
+    AUD_ProcessWaveBuffer(&out);
+    out.Create();
+    return true;
+}
+
+
 bool SoundWave::Import(const std::string& path, ImportOptions* options)
 {
     bool success = Asset::Import(path, options);

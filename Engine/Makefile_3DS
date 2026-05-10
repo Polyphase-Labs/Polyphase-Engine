@@ -57,6 +57,8 @@ SOURCES		:=	Source \
 				Source/Audio/3DS \
 				Source/Network \
 				Source/Network/3DS \
+				Source/Network/Http \
+				Source/Network/Http/Backends \
 				Source/Serial/Stub \
 				Source/LuaBindings \
 				../External/Lua \

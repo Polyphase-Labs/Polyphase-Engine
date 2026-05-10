@@ -70,6 +70,8 @@ SOURCES		:=	Source \
 				Source/Audio/Linux \
 				Source/Network \
 				Source/Network/Linux \
+				Source/Network/Http \
+				Source/Network/Http/Backends \
 				Source/Serial \
 				Source/Serial/Linux \
 				Source/LuaBindings \

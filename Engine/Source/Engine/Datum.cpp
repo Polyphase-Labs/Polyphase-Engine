@@ -1981,10 +1981,21 @@ void Datum::Reserve(uint32_t capacity)
 
         if (prevData.vp != nullptr)
         {
+            // Types backed by non-trivial C++ objects must be properly
+            // constructed/copied/destructed when growing the buffer. memcpy is
+            // only safe for trivial types like int/float/byte/etc.
+            // - String: std::string
+            // - Asset (and all asset subtypes): AssetRef tracks live refs in a
+            //   global set and refcounts the underlying Asset
+            // - Node (and all node subtypes): WeakPtr<Node> holds a RefCount
+            //   that needs proper increment/decrement
+            // - Table: TableDatum
+            // - Function: ScriptFunc (std::function)
             if (mType == DatumType::String ||
-                mType == DatumType::Asset ||
                 mType == DatumType::Table ||
-                mType == DatumType::Function)
+                mType == DatumType::Function ||
+                IsAssetDatumType(mType) ||
+                IsNodeDatumType(mType))
             {
                 for (uint32_t i = 0; i < mCount; ++i)
                 {
@@ -2448,6 +2459,40 @@ void Datum::CopyData(DatumData& dst, uint32_t dstIndex, DatumData& src, uint32_t
         break;
     case DatumType::Function:
         dst.fn[dstIndex] = src.fn[srcIndex];
+        break;
+    case DatumType::Node:
+    case DatumType::Node3D:
+    case DatumType::Audio3D:
+    case DatumType::Widget:
+    case DatumType::Text:
+    case DatumType::Quad:
+    case DatumType::Spline3D:
+    case DatumType::SpinBox:
+    case DatumType::Window:
+    case DatumType::DialogWindow:
+    case DatumType::InputField:
+    case DatumType::ProgressBar:
+    case DatumType::CheckBox:
+    case DatumType::ListViewWidget:
+    case DatumType::ListViewItemWidget:
+    case DatumType::DebugResourcesWidget:
+    case DatumType::ArrayWidget:
+    case DatumType::Button:
+    case DatumType::Slider:
+    case DatumType::LineEdit:
+    case DatumType::Canvas:
+    case DatumType::ComboBox:
+    case DatumType::Voxel3D:
+    case DatumType::Terrain3D:
+    case DatumType::TileMap2D:
+    case DatumType::NavMesh3D:
+    case DatumType::Camera3D:
+    case DatumType::DirectionalLight3D:
+    case DatumType::Box3D:
+    case DatumType::Particle3D:
+    case DatumType::TimelinePlayer:
+    case DatumType::NodeGraphPlayer:
+        dst.n[dstIndex] = src.n[srcIndex];
         break;
     case DatumType::PointCloud:
         delete dst.pc[dstIndex];

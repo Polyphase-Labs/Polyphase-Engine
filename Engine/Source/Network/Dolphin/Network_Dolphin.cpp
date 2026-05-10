@@ -62,6 +62,64 @@ SocketHandle NET_SocketCreate()
     return net_socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 }
 
+SocketHandle NET_SocketCreateStream()
+{
+    return net_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t /*timeoutMs*/)
+{
+    if (socketHandle < 0) return false;
+
+    // libogc's net_connect blocks. Without a portable non-blocking-connect
+    // path on devkitPPC the simplest correct behaviour is to honour the kernel
+    // default and ignore the caller-provided timeout.
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    int32_t rc = net_connect(socketHandle, (struct sockaddr*)&addr, sizeof(addr));
+    return rc == 0;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return net_send(socketHandle, buffer, size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+
+    // Literal-IP fast path: works on every PLATFORM_DOLPHIN target via
+    // inet_aton. libogc's gethostbyname can also be flaky on dotted-quad
+    // inputs depending on stack state, so we prefer this even on Wii.
+    struct in_addr litAddr = {};
+    if (inet_aton(hostname, &litAddr) != 0)
+    {
+        return ntohl(litAddr.s_addr);
+    }
+
+#if PLATFORM_WII
+    // DNS lookup is only available on the Wii — GameCube's BBA driver
+    // (-lbba) doesn't ship the higher-level resolver. GCN callers must
+    // pass a literal IPv4 address.
+    struct hostent* he = net_gethostbyname((char*)hostname);
+    if (he == nullptr || he->h_addr_list == nullptr || he->h_addr_list[0] == nullptr)
+    {
+        return 0;
+    }
+
+    uint32_t ip = 0;
+    memcpy(&ip, he->h_addr_list[0], sizeof(ip));
+    return ntohl(ip);
+#else
+    // GameCube: no DNS. Caller must pre-resolve.
+    return 0;
+#endif
+}
+
 void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
 {
     struct sockaddr_in bindAddr;

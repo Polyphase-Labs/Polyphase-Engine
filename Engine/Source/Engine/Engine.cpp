@@ -39,6 +39,7 @@
 #include "Nodes/NodeGraphPlayer.h"
 #include "AssetManager.h"
 #include "NetworkManager.h"
+#include "Network/Http/HttpClient.h"
 #include "SerialManager.h"
 #include "WindowManager.h"
 #include "ToolTipManager.h"
@@ -526,6 +527,11 @@ bool Initialize()
         NET_Initialize();
     }
 
+    {
+        SCOPED_STAT("Http::Initialize");
+        Http::Initialize();
+    }
+
 #if EDITOR
     if (!IsHeadless())
     {
@@ -747,6 +753,11 @@ bool Update()
     }
 
     {
+        SCOPED_FRAME_STAT("HttpTick");
+        Http::Tick();
+    }
+
+    {
         SCOPED_FRAME_STAT("SerialPre");
         SerialManager::Get()->PreTickUpdate(sClock.DeltaTime());
     }
@@ -943,6 +954,7 @@ void Shutdown()
     PlayerInputSystem::Destroy();
 #endif
 
+    Http::Shutdown();
     NET_Shutdown();
     if (!IsHeadless())
     {
