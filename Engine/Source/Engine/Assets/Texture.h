@@ -35,6 +35,11 @@ public:
     // The texture must already be Create()'d, dimensions must match, and byteSize must equal width * height * 4.
     void UpdatePixels(const uint8_t* data, size_t byteSize);
 
+    // Decode an in-memory PNG/JPG/TGA/BMP buffer into `out` and Create() it.
+    // Runtime-safe (used by HTTP responses to materialise textures from URLs).
+    // Returns false on decode failure or unsupported dimensions.
+    static bool LoadFromMemory(const uint8_t* data, size_t size, Texture& out);
+
     void SetMipmapped(bool mipmapped);
     bool IsMipmapped() const;
     bool IsRenderTarget() const;

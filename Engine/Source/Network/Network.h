@@ -18,6 +18,18 @@ void NET_SocketSetBlocking(SocketHandle socketHandle, bool blocking);
 void NET_SocketSetBroadcast(SocketHandle socketHandle, bool broadcast);
 void NET_SocketGetIpAndPort(SocketHandle socketHandle, uint32_t& ipAddr, uint16_t& port);
 
+// ---------------------------------------------------------------------------
+// TCP / stream-oriented primitives. Used by HTTP/HTTPS, websockets, and any
+// future protocol that needs reliable streaming. UDP-only platforms can leave
+// these as no-op stubs that return failure.
+// ---------------------------------------------------------------------------
+SocketHandle NET_SocketCreateStream();
+bool         NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs);
+int32_t      NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size);
+
+// Synchronous DNS resolve. Returns 0 on failure. Hostname may be a literal IP.
+uint32_t     NET_ResolveHost(const char* hostname);
+
 uint32_t NET_IpStringToUint32(const char* ipString);
 void NET_IpUint32ToString(uint32_t ipUint32, char* outIpString);
 

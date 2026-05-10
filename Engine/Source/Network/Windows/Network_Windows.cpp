@@ -60,6 +60,92 @@ SocketHandle NET_SocketCreate()
     return socket(AF_INET, SOCK_DGRAM, 0);
 }
 
+SocketHandle NET_SocketCreateStream()
+{
+    return socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs)
+{
+    if (socketHandle == INVALID_SOCKET) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    // Switch to non-blocking, issue connect, then select() with timeout, then
+    // restore blocking. This avoids both the indefinite-block and the
+    // platform-specific SO_RCVTIMEO/SO_SNDTIMEO nuances.
+    unsigned long nb = 1;
+    ioctlsocket(socketHandle, FIONBIO, &nb);
+
+    int rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    bool connected = false;
+    if (rc == 0)
+    {
+        connected = true;
+    }
+    else
+    {
+        const int err = WSAGetLastError();
+        if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS)
+        {
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            FD_SET(socketHandle, &wfds);
+            timeval tv;
+            tv.tv_sec  = timeoutMs / 1000;
+            tv.tv_usec = (timeoutMs % 1000) * 1000;
+            int sel = select(0, nullptr, &wfds, nullptr, &tv);
+            if (sel > 0 && FD_ISSET(socketHandle, &wfds))
+            {
+                int soErr = 0;
+                int soErrLen = sizeof(soErr);
+                getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, (char*)&soErr, &soErrLen);
+                connected = (soErr == 0);
+            }
+        }
+    }
+
+    nb = 0;
+    ioctlsocket(socketHandle, FIONBIO, &nb);
+    return connected;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return send(socketHandle, buffer, (int)size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0 || res == nullptr)
+    {
+        return 0;
+    }
+
+    uint32_t ip = 0;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next)
+    {
+        if (p->ai_family == AF_INET && p->ai_addr != nullptr)
+        {
+            const struct sockaddr_in* sa = (const struct sockaddr_in*)p->ai_addr;
+            ip = ntohl(sa->sin_addr.s_addr);
+            break;
+        }
+    }
+    freeaddrinfo(res);
+    return ip;
+}
+
 void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
 {
     struct sockaddr_in bindAddr;

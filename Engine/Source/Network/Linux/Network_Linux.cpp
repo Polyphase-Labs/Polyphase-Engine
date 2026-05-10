@@ -7,6 +7,10 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 void NET_Initialize()
 {
@@ -32,6 +36,84 @@ bool NET_IsActive()
 SocketHandle NET_SocketCreate()
 {
     return socket(AF_INET, SOCK_DGRAM, 0);
+}
+
+SocketHandle NET_SocketCreateStream()
+{
+    return socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs)
+{
+    if (socketHandle < 0) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    int flags = fcntl(socketHandle, F_GETFL, 0);
+    fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK);
+
+    int rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    bool connected = false;
+    if (rc == 0)
+    {
+        connected = true;
+    }
+    else if (errno == EINPROGRESS)
+    {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(socketHandle, &wfds);
+        struct timeval tv;
+        tv.tv_sec  = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int sel = select(socketHandle + 1, nullptr, &wfds, nullptr, &tv);
+        if (sel > 0 && FD_ISSET(socketHandle, &wfds))
+        {
+            int soErr = 0;
+            socklen_t soErrLen = sizeof(soErr);
+            getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen);
+            connected = (soErr == 0);
+        }
+    }
+
+    fcntl(socketHandle, F_SETFL, flags);
+    return connected;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return (int32_t)send(socketHandle, buffer, size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0 || res == nullptr)
+    {
+        return 0;
+    }
+
+    uint32_t ip = 0;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next)
+    {
+        if (p->ai_family == AF_INET && p->ai_addr != nullptr)
+        {
+            const struct sockaddr_in* sa = (const struct sockaddr_in*)p->ai_addr;
+            ip = ntohl(sa->sin_addr.s_addr);
+            break;
+        }
+    }
+    freeaddrinfo(res);
+    return ip;
 }
 
 void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)

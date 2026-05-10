@@ -37,15 +37,16 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngine -lBullet -lasnd -lbba -lfat -logc -lm
+LIBS	:=	-lEngine -lBullet -lasnd -lbba -lfat -lmbedtls -lmbedx509 -lmbedcrypto -logc -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-ENGINE_LIB_DIR := $(CURDIR)/../Engine/Build/GCN
-BULLET_LIB_DIR := $(CURDIR)/../External/Bullet/Build/GCN
-LIBDIRS	:= $(ENGINE_LIB_DIR) $(BULLET_LIB_DIR)
+ENGINE_LIB_DIR  := $(CURDIR)/../Engine/Build/GCN
+BULLET_LIB_DIR  := $(CURDIR)/../External/Bullet/Build/GCN
+MBEDTLS_LIB_DIR := $(CURDIR)/../External/mbedtls/lib-gcn
+LIBDIRS	:= $(ENGINE_LIB_DIR) $(BULLET_LIB_DIR) $(MBEDTLS_LIB_DIR)
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional

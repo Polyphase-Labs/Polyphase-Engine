@@ -1582,10 +1582,16 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // Add Vulkan SDK include path
     ss << "/I\"%VULKAN_SDK%/Include\" ";
 
-    // Add source files
+    // Add source files. Filter by *file extension*, not path substring — the
+    // earlier `src.find(".c")` check false-matches any addon whose path
+    // contains ".c" (e.g. addon ids with `.character.` or `.core`), passing
+    // headers to cl which then forwards them to link → LNK1107.
     for (const std::string& src : sourceFiles)
     {
-        if (src.find(".cpp") != std::string::npos || src.find(".c") != std::string::npos)
+        size_t dotPos = src.find_last_of('.');
+        if (dotPos == std::string::npos) continue;
+        std::string ext = src.substr(dotPos);
+        if (ext == ".cpp" || ext == ".c")
         {
             ss << "\"" << src << "\" ";
         }
@@ -1754,10 +1760,13 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "  $FFMPEG_CFLAGS \\\n";
     }
 
-    // Add source files
+    // Add source files (extension match, not path substring — see Windows path).
     for (const std::string& src : sourceFiles)
     {
-        if (src.find(".cpp") != std::string::npos || src.find(".c") != std::string::npos)
+        size_t dotPos = src.find_last_of('.');
+        if (dotPos == std::string::npos) continue;
+        std::string ext = src.substr(dotPos);
+        if (ext == ".cpp" || ext == ".c")
         {
             ss << "  \"" << src << "\" \\\n";
         }

@@ -34,6 +34,47 @@ SocketHandle NET_SocketCreate()
     return socket(AF_INET, SOCK_DGRAM, 0);
 }
 
+SocketHandle NET_SocketCreateStream()
+{
+    return socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t /*timeoutMs*/)
+{
+    if (socketHandle < 0) return false;
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+    return connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr)) == 0;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return (int32_t)send(socketHandle, buffer, size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0 || res == nullptr) return 0;
+    uint32_t ip = 0;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next)
+    {
+        if (p->ai_family == AF_INET && p->ai_addr != nullptr)
+        {
+            ip = ntohl(((const struct sockaddr_in*)p->ai_addr)->sin_addr.s_addr);
+            break;
+        }
+    }
+    freeaddrinfo(res);
+    return ip;
+}
+
 void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
 {
     struct sockaddr_in bindAddr;

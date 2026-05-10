@@ -135,6 +135,12 @@
     <Filter Include="Source Files\Network\3DS">
       <UniqueIdentifier>{441aa36d-88de-4dd2-bcb2-0dd4403341af}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Network\Http">
+      <UniqueIdentifier>{a8c3f1d2-7e4b-4c9a-b18d-3f5e6c7a8d9e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Network\Http\Backends">
+      <UniqueIdentifier>{b9d4e2f3-8c5d-4e1b-a92c-4d6f7e8b9c0a}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\System\Dolphin">
       <UniqueIdentifier>{cdd57a47-e084-47e7-9c91-68b41f0425d8}</UniqueIdentifier>
     </Filter>
@@ -501,6 +507,9 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Maths_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\Http_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp">
@@ -1075,6 +1084,39 @@
     </ClCompile>
     <ClCompile Include="Source\Network\3DS\Network_3DS.cpp">
       <Filter>Source Files\Network\3DS</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\HttpClient.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\HttpRequest.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\HttpResponse.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\HttpHandle.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\HttpTypes.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\JsonHelpers.cpp">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Windows.cpp">
+      <Filter>Source Files\Network\Http\Backends</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Linux.cpp">
+      <Filter>Source Files\Network\Http\Backends</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_3DS.cpp">
+      <Filter>Source Files\Network\Http\Backends</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Dolphin.cpp">
+      <Filter>Source Files\Network\Http\Backends</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Stub.cpp">
+      <Filter>Source Files\Network\Http\Backends</Filter>
     </ClCompile>
     <ClCompile Include="Source\System\Dolphin\System_Dolphin.cpp">
       <Filter>Source Files\System\Dolphin</Filter>
@@ -2142,6 +2184,9 @@
     <ClInclude Include="Source\LuaBindings\Misc_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\Http_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\Network_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
@@ -2213,6 +2258,27 @@
     </ClInclude>
     <ClInclude Include="Source\Network\Network.h">
       <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\HttpClient.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\HttpRequest.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\HttpResponse.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\HttpHandle.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\HttpTypes.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\JsonHelpers.h">
+      <Filter>Source Files\Network\Http</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\Http\Backends\HttpBackend.h">
+      <Filter>Source Files\Network\Http\Backends</Filter>
     </ClInclude>
     <ClInclude Include="Source\Network\NetworkConstants.h">
       <Filter>Source Files\Network</Filter>

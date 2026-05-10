@@ -63,6 +63,53 @@ SocketHandle NET_SocketCreate()
     return socket(AF_INET, SOCK_DGRAM, 0);
 }
 
+SocketHandle NET_SocketCreateStream()
+{
+    return socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t /*timeoutMs*/)
+{
+    if (socketHandle < 0) return false;
+
+    // 3DS HTTPS goes through libctru's `httpc` service in HttpBackend_3DS, so
+    // raw TCP connect from gameplay isn't the primary path — but provide the
+    // primitive for parity. Honour the kernel default timeout.
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    int32_t rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    return rc == 0;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return send(socketHandle, buffer, size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+
+    struct in_addr litAddr = {};
+    if (inet_aton(hostname, &litAddr) != 0)
+    {
+        return ntohl(litAddr.s_addr);
+    }
+
+    struct hostent* he = gethostbyname(hostname);
+    if (he == nullptr || he->h_addr_list == nullptr || he->h_addr_list[0] == nullptr)
+    {
+        return 0;
+    }
+
+    uint32_t ip = 0;
+    memcpy(&ip, he->h_addr_list[0], sizeof(ip));
+    return ntohl(ip);
+}
+
 void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
 {
     struct sockaddr_in bindAddr;

@@ -6,9 +6,12 @@
 
 #include <malloc.h>
 
+// stb_image is needed at runtime for Texture::LoadFromMemory (HTTP -> Texture).
+// stb_image_write / resize stay editor-only since they're only used by import.
+#include <stb_image.h>
+
 #if EDITOR
 #include "EditorUtils.h"
-#include <stb_image.h>
 #include <stb_image_write.h>
 #include <stb_image_resize2.h>
 #endif
@@ -564,6 +567,49 @@ const char* Texture::GetTypeName()
 const char* Texture::GetTypeImportExt()
 {
     return ".png";
+}
+
+bool Texture::LoadFromMemory(const uint8_t* data, size_t size, Texture& out)
+{
+    if (data == nullptr || size == 0)
+    {
+        return false;
+    }
+
+    int texWidth   = 0;
+    int texHeight  = 0;
+    int texChannels = 0;
+    stbi_uc* pixels = stbi_load_from_memory(
+        data, (int)size, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+    if (pixels == nullptr || texWidth <= 0 || texHeight <= 0)
+    {
+        if (pixels != nullptr) stbi_image_free(pixels);
+        return false;
+    }
+
+    if (!Maths::IsPowerOfTwo(texWidth) || !Maths::IsPowerOfTwo(texHeight))
+    {
+        // Power-of-two is required by some platform backends (e.g. GX/C3D).
+        // Reject non-PoT dimensions so callers know to resize beforehand.
+        stbi_image_free(pixels);
+        return false;
+    }
+
+    const uint32_t imageSize = (uint32_t)(texWidth * texHeight * 4);
+    out.mPixels.resize(imageSize);
+    memcpy(out.mPixels.data(), pixels, imageSize);
+    stbi_image_free(pixels);
+
+    out.mWidth        = (uint32_t)texWidth;
+    out.mHeight       = (uint32_t)texHeight;
+    out.mFormat       = PixelFormat::RGBA8;
+    out.mRenderTarget = false;
+    out.mMipmapped    = true;
+    out.mMipLevels    = static_cast<int32_t>(floor(log2(std::max(out.mWidth, out.mHeight))) + 1);
+
+    out.Create();
+    return true;
 }
 
 void Texture::Init(uint32_t width, uint32_t height, uint8_t* data)

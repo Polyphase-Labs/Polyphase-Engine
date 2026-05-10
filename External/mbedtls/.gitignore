@@ -1,0 +1,27 @@
+# mbedTLS source — vendored locally by Step 1 of README.md, regenerable
+# from the upstream git tag. Don't commit (would add MBs to the repo).
+include/
+library/
+3rdparty/
+scripts/
+framework/
+tf-psa-crypto/
+LICENSE
+_clone/
+
+# Allow our user-config template to live under include/mbedtls/ once vendored.
+# The template at the top level IS committed; the post-vendor copy is a build
+# artifact.
+!include/mbedtls/polyphase_mbedtls_user_config.h
+
+# The compiled archives ARE committed — devs shouldn't need to redo the
+# vendor + build dance just to compile the engine. Re-run build_dolphin_docker.sh
+# only when bumping mbedTLS or changing the user config.
+!lib-wii/
+!lib-gcn/
+!lib-wii/*.a
+!lib-gcn/*.a
+
+# Container build cache, intermediate object dirs.
+*.o
+library-build-*/

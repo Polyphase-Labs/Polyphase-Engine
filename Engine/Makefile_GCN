@@ -42,6 +42,8 @@ SOURCES		:=	Source \
 				Source/Audio/Dolphin \
 				Source/Network \
 				Source/Network/Dolphin \
+				Source/Network/Http \
+				Source/Network/Http/Backends \
 				Source/Serial/Stub \
 				Source/LuaBindings \
 				../External/Lua \
@@ -51,7 +53,7 @@ SOURCES		:=	Source \
 				../External/recastnavigation/Detour/Source/ \
 #DATA		:=	data
 #TEXTURES	:=	textures
-INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua ../External/recastnavigation/Recast/Include ../External/recastnavigation/Detour/Include ../External/Assimp/contrib/rapidjson External/PolyVox/include
+INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua ../External/recastnavigation/Recast/Include ../External/recastnavigation/Detour/Include ../External/Assimp/contrib/rapidjson ../External/mbedtls/include External/PolyVox/include
 OUTPUT_DIR	:=	$(CURDIR)/Build/GCN
 BULLET_DIR	:=	$(CURDIR)/../External/Bullet
 
@@ -67,6 +69,9 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
+# Engine builds libEngine.a — no actual link happens, so LIBS/LIBDIRS is
+# informational. The real link wiring lives in Standalone/Makefile_GCN (where
+# -lmbedtls / -lmbedx509 / -lmbedcrypto are added alongside their LIBDIRS path).
 LIBS	:=	-lasnd -lbba -lfat -logc -lm
 
 #---------------------------------------------------------------------------------

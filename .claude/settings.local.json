@@ -117,7 +117,17 @@
       "PowerShell($env:DEVKITPRO='C:\\\\devkitPro'; $env:DEVKITARM='C:\\\\devkitPro\\\\devkitARM'; & C:\\\\devkitPro\\\\msys2\\\\usr\\\\bin\\\\make.exe -C \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet\" -f \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/External/Bullet/Makefile_3DS\" 2>&1 | Select-Object -Last 20)",
       "Bash(Select-Object -First 10)",
       "Bash(Select-Object Name, PSIsContainer)",
-      "Bash(Format-Table)"
+      "Bash(Format-Table)",
+      "Bash(python *)",
+      "PowerShell(dir \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Midi\\\\MidiPlayer-Demo\\\\Packages\\\\com.polyphase.formats.midi\\\\\" | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Midi\\\\MidiPlayer-Demo\\\\Packages\\\\com.polyphase.formats.midi\\\\\" -Recurse -Force -Directory | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Midi\\\\MidiPlayer-Demo\\\\Packages\\\\com.polyphase.formats.midi\\\\.dev\" -Force 2>&1 | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Midi\\\\MidiPlayer-Demo\\\\Packages\\\\com.polyphase.formats.midi\\\\Assets\" -Force -Recurse 2>&1 | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Midi\\\\MidiPlayer-Demo\\\\Packages\\\\com.polyphase.formats.midi\\\\Scripts\" -Force -Recurse 2>&1 | ForEach-Object { $_.FullName })",
+      "PowerShell(head *)",
+      "Bash(xargs head -60)",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Dialogue\\\\Dialogue-Demo\\\\\" -Force | Select-Object Name, @{Name=\"Type\";Expression={if \\($_.PSIsContainer\\) {\"Dir\"} else {\"File\"}}})",
+      "PowerShell(Get-ChildItem -Path \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\Dialogue\\\\Dialogue-Demo\\\\Packages\\\\\" -Directory | ForEach-Object { $_.Name })"
     ]
   }
 }

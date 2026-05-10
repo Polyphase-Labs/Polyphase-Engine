@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="DebugEditor|Win32">
+      <Configuration>DebugEditor</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="DebugEditor|x64">
+      <Configuration>DebugEditor</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseEditor|Win32">
+      <Configuration>ReleaseEditor</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseEditor|x64">
+      <Configuration>ReleaseEditor</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseSteam|Win32">
+      <Configuration>ReleaseSteam</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseSteam|x64">
+      <Configuration>ReleaseSteam</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{B306753D-ADF6-4D8C-ACE7-C8AF2F909565}</ProjectGuid>
+    <RootNamespace>Standalone</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>Polyphase</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(SolutionDir)External;$(VULKAN_SDK)/Include;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>IrrXML.lib;LuaSocket.lib;Lua.lib;spirv-cross-core.lib;shaderc_combined.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;$(SolutionDir)Engine/External/lib/Lib/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Steam/redistributable_bin/win64/;$(ProjectDir)../External/Steam/public/steam/lib/win64/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(SolutionDir)External;$(VULKAN_SDK)/Include;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;NET_PLATFORM_STEAM=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalDependencies>IrrXML.lib;LuaSocket.lib;Lua.lib;spirv-cross-core.lib;shaderc_combined.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;$(SolutionDir)Engine/External/lib/Lib/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/Release/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/Release/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/Release/;$(ProjectDir)../External/Steam/redistributable_bin/win64/;$(ProjectDir)../External/Steam/public/steam/lib/win64/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(SolutionDir)External;$(VULKAN_SDK)/Include;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Assimp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/$(Configuration)/;$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;$(SolutionDir)Engine/External/lib/Lib/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;spirv-cross-core.lib;shaderc_combined.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
+      </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(VULKAN_SDK)/Include;$(SolutionDir)External;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Lua;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(VULKAN_SDK)/Include;$(SolutionDir)External;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Lua;$(SolutionDir)External/Assimp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/$(Configuration)/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(SolutionDir)External;$(VULKAN_SDK)/Include;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Lua;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>LuaSocket.lib;Lua.lib;spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;$(SolutionDir)Engine/External/lib/Lib/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/$(Configuration)/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(SolutionDir)External;$(VULKAN_SDK)/Include;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Lua;$(SolutionDir)External/Assimp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Lua/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/LuaSocket/Build/Windows/$(Platform)/$(Configuration)/;$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;$(SolutionDir)Engine/External/lib/Lib/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;spirv-cross-cored.lib;shaderc_combinedd.lib;vulkan-1.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;git2d.lib;winhttp.lib;crypt32.lib;secur32.lib;rpcrt4.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ImportLibrary>$(OutDir)$(TargetName).lib</ImportLibrary>
+      </Link>
+    <PostBuildEvent>
+      <Command>copy "$(TargetPath)" "$(SolutionDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(VULKAN_SDK)/Include;$(SolutionDir)External;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(VULKAN_SDK)/Include;$(SolutionDir)External;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\;$(VULKAN_SDK)/Include;$(SolutionDir)External;$(SolutionDir)Engine;$(SolutionDir)Engine/Source;$(SolutionDir)Engine/Source/Engine;$(SolutionDir)External/Bullet;$(ProjectDir);$(SolutionDir)Engine/Source/Editor;$(SolutionDir)External/Assimp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>POLYPHASE_DIALOGUE_CORE=1;PLATFORM_WINDOWS=1;API_VULKAN=1;NOMINMAX;_CRT_SECURE_NO_WARNINGS=1;EDITOR=1;POLYPHASE_IMGUI_EXPORT;POLYPHASE_ENGINE_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>$(ProjectDir)../External/Assimp/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/IrrXML/Build/Windows/$(Platform)/$(Configuration)/;$(ProjectDir)../External/Zlib/Build/Windows/$(Platform)/$(Configuration)/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Assimp.lib;IrrXML.lib;Zlib.lib;LuaSocket.lib;Lua.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Generated\EmbeddedAssets.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="Generated\EmbeddedScripts.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="Generated\AddonPlugins.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Assets\DialogueAsset.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Assets\DialogueJson.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\DialogueCoreAddon.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Editor\DialogueAssetViewer.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Editor\DialoguePreviewWindow.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Editor\DialogueValidator.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Lua\DialogueRunner3D_Lua.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Lua\Dialogue_Lua.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Nodes\DialogueRunner3D.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Runtime\DialogueEvents.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Runtime\DialogueManager.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Runtime\DialogueRunner.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Runtime\DialogueVariableStore.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="M:\Projects\Polyphase\Polyphase-Examples\LanternsAndLies\Packages\com.polyphase.system.character.dialogue.core\Source\Widgets\DialogueBoxWidget.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="Source\Main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Engine\Engine.vcxproj">
+      <Project>{f08d83dc-d5d1-469d-ba01-beaa593596cf}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Generated\EmbeddedAssets.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="Generated\EmbeddedScripts.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugEditor|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseEditor|x64'">true</ExcludedFromBuild>
+    </ClInclude>
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="Standalone.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="Polyphase.ico" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

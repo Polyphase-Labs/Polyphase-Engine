@@ -37,15 +37,16 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngine -lBullet -lwiiuse -lbte -lasnd -lfat -logc -lm
+LIBS	:=	-lEngine -lBullet -lwiiuse -lbte -lasnd -lfat -lmbedtls -lmbedx509 -lmbedcrypto -logc -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-ENGINE_LIB_DIR := $(CURDIR)/../Engine/Build/Wii
-BULLET_LIB_DIR := $(CURDIR)/../External/Bullet/Build/Wii
-LIBDIRS	:= $(ENGINE_LIB_DIR) $(BULLET_LIB_DIR)
+ENGINE_LIB_DIR  := $(CURDIR)/../Engine/Build/Wii
+BULLET_LIB_DIR  := $(CURDIR)/../External/Bullet/Build/Wii
+MBEDTLS_LIB_DIR := $(CURDIR)/../External/mbedtls/lib-wii
+LIBDIRS	:= $(ENGINE_LIB_DIR) $(BULLET_LIB_DIR) $(MBEDTLS_LIB_DIR)
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional

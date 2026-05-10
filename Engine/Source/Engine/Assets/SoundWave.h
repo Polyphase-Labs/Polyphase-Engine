@@ -23,6 +23,12 @@ public:
 
     void SetPcmData(uint8_t* data, uint32_t size, uint32_t numSamples, uint32_t bitsPerSample, uint32_t numChannels, uint32_t sampleRate);
 
+    // Decode an in-memory WAV (or OGG, when AUD_DecodeVorbis is available)
+    // buffer into `out` and Create() it. Format detected via magic bytes:
+    // RIFF/WAVE for WAV, "OggS" for OGG. Pass formatHint = "wav"/"ogg" to
+    // skip detection. Runtime-safe.
+    static bool LoadFromMemory(const uint8_t* data, size_t size, const char* formatHint, SoundWave& out);
+
     void SetVolumeMultiplier(float volume);
     float GetVolumeMultiplier() const;
 

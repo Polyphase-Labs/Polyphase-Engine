@@ -1072,6 +1072,7 @@
     <ClCompile Include="Source\LuaBindings\Maths_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Mesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Misc_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\Http_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Particle3d_Lua.cpp" />
@@ -1125,6 +1126,17 @@
     <ClCompile Include="Source\Network\3DS\Network_3DS.cpp" />
     <ClCompile Include="Source\Network\Android\Network_Android.cpp" />
     <ClCompile Include="Source\Network\Dolphin\Network_Dolphin.cpp" />
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_3DS.cpp" />
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Dolphin.cpp" />
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Linux.cpp" />
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Stub.cpp" />
+    <ClCompile Include="Source\Network\Http\Backends\HttpBackend_Windows.cpp" />
+    <ClCompile Include="Source\Network\Http\HttpClient.cpp" />
+    <ClCompile Include="Source\Network\Http\HttpHandle.cpp" />
+    <ClCompile Include="Source\Network\Http\HttpRequest.cpp" />
+    <ClCompile Include="Source\Network\Http\HttpResponse.cpp" />
+    <ClCompile Include="Source\Network\Http\HttpTypes.cpp" />
+    <ClCompile Include="Source\Network\Http\JsonHelpers.cpp" />
     <ClCompile Include="Source\Network\Linux\Network_Linux.cpp" />
     <ClCompile Include="Source\Network\NetPlatform.cpp" />
     <ClCompile Include="Source\Network\NetPlatformEpic.cpp" />
@@ -1582,6 +1594,7 @@
     <ClInclude Include="Source\LuaBindings\Maths_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Mesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Misc_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\Http_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Network_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Serial_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Particle3d_Lua.h" />
@@ -1632,6 +1645,13 @@
     <ClInclude Include="Source\LuaBindings\NodeGraphPlayer_Lua.h" />
     <ClInclude Include="Source\LuaBindings\UIDocument_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Timeline_Lua.h" />
+    <ClInclude Include="Source\Network\Http\Backends\HttpBackend.h" />
+    <ClInclude Include="Source\Network\Http\HttpClient.h" />
+    <ClInclude Include="Source\Network\Http\HttpHandle.h" />
+    <ClInclude Include="Source\Network\Http\HttpRequest.h" />
+    <ClInclude Include="Source\Network\Http\HttpResponse.h" />
+    <ClInclude Include="Source\Network\Http\HttpTypes.h" />
+    <ClInclude Include="Source\Network\Http\JsonHelpers.h" />
     <ClInclude Include="Source\Network\NetPlatformEpic.h" />
     <ClInclude Include="Source\Network\NetPlatformSteam.h" />
     <ClInclude Include="Source\Network\NetSession.h" />
