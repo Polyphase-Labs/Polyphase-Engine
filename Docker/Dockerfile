@@ -143,6 +143,68 @@ RUN chmod +x compile.sh && ./compile.sh
 WORKDIR /polyphase
 
 # ============================================================================
+# Pre-build prerequisites that the engine compile depends on.
+#
+# All three outputs below are gitignored (.gitignore: */Generated/EmbeddedAssets.*,
+# libgit2 build artefacts, External/mbedtls/include/), so they DON'T ride along
+# with `COPY . /polyphase/`. CI on bare metal generates them in the `build-linux`
+# job; this image has to generate them here or downstream targets fail:
+#
+#   - Without libgit2 prebuild:  Linux Editor link fails on git2 symbols.
+#   - Without asset stubs:       fatal error: ../Generated/EmbeddedAssets.h
+#   - Without mbedTLS headers:   Wii/GCN game builds fail at runtime with
+#                                "mbedtls/ssl.h: No such file or directory"
+#                                inside HttpBackend_Dolphin.cpp.
+#
+# All three are baked at image build time so this image can build for every
+# non-Windows target (Linux Editor + Linux Game + Wii + GCN + 3DS) on a
+# fresh container without any further setup.
+# ============================================================================
+
+# 1. libgit2 prebuild — the Linux Editor link step pulls in libgit2.a from
+#    External/lib/Lib/. cmake + libssl-dev are already in the base image.
+RUN bash Tools/prebuild_libgit2.sh
+
+# 2. Generated/EmbeddedAssets.h + .cpp — produced by the asset stub generator.
+#    Embeds the engine's bundled assets as C arrays for the standalone build.
+RUN python3 Tools/generate_embedded_stubs.py
+
+# 3. mbedTLS source headers — vendored into External/mbedtls/include so that
+#    Engine/Makefile_Wii and Makefile_GCN find <mbedtls/ssl.h> when the user
+#    later runs `build-wii` or `build-gcn` against their game project.
+#    External/mbedtls/.gitignore excludes include/ to keep the engine repo
+#    small; the upstream tag pinned in External/mbedtls/README.md is the
+#    source of truth for which version to vendor.
+RUN cd External/mbedtls \
+    && if [ ! -f include/mbedtls/ssl.h ]; then \
+         git clone --depth 1 --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git _clone \
+         && mv _clone/include ./include \
+         && cp _clone/LICENSE ./LICENSE 2>/dev/null || true \
+         && rm -rf _clone \
+         && cp polyphase_mbedtls_user_config.h.template include/mbedtls/polyphase_mbedtls_user_config.h ; \
+       fi \
+    && test -f include/mbedtls/ssl.h
+
+# 4. libLua.a — Linux engine statically links Lua sources into libEngineEditor.a,
+#    so the editor build doesn't need this. BUT native addons built inside the
+#    container that want to bind into Lua expect to link against libLua.a at
+#    External/Lua/Build/Linux/x64/ReleaseEditor/. Bake it so addon builds work
+#    out of the box, matching the Windows installer's staging path.
+#
+#    CRITICAL: the upstream Lua Makefile compiles its .o files IN-TREE
+#    (External/Lua/lapi.o, lauxlib.o, …). On x86-64 here, those would later
+#    poison any Wii/GCN/3DS engine build whose Makefile VPATH includes
+#    ../External/Lua — powerpc-eabi-ld rejects them with
+#    "Relocations in generic ELF (EM: 62)". Do `make clean` after copying
+#    the .a out; the staged copy at Build/Linux/x64/ReleaseEditor/ survives
+#    because `make clean` only touches in-tree paths.
+RUN make -C External/Lua a -j"$(nproc)" \
+    && mkdir -p External/Lua/Build/Linux/x64/ReleaseEditor \
+    && cp External/Lua/liblua.a External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a \
+    && make -C External/Lua clean \
+    && test -f External/Lua/Build/Linux/x64/ReleaseEditor/libLua.a
+
+# ============================================================================
 # Pre-build Linux Editor (for headless asset cooking)
 # ============================================================================
 RUN cd /polyphase/Standalone && make -j$(nproc) -f Makefile_Linux_Editor
