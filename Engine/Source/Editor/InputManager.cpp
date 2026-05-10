@@ -186,10 +186,11 @@ void InputManager::UpdateHotkeys()
         {
             ActionManager::Get()->Undo();
         }
-        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
-        {
-            ReloadAllScripts();
-        }
+        // Edit_ReloadScripts (Ctrl+R) is handled in EditorImgui.cpp's hotkey
+        // pass — it does the Lua reload plus an asset-directory refresh.
+        // Avoid a second handler here: IsActionJustTriggered is non-consuming,
+        // so both handlers would fire on the same press and ReloadAllScripts
+        // would run twice.
 
         // Mode switches require viewport focus to avoid stomping Ctrl+number in text fields.
         if (GetEditorState()->GetViewport3D()->ShouldHandleInput() ||

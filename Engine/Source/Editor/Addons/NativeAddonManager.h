@@ -179,19 +179,9 @@ public:
      */
     void ReloadAllNativeAddons();
 
-    /**
-     * @brief Force-rebuild every native addon for the current host config.
-     *
-     * Unloads each addon, deletes its cached fingerprint directory under
-     * Intermediate/Plugins/<addon-id>/<fingerprint>/, then reloads — which
-     * triggers a fresh build because NeedsBuild() now sees no cached DLL.
-     * Use this when the cached DLL is stale or was built against a
-     * different host config and Reload alone won't recompile.
-     *
-     * The build itself runs on a worker thread so the editor stays
-     * interactive — TickAsyncBuilds() drives queue progression each frame.
-     */
-    void ForceRebuildAllNativeAddons();
+    // Force Rebuild was removed in favour of the per-addon Reload button +
+    // the per-project chokepoint. To force a fresh compile of all addons,
+    // call ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/true, ...).
 
     // ===== Async build state (drives the progress modal) =====
 
@@ -243,6 +233,78 @@ public:
     void RetryBlockedBuild();
     /** User clicked Cancel: clear blocked state without retrying. */
     void CancelBlockedBuild();
+
+    // ===== Project-restart reload chokepoint =====
+    //
+    // Native addon reload is unsafe when scenes are open — live nodes hold
+    // vtable pointers into the addon's mapped DLL pages and any unload
+    // invalidates them, plus Node factories get stripped from the global
+    // registry so a later scene reopen falls back to Node3D and silently
+    // corrupts the in-memory tree on save. The fix is to close the project
+    // entirely (saving dirty scenes first per user choice), unload every
+    // addon, rebuild, then reopen the project from disk so factories,
+    // assets, and scenes all rehydrate cleanly.
+    //
+    // The flow is staged across frames because the rebuild runs async on a
+    // worker thread. Phase advances:
+    //   None
+    //     -> AwaitingConfirm  (one-shot confirm modal)
+    //     -> AwaitingDirty    (per-scene Save/Discard/Cancel — one popup at
+    //                          a time, advancing through mDirtyScenes)
+    //     -> Building         (project closed, builds in flight; advanced by
+    //                          TickAsyncBuilds when the queue drains)
+    //     -> Reopening        (synchronous OpenProject + scene restore; only
+    //                          held briefly for telemetry, then cleared)
+    //     -> None
+    enum class ProjectRestartPhase
+    {
+        None,
+        AwaitingConfirm,
+        AwaitingDirty,
+        Building,
+        Reopening,
+    };
+
+    struct ProjectRestart
+    {
+        ProjectRestartPhase mPhase = ProjectRestartPhase::None;
+
+        // Addons being rebuilt. Empty = all installed enabled native addons.
+        std::vector<std::string> mTargetAddons;
+        // forceRebuild=true wipes each target's fingerprint dir before
+        // building so NeedsBuild() returns true even for an unchanged source.
+        bool                     mForceRebuild = false;
+        std::string              mReason;       // user-facing modal copy
+
+        // Snapshot — captured at restart entry, restored after OpenProject.
+        std::string              mProjectPath;
+        std::vector<std::string> mOpenSceneNames;   // names of edit scenes to reopen
+        std::string              mActiveSceneName;  // active edit scene at snapshot
+
+        // Per-scene dirty queue. Walked one-at-a-time during AwaitingDirty.
+        std::vector<std::string> mDirtyScenes;
+        int32_t                  mDirtyCursor = 0;
+    };
+
+    bool                  IsProjectRestartActive() const { return mRestart.mPhase != ProjectRestartPhase::None; }
+    const ProjectRestart& GetProjectRestart() const      { return mRestart; }
+
+    /** Public entry. Snapshots editor state, then hands off to the modal
+     *  state machine. addonIds may be empty (= all installed enabled native
+     *  addons). reason is shown in the confirm modal — keep it short
+     *  ("user clicked Reload", "Edit > Reload Native Addons"). */
+    void ReloadNativeAddonsWithProjectRestart(const std::vector<std::string>& addonIds,
+                                              bool forceRebuild,
+                                              const char* reason);
+
+    // Modal callbacks. Called from the EditorImgui modal renderers when the
+    // user clicks the corresponding button. Public because the modal lives
+    // outside this class.
+    void ProjectRestartConfirm();        // [Continue] on confirm modal
+    void ProjectRestartCancel();         // [Cancel] on confirm modal — abort whole flow
+    void ProjectRestartDirtySave();      // [Save] for the current dirty scene
+    void ProjectRestartDirtyDiscard();   // [Discard] for the current dirty scene
+    void ProjectRestartDirtyCancel();    // [Cancel] in dirty prompt — abort whole flow
 
     /**
      * @brief Tick all loaded plugins (gameplay tick).
@@ -457,10 +519,18 @@ private:
     // Set when a pre-build sweep finds locked files in the intermediate dir.
     BuildBlocked                     mBlocked;
 
+    // Project-restart state machine. See ProjectRestartPhase for the flow.
+    ProjectRestart                   mRestart;
+
     // Internal helpers
     void StartNextQueuedBuild();
     void FinalizeAsyncBuild(AsyncAddonBuild& job, bool success);
     bool LoadNativeAddonAfterBuild(const std::string& addonId, std::string& outError);
+
+    // Project-restart helpers
+    void ProjectRestartBeginClose();   // dirty queue exhausted → close project + enqueue rebuilds
+    void ProjectRestartOnBuildsDone(); // called from TickAsyncBuilds when in Building phase
+    void ProjectRestartReset();        // clear state back to Phase::None
 };
 
 #endif // EDITOR

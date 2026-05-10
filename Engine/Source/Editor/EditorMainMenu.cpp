@@ -702,27 +702,12 @@ static void DrawToolsAddonsMenu()
         NativeAddonManager* nam = NativeAddonManager::Get();
         if (nam != nullptr)
         {
-            nam->ReloadAllNativeAddons();
-            LogDebug("Native addons reloaded.");
+            // Empty addon list = "all installed enabled native addons".
+            // Routed through the project-restart chokepoint so live nodes
+            // don't keep vtable pointers into about-to-be-unloaded DLLs.
+            nam->ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/false,
+                                                      "Edit > Reload Native Addons");
         }
-    }
-
-    if (ImGui::MenuItem("Force Rebuild Native Addons"))
-    {
-        NativeAddonManager* nam = NativeAddonManager::Get();
-        if (nam != nullptr)
-        {
-            nam->ForceRebuildAllNativeAddons();
-            LogDebug("Native addons force-rebuilt.");
-        }
-    }
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip(
-            "Delete the cached DLL for the current host config (dbg/rel)\n"
-            "and recompile each native addon from source. Use when a stale\n"
-            "DLL from a different config is being loaded and a normal\n"
-            "Reload won't recompile it.");
     }
 
     if (ImGui::MenuItem("Discover Native Addons"))
@@ -904,24 +889,10 @@ static void DrawToolsMenu()
         am->ResaveAllAssets();
     if (ImGui::MenuItem("Reload All Scripts"))
     {
+        // Lua-only. Native addon reload is gated behind the project-restart
+        // chokepoint and lives in the Edit > Reload Native Addons menu and
+        // the AddonsWindow per-row Reload button.
         ReloadAllScripts();
-
-        NativeAddonManager* nam = NativeAddonManager::Get();
-        if (nam != nullptr)
-        {
-            std::vector<std::string> localIds = nam->GetLocalPackageIds();
-            for (const std::string& id : localIds)
-            {
-                std::string addonPath = nam->GetAddonSourcePath(id);
-                if (!addonPath.empty())
-                {
-                    nam->GenerateIDEConfig(addonPath);
-                }
-            }
-
-            nam->ReloadAllNativeAddons();
-            LogDebug("Native addon dependencies regenerated and addons reloaded.");
-        }
     }
 
     ImGui::Separator();
