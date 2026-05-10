@@ -1,18 +1,15 @@
-# mbedTLS source — vendored locally by Step 1 of README.md, regenerable
-# from the upstream git tag. Don't commit (would add MBs to the repo).
-include/
+# mbedTLS source vendored from upstream. include/ + LICENSE ARE committed
+# (2.4 MB of headers) so devs don't have to run the vendor dance just to
+# compile the engine — too many fresh clones were failing on missing
+# <mbedtls/ssl.h> during Wii/GCN builds. The .c sources (library/) and the
+# rest of the upstream tree are still ignored; we only need them when
+# rebuilding the lib-wii/lib-gcn archives, which is a maintainer task.
 library/
 3rdparty/
 scripts/
 framework/
 tf-psa-crypto/
-LICENSE
 _clone/
-
-# Allow our user-config template to live under include/mbedtls/ once vendored.
-# The template at the top level IS committed; the post-vendor copy is a build
-# artifact.
-!include/mbedtls/polyphase_mbedtls_user_config.h
 
 # The compiled archives ARE committed — devs shouldn't need to redo the
 # vendor + build dance just to compile the engine. Re-run build_dolphin_docker.sh

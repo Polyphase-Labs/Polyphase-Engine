@@ -9011,30 +9011,16 @@ static void DrawMainMenuBar()
 
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
-            // Hammer button
+            // Hammer button — Lua-only refresh. Native addon reload is now
+            // gated behind the project-restart chokepoint and lives in the
+            // Edit > Reload Native Addons menu and the AddonsWindow row button.
             if (ImGui::Button(ICON_ION_HAMMER_SHARP))
             {
                 ReloadAllScripts();
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addon dependencies regenerated and addons reloaded.");
-                }
             }
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Refresh Scripts (Ctrl+R)");
+                ImGui::SetTooltip("Refresh Lua Scripts (Ctrl+R)");
             }
 
             // Play/Stop button with target label
@@ -9191,23 +9177,11 @@ static void DrawMainMenuBar()
 
             if (hotkeys->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
             {
+                // Ctrl+R is Lua-only. Native addon reload is gated behind the
+                // project-restart chokepoint to avoid dangling vtables in open
+                // scenes; it lives in the Edit > Reload Native Addons menu and
+                // the AddonsWindow per-row Reload button.
                 ReloadAllScripts();
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    std::vector<std::string> localIds = nam->GetLocalPackageIds();
-                    for (const std::string& id : localIds)
-                    {
-                        std::string addonPath = nam->GetAddonSourcePath(id);
-                        if (!addonPath.empty())
-                        {
-                            nam->GenerateIDEConfig(addonPath);
-                        }
-                    }
-
-                    nam->ReloadAllNativeAddons();
-                    LogDebug("Native addon dependencies regenerated and addons reloaded.");
-                }
 
                 // Refresh asset directories
                 AssetDir* projDir = AssetManager::Get()->FindProjectDirectory();
@@ -10890,6 +10864,152 @@ static void DrawNativeAddonBuildBlockedModal()
     }
 }
 
+// Project-restart confirm + per-scene dirty prompt. Single modal that branches
+// on the manager's restart phase. Stays out of the way (auto-closes) when the
+// flow is in Building/Reopening — the existing build-progress modal covers
+// those phases visually.
+static void DrawProjectRestartModal()
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr) return;
+
+    const auto& r = nam->GetProjectRestart();
+    using Phase = NativeAddonManager::ProjectRestartPhase;
+
+    const bool needConfirm = (r.mPhase == Phase::AwaitingConfirm);
+    const bool needDirty   = (r.mPhase == Phase::AwaitingDirty);
+    const bool needPopup   = needConfirm || needDirty;
+
+    const char* kPopupName = "Reload Native Addons##ProjectRestartModal";
+
+    if (needPopup && !ImGui::IsPopupOpen(kPopupName))
+    {
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Always);
+
+    if (ImGui::BeginPopupModal(kPopupName, nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        if (!needPopup)
+        {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        if (needConfirm)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Reload native addons?");
+            ImGui::Separator();
+            ImGui::TextWrapped(
+                "Native addons run as DLLs. Reloading them safely requires "
+                "closing and reopening the project so node and asset "
+                "registries refresh against the new build. Open scenes will "
+                "be saved (your choice per scene if any are unsaved) and "
+                "reopened afterwards.");
+
+            if (!r.mReason.empty())
+            {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Reason: %s", r.mReason.c_str());
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Open scenes: %u   Unsaved: %u   Target addons: %u",
+                        (uint32_t)r.mOpenSceneNames.size(),
+                        (uint32_t)r.mDirtyScenes.size(),
+                        (uint32_t)r.mTargetAddons.size());
+
+            ImGui::Separator();
+
+            const float btnW = 130.0f;
+            ImGui::Spacing();
+
+            // Right-align the button row.
+            float spaceForButtons = btnW * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+            float xOffset = ImGui::GetWindowWidth() - spaceForButtons - ImGui::GetStyle().WindowPadding.x;
+            if (xOffset > 0) ImGui::SetCursorPosX(xOffset);
+
+            if (ImGui::Button("Cancel", ImVec2(btnW, 0)))
+            {
+                nam->ProjectRestartCancel();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Continue", ImVec2(btnW, 0)))
+            {
+                nam->ProjectRestartConfirm();
+                // If dirty prompts are next, popup stays open and re-renders
+                // for the AwaitingDirty branch. If no dirty scenes, the
+                // manager advanced to Building and we close.
+                if (nam->GetProjectRestart().mPhase != Phase::AwaitingDirty)
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+        else if (needDirty)
+        {
+            const std::string& current =
+                (r.mDirtyCursor >= 0 && r.mDirtyCursor < (int32_t)r.mDirtyScenes.size())
+                    ? r.mDirtyScenes[r.mDirtyCursor]
+                    : std::string();
+
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Unsaved scene");
+            ImGui::Separator();
+
+            ImGui::TextWrapped(
+                "The scene below has unsaved changes. Save it before the "
+                "project closes, discard the in-memory edits, or cancel the "
+                "reload entirely.");
+
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 1.0f, 1.0f), "%s", current.c_str());
+            ImGui::TextDisabled("Scene %d of %u",
+                                r.mDirtyCursor + 1,
+                                (uint32_t)r.mDirtyScenes.size());
+
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            const float btnW = 130.0f;
+            float spaceForButtons = btnW * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+            float xOffset = ImGui::GetWindowWidth() - spaceForButtons - ImGui::GetStyle().WindowPadding.x;
+            if (xOffset > 0) ImGui::SetCursorPosX(xOffset);
+
+            if (ImGui::Button("Cancel", ImVec2(btnW, 0)))
+            {
+                nam->ProjectRestartDirtyCancel();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Discard", ImVec2(btnW, 0)))
+            {
+                nam->ProjectRestartDirtyDiscard();
+                if (nam->GetProjectRestart().mPhase != Phase::AwaitingDirty)
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Save", ImVec2(btnW, 0)))
+            {
+                nam->ProjectRestartDirtySave();
+                if (nam->GetProjectRestart().mPhase != Phase::AwaitingDirty)
+                {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 static void DrawNativeAddonBuildModal()
 {
     NativeAddonManager* nam = NativeAddonManager::Get();
@@ -10991,6 +11111,11 @@ void EditorImguiDraw()
     {
         DrawMainMenuBar();
         DrawDockspace();
+
+        // Project-restart confirm + per-scene dirty prompt. Blocks the
+        // synchronous part of the reload flow; the build progress modal
+        // below covers the async build phase.
+        DrawProjectRestartModal();
 
         // Native-addon build progress (only renders while a build queue
         // is active; closes itself when the queue drains).

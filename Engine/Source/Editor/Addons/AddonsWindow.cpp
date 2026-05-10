@@ -1159,19 +1159,16 @@ void AddonsWindow::OnReloadNativeAddon(const std::string& addonId)
         return;
     }
 
-    mStatusMessage = "Reloading native addon...";
-
-    std::string error;
-    if (nam->ReloadNativeAddon(addonId, error))
-    {
-        mStatusMessage = "Native addon reloaded successfully!";
-        mErrorMessage.clear();
-    }
-    else
-    {
-        mStatusMessage.clear();
-        mErrorMessage = "Reload failed: " + error;
-    }
+    // Route through the project-restart chokepoint. The user gets a confirm
+    // modal + per-scene dirty prompt; the project closes, the addon rebuilds,
+    // and the project reopens with all scenes restored. Direct
+    // ReloadNativeAddon() is unsafe with open scenes (dangling vtables on
+    // live nodes; orphaned Node factory entries → Node3D fallback on reopen).
+    std::string reason = "Reload requested for addon '" + addonId + "'";
+    nam->ReloadNativeAddonsWithProjectRestart({addonId}, /*forceRebuild*/false,
+                                              reason.c_str());
+    mStatusMessage = "Reload staged. Confirm in the dialog to close + reopen the project.";
+    mErrorMessage.clear();
 }
 
 void AddonsWindow::OnToggleNativeEnabled(const std::string& addonId)

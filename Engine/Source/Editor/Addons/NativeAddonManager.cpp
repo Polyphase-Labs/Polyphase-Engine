@@ -2,7 +2,9 @@
 
 #include "NativeAddonManager.h"
 #include "AddonManager.h"
+#include "ActionManager.h"
 #include "EditorState.h"
+#include "Engine/Assets/Scene.h"
 #include "System/System.h"
 #include "System/ModuleLoader.h"
 #include "Engine.h"
@@ -52,6 +54,7 @@ extern "C" {
 
 #include <cstdio>
 #include <cctype>
+#include <cstdlib>  // std::getenv (POLYPHASE_SKIP_ADDON_ONUNLOAD)
 #include <cstring>
 #include <functional>
 #include <algorithm>
@@ -2328,6 +2331,64 @@ namespace
     {
     }
 #endif
+
+    // Wrapper around PurgeAssetsFromModule. SEH was removed here for the
+    // same C1001 LTCG reason as the OnUnload/RemoveAllHooks wrappers above;
+    // the helper is retained as a stable call site for future re-protection.
+    bool SafeCallPurgeAssetsFromModule(void* moduleHandle,
+                                       std::vector<uint64_t>& outRehydrateUuids,
+                                       const char* /*addonId*/)
+    {
+        PurgeAssetsFromModule(moduleHandle, outRehydrateUuids);
+        return true;
+    }
+}
+
+// Wrappers around addon-dispatching teardown steps. The intent was to put
+// these inside __try/__except to survive a crashy addon's cleanup, but
+// __try/__except in this TU triggered MSVC's LTCG into an internal compiler
+// error (C1001 in <memory>(2092) during the Standalone link). With LTCG
+// enabled across Engine.lib and Standalone, mixing SEH with template-heavy
+// translation units is a known MSVC pathology.
+//
+// We keep the wrapper functions for two reasons:
+//   1. POLYPHASE_SKIP_ADDON_ONUNLOAD lets the user opt out of the addon's
+//      OnUnload entirely when it's known-buggy (relationship addon today).
+//      MOD_Unload still runs, so the DLL is unmapped and OS-side static
+//      destructors run via DllMain(DLL_PROCESS_DETACH).
+//   2. They isolate addon-touching calls behind a single function name so
+//      we can re-introduce SEH later (e.g. moved to a non-LTCG TU, or
+//      under #pragma optimize) without touching call sites.
+namespace
+{
+    static bool ShouldSkipAddonOnUnload()
+    {
+        const char* v = std::getenv("POLYPHASE_SKIP_ADDON_ONUNLOAD");
+        return (v != nullptr && v[0] != '\0' && v[0] != '0');
+    }
+
+    bool SafeCallAddonOnUnload(const PolyphasePluginDesc& desc, const char* addonId)
+    {
+        if (desc.OnUnload == nullptr) return true;
+
+        if (ShouldSkipAddonOnUnload())
+        {
+            LogDebug("Addon '%s': skipping OnUnload (POLYPHASE_SKIP_ADDON_ONUNLOAD set).",
+                     addonId);
+            return true;
+        }
+
+        desc.OnUnload();
+        return true;
+    }
+
+    bool SafeCallRemoveAllHooks(EditorUIHooks* editorUI, uint64_t hookId, const char* /*addonId*/)
+    {
+        if (editorUI == nullptr || editorUI->RemoveAllHooks == nullptr) return true;
+        editorUI->RemoveAllHooks(hookId);
+        return true;
+    }
+
 }
 
 bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
@@ -2347,24 +2408,22 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
 
     LogDebug("Unloading native addon: %s", addonId.c_str());
 
-    // Call OnUnload
-    if (state.mDescValid && state.mDesc.OnUnload != nullptr)
+    // OnUnload + RemoveAllHooks are addon-side / addon-touching code that
+    // can fault on a poorly-written addon. They go through the Safe* call
+    // sites so we have a single place to bypass (POLYPHASE_SKIP_ADDON_ONUNLOAD)
+    // or re-add exception protection later. hookId formula must match
+    // LoadNativeAddon.
+    if (state.mDescValid)
     {
-        state.mDesc.OnUnload();
+        SafeCallAddonOnUnload(state.mDesc, addonId.c_str());
     }
-
-    // Clear every editor-UI hook the addon registered (windows, menus, inspectors,
-    // event callbacks, etc). Their function pointers live in the DLL we are about to
-    // free; without this, the next frame's DrawWindows() jumps into freed memory.
-    // hookId must match the formula in LoadNativeAddon.
-    if (mEngineAPI.editorUI != nullptr && mEngineAPI.editorUI->RemoveAllHooks != nullptr)
     {
         uint64_t hookId = 0;
         for (char c : addonId)
         {
             hookId = hookId * 31 + c;
         }
-        mEngineAPI.editorUI->RemoveAllHooks(hookId);
+        SafeCallRemoveAllHooks(mEngineAPI.editorUI, hookId, addonId.c_str());
     }
 
     // Free any Asset instances whose class came from this DLL BEFORE FreeLibrary,
@@ -2377,7 +2436,13 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     // and the matching Load never happened (e.g. build failed), we want them
     // queued through the next successful Load. LoadNativeAddon clears the list
     // once it has rehydrated.
-    PurgeAssetsFromModule(state.mModuleHandle, state.mPurgedAssetUuids);
+    //
+    // Routed through the Safe* wrapper as a stable call site for re-adding
+    // SEH-style protection later (was inlined here originally; pulled out
+    // because LTCG choked on __try in this TU — see anonymous-namespace
+    // comment near SafeCallAddonOnUnload).
+    SafeCallPurgeAssetsFromModule(state.mModuleHandle, state.mPurgedAssetUuids,
+                                  addonId.c_str());
 
     // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE
     // FreeLibrary. Otherwise the lists hold dangling pointers and the next load of the
@@ -2409,7 +2474,7 @@ bool NativeAddonManager::ReloadNativeAddon(const std::string& addonId, std::stri
 
 // ===== Async build queue =====
 //
-// Force Rebuild used to call ReloadAll synchronously, which froze the editor
+// Reload used to call into the build path synchronously, freezing the editor
 // for the duration of every addon's compile (cl.exe + link.exe). Now we
 // queue the work and run each build script on a worker thread; the main
 // thread polls completion in TickAsyncBuilds() each frame and finalises
@@ -2588,6 +2653,379 @@ void NativeAddonManager::CancelBlockedBuild()
     mBuildQueue.clear();
     mBuildQueueTotal = 0;
     mBuildQueueIndex = 0;
+
+    // If the blocked build was part of a project-restart flow, the user just
+    // bailed out of the rebuild — abort the whole restart so we don't leave
+    // the editor in a half-closed state with no live addons.
+    if (mRestart.mPhase != ProjectRestartPhase::None)
+    {
+        LogWarning("Project-restart aborted: user cancelled blocked build.");
+        ProjectRestartReset();
+    }
+}
+
+// ===== Project-restart reload chokepoint =====
+
+void NativeAddonManager::ReloadNativeAddonsWithProjectRestart(
+    const std::vector<std::string>& addonIds,
+    bool forceRebuild,
+    const char* reason)
+{
+    if (mRestart.mPhase != ProjectRestartPhase::None)
+    {
+        LogWarning("ReloadNativeAddonsWithProjectRestart: another restart is already in progress (phase=%d); ignoring.",
+                   (int)mRestart.mPhase);
+        return;
+    }
+
+    EditorState* es = GetEditorState();
+    if (es == nullptr)
+    {
+        LogError("ReloadNativeAddonsWithProjectRestart: no EditorState; falling back to plain ReloadAllNativeAddons.");
+        ReloadAllNativeAddons();
+        return;
+    }
+
+    if (IsPlayingInEditor())
+    {
+        LogWarning("ReloadNativeAddonsWithProjectRestart: play-in-editor is active; ignoring. Stop PIE first.");
+        return;
+    }
+
+    mRestart = ProjectRestart{};
+    mRestart.mTargetAddons = addonIds;
+    mRestart.mForceRebuild = forceRebuild;
+    mRestart.mReason       = (reason != nullptr) ? reason : "";
+    mRestart.mProjectPath  = GetEngineState()->mProjectPath;
+
+    if (mRestart.mProjectPath.empty())
+    {
+        LogWarning("ReloadNativeAddonsWithProjectRestart: no project loaded; nothing to do.");
+        ProjectRestartReset();
+        return;
+    }
+
+    // Snapshot open scenes by name. Names survive the asset-manager rediscovery
+    // OpenProject performs, so we can re-resolve them after the restart. The
+    // active scene is restored by reopening it last.
+    const std::vector<EditScene>& editScenes = es->mEditScenes;
+    mRestart.mOpenSceneNames.reserve(editScenes.size());
+    for (uint32_t i = 0; i < editScenes.size(); ++i)
+    {
+        Scene* scn = editScenes[i].mSceneAsset.Get<Scene>();
+        if (scn != nullptr && !scn->GetName().empty())
+        {
+            mRestart.mOpenSceneNames.push_back(scn->GetName());
+        }
+    }
+    EditScene* active = es->GetEditScene();
+    if (active != nullptr)
+    {
+        Scene* scn = active->mSceneAsset.Get<Scene>();
+        if (scn != nullptr) mRestart.mActiveSceneName = scn->GetName();
+    }
+
+    // Build the dirty queue. Walk every open scene's backing asset and queue
+    // the ones marked dirty. The user gets one Save/Discard/Cancel popup per
+    // dirty scene during AwaitingDirty.
+    for (const std::string& sceneName : mRestart.mOpenSceneNames)
+    {
+        AssetStub* stub = AssetManager::Get()->GetAssetStub(sceneName);
+        if (stub != nullptr && stub->mAsset != nullptr && stub->mAsset->GetDirtyFlag())
+        {
+            mRestart.mDirtyScenes.push_back(sceneName);
+        }
+    }
+    mRestart.mDirtyCursor = 0;
+
+    mRestart.mPhase = ProjectRestartPhase::AwaitingConfirm;
+
+    LogDebug("Project-restart staged: %u open scene(s), %u dirty, force=%d, target=%u addon(s)",
+             (uint32_t)mRestart.mOpenSceneNames.size(),
+             (uint32_t)mRestart.mDirtyScenes.size(),
+             forceRebuild ? 1 : 0,
+             (uint32_t)mRestart.mTargetAddons.size());
+}
+
+void NativeAddonManager::ProjectRestartConfirm()
+{
+    if (mRestart.mPhase != ProjectRestartPhase::AwaitingConfirm)
+        return;
+
+    if (!mRestart.mDirtyScenes.empty())
+    {
+        mRestart.mDirtyCursor = 0;
+        mRestart.mPhase = ProjectRestartPhase::AwaitingDirty;
+    }
+    else
+    {
+        ProjectRestartBeginClose();
+    }
+}
+
+void NativeAddonManager::ProjectRestartCancel()
+{
+    if (mRestart.mPhase == ProjectRestartPhase::None) return;
+
+    LogDebug("Project-restart cancelled by user (phase=%d).", (int)mRestart.mPhase);
+    ProjectRestartReset();
+}
+
+void NativeAddonManager::ProjectRestartDirtySave()
+{
+    if (mRestart.mPhase != ProjectRestartPhase::AwaitingDirty) return;
+    if (mRestart.mDirtyCursor < 0 ||
+        mRestart.mDirtyCursor >= (int32_t)mRestart.mDirtyScenes.size()) return;
+
+    const std::string& sceneName = mRestart.mDirtyScenes[mRestart.mDirtyCursor];
+    AssetStub* stub = AssetManager::Get()->GetAssetStub(sceneName);
+    if (stub != nullptr && stub->mAsset != nullptr)
+    {
+        // For an open edit scene, capture the live world tree back into the
+        // Scene asset before saving — same path Save Scene uses elsewhere.
+        bool savedAsEdit = false;
+        EditorState* es = GetEditorState();
+        if (es != nullptr)
+        {
+            for (uint32_t i = 0; i < es->mEditScenes.size() && !savedAsEdit; ++i)
+            {
+                Scene* scn = es->mEditScenes[i].mSceneAsset.Get<Scene>();
+                if (scn == stub->mAsset)
+                {
+                    es->CaptureAndSaveScene(stub, nullptr);
+                    savedAsEdit = true;
+                }
+            }
+        }
+        if (!savedAsEdit)
+        {
+            AssetManager::Get()->SaveAsset(*stub);
+        }
+    }
+
+    mRestart.mDirtyCursor++;
+    if (mRestart.mDirtyCursor >= (int32_t)mRestart.mDirtyScenes.size())
+    {
+        ProjectRestartBeginClose();
+    }
+}
+
+void NativeAddonManager::ProjectRestartDirtyDiscard()
+{
+    if (mRestart.mPhase != ProjectRestartPhase::AwaitingDirty) return;
+
+    // Clear the dirty flag so the OpenProject path doesn't try to prompt or
+    // mistakenly auto-save during teardown. The asset is about to be unloaded
+    // and reloaded from disk — discarding == "throw away the in-memory edits".
+    if (mRestart.mDirtyCursor >= 0 &&
+        mRestart.mDirtyCursor < (int32_t)mRestart.mDirtyScenes.size())
+    {
+        const std::string& sceneName = mRestart.mDirtyScenes[mRestart.mDirtyCursor];
+        AssetStub* stub = AssetManager::Get()->GetAssetStub(sceneName);
+        if (stub != nullptr && stub->mAsset != nullptr)
+        {
+            stub->mAsset->ClearDirtyFlag();
+        }
+    }
+
+    mRestart.mDirtyCursor++;
+    if (mRestart.mDirtyCursor >= (int32_t)mRestart.mDirtyScenes.size())
+    {
+        ProjectRestartBeginClose();
+    }
+}
+
+void NativeAddonManager::ProjectRestartDirtyCancel()
+{
+    if (mRestart.mPhase != ProjectRestartPhase::AwaitingDirty) return;
+
+    LogDebug("Project-restart cancelled at dirty prompt (cursor=%d / %u).",
+             mRestart.mDirtyCursor, (uint32_t)mRestart.mDirtyScenes.size());
+    ProjectRestartReset();
+}
+
+void NativeAddonManager::ProjectRestartBeginClose()
+{
+    OCT_ASSERT(mRestart.mPhase == ProjectRestartPhase::AwaitingConfirm ||
+               mRestart.mPhase == ProjectRestartPhase::AwaitingDirty);
+
+    LogDebug("Project-restart: closing project (target=%u addon(s), force=%d)",
+             (uint32_t)mRestart.mTargetAddons.size(),
+             mRestart.mForceRebuild ? 1 : 0);
+
+    // Close every edit scene before unloading anything. Live nodes whose
+    // class lives in an addon DLL would otherwise hold vtable pointers into
+    // pages we're about to unmap.
+    EditorState* es = GetEditorState();
+    if (es != nullptr)
+    {
+        es->CloseAllEditScenes();
+    }
+
+    // Decide which addons to actually rebuild. Empty target list means "all
+    // installed enabled native addons".
+    std::vector<std::string> toBuild = mRestart.mTargetAddons;
+    if (toBuild.empty())
+    {
+        AddonManager* addonMgr = AddonManager::Get();
+        const std::vector<InstalledAddon>& installed =
+            addonMgr ? addonMgr->GetInstalledAddons() : std::vector<InstalledAddon>();
+        const std::string& projectDir = GetEngineState()->mProjectDirectory;
+        std::string packagesDir = projectDir + "Packages/";
+        for (const auto& pair : mStates)
+        {
+            const std::string& addonId = pair.first;
+            const NativeAddonState& state = pair.second;
+            bool isLocal = state.mSourcePath.find(packagesDir) == 0;
+            if (isLocal)
+            {
+                toBuild.push_back(addonId);
+            }
+            else
+            {
+                for (const InstalledAddon& inst : installed)
+                {
+                    if (inst.mId == addonId && inst.mEnabled && inst.mEnableNative)
+                    {
+                        toBuild.push_back(addonId);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Unload only the addons we're going to rebuild. Non-target addons stay
+    // loaded across the project restart — when OpenProject runs LoadProject
+    // → ReloadAllNativeAddons, that path's filter sees them already loaded
+    // and up-to-date and skips them. Limiting the scope here is important
+    // because every UnloadNativeAddon dispatches into addon code (OnUnload,
+    // RemoveAllHooks → hook-destructor cascades), and a bug in one addon's
+    // teardown shouldn't be able to take down unrelated addons.
+    //
+    // Unloading also frees the DLL / .pdb file handles for the targets so
+    // the rebuild can write its outputs without hitting LNK1201 on Windows.
+    for (const std::string& addonId : toBuild)
+    {
+        auto it = mStates.find(addonId);
+        if (it != mStates.end() && it->second.mModuleHandle != nullptr)
+        {
+            UnloadNativeAddon(addonId);
+        }
+    }
+
+    // For force-rebuild requests (forceRebuild=true): wipe each target's
+    // fingerprint dir so NeedsBuild() returns true and the rebuild actually
+    // runs. The unload above already freed the DLL/.pdb file handles, so
+    // this delete won't hit a "file in use" error.
+    if (mRestart.mForceRebuild)
+    {
+        for (const std::string& addonId : toBuild)
+        {
+            std::string fingerprint = ComputeFingerprint(addonId);
+            if (!fingerprint.empty())
+            {
+                std::string fingerprintDir = GetIntermediateDir(addonId) + fingerprint + "/";
+                if (DoesDirExist(fingerprintDir.c_str()))
+                {
+                    LogDebug("  removing stale build dir: %s", fingerprintDir.c_str());
+                    SYS_RemoveDirectory(fingerprintDir.c_str());
+                }
+            }
+            auto it = mStates.find(addonId);
+            if (it != mStates.end())
+            {
+                it->second.mFingerprint.clear();
+            }
+        }
+    }
+
+    // Enqueue rebuilds. TickAsyncBuilds drives them across frames; when the
+    // queue drains, its session-done branch detects Phase::Building and calls
+    // ProjectRestartOnBuildsDone for the reopen step.
+    mBuildQueue = toBuild;
+    mBuildQueueTotal = (int)mBuildQueue.size();
+    mBuildQueueIndex = 0;
+
+    mRestart.mPhase = ProjectRestartPhase::Building;
+
+    if (mBuildQueue.empty())
+    {
+        // Nothing to actually build (e.g. user invoked Reload on an addon
+        // that's now disabled). Skip straight to reopen.
+        LogDebug("Project-restart: no builds queued; reopening project immediately.");
+        ProjectRestartOnBuildsDone();
+    }
+    else
+    {
+        StartNextQueuedBuild();
+    }
+}
+
+void NativeAddonManager::ProjectRestartOnBuildsDone()
+{
+    OCT_ASSERT(mRestart.mPhase == ProjectRestartPhase::Building);
+
+    mRestart.mPhase = ProjectRestartPhase::Reopening;
+
+    const std::string projectPath  = mRestart.mProjectPath;
+    const std::vector<std::string> openScenes  = mRestart.mOpenSceneNames;
+    const std::string activeScene  = mRestart.mActiveSceneName;
+
+    LogDebug("Project-restart: builds complete; reopening project '%s' and restoring %u scene(s).",
+             projectPath.c_str(), (uint32_t)openScenes.size());
+
+    // OpenProject does the full reset + load: discards old asset state, runs
+    // LoadProject (which re-runs ReloadAllNativeAddons and rediscovers
+    // assets), and triggers OnProjectOpen hooks. Native factories register
+    // fresh from the rebuilt DLLs so scene reload below resolves cleanly.
+    ActionManager::Get()->OpenProject(projectPath.c_str());
+
+    // Restore open scenes by name. The active scene is opened last so it ends
+    // up as the editor's current scene. Best-effort: skip any that no longer
+    // exist on disk.
+    EditorState* es = GetEditorState();
+    if (es != nullptr)
+    {
+        std::string activeName = activeScene;
+        for (const std::string& sceneName : openScenes)
+        {
+            if (sceneName == activeName) continue;
+            Asset* asset = AssetManager::Get()->LoadAsset(sceneName);
+            Scene* scn = asset ? asset->As<Scene>() : nullptr;
+            if (scn != nullptr)
+            {
+                es->OpenEditScene(scn);
+            }
+            else
+            {
+                LogWarning("Project-restart: could not restore scene '%s' (not found after reopen).",
+                           sceneName.c_str());
+            }
+        }
+        if (!activeName.empty())
+        {
+            Asset* asset = AssetManager::Get()->LoadAsset(activeName);
+            Scene* scn = asset ? asset->As<Scene>() : nullptr;
+            if (scn != nullptr)
+            {
+                es->OpenEditScene(scn);
+            }
+            else
+            {
+                LogWarning("Project-restart: could not restore active scene '%s'.",
+                           activeName.c_str());
+            }
+        }
+    }
+
+    LogDebug("Project-restart complete.");
+    ProjectRestartReset();
+}
+
+void NativeAddonManager::ProjectRestartReset()
+{
+    mRestart = ProjectRestart{};
 }
 
 void NativeAddonManager::TickAsyncBuilds()
@@ -2665,112 +3103,24 @@ void NativeAddonManager::TickAsyncBuilds()
                  mBuildQueueIndex, mBuildQueueTotal);
         mBuildQueueTotal = 0;
         mBuildQueueIndex = 0;
-        CallOnEditorPreInit();
+
+        // Project-restart flow: builds were the async wait — finish the
+        // close→build→reopen sequence on the main thread now that the queue
+        // is drained. Skip CallOnEditorPreInit here because OpenProject
+        // re-runs the full addon-load pipeline (which calls it).
+        if (mRestart.mPhase == ProjectRestartPhase::Building)
+        {
+            ProjectRestartOnBuildsDone();
+        }
+        else
+        {
+            CallOnEditorPreInit();
+        }
     }
     else
     {
         StartNextQueuedBuild();
     }
-}
-
-void NativeAddonManager::ForceRebuildAllNativeAddons()
-{
-    LogDebug("Force-rebuilding all native addons for current host config...");
-
-    // CRITICAL: close every open edit-scene BEFORE unloading any addon.
-    // Live node instances whose C++ class lives in an addon DLL keep a
-    // vtable pointer into that DLL's mapped address range. Unloading the
-    // DLL invalidates those vtables, and the next frame's
-    // DrawScenePanel/GetNodeIcon -> node->As<...>() faults. This was
-    // observed crashing in GetNodeIcon line 176 on a Force Rebuild while
-    // SC_AttractScreen (which contains an addon-provided VideoPlayer3D)
-    // was open. Closing scenes first destroys those node instances so
-    // there's nothing left holding stale vtables.
-    EditorState* es = GetEditorState();
-    if (es != nullptr)
-    {
-        es->CloseAllEditScenes();
-    }
-
-    DiscoverNativeAddons();
-
-    for (auto& pair : mStates)
-    {
-        const std::string& addonId = pair.first;
-
-        // Unload first so the DLL handle isn't holding the file open. Reload
-        // would do this too but we want it to happen before deleting the
-        // cached output.
-        UnloadNativeAddon(addonId);
-
-        // Wipe the entire current-host fingerprint directory (DLL, PDB,
-        // .exp/.lib, .obj, build.bat, .meta) so NeedsBuild() returns true
-        // AND the relink isn't blocked by a stale .pdb that mspdbsrv still
-        // has a handle on (LNK1201). Removing only the .dll left LNK1201
-        // landmines on Force Rebuild.
-        std::string fingerprint = ComputeFingerprint(addonId);
-        if (!fingerprint.empty())
-        {
-            std::string fingerprintDir = GetIntermediateDir(addonId) + fingerprint + "/";
-            if (DoesDirExist(fingerprintDir.c_str()))
-            {
-                LogDebug("  removing stale build dir: %s", fingerprintDir.c_str());
-                SYS_RemoveDirectory(fingerprintDir.c_str());
-            }
-
-            // Also clear any cached fingerprint stored on the state so the
-            // load path recomputes.
-            auto it = mStates.find(addonId);
-            if (it != mStates.end())
-            {
-                it->second.mFingerprint.clear();
-            }
-        }
-    }
-
-    // Determine which addons are currently expected to be loaded (mirrors
-    // the filtering done by ReloadAllNativeAddons), then enqueue them for
-    // async rebuild. TickAsyncBuilds() will drive the queue across frames
-    // so the editor stays interactive and the modal can render progress.
-    AddonManager* addonMgr = AddonManager::Get();
-    const std::vector<InstalledAddon>& installed =
-        addonMgr ? addonMgr->GetInstalledAddons() : std::vector<InstalledAddon>();
-
-    const std::string& projectDir = GetEngineState()->mProjectDirectory;
-    std::string packagesDir = projectDir + "Packages/";
-
-    mBuildQueue.clear();
-    for (const auto& pair : mStates)
-    {
-        const std::string& addonId = pair.first;
-        const NativeAddonState& state = pair.second;
-
-        bool isLocal = state.mSourcePath.find(packagesDir) == 0;
-        if (isLocal)
-        {
-            mBuildQueue.push_back(addonId);
-        }
-        else
-        {
-            for (const InstalledAddon& inst : installed)
-            {
-                if (inst.mId == addonId && inst.mEnabled && inst.mEnableNative)
-                {
-                    mBuildQueue.push_back(addonId);
-                    break;
-                }
-            }
-        }
-    }
-
-    mBuildQueueTotal = (int)mBuildQueue.size();
-    mBuildQueueIndex = 0;
-
-    LogDebug("Force-rebuild queued %d native addon(s); progress modal will track them.",
-             mBuildQueueTotal);
-
-    // Kick off the first build immediately. TickAsyncBuilds drives the rest.
-    StartNextQueuedBuild();
 }
 
 void NativeAddonManager::ReloadAllNativeAddons()
@@ -2821,10 +3171,10 @@ void NativeAddonManager::ReloadAllNativeAddons()
     // addon whose source hasn't changed (NeedsBuild() == false) is skipped — touching
     // it would unmap the DLL, invalidating vtables on every live Node-derived
     // instance from that DLL and crashing the next frame in DrawScenePanel ->
-    // GetNodeIcon -> node->As<...>(). This is the same vtable hazard
-    // ForceRebuildAllNativeAddons guards against, but here we avoid it entirely
-    // for the no-change case so Ctrl+R / "Refresh Scripts" stays safe with open
-    // edit scenes when only Lua changed.
+    // GetNodeIcon -> node->As<...>(). The project-restart chokepoint guards
+    // against this hazard for explicit user-triggered reloads; here we avoid
+    // it entirely for the no-change case so Ctrl+R / "Refresh Scripts" stays
+    // safe with open edit scenes when only Lua changed.
     std::vector<std::string> toLoad;
     bool anyCurrentlyLoaded = false;
     for (const std::string& addonId : enabled)
@@ -2857,7 +3207,10 @@ void NativeAddonManager::ReloadAllNativeAddons()
 
     // At least one currently-loaded addon will be unloaded. Close edit scenes
     // first so no live nodes hold vtable pointers into the DLL pages we're about
-    // to unmap (mirrors ForceRebuildAllNativeAddons).
+    // to unmap. Note: this path is only used by the legacy / startup load
+    // flow; explicit user-triggered reloads route through the project-restart
+    // chokepoint which handles closing more carefully (with confirm modal +
+    // dirty-scene prompt).
     if (anyCurrentlyLoaded)
     {
         EditorState* es = GetEditorState();
