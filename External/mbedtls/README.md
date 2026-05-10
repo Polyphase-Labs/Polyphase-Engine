@@ -29,11 +29,21 @@ External/mbedtls/
         libmbedtls.a, libmbedx509.a, libmbedcrypto.a
 ```
 
-Only `README.md`, `build_dolphin.sh`, and `polyphase_mbedtls_user_config.h.template`
-are committed to the Polyphase repo. Everything else (mbedTLS source +
-toolchain-specific .a files) is produced locally by the steps below.
+The following are committed to the Polyphase repo:
 
-## Step 1 — Vendor the mbedTLS source
+- `README.md`, `build_dolphin.sh`, `polyphase_mbedtls_user_config.h.template`
+- **`include/`** — mbedTLS public headers (vendored from upstream, ~2.4 MB).
+  Committed so a fresh clone builds Wii/GCN without first running Step 1.
+- `lib-wii/*.a`, `lib-gcn/*.a` — prebuilt static archives.
+
+Everything else (`library/` C sources, `3rdparty/`, etc.) is `.gitignore`d.
+You only need it locally when **bumping mbedTLS or rebuilding the archives**;
+follow Step 1 in that case.
+
+## Step 1 — Vendor the mbedTLS source (only when upgrading)
+
+Skip this unless you're bumping the pinned version or need `library/` to
+re-run `build_dolphin.sh`. `include/` is already committed.
 
 ```bash
 # from the Polyphase repo root
@@ -41,6 +51,7 @@ cd External/mbedtls
 git clone --depth 1 --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git _clone
 
 # Move the bits we need into place, drop everything else.
+rm -rf include LICENSE             # if upgrading, blow away the old vendored copy
 mv _clone/include  ./include
 mv _clone/library  ./library
 mv _clone/LICENSE  ./LICENSE
@@ -52,7 +63,9 @@ cp polyphase_mbedtls_user_config.h.template include/mbedtls/polyphase_mbedtls_us
 
 (In PowerShell, use `Move-Item` / `Copy-Item` / `Remove-Item -Recurse -Force`.)
 
-Replace `v3.6.2` with the current mbedTLS LTS at vendoring time.
+Replace `v3.6.2` with the current mbedTLS LTS at vendoring time. After this,
+commit the updated `include/` and `LICENSE` so other devs and CI pick up the
+new version.
 
 ## Step 2 — Build for devkitPPC
 

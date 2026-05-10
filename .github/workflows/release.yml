@@ -173,6 +173,26 @@ jobs:
       - name: Prebuild libgit2
         run: bash Tools/prebuild_libgit2.sh
 
+      # External/mbedtls/include is gitignored (would add MBs to the repo —
+      # see External/mbedtls/.gitignore). The committed lib-{wii,gcn}/ archives
+      # are enough to LINK, but the engine compile of HttpBackend_Dolphin.cpp
+      # on Wii/GameCube needs the public headers (Engine/Makefile_Wii and
+      # Makefile_GCN both put ../External/mbedtls/include in INCLUDES). Pull
+      # the tag pinned in External/mbedtls/README.md once here so the headers
+      # ride along in the polyphase-editor-tree artifact and every Wii/GCN
+      # verify-test-project run finds <mbedtls/ssl.h>.
+      - name: Vendor mbedTLS headers for Wii/GameCube HTTPS backend
+        run: |
+          cd External/mbedtls
+          if [ ! -f include/mbedtls/ssl.h ]; then
+            git clone --depth 1 --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git _clone
+            mv _clone/include ./include
+            cp _clone/LICENSE ./LICENSE 2>/dev/null || true
+            rm -rf _clone
+            cp polyphase_mbedtls_user_config.h.template include/mbedtls/polyphase_mbedtls_user_config.h
+          fi
+          test -f include/mbedtls/ssl.h
+
       - name: Generate Standalone embedded asset stubs
         run: python3 Tools/generate_embedded_stubs.py
 
