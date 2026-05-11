@@ -14,6 +14,7 @@
 #include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "Nodes/3D/Spline3d.h"
+#include "CameraFrustum.h"
 #include "Gizmos.h"
 #include "Log.h"
 #include "Line.h"
@@ -1029,6 +1030,7 @@ void Renderer::FrustumCull(Camera3D* camera)
         camera->GetForwardVector(),
         camera->GetUpVector(),
         camera->GetRightVector());
+    frustum.SetViewProjection(camera->GetViewProjectionMatrix());
 
     float nearZ = camera->GetNearZ();
     float farZ = camera->GetFarZ();
@@ -1076,6 +1078,13 @@ void Renderer::FrustumCull(Camera3D* camera)
     drawsCulled += FrustumCullDraws(frustum, mDebugDraws);
     drawsCulled += FrustumCullDraws(frustum, mCollisionDraws);
     //LogDebug("DebugDraws culled: %d", drawsCulled);
+
+    if (mBoundsDebugMode != BoundsDebugMode::Off)
+    {
+        Gizmos::SetColor({ 1.0f, 0.75f, 0.0f, 1.0f });
+        Gizmos::DrawFrustum(camera->GetViewProjectionMatrix());
+        Gizmos::ResetState();
+    }
 #endif
 }
 
@@ -1127,7 +1136,11 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Dra
     {
         for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
         {
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
             bool inFrustum = frustum.IsSphereInFrustumOrtho(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
+#else
+            bool inFrustum = frustum.IsSphereInsidePlanes(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
+#endif
             HandleCullResult(drawData[i], inFrustum);
 
             if (!inFrustum)
@@ -1141,7 +1154,11 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Dra
     {
         for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
         {
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
             bool inFrustum = frustum.IsSphereInFrustum(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
+#else
+            bool inFrustum = frustum.IsSphereInsidePlanes(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
+#endif
             HandleCullResult(drawData[i], inFrustum);
 
             if (!inFrustum)
@@ -1171,6 +1188,7 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Deb
 
         bool cull = false;
 
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
         if (frustum.mOrtho)
         {
             cull = !frustum.IsSphereInFrustumOrtho(worldBounds.mCenter, worldBounds.mRadius);
@@ -1179,6 +1197,9 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Deb
         {
             cull = !frustum.IsSphereInFrustum(worldBounds.mCenter, worldBounds.mRadius);
         }
+#else
+        cull = !frustum.IsSphereInsidePlanes(worldBounds.mCenter, worldBounds.mRadius);
+#endif
 
         if (cull)
         {
@@ -1200,7 +1221,11 @@ int32_t Renderer::FrustumCullLights(const CameraFrustum& frustum, std::vector<Li
         for (int32_t i = int32_t(lightData.size()) - 1; i >= 0; --i)
         {
             bool directional = (lightData[i].mType == LightType::Directional);
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
             bool inFrustum = directional || frustum.IsSphereInFrustumOrtho(lightData[i].mPosition, lightData[i].mRadius);
+#else
+            bool inFrustum = directional || frustum.IsSphereInsidePlanes(lightData[i].mPosition, lightData[i].mRadius);
+#endif
 
             if (!inFrustum)
             {
@@ -1214,7 +1239,11 @@ int32_t Renderer::FrustumCullLights(const CameraFrustum& frustum, std::vector<Li
         for (int32_t i = int32_t(lightData.size()) - 1; i >= 0; --i)
         {
             bool directional = (lightData[i].mType == LightType::Directional);
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
             bool inFrustum = directional || frustum.IsSphereInFrustum(lightData[i].mPosition, lightData[i].mRadius);
+#else
+            bool inFrustum = directional || frustum.IsSphereInsidePlanes(lightData[i].mPosition, lightData[i].mRadius);
+#endif
 
             if (!inFrustum)
             {
