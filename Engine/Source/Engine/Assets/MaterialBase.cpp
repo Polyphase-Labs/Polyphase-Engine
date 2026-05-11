@@ -22,6 +22,117 @@
 #endif
 
 #include <sstream>
+#include <algorithm>
+
+static bool ReadTextFile(const std::string& path, std::string& outText)
+{
+    Stream stream;
+    if (!stream.ReadFile(path.c_str(), false))
+    {
+        return false;
+    }
+
+    outText.assign(stream.GetData(), stream.GetSize());
+    return true;
+}
+
+static void PushUniqueShaderCandidate(std::vector<std::string>& candidates, const std::string& candidatePath)
+{
+    if (!SYS_DoesFileExist(candidatePath.c_str(), false))
+    {
+        return;
+    }
+
+    if (std::find(candidates.begin(), candidates.end(), candidatePath) == candidates.end())
+    {
+        candidates.push_back(candidatePath);
+    }
+}
+
+static void GatherAddonShaderCandidates(const std::string& shaderName, std::vector<std::string>& outCandidates)
+{
+    EngineState* engineState = GetEngineState();
+    if (engineState == nullptr || engineState->mProjectDirectory.empty())
+    {
+        return;
+    }
+
+    const std::string packagesDir = engineState->mProjectDirectory + "Packages/";
+    if (!DoesDirExist(packagesDir.c_str()))
+    {
+        return;
+    }
+
+    // Explicit package-qualified path: "<addon-id>/<shader-name>"
+    size_t slash = shaderName.find('/');
+    if (slash != std::string::npos)
+    {
+        const std::string addonId = shaderName.substr(0, slash);
+        const std::string localShader = shaderName.substr(slash + 1);
+        if (!addonId.empty() && !localShader.empty())
+        {
+            const std::string packageRoot = packagesDir + addonId + "/";
+            PushUniqueShaderCandidate(outCandidates, packageRoot + "Shaders/mat/" + localShader + ".glsl");
+            PushUniqueShaderCandidate(outCandidates, packageRoot + "Shaders/" + localShader + ".glsl");
+        }
+    }
+
+    // Fallback: search each package's conventional shader folders.
+    DirEntry dirEntry;
+    SYS_OpenDirectory(packagesDir, dirEntry);
+    while (dirEntry.mValid)
+    {
+        if (dirEntry.mDirectory &&
+            strcmp(dirEntry.mFilename, ".") != 0 &&
+            strcmp(dirEntry.mFilename, "..") != 0)
+        {
+            const std::string packageRoot = packagesDir + dirEntry.mFilename + "/";
+            PushUniqueShaderCandidate(outCandidates, packageRoot + "Shaders/mat/" + shaderName + ".glsl");
+            PushUniqueShaderCandidate(outCandidates, packageRoot + "Shaders/" + shaderName + ".glsl");
+        }
+
+        SYS_IterateDirectory(dirEntry);
+    }
+    SYS_CloseDirectory(dirEntry);
+}
+
+static bool ResolveMaterialShaderPath(const std::string& shaderName, std::string& outPath)
+{
+    const std::string engineShaderPath = "Engine/Shaders/GLSL/mat/" + shaderName + ".glsl";
+    if (SYS_DoesFileExist(engineShaderPath.c_str(), false))
+    {
+        outPath = engineShaderPath;
+        return true;
+    }
+
+    EngineState* engineState = GetEngineState();
+    if (engineState != nullptr && !engineState->mProjectDirectory.empty())
+    {
+        const std::string projectShaderPath = engineState->mProjectDirectory + "Shaders/" + shaderName + ".glsl";
+        if (SYS_DoesFileExist(projectShaderPath.c_str(), false))
+        {
+            outPath = projectShaderPath;
+            return true;
+        }
+    }
+
+    std::vector<std::string> addonCandidates;
+    GatherAddonShaderCandidates(shaderName, addonCandidates);
+    if (!addonCandidates.empty())
+    {
+        std::sort(addonCandidates.begin(), addonCandidates.end());
+        if (addonCandidates.size() > 1)
+        {
+            LogWarning("Material shader '%s' matched %zu addon files. Using '%s'. Use '<addon-id>/<shader>' to disambiguate.",
+                       shaderName.c_str(), addonCandidates.size(), addonCandidates[0].c_str());
+        }
+
+        outPath = addonCandidates[0];
+        return true;
+    }
+
+    return false;
+}
 
 const char* gBlendModeStrings[] =
 {
@@ -287,38 +398,21 @@ void MaterialBase::Compile()
     // Compile MaterialBase:
     // (X) Find engine/user shader directories
     std::string engineShaderDir = "Engine/Shaders/GLSL/";
-    std::string projectShaderDir = GetEngineState()->mProjectDirectory + "Shaders/";
 
     // (X) Get user shader code from .glsl file.
     std::string rawUserCode;
 
+    std::string shaderPath;
+    if (ResolveMaterialShaderPath(mShader, shaderPath))
     {
-        // Check for engine shader first
-        std::string shaderPath = engineShaderDir + "mat/" + mShader + ".glsl";
-        if (SYS_DoesFileExist(shaderPath.c_str(), false))
-        {
-            Stream shaderStream;
-            shaderStream.ReadFile(shaderPath.c_str(), false);
-            shaderStream.GetData();
-
-            rawUserCode.assign(shaderStream.GetData(), shaderStream.GetSize());
-        }
-        else
-        {
-            shaderPath = projectShaderDir + mShader + ".glsl";
-            if (SYS_DoesFileExist(shaderPath.c_str(), false))
-            {
-                Stream shaderStream;
-                shaderStream.ReadFile(shaderPath.c_str(), false);
-                shaderStream.GetData();
-
-                rawUserCode.assign(shaderStream.GetData(), shaderStream.GetSize());
-            }
-        }
+        ReadTextFile(shaderPath, rawUserCode);
     }
 
     if (rawUserCode == "")
+    {
+        LogError("MaterialBase::Compile: Could not find shader '%s' (engine/project/addon paths)", mShader.c_str());
         return;
+    }
 
     // (X) Get template vert + frag code
     std::string templateVertPath = engineShaderDir + "src/MatTemplateVert.glsl";
@@ -822,4 +916,3 @@ MaterialLite* MaterialBase::GetLiteFallback() const
 
     return retLite;
 }
-

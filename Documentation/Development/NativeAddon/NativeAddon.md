@@ -1389,6 +1389,7 @@ extern "C" int PolyphasePlugin_GetDesc_hellonative(PolyphasePluginDesc* desc)
 - [Rotator3D](Examples/Rotator3D.md) - Gameplay tick example
 - [Custom Asset Type](Examples/CustomAssetType.md) - Defining a new asset class with importer + serialization
 - [Custom Graph Node](Examples/CustomGraphNode.md) - Adding a visual-scripting node from an addon
+- [Addon-Packaged Material Shaders](Examples/AddonMaterialShaders.md) - Ship `MaterialBase` shader source inside your addon package
 - [External Library Integration](Examples/ExternalLibrary.md) - Bundling third-party libraries with per-platform overrides
 
 ### Editor Hook Examples
