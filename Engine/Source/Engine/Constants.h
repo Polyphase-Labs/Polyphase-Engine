@@ -2,7 +2,8 @@
 
 #define ENGINE_NAME "Polyphase"
 #define POLYPHASE_VERSION 6
-#define POLYPHASE_VERSION_STRING "6.2.0-beta.4
+#define POLYPHASE_VERSION_STRING "6.2.0-beta.4"
+#define MAX_PATH_SIZE 260
 
 #define DEFAULT_GAME_NAME "Polyphase"
 #define DEFAULT_WINDOW_WIDTH 1280
