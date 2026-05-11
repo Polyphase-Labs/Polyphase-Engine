@@ -32,6 +32,11 @@ jobs:
   #  Windows: Build engine + create Inno Setup installer
   # =========================================================================
   build-windows:
+    # Gated on publish-docker-images so a Docker build failure (the slowest
+    # and historically flakiest step) skips the Windows installer build
+    # instead of letting it burn 20+ minutes before we discover the release
+    # can't ship anyway. See the publish-docker-images job docstring.
+    needs: publish-docker-images
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,6 +154,9 @@ jobs:
   #  Linux: Build engine + create .deb and tarball
   # =========================================================================
   build-linux:
+    # Same fail-fast rationale as build-windows above — if the Docker build
+    # crashes, skip this too instead of doing redundant work that won't ship.
+    needs: publish-docker-images
     runs-on: ubuntu-latest
     # All-in-one build env (Docker/Dockerfile.base): debian:bookworm-slim
     # (glibc 2.36, gcc 12) + Vulkan SDK + glslc + devkitPro + libogc2 +
@@ -385,9 +393,16 @@ jobs:
   #  it via the published `:latest` tag; consumers like the Polyphase
   #  CodeAgent OpenClaw container still FROM it. CI just doesn't republish.
   #
-  #  Gated on verify-test-project so we only publish the engine image when
-  #  the Linux toolchain produced a working editor that successfully
-  #  packaged the test project on every supported console.
+  #  Runs FIRST in the workflow (no `needs:`). build-windows and build-linux
+  #  gate on this job so a Docker build crash skips the rest of the release
+  #  instead of paying for the Windows installer + Linux editor compile and
+  #  *then* failing to ship. Trade-off: we no longer gate publish on
+  #  verify-test-project — the docker build itself recompiles the Linux
+  #  Editor against the same toolchain verify-test-project uses, so a
+  #  broken editor still fails the docker build; we just don't run the
+  #  per-platform packaging matrix against it before publishing. If a
+  #  console-specific regression slips through, verify-test-project will
+  #  still flag it on the same run and create-release will skip.
   #
   #  Required repository secrets:
   #    DOCKERHUB_USERNAME — Docker Hub login (e.g. "polyphaselabs").
@@ -399,7 +414,6 @@ jobs:
   #    DOCKERHUB_ENGINE_IMAGE — override the engine image namespace/name.
   # =========================================================================
   publish-docker-images:
-    needs: verify-test-project
     runs-on: ubuntu-latest
     # If forks haven't set up Docker Hub creds yet, skip cleanly instead of
     # failing the whole release. The secret check has to be guarded outside
