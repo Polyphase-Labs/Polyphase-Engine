@@ -359,4 +359,6 @@ Polyphase.lib
 /Standalone/Standalone.vcxproj.orig
 /Standalone/Polyphase.ico.bak
 build/
+sdk/
+polyphase-sdk-*.zip
 /M_RT_background_color_hills.oct

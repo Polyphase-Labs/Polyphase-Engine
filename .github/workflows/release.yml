@@ -120,6 +120,22 @@ jobs:
           )
           echo [OK] Import libraries staged into dist\Editor\.
 
+      # Package the headers + Release-CRT import libs as a standalone SDK zip
+      # so native-addon CI (e.g. com.polyphase.system.character.dialogue.core)
+      # can curl it from the Release page instead of git-cloning the engine
+      # source and still hitting LNK2019 for lack of import libs. The script
+      # aborts non-zero with a clear message if either .lib is missing, so a
+      # separate verify step here would be redundant.
+      - name: Package Windows native-addon SDK
+        run: python Installers/package_windows_sdk.py --verbose
+
+      - name: Upload Windows SDK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-sdk
+          path: polyphase-sdk-windows-x64.zip
+          if-no-files-found: error
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
@@ -569,7 +585,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
-          pattern: '{windows-installer,linux-deb,linux-tarball}'
+          pattern: '{windows-installer,windows-sdk,linux-deb,linux-tarball}'
           merge-multiple: true
 
       - name: List release assets
@@ -583,5 +599,6 @@ jobs:
           # produce, not whatever .exe happens to be in the download tree.
           files: |
             release-assets/**/PolyphaseSetup-*.exe
+            release-assets/**/polyphase-sdk-windows-x64.zip
             release-assets/**/polyphase-engine_*_amd64.deb
             release-assets/**/PolyphaseEditor-linux-x64.tar.gz
