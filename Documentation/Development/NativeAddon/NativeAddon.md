@@ -494,6 +494,113 @@ These files include the correct engine include paths. If the engine is moved or 
 
 ---
 
+## Source vs Binary Mode
+
+Native addons support two resolve modes that control how the addon is loaded:
+
+### Source Mode (Default)
+
+In source mode, the addon is compiled from source code on demand:
+- Build/Reload buttons compile the C++ code
+- Fingerprint-based caching avoids redundant rebuilds
+- Full hot-reload workflow with immediate code changes
+
+### Binary Mode
+
+In binary mode, the addon uses precompiled binaries and **never compiles**:
+- Eliminates startup compilation freezes for end-users
+- Uses prebuilt `.dll`/`.so` files
+- Requires manual Sync to download updates
+
+### Switching Modes
+
+In the **Installed** tab of the Addons window:
+1. Find your addon
+2. Use the **Mode** dropdown to switch between "Source" and "Binary"
+3. Click **Reload** to apply the change
+
+### Binary Resolution Order
+
+When in binary mode, the addon loader searches for binaries in this order:
+
+1. **Synced prebuilt** - Downloaded via the Sync button, stored in `Intermediate/Plugins/<addon>/Synced/`
+2. **Local intermediate** - Previously compiled binary in `Intermediate/Plugins/<addon>/<fingerprint>/`
+3. **Missing Binary** - If neither is found, displays an error status
+
+### Configuring Remote Binaries
+
+To enable the Sync button, add a `binaries` array to your `package.json`:
+
+```json
+{
+    "native": {
+        "binaryName": "myaddon",
+        "resolveMode": "source",
+        "binaries": [
+            {
+                "platform": "Windows",
+                "arch": "x64",
+                "type": "releaseAsset",
+                "value": "myaddon-Windows-x64.dll",
+                "checksumSha256": "abc123..."
+            },
+            {
+                "platform": "Linux",
+                "arch": "x64",
+                "type": "releaseAsset",
+                "value": "libmyaddon-Linux-x64.so"
+            }
+        ]
+    }
+}
+```
+
+### Binary Descriptor Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `platform` | string | Target platform: "Windows", "Linux" |
+| `arch` | string | Architecture: "x64" |
+| `config` | string | Optional: "Debug" or "Release" |
+| `type` | string | Source type: "releaseAsset", "url", or "zip" |
+| `value` | string | Asset name (for releaseAsset), URL, or ZIP URL |
+| `checksumSha256` | string | Optional: SHA256 hash for verification |
+| `entryPath` | string | Optional: Path inside ZIP to extract |
+
+### Binary Source Types
+
+| Type | Description | Example `value` |
+|------|-------------|-----------------|
+| `releaseAsset` | GitHub release asset | `myaddon-Windows-x64.dll` |
+| `url` | Direct download URL | `https://example.com/myaddon.dll` |
+| `zip` | ZIP archive URL | `https://example.com/myaddon.zip` |
+
+For `releaseAsset`, the Sync function constructs the URL as:
+`{repoUrl}/releases/latest/download/{value}`
+
+### GitHub Workflow for Binary Releases
+
+New native addons include a `.github/workflows/native-addon-release.yml` template that:
+- Triggers on tags matching `v*`
+- Builds for Windows and Linux
+- Generates SHA256 checksums
+- Publishes release assets
+
+Customize the build commands in the workflow file, then configure your `binaries` array to reference the published assets.
+
+### Status Indicators
+
+The Addons window shows these statuses in binary mode:
+
+| Status | Meaning |
+|--------|---------|
+| **Loaded (Synced)** | Running from downloaded prebuilt |
+| **Loaded (Local Binary)** | Running from local intermediate |
+| **Missing Binary** | No binary found; use Sync or switch to Source mode |
+| **Sync Failed** | Download failed; check network and URL |
+
+---
+
 ## Hot-Reload Best Practices
 
 Hot-reloading replaces your code while the editor is running. Follow these guidelines to avoid crashes:

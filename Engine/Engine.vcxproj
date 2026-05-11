@@ -302,11 +302,12 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalDependencies>vulkan-1.lib;assimpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -457,8 +458,9 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -547,11 +549,12 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseSteam|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NET_PLATFORM_STEAM=1;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=1;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <IntrinsicFunctions>true</IntrinsicFunctions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Lib>
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
@@ -977,6 +980,7 @@
     <ClCompile Include="Source\Engine\ScriptAutoReg.cpp" />
     <ClCompile Include="Source\Engine\ScriptFunc.cpp" />
     <ClCompile Include="Source\Engine\ScriptUtils.cpp" />
+    <ClCompile Include="Source\Engine\SignalBus.cpp" />
     <ClCompile Include="Source\Engine\Signals.cpp" />
     <ClCompile Include="Source\Engine\SmartPointer.cpp" />
     <ClCompile Include="Source\Engine\stb_implementation.cpp" />
@@ -1090,6 +1094,7 @@
     <ClCompile Include="Source\LuaBindings\DataAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Script_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ShadowMesh3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Signal_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh_Lua.cpp" />
@@ -1501,6 +1506,7 @@
     <ClInclude Include="Source\Engine\ScriptFunc.h" />
     <ClInclude Include="Source\Engine\ScriptMacros.h" />
     <ClInclude Include="Source\Engine\ScriptUtils.h" />
+    <ClInclude Include="Source\Engine\SignalBus.h" />
     <ClInclude Include="Source\Engine\Signals.h" />
     <ClInclude Include="Source\Engine\Stream.h" />
     <ClInclude Include="Source\Engine\TableDatum.h" />
@@ -1612,6 +1618,7 @@
     <ClInclude Include="Source\LuaBindings\DataAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Script_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ShadowMesh3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Signal_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh_Lua.h" />

@@ -415,10 +415,30 @@ jobs:
           # present. Dockerfile.base doesn't need them but actions/checkout
           # is cheap; do it once.
           submodules: recursive
+          # Need full history so we can check if the tag's commit is an
+          # ancestor of main (used below to decide whether to push :latest).
+          fetch-depth: 0
 
       - name: Mark workspace safe (for any local git ops inside the build)
         if: steps.gate.outputs.publish == 'true'
         run: git config --global --add safe.directory '*'
+
+      # Tags don't carry a branch association in git, so to decide whether
+      # this release should become :latest, we check if the tag's commit is
+      # reachable from origin/main. Beta/RC tags pushed from main get :latest
+      # too (matches the "main is the release line" model).
+      - name: Check if tag commit is on main
+        if: steps.gate.outputs.publish == 'true'
+        id: branch-check
+        run: |
+          git fetch origin main --depth=200 2>/dev/null || true
+          if git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag is on main — will push :latest"
+          else
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag is NOT on main — skipping :latest"
+          fi
 
       # Resolve final image names + the set of tags to publish. mirrors
       # the metadata-action call below but the bare image and the engine
@@ -463,7 +483,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ steps.branch-check.outputs.on_main == 'true' }}
 
       - name: Build and push bare image
         if: steps.gate.outputs.publish == 'true'
@@ -494,7 +514,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ steps.branch-check.outputs.on_main == 'true' }}
 
       - name: Build and push engine image
         if: steps.gate.outputs.publish == 'true'

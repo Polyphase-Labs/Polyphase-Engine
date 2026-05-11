@@ -49,6 +49,8 @@ private:
     void OnBuildNativeAddon(const std::string& addonId);
     void OnReloadNativeAddon(const std::string& addonId);
     void OnToggleNativeEnabled(const std::string& addonId);
+    void OnToggleNativeMode(const std::string& addonId);
+    void OnSyncNativeAddonBinary(const std::string& addonId);
 
     bool mIsOpen = false;
     int mSelectedTab = 0;  // 0=Browse, 1=Installed, 2=Repositories

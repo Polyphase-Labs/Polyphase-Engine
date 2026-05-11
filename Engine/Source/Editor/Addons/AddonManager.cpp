@@ -1031,6 +1031,24 @@ void AddonManager::LoadInstalledAddons()
             {
                 installed.mEnableNative = addonObj["enableNative"].GetBool();
             }
+            if (addonObj.HasMember("nativeMode") && addonObj["nativeMode"].IsString())
+            {
+                const std::string mode = addonObj["nativeMode"].GetString();
+                installed.mNativeMode = (mode == "binary") ?
+                    NativeAddonResolveMode::Binary : NativeAddonResolveMode::Source;
+            }
+            if (addonObj.HasMember("lastSyncAt") && addonObj["lastSyncAt"].IsString())
+            {
+                installed.mLastSyncAt = addonObj["lastSyncAt"].GetString();
+            }
+            if (addonObj.HasMember("lastSyncSource") && addonObj["lastSyncSource"].IsString())
+            {
+                installed.mLastSyncSource = addonObj["lastSyncSource"].GetString();
+            }
+            if (addonObj.HasMember("lastSyncStatus") && addonObj["lastSyncStatus"].IsString())
+            {
+                installed.mLastSyncStatus = addonObj["lastSyncStatus"].GetString();
+            }
 
             if (!installed.mId.empty())
             {
@@ -1071,6 +1089,20 @@ void AddonManager::SaveInstalledAddons()
         addonObj.AddMember("repoUrl", rapidjson::Value(installed.mRepoUrl.c_str(), allocator), allocator);
         addonObj.AddMember("enabled", installed.mEnabled, allocator);
         addonObj.AddMember("enableNative", installed.mEnableNative, allocator);
+        const char* modeStr = (installed.mNativeMode == NativeAddonResolveMode::Binary) ? "binary" : "source";
+        addonObj.AddMember("nativeMode", rapidjson::Value(modeStr, allocator), allocator);
+        if (!installed.mLastSyncAt.empty())
+        {
+            addonObj.AddMember("lastSyncAt", rapidjson::Value(installed.mLastSyncAt.c_str(), allocator), allocator);
+        }
+        if (!installed.mLastSyncSource.empty())
+        {
+            addonObj.AddMember("lastSyncSource", rapidjson::Value(installed.mLastSyncSource.c_str(), allocator), allocator);
+        }
+        if (!installed.mLastSyncStatus.empty())
+        {
+            addonObj.AddMember("lastSyncStatus", rapidjson::Value(installed.mLastSyncStatus.c_str(), allocator), allocator);
+        }
         addonsArray.PushBack(addonObj, allocator);
     }
     doc.AddMember("addons", addonsArray, allocator);
@@ -1129,6 +1161,177 @@ const Addon* AddonManager::FindAddon(const std::string& addonId) const
         }
     }
     return nullptr;
+}
+
+bool AddonManager::SetInstalledAddonNativeMode(const std::string& addonId, NativeAddonResolveMode mode)
+{
+    for (InstalledAddon& installed : mInstalledAddons)
+    {
+        if (installed.mId == addonId)
+        {
+            installed.mNativeMode = mode;
+            SaveInstalledAddons();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AddonManager::SyncNativeAddonBinary(const std::string& addonId, std::string& outError)
+{
+    const Addon* addon = FindAddon(addonId);
+    if (addon == nullptr)
+    {
+        outError = "Addon not found: " + addonId;
+        return false;
+    }
+
+    if (!addon->mNative.mHasNative)
+    {
+        outError = "Addon has no native code";
+        return false;
+    }
+
+    if (addon->mNative.mBinaries.empty())
+    {
+        outError = "Addon has no remote binary sources configured";
+        return false;
+    }
+
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty())
+    {
+        outError = "No project loaded";
+        return false;
+    }
+
+    // Find compatible binary descriptor for current platform/arch
+    std::string currentPlatform;
+    std::string currentArch;
+#if PLATFORM_WINDOWS
+    currentPlatform = "Windows";
+    currentArch = "x64";
+#elif PLATFORM_LINUX
+    currentPlatform = "Linux";
+    currentArch = "x64";
+#else
+    outError = "Binary mode not supported on this platform";
+    return false;
+#endif
+
+    const NativeBinaryDescriptor* matchedDescriptor = nullptr;
+    for (const NativeBinaryDescriptor& desc : addon->mNative.mBinaries)
+    {
+        if (desc.mPlatform == currentPlatform && desc.mArch == currentArch)
+        {
+            matchedDescriptor = &desc;
+            break;
+        }
+    }
+
+    if (matchedDescriptor == nullptr)
+    {
+        outError = "No compatible binary available for " + currentPlatform + "/" + currentArch;
+        return false;
+    }
+
+    // Prepare cache directory
+    std::string cacheDir = projectDir + "Intermediate/Plugins/" + addonId + "/Synced/";
+    if (!DoesDirExist(cacheDir.c_str()))
+    {
+        SYS_CreateDirectory(cacheDir.c_str());
+    }
+
+    std::string downloadUrl;
+    std::string destFilename;
+
+    if (matchedDescriptor->mType == "url")
+    {
+        downloadUrl = matchedDescriptor->mValue;
+        size_t lastSlash = downloadUrl.find_last_of('/');
+        destFilename = (lastSlash != std::string::npos) ? downloadUrl.substr(lastSlash + 1) : "binary.dll";
+    }
+    else if (matchedDescriptor->mType == "releaseAsset")
+    {
+        if (addon->mRepoUrl.empty())
+        {
+            outError = "Addon has no repository URL for release asset fetch";
+            return false;
+        }
+        // GitHub release asset URL pattern: https://github.com/{owner}/{repo}/releases/latest/download/{asset}
+        std::string repoUrl = addon->mRepoUrl;
+        while (!repoUrl.empty() && repoUrl.back() == '/') repoUrl.pop_back();
+        downloadUrl = repoUrl + "/releases/latest/download/" + matchedDescriptor->mValue;
+        destFilename = matchedDescriptor->mValue;
+    }
+    else if (matchedDescriptor->mType == "zip")
+    {
+        downloadUrl = matchedDescriptor->mValue;
+        size_t lastSlash = downloadUrl.find_last_of('/');
+        destFilename = (lastSlash != std::string::npos) ? downloadUrl.substr(lastSlash + 1) : "binary.zip";
+    }
+    else
+    {
+        outError = "Unknown binary descriptor type: " + matchedDescriptor->mType;
+        return false;
+    }
+
+    std::string destPath = cacheDir + destFilename;
+
+    // Download the binary
+    if (!DownloadFile(downloadUrl, destPath, outError))
+    {
+        // Update sync status to failed
+        for (InstalledAddon& installed : mInstalledAddons)
+        {
+            if (installed.mId == addonId)
+            {
+                installed.mLastSyncAt = GetCurrentTimestamp();
+                installed.mLastSyncSource = downloadUrl;
+                installed.mLastSyncStatus = "Failed: " + outError;
+                break;
+            }
+        }
+        SaveInstalledAddons();
+        return false;
+    }
+
+    // Handle ZIP extraction if needed
+    if (matchedDescriptor->mType == "zip")
+    {
+        std::string extractDir = cacheDir + "extracted/";
+        if (!ExtractZip(destPath, extractDir, outError))
+        {
+            outError = "Failed to extract ZIP: " + outError;
+            return false;
+        }
+
+        // Move the entry file if specified
+        if (!matchedDescriptor->mEntryPath.empty())
+        {
+            std::string entryFile = extractDir + matchedDescriptor->mEntryPath;
+            size_t lastSlash = matchedDescriptor->mEntryPath.find_last_of("/\\");
+            std::string entryFilename = (lastSlash != std::string::npos) ?
+                matchedDescriptor->mEntryPath.substr(lastSlash + 1) : matchedDescriptor->mEntryPath;
+            std::string finalPath = cacheDir + entryFilename;
+            SYS_CopyFile(entryFile.c_str(), finalPath.c_str());
+        }
+    }
+
+    // Update sync metadata
+    for (InstalledAddon& installed : mInstalledAddons)
+    {
+        if (installed.mId == addonId)
+        {
+            installed.mLastSyncAt = GetCurrentTimestamp();
+            installed.mLastSyncSource = downloadUrl;
+            installed.mLastSyncStatus = "Success";
+            break;
+        }
+    }
+    SaveInstalledAddons();
+
+    return true;
 }
 
 #endif

@@ -59,6 +59,7 @@ extern "C" {
 #include <functional>
 #include <algorithm>
 #include <sstream>
+#include <fstream>
 
 NativeAddonManager* NativeAddonManager::sInstance = nullptr;
 
@@ -868,6 +869,8 @@ void NativeAddonManager::ScanInstalledAddons()
 
 bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleMetadata& outMetadata)
 {
+    outMetadata = NativeModuleMetadata{};
+
     Stream stream;
     if (!stream.ReadFile(path.c_str(), false))
     {
@@ -918,6 +921,19 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         outMetadata.mPluginApiVersion = native["apiVersion"].GetUint();
     }
 
+    if (native.HasMember("resolveMode") && native["resolveMode"].IsString())
+    {
+        const std::string resolveMode = native["resolveMode"].GetString();
+        if (resolveMode == "binary")
+        {
+            outMetadata.mResolveMode = NativeAddonResolveMode::Binary;
+        }
+        else
+        {
+            outMetadata.mResolveMode = NativeAddonResolveMode::Source;
+        }
+    }
+
     if (native.HasMember("exportDefine") && native["exportDefine"].IsString())
     {
         outMetadata.mExportDefine = native["exportDefine"].GetString();
@@ -957,6 +973,64 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
     readStringArray("extraLibDirs",     outMetadata.mExtraLibDirs);
     readStringArray("extraLibs",        outMetadata.mExtraLibs);
     readStringArray("copyBinaries",     outMetadata.mCopyBinaries);
+
+    if (native.HasMember("binaries") && native["binaries"].IsArray())
+    {
+        const rapidjson::Value& binaries = native["binaries"];
+        for (rapidjson::SizeType i = 0; i < binaries.Size(); ++i)
+        {
+            if (!binaries[i].IsObject())
+            {
+                continue;
+            }
+
+            const rapidjson::Value& binaryObj = binaries[i];
+            NativeBinaryDescriptor descriptor;
+
+            if (binaryObj.HasMember("platform") && binaryObj["platform"].IsString())
+            {
+                descriptor.mPlatform = binaryObj["platform"].GetString();
+            }
+            if (binaryObj.HasMember("arch") && binaryObj["arch"].IsString())
+            {
+                descriptor.mArch = binaryObj["arch"].GetString();
+            }
+            if (binaryObj.HasMember("config") && binaryObj["config"].IsString())
+            {
+                descriptor.mConfig = binaryObj["config"].GetString();
+            }
+            if (binaryObj.HasMember("type") && binaryObj["type"].IsString())
+            {
+                descriptor.mType = binaryObj["type"].GetString();
+            }
+            if (binaryObj.HasMember("value") && binaryObj["value"].IsString())
+            {
+                descriptor.mValue = binaryObj["value"].GetString();
+            }
+            if (binaryObj.HasMember("checksumSha256") && binaryObj["checksumSha256"].IsString())
+            {
+                descriptor.mChecksumSha256 = binaryObj["checksumSha256"].GetString();
+            }
+            if (binaryObj.HasMember("entryPath") && binaryObj["entryPath"].IsString())
+            {
+                descriptor.mEntryPath = binaryObj["entryPath"].GetString();
+            }
+
+            if (descriptor.mType != "releaseAsset" && descriptor.mType != "url" && descriptor.mType != "zip")
+            {
+                LogWarning("Native addon manifest '%s' has unknown binary descriptor type '%s'; skipping.",
+                           path.c_str(), descriptor.mType.c_str());
+                continue;
+            }
+
+            if (descriptor.mValue.empty())
+            {
+                continue;
+            }
+
+            outMetadata.mBinaries.push_back(descriptor);
+        }
+    }
 
     // Per-platform overrides: top-level `nativePerPlatform.<PlatformName>.{extraDefines,
     // extraIncludeDirs, extraLibDirs, extraLibs, copyBinaries}`. Resolved at build
@@ -1387,6 +1461,209 @@ bool NativeAddonManager::NeedsBuild(const std::string& addonId)
     return false;
 }
 
+NativeAddonResolveMode NativeAddonManager::ResolveModeForAddon(const std::string& addonId) const
+{
+    // Installed settings override manifest default
+    AddonManager* am = AddonManager::Get();
+    if (am != nullptr)
+    {
+        const std::vector<InstalledAddon>& installed = am->GetInstalledAddons();
+        for (const InstalledAddon& inst : installed)
+        {
+            if (inst.mId == addonId)
+            {
+                return inst.mNativeMode;
+            }
+        }
+    }
+
+    // Fall back to manifest default
+    auto it = mStates.find(addonId);
+    if (it != mStates.end())
+    {
+        return it->second.mNativeMetadata.mResolveMode;
+    }
+
+    return NativeAddonResolveMode::Source;
+}
+
+bool NativeAddonManager::IsBinaryDescriptorCompatible(const NativeBinaryDescriptor& descriptor,
+                                                       const NativeAddonState& state) const
+{
+    // Check platform
+    std::string currentPlatform;
+#if PLATFORM_WINDOWS
+    currentPlatform = "Windows";
+#elif PLATFORM_LINUX
+    currentPlatform = "Linux";
+#else
+    return false;
+#endif
+
+    if (!descriptor.mPlatform.empty() && descriptor.mPlatform != currentPlatform)
+    {
+        return false;
+    }
+
+    // Check architecture
+    std::string currentArch = "x64";
+    if (!descriptor.mArch.empty() && descriptor.mArch != currentArch)
+    {
+        return false;
+    }
+
+    // Check config (Debug/Release)
+#if defined(_DEBUG)
+    const char* currentConfig = "Debug";
+#else
+    const char* currentConfig = "Release";
+#endif
+    if (!descriptor.mConfig.empty() && descriptor.mConfig != currentConfig)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool NativeAddonManager::ResolveBinaryModulePath(const std::string& addonId,
+                                                  std::string& outModulePath,
+                                                  std::string& outStatus,
+                                                  std::string& outError)
+{
+    auto it = mStates.find(addonId);
+    if (it == mStates.end())
+    {
+        outError = "Addon not found";
+        outStatus = "Missing Binary";
+        return false;
+    }
+
+    NativeAddonState& state = it->second;
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+
+    std::string binaryName = state.mNativeMetadata.mBinaryName;
+    if (binaryName.empty())
+    {
+        binaryName = addonId;
+    }
+
+#if PLATFORM_WINDOWS
+    std::string binaryFilename = binaryName + ".dll";
+#else
+    std::string binaryFilename = "lib" + binaryName + ".so";
+#endif
+
+#if defined(_DEBUG)
+    const char* currentConfig = "Debug";
+#else
+    const char* currentConfig = "Release";
+#endif
+
+    std::string syncedDir = projectDir + "Intermediate/Plugins/" + addonId + "/Synced/";
+
+    // Resolution order 1: Config-specific synced prebuilt (e.g., Synced/Debug/ or Synced/Release/)
+    std::string configSyncedDir = syncedDir + currentConfig + "/";
+    std::string configSyncedPath = configSyncedDir + binaryFilename;
+    if (SYS_DoesFileExist(configSyncedPath.c_str(), false))
+    {
+        outModulePath = configSyncedPath;
+        outStatus = std::string("Synced (") + currentConfig + ")";
+        return true;
+    }
+
+    // Also check for any DLL/SO in the config-specific synced dir
+    if (DoesDirExist(configSyncedDir.c_str()))
+    {
+        DirEntry dirEntry;
+        SYS_OpenDirectory(configSyncedDir, dirEntry);
+        while (dirEntry.mValid)
+        {
+            std::string filename = dirEntry.mFilename;
+            if (!dirEntry.mDirectory && filename != "." && filename != "..")
+            {
+                size_t dotPos = filename.find_last_of('.');
+                if (dotPos != std::string::npos)
+                {
+                    std::string ext = filename.substr(dotPos);
+#if PLATFORM_WINDOWS
+                    if (ext == ".dll")
+#else
+                    if (ext == ".so")
+#endif
+                    {
+                        outModulePath = configSyncedDir + filename;
+                        outStatus = std::string("Synced (") + currentConfig + ")";
+                        SYS_CloseDirectory(dirEntry);
+                        return true;
+                    }
+                }
+            }
+            SYS_IterateDirectory(dirEntry);
+        }
+        SYS_CloseDirectory(dirEntry);
+    }
+
+    // Resolution order 2: Flat synced prebuilt (backwards compatibility)
+    std::string syncedPath = syncedDir + binaryFilename;
+    if (SYS_DoesFileExist(syncedPath.c_str(), false))
+    {
+        outModulePath = syncedPath;
+        outStatus = "Synced";
+        return true;
+    }
+
+    // Also check for any DLL/SO in the flat synced dir
+    if (DoesDirExist(syncedDir.c_str()))
+    {
+        DirEntry dirEntry;
+        SYS_OpenDirectory(syncedDir, dirEntry);
+        while (dirEntry.mValid)
+        {
+            std::string filename = dirEntry.mFilename;
+            if (!dirEntry.mDirectory && filename != "." && filename != "..")
+            {
+                size_t dotPos = filename.find_last_of('.');
+                if (dotPos != std::string::npos)
+                {
+                    std::string ext = filename.substr(dotPos);
+#if PLATFORM_WINDOWS
+                    if (ext == ".dll")
+#else
+                    if (ext == ".so")
+#endif
+                    {
+                        outModulePath = syncedDir + filename;
+                        outStatus = "Synced";
+                        SYS_CloseDirectory(dirEntry);
+                        return true;
+                    }
+                }
+            }
+            SYS_IterateDirectory(dirEntry);
+        }
+        SYS_CloseDirectory(dirEntry);
+    }
+
+    // Resolution order 3: Local intermediate (from prior source build)
+    std::string fingerprint = ComputeFingerprint(addonId);
+    if (!fingerprint.empty())
+    {
+        std::string localPath = GetOutputPath(addonId, fingerprint);
+        if (SYS_DoesFileExist(localPath.c_str(), false))
+        {
+            outModulePath = localPath;
+            outStatus = "Using Local Intermediate";
+            return true;
+        }
+    }
+
+    // No binary found
+    outError = "No precompiled binary available for " + std::string(currentConfig) + " config. Use Sync to download or switch to Source mode.";
+    outStatus = "Missing Binary";
+    return false;
+}
+
 std::string NativeAddonManager::GetIntermediateDir(const std::string& addonId)
 {
     const std::string& projectDir = GetEngineState()->mProjectDirectory;
@@ -1441,13 +1718,14 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
             "Engine/Source",
             "Engine/Source/Engine",
             "Engine/Source/Plugins",
+            "External",
+            "External/Assimp",
+            "External/Bullet",
             "External/Lua",
             "External/glm",
             "External/Imgui",
             "External/ImGuizmo",
-            "External/bullet3/src",
-            "External/Assimp",
-            "External"
+            "External/Vorbis"
         };
         defines = {
             "OCTAVE_PLUGIN_EXPORT",
@@ -1970,23 +2248,80 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         return false;
     }
 
-    // Build if needed
-    if (NeedsBuild(addonId))
+    // Determine active resolve mode
+    NativeAddonResolveMode activeMode = ResolveModeForAddon(addonId);
+    state.mActiveResolveMode = activeMode;
+
+    std::string modulePath;
+    std::string fingerprint;
+
+    if (activeMode == NativeAddonResolveMode::Binary)
     {
-        if (!BuildNativeAddon(addonId, outError))
+        // Binary mode: use precompiled binary, never compile
+        std::string status;
+        if (!ResolveBinaryModulePath(addonId, modulePath, status, outError))
         {
+            // In Debug builds, fall back to source compilation if no Debug binary available
+#if defined(_DEBUG)
+            LogWarning("No Debug binary available for %s, falling back to source compilation", addonId.c_str());
+            state.mBinaryStatus = "Debug Fallback (Source)";
+            state.mLoadedFromBinary = false;
+
+            // Fall through to source compilation
+            if (NeedsBuild(addonId))
+            {
+                if (!BuildNativeAddon(addonId, outError))
+                {
+                    return false;
+                }
+            }
+
+            fingerprint = state.mFingerprint;
+            if (fingerprint.empty())
+            {
+                fingerprint = ComputeFingerprint(addonId);
+            }
+
+            modulePath = GetOutputPath(addonId, fingerprint);
+#else
+            // Release mode: binary is required
+            state.mBinaryStatus = status;
+            state.mLoadedFromBinary = false;
+            LogWarning("Binary mode load failed for %s: %s", addonId.c_str(), outError.c_str());
             return false;
+#endif
+        }
+        else
+        {
+            state.mBinaryStatus = status;
+            state.mLoadedFromBinary = true;
+            // Binary mode doesn't use fingerprinting
+            fingerprint.clear();
         }
     }
-
-    // Get output path
-    std::string fingerprint = state.mFingerprint;
-    if (fingerprint.empty())
+    else
     {
-        fingerprint = ComputeFingerprint(addonId);
+        // Source mode: build if needed, use fingerprinted output
+        state.mLoadedFromBinary = false;
+        state.mBinaryStatus.clear();
+
+        if (NeedsBuild(addonId))
+        {
+            if (!BuildNativeAddon(addonId, outError))
+            {
+                return false;
+            }
+        }
+
+        fingerprint = state.mFingerprint;
+        if (fingerprint.empty())
+        {
+            fingerprint = ComputeFingerprint(addonId);
+        }
+
+        modulePath = GetOutputPath(addonId, fingerprint);
     }
 
-    std::string modulePath = GetOutputPath(addonId, fingerprint);
     if (!SYS_DoesFileExist(modulePath.c_str(), false))
     {
         outError = "Module file not found: " + modulePath;
@@ -3415,14 +3750,16 @@ bool NativeAddonManager::GenerateAddonIncludesManifest()
     ss << "    \"includePaths\": [\n";
     ss << "        \"Engine/Source\",\n";
     ss << "        \"Engine/Source/Engine\",\n";
+    ss << "        \"Engine/Source/Editor\",\n";
     ss << "        \"Engine/Source/Plugins\",\n";
+    ss << "        \"External\",\n";
+    ss << "        \"External/Assimp\",\n";
+    ss << "        \"External/Bullet\",\n";
     ss << "        \"External/Lua\",\n";
     ss << "        \"External/glm\",\n";
     ss << "        \"External/Imgui\",\n";
     ss << "        \"External/ImGuizmo\",\n";
-    ss << "        \"External/bullet3/src\",\n";
-    ss << "        \"External/Assimp\",\n";
-    ss << "        \"External\"\n";
+    ss << "        \"External/Vorbis\"\n";
     ss << "    ],\n";
     ss << "    \"defines\": [\n";
     ss << "        \"OCTAVE_PLUGIN_EXPORT\",\n";
@@ -3683,13 +4020,414 @@ bool NativeAddonManager::WritePackageJson(const std::string& path, const NativeA
     ss << "        \"sourceDir\": \"Source\",\n";
     ss << "        \"binaryName\": \"" << info.mBinaryName << "\",\n";
     ss << "        \"entrySymbol\": \"PolyphasePlugin_GetDesc\",\n";
-    ss << "        \"apiVersion\": 1\n";
+    ss << "        \"apiVersion\": 3,\n";
+    ss << "        \"resolveMode\": \"source\",\n";
+    ss << "        \"binaries\": []\n";
     ss << "    }\n";
     ss << "}\n";
 
     std::string content = ss.str();
     Stream stream(content.c_str(), (uint32_t)content.size());
     return stream.WriteFile(path.c_str());
+}
+
+static bool WriteBuildBat(const std::string& addonPath, const std::string& binaryName)
+{
+    std::stringstream ss;
+    ss << "@echo off\n";
+    ss << "REM Native Addon Build Script for Windows\n";
+    ss << "REM Run this from the root of your addon folder (where package.json is)\n";
+    ss << "REM\n";
+    ss << "REM Usage: build.bat [config]\n";
+    ss << "REM   config - Optional. \"Debug\", \"Release\", or \"Both\" (default: Both)\n";
+    ss << "REM\n";
+    ss << "REM Requirements:\n";
+    ss << "REM   - Visual Studio with C++ tools installed\n";
+    ss << "REM   - Run from a \"Developer Command Prompt\" or ensure cl.exe is in PATH\n";
+    ss << "\n";
+    ss << "setlocal enabledelayedexpansion\n";
+    ss << "\n";
+    ss << "set \"ADDON_NAME=" << binaryName << "\"\n";
+    ss << "set \"BUILD_CONFIG=%~1\"\n";
+    ss << "if \"%BUILD_CONFIG%\"==\"\" set \"BUILD_CONFIG=Both\"\n";
+    ss << "\n";
+    ss << "echo.\n";
+    ss << "echo ========================================\n";
+    ss << "echo  Building Native Addon: %ADDON_NAME%\n";
+    ss << "echo  Configuration: %BUILD_CONFIG%\n";
+    ss << "echo ========================================\n";
+    ss << "echo.\n";
+    ss << "\n";
+    ss << "if not exist \"Source\" (\n";
+    ss << "    echo ERROR: Source directory not found!\n";
+    ss << "    exit /b 1\n";
+    ss << ")\n";
+    ss << "\n";
+    ss << "where cl.exe >nul 2>&1\n";
+    ss << "if errorlevel 1 (\n";
+    ss << "    echo ERROR: cl.exe not found!\n";
+    ss << "    echo Please run this from a Visual Studio Developer Command Prompt.\n";
+    ss << "    exit /b 1\n";
+    ss << ")\n";
+    ss << "\n";
+    ss << "set \"SOURCES=\"\n";
+    ss << "for /r \"Source\" %%%%f in (*.cpp) do (\n";
+    ss << "    set \"SOURCES=!SOURCES! \"%%%%f\"\"\n";
+    ss << ")\n";
+    ss << "\n";
+    ss << "set \"BUILD_FAILED=0\"\n";
+    ss << "\n";
+    ss << "if /i \"%BUILD_CONFIG%\"==\"Debug\" goto :BuildDebug\n";
+    ss << "if /i \"%BUILD_CONFIG%\"==\"Both\" goto :BuildRelease\n";
+    ss << "if /i \"%BUILD_CONFIG%\"==\"Release\" goto :BuildRelease\n";
+    ss << "goto :Summary\n";
+    ss << "\n";
+    ss << ":BuildRelease\n";
+    ss << "echo Building Release configuration...\n";
+    ss << "if not exist \"build\\Windows\\x64\\Release\" mkdir \"build\\Windows\\x64\\Release\"\n";
+    ss << "pushd build\\Windows\\x64\\Release\n";
+    ss << "cl /nologo /EHsc /O2 /MD /LD ^\n";
+    ss << "    /I\"..\\..\\..\\..\\Source\" ^\n";
+    ss << "    /Fe:\"%ADDON_NAME%.dll\" /Fo:\"%ADDON_NAME%_\" ^\n";
+    ss << "    /D \"OCTAVE_PLUGIN_EXPORT\" /D \"NDEBUG\" /D \"PLATFORM_WINDOWS=1\" ^\n";
+    ss << "    !SOURCES! /link /DLL /MACHINE:X64\n";
+    ss << "if errorlevel 1 ( popd & echo Release build FAILED! & set \"BUILD_FAILED=1\" ) else ( popd & echo Release build succeeded )\n";
+    ss << "certutil -hashfile \"build\\Windows\\x64\\Release\\%ADDON_NAME%.dll\" SHA256 > \"build\\Windows\\x64\\Release\\%ADDON_NAME%-Windows-x64-Release.sha256\" 2>nul\n";
+    ss << "\n";
+    ss << "if /i \"%BUILD_CONFIG%\"==\"Release\" goto :Summary\n";
+    ss << "\n";
+    ss << ":BuildDebug\n";
+    ss << "echo Building Debug configuration...\n";
+    ss << "if not exist \"build\\Windows\\x64\\Debug\" mkdir \"build\\Windows\\x64\\Debug\"\n";
+    ss << "pushd build\\Windows\\x64\\Debug\n";
+    ss << "cl /nologo /EHsc /Od /MDd /LD /Zi ^\n";
+    ss << "    /I\"..\\..\\..\\..\\Source\" ^\n";
+    ss << "    /Fe:\"%ADDON_NAME%.dll\" /Fo:\"%ADDON_NAME%_\" /Fd:\"%ADDON_NAME%.pdb\" ^\n";
+    ss << "    /D \"OCTAVE_PLUGIN_EXPORT\" /D \"_DEBUG\" /D \"PLATFORM_WINDOWS=1\" ^\n";
+    ss << "    !SOURCES! /link /DLL /MACHINE:X64 /DEBUG\n";
+    ss << "if errorlevel 1 ( popd & echo Debug build FAILED! & set \"BUILD_FAILED=1\" ) else ( popd & echo Debug build succeeded )\n";
+    ss << "certutil -hashfile \"build\\Windows\\x64\\Debug\\%ADDON_NAME%.dll\" SHA256 > \"build\\Windows\\x64\\Debug\\%ADDON_NAME%-Windows-x64-Debug.sha256\" 2>nul\n";
+    ss << "\n";
+    ss << ":Summary\n";
+    ss << "echo.\n";
+    ss << "if \"%BUILD_FAILED%\"==\"1\" ( echo BUILD COMPLETED WITH ERRORS ) else ( echo Build Succeeded! )\n";
+    ss << "echo Output: build\\Windows\\x64\\[Debug|Release]\\%ADDON_NAME%.dll\n";
+    ss << "\n";
+    ss << "if \"%BUILD_FAILED%\"==\"1\" exit /b 1\n";
+    ss << "endlocal\n";
+
+    std::string batPath = addonPath + "build.bat";
+    std::string content = ss.str();
+    Stream stream(content.c_str(), (uint32_t)content.size());
+    return stream.WriteFile(batPath.c_str());
+}
+
+static bool WriteBuildSh(const std::string& addonPath, const std::string& binaryName)
+{
+    std::stringstream ss;
+    ss << "#!/bin/bash\n";
+    ss << "# Native Addon Build Script for Linux/macOS\n";
+    ss << "# Run this from the root of your addon folder (where package.json is)\n";
+    ss << "#\n";
+    ss << "# Usage: ./build.sh [config]\n";
+    ss << "#   config - Optional. \"Debug\", \"Release\", or \"Both\" (default: Both)\n";
+    ss << "#\n";
+    ss << "# Requirements:\n";
+    ss << "#   - g++ or clang++ installed\n";
+    ss << "\n";
+    ss << "ADDON_NAME=\"" << binaryName << "\"\n";
+    ss << "BUILD_CONFIG=\"${1:-Both}\"\n";
+    ss << "\n";
+    ss << "echo \"\"\n";
+    ss << "echo \"========================================\"\n";
+    ss << "echo \" Building Native Addon: $ADDON_NAME\"\n";
+    ss << "echo \" Configuration: $BUILD_CONFIG\"\n";
+    ss << "echo \"========================================\"\n";
+    ss << "echo \"\"\n";
+    ss << "\n";
+    ss << "if [ ! -d \"Source\" ]; then\n";
+    ss << "    echo \"ERROR: Source directory not found!\"\n";
+    ss << "    exit 1\n";
+    ss << "fi\n";
+    ss << "\n";
+    ss << "if command -v g++ &> /dev/null; then\n";
+    ss << "    CXX=\"g++\"\n";
+    ss << "elif command -v clang++ &> /dev/null; then\n";
+    ss << "    CXX=\"clang++\"\n";
+    ss << "else\n";
+    ss << "    echo \"ERROR: No C++ compiler found!\"\n";
+    ss << "    exit 1\n";
+    ss << "fi\n";
+    ss << "\n";
+    ss << "SOURCES=$(find Source -name \"*.cpp\" -type f)\n";
+    ss << "BUILD_FAILED=0\n";
+    ss << "\n";
+    ss << "if [[ \"$BUILD_CONFIG\" == \"Release\" ]] || [[ \"$BUILD_CONFIG\" == \"Both\" ]]; then\n";
+    ss << "    echo \"Building Release configuration...\"\n";
+    ss << "    mkdir -p \"build/Linux/x64/Release\"\n";
+    ss << "    if $CXX -shared -fPIC -O2 -std=c++17 -ISource \\\n";
+    ss << "        -DOCTAVE_PLUGIN_EXPORT -DNDEBUG -DPLATFORM_LINUX=1 \\\n";
+    ss << "        -o \"build/Linux/x64/Release/lib${ADDON_NAME}.so\" $SOURCES; then\n";
+    ss << "        echo \"Release build succeeded\"\n";
+    ss << "        command -v sha256sum &> /dev/null && sha256sum \"build/Linux/x64/Release/lib${ADDON_NAME}.so\" > \"build/Linux/x64/Release/${ADDON_NAME}-Linux-x64-Release.sha256\"\n";
+    ss << "    else\n";
+    ss << "        echo \"Release build FAILED!\"\n";
+    ss << "        BUILD_FAILED=1\n";
+    ss << "    fi\n";
+    ss << "fi\n";
+    ss << "\n";
+    ss << "if [[ \"$BUILD_CONFIG\" == \"Debug\" ]] || [[ \"$BUILD_CONFIG\" == \"Both\" ]]; then\n";
+    ss << "    echo \"Building Debug configuration...\"\n";
+    ss << "    mkdir -p \"build/Linux/x64/Debug\"\n";
+    ss << "    if $CXX -shared -fPIC -O0 -g -std=c++17 -ISource \\\n";
+    ss << "        -DOCTAVE_PLUGIN_EXPORT -D_DEBUG -DPLATFORM_LINUX=1 \\\n";
+    ss << "        -o \"build/Linux/x64/Debug/lib${ADDON_NAME}.so\" $SOURCES; then\n";
+    ss << "        echo \"Debug build succeeded\"\n";
+    ss << "        command -v sha256sum &> /dev/null && sha256sum \"build/Linux/x64/Debug/lib${ADDON_NAME}.so\" > \"build/Linux/x64/Debug/${ADDON_NAME}-Linux-x64-Debug.sha256\"\n";
+    ss << "    else\n";
+    ss << "        echo \"Debug build FAILED!\"\n";
+    ss << "        BUILD_FAILED=1\n";
+    ss << "    fi\n";
+    ss << "fi\n";
+    ss << "\n";
+    ss << "echo \"\"\n";
+    ss << "if [ $BUILD_FAILED -eq 1 ]; then\n";
+    ss << "    echo \"BUILD COMPLETED WITH ERRORS\"\n";
+    ss << "else\n";
+    ss << "    echo \"Build Succeeded!\"\n";
+    ss << "fi\n";
+    ss << "echo \"Output: build/Linux/x64/[Debug|Release]/lib${ADDON_NAME}.so\"\n";
+    ss << "\n";
+    ss << "exit $BUILD_FAILED\n";
+
+    std::string shPath = addonPath + "build.sh";
+    std::string content = ss.str();
+    Stream stream(content.c_str(), (uint32_t)content.size());
+    return stream.WriteFile(shPath.c_str());
+}
+
+static bool WriteGitHubWorkflowTemplate(const std::string& addonPath, const std::string& binaryName)
+{
+    std::string workflowDir = addonPath + ".github/workflows/";
+
+    // Create directories recursively
+    std::string githubDir = addonPath + ".github/";
+    if (!DoesDirExist(githubDir.c_str()))
+    {
+        SYS_CreateDirectory(githubDir.c_str());
+    }
+    if (!DoesDirExist(workflowDir.c_str()))
+    {
+        SYS_CreateDirectory(workflowDir.c_str());
+    }
+
+    std::stringstream ss;
+    ss << "# Native Addon Release Workflow\n";
+    ss << "# Triggers on tags matching v*\n";
+    ss << "# Builds Debug and Release for Windows and Linux, publishes release assets\n";
+    ss << "#\n";
+    ss << "# Linux: polyphaselabs/polyphase-engine Docker image (engine + toolchain pre-baked).\n";
+    ss << "# Windows: Vulkan SDK + MSBuild + cloned engine (mirrors engine's release.yml).\n";
+    ss << "#\n";
+    ss << "# Usage: Tag a release: git tag v1.0.0 && git push origin v1.0.0\n";
+    ss << "#\n";
+    ss << "# Local testing:\n";
+    ss << "#   Windows: set POLYPHASE_PATH=C:\\path\\to\\engine && .github\\workflows\\build.bat\n";
+    ss << "#   Linux:   POLYPHASE_PATH=/path/to/engine ./.github/workflows/build.sh\n";
+    ss << "\n";
+    ss << "name: Native Addon Release\n";
+    ss << "\n";
+    ss << "on:\n";
+    ss << "  push:\n";
+    ss << "    tags:\n";
+    ss << "      - 'v*'\n";
+    ss << "  workflow_dispatch:\n";
+    ss << "\n";
+    ss << "permissions:\n";
+    ss << "  contents: write\n";
+    ss << "\n";
+    ss << "env:\n";
+    ss << "  POLYPHASE_REPO: \"Polyphase-Labs/Polyphase-Engine\"\n";
+    ss << "  POLYPHASE_ENGINE_IMAGE: \"polyphaselabs/polyphase-engine:latest\"\n";
+    ss << "\n";
+    ss << "jobs:\n";
+    ss << "  build-linux:\n";
+    ss << "    runs-on: ubuntu-latest\n";
+    ss << "    container:\n";
+    ss << "      image: polyphaselabs/polyphase-engine:latest\n";
+    ss << "    defaults:\n";
+    ss << "      run:\n";
+    ss << "        shell: bash\n";
+    ss << "    steps:\n";
+    ss << "      - uses: actions/checkout@v4\n";
+    ss << "\n";
+    ss << "      - name: Mark workspace safe for git\n";
+    ss << "        run: git config --global --add safe.directory '*'\n";
+    ss << "\n";
+    ss << "      - name: Read addon name from package.json\n";
+    ss << "        run: |\n";
+    ss << "          ADDON_NAME=$(cat package.json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('native',{}).get('binaryName') or d.get('name'))\")\n";
+    ss << "          echo \"ADDON_NAME=$ADDON_NAME\" >> $GITHUB_ENV\n";
+    ss << "\n";
+    ss << "      - name: Build Both Configs (Linux)\n";
+    ss << "        run: |\n";
+    ss << "          chmod +x .github/workflows/build.sh\n";
+    ss << "          export POLYPHASE_PATH=\"/polyphase\"\n";
+    ss << "          ./.github/workflows/build.sh \"$ADDON_NAME\" Both\n";
+    ss << "\n";
+    ss << "      - name: Upload Linux Release artifact\n";
+    ss << "        uses: actions/upload-artifact@v4\n";
+    ss << "        with:\n";
+    ss << "          name: ${{ env.ADDON_NAME }}-Linux-x64-Release\n";
+    ss << "          path: |\n";
+    ss << "            build/Linux/x64/Release/lib${{ env.ADDON_NAME }}.so\n";
+    ss << "            build/Linux/x64/Release/*.sha256\n";
+    ss << "\n";
+    ss << "      - name: Upload Linux Debug artifact\n";
+    ss << "        uses: actions/upload-artifact@v4\n";
+    ss << "        with:\n";
+    ss << "          name: ${{ env.ADDON_NAME }}-Linux-x64-Debug\n";
+    ss << "          path: |\n";
+    ss << "            build/Linux/x64/Debug/lib${{ env.ADDON_NAME }}.so\n";
+    ss << "            build/Linux/x64/Debug/*.sha256\n";
+    ss << "\n";
+    ss << "  build-windows:\n";
+    ss << "    runs-on: windows-latest\n";
+    ss << "    steps:\n";
+    ss << "      - uses: actions/checkout@v4\n";
+    ss << "\n";
+    ss << "      - name: Read addon name from package.json\n";
+    ss << "        shell: bash\n";
+    ss << "        run: |\n";
+    ss << "          ADDON_NAME=$(cat package.json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('native',{}).get('binaryName') or d.get('name'))\")\n";
+    ss << "          echo \"ADDON_NAME=$ADDON_NAME\" >> $GITHUB_ENV\n";
+    ss << "\n";
+    ss << "      - name: Clone Polyphase Engine\n";
+    ss << "        shell: bash\n";
+    ss << "        run: git clone --depth 1 https://github.com/${{ env.POLYPHASE_REPO }}.git ../polyphase-engine\n";
+    ss << "\n";
+    ss << "      - name: Initialize engine submodules\n";
+    ss << "        shell: bash\n";
+    ss << "        working-directory: ../polyphase-engine\n";
+    ss << "        run: |\n";
+    ss << "          git submodule init -- External/bullet3 External/doxygen-awesome-css Engine/External/PolyVox || true\n";
+    ss << "          git submodule update --recursive || true\n";
+    ss << "\n";
+    ss << "      - name: Install Vulkan SDK\n";
+    ss << "        shell: pwsh\n";
+    ss << "        run: |\n";
+    ss << "          $VER = \"1.3.275.0\"\n";
+    ss << "          Invoke-WebRequest -Uri \"https://sdk.lunarg.com/sdk/download/$VER/windows/VulkanSDK-$VER-Installer.exe\" -OutFile \"$env:TEMP\\VulkanSDK.exe\"\n";
+    ss << "          Start-Process -FilePath \"$env:TEMP\\VulkanSDK.exe\" -ArgumentList \"--accept-licenses --default-answer --confirm-command install\" -Wait\n";
+    ss << "          echo \"VULKAN_SDK=C:\\VulkanSDK\\$VER\" >> $env:GITHUB_ENV\n";
+    ss << "\n";
+    ss << "      - name: Setup MSVC\n";
+    ss << "        uses: ilammy/msvc-dev-cmd@v1\n";
+    ss << "        with:\n";
+    ss << "          arch: x64\n";
+    ss << "\n";
+    ss << "      - name: Build Both Configs (Windows)\n";
+    ss << "        shell: cmd\n";
+    ss << "        run: |\n";
+    ss << "          set \"POLYPHASE_PATH=..\\polyphase-engine\"\n";
+    ss << "          call .github\\workflows\\build.bat %ADDON_NAME% Both\n";
+    ss << "\n";
+    ss << "      - name: Upload Windows Release artifact\n";
+    ss << "        uses: actions/upload-artifact@v4\n";
+    ss << "        with:\n";
+    ss << "          name: ${{ env.ADDON_NAME }}-Windows-x64-Release\n";
+    ss << "          path: |\n";
+    ss << "            build/Windows/x64/Release/${{ env.ADDON_NAME }}.dll\n";
+    ss << "            build/Windows/x64/Release/*.sha256\n";
+    ss << "\n";
+    ss << "      - name: Upload Windows Debug artifact\n";
+    ss << "        uses: actions/upload-artifact@v4\n";
+    ss << "        with:\n";
+    ss << "          name: ${{ env.ADDON_NAME }}-Windows-x64-Debug\n";
+    ss << "          path: |\n";
+    ss << "            build/Windows/x64/Debug/${{ env.ADDON_NAME }}.dll\n";
+    ss << "            build/Windows/x64/Debug/*.sha256\n";
+    ss << "            build/Windows/x64/Debug/*.pdb\n";
+    ss << "\n";
+    ss << "  release:\n";
+    ss << "    needs: [build-linux, build-windows]\n";
+    ss << "    runs-on: ubuntu-latest\n";
+    ss << "    permissions:\n";
+    ss << "      contents: write\n";
+    ss << "\n";
+    ss << "    steps:\n";
+    ss << "      - uses: actions/checkout@v4\n";
+    ss << "\n";
+    ss << "      - name: Read addon name from package.json\n";
+    ss << "        run: |\n";
+    ss << "          ADDON_NAME=$(cat package.json | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('native',{}).get('binaryName') or d.get('name'))\")\n";
+    ss << "          echo \"ADDON_NAME=$ADDON_NAME\" >> $GITHUB_ENV\n";
+    ss << "\n";
+    ss << "      - name: Download all artifacts\n";
+    ss << "        uses: actions/download-artifact@v4\n";
+    ss << "        with:\n";
+    ss << "          path: artifacts\n";
+    ss << "\n";
+    ss << "      - name: Update package.json with binary descriptors\n";
+    ss << "        run: |\n";
+    ss << "          sudo apt-get install -y jq\n";
+    ss << "          BINARIES=\"[]\"\n";
+    ss << "          [ -f \"artifacts/${{ env.ADDON_NAME }}-Windows-x64-Release/${{ env.ADDON_NAME }}.dll\" ] && \\\n";
+    ss << "            BINARIES=$(echo \"$BINARIES\" | jq '. += [{\"platform\": \"Windows\", \"arch\": \"x64\", \"config\": \"Release\", \"type\": \"releaseAsset\", \"value\": \"${{ env.ADDON_NAME }}-Windows-x64-Release.dll\"}]')\n";
+    ss << "          [ -f \"artifacts/${{ env.ADDON_NAME }}-Windows-x64-Debug/${{ env.ADDON_NAME }}.dll\" ] && \\\n";
+    ss << "            BINARIES=$(echo \"$BINARIES\" | jq '. += [{\"platform\": \"Windows\", \"arch\": \"x64\", \"config\": \"Debug\", \"type\": \"releaseAsset\", \"value\": \"${{ env.ADDON_NAME }}-Windows-x64-Debug.dll\"}]')\n";
+    ss << "          [ -f \"artifacts/${{ env.ADDON_NAME }}-Linux-x64-Release/lib${{ env.ADDON_NAME }}.so\" ] && \\\n";
+    ss << "            BINARIES=$(echo \"$BINARIES\" | jq '. += [{\"platform\": \"Linux\", \"arch\": \"x64\", \"config\": \"Release\", \"type\": \"releaseAsset\", \"value\": \"lib${{ env.ADDON_NAME }}-Linux-x64-Release.so\"}]')\n";
+    ss << "          [ -f \"artifacts/${{ env.ADDON_NAME }}-Linux-x64-Debug/lib${{ env.ADDON_NAME }}.so\" ] && \\\n";
+    ss << "            BINARIES=$(echo \"$BINARIES\" | jq '. += [{\"platform\": \"Linux\", \"arch\": \"x64\", \"config\": \"Debug\", \"type\": \"releaseAsset\", \"value\": \"lib${{ env.ADDON_NAME }}-Linux-x64-Debug.so\"}]')\n";
+    ss << "          jq --argjson binaries \"$BINARIES\" '.binaries = $binaries | .resolveMode = \"binary\"' package.json > package.json.updated\n";
+    ss << "          mv package.json.updated package.json\n";
+    ss << "\n";
+    ss << "      - name: Prepare release files\n";
+    ss << "        run: |\n";
+    ss << "          mkdir -p release\n";
+    ss << "          for dir in artifacts/*/; do\n";
+    ss << "            artifact_name=$(basename \"$dir\")\n";
+    ss << "            config=\"${artifact_name##*-}\"\n";
+    ss << "            platform_arch=\"${artifact_name%-*}\"\n";
+    ss << "            platform_arch=\"${platform_arch#*-}\"\n";
+    ss << "            for file in \"$dir\"*; do\n";
+    ss << "              if [ -f \"$file\" ]; then\n";
+    ss << "                filename=$(basename \"$file\")\n";
+    ss << "                if [[ \"$filename\" == *.dll ]]; then\n";
+    ss << "                  base=\"${filename%.dll}\"\n";
+    ss << "                  cp \"$file\" \"release/${base}-${platform_arch}-${config}.dll\"\n";
+    ss << "                elif [[ \"$filename\" == *.so ]]; then\n";
+    ss << "                  base=\"${filename%.so}\"\n";
+    ss << "                  cp \"$file\" \"release/${base}-${platform_arch}-${config}.so\"\n";
+    ss << "                elif [[ \"$filename\" == *.pdb ]]; then\n";
+    ss << "                  base=\"${filename%.pdb}\"\n";
+    ss << "                  cp \"$file\" \"release/${base}-${platform_arch}-${config}.pdb\"\n";
+    ss << "                else\n";
+    ss << "                  cp \"$file\" \"release/\"\n";
+    ss << "                fi\n";
+    ss << "              fi\n";
+    ss << "            done\n";
+    ss << "          done\n";
+    ss << "          cp package.json \"release/package.json\"\n";
+    ss << "          ls -la release/\n";
+    ss << "\n";
+    ss << "      - name: Create Release\n";
+    ss << "        uses: softprops/action-gh-release@v1\n";
+    ss << "        with:\n";
+    ss << "          files: release/*\n";
+    ss << "          generate_release_notes: true\n";
+
+    std::string workflowPath = workflowDir + "native-addon-release.yml";
+    std::string content = ss.str();
+    Stream stream(content.c_str(), (uint32_t)content.size());
+    bool success = stream.WriteFile(workflowPath.c_str());
+
+    // Also write the local build scripts
+    WriteBuildBat(addonPath, binaryName);
+    WriteBuildSh(addonPath, binaryName);
+
+    return success;
 }
 
 bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
@@ -3728,13 +4466,14 @@ bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
             "Engine/Source",
             "Engine/Source/Engine",
             "Engine/Source/Plugins",
+            "External",
+            "External/Assimp",
+            "External/Bullet",
             "External/Lua",
             "External/glm",
             "External/Imgui",
             "External/ImGuizmo",
-            "External/bullet3/src",
-            "External/Assimp",
-            "External"
+            "External/Vorbis"
         };
         defines = {
             "OCTAVE_PLUGIN_EXPORT",
@@ -3870,13 +4609,14 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
             "Engine/Source",
             "Engine/Source/Engine",
             "Engine/Source/Plugins",
+            "External",
+            "External/Assimp",
+            "External/Bullet",
             "External/Lua",
             "External/glm",
             "External/Imgui",
             "External/ImGuizmo",
-            "External/bullet3/src",
-            "External/Assimp",
-            "External"
+            "External/Vorbis"
         };
         defines = {
             "OCTAVE_PLUGIN_EXPORT",
@@ -4111,13 +4851,14 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
             "Engine/Source",
             "Engine/Source/Engine",
             "Engine/Source/Plugins",
+            "External",
+            "External/Assimp",
+            "External/Bullet",
             "External/Lua",
             "External/glm",
             "External/Imgui",
             "External/ImGuizmo",
-            "External/bullet3/src",
-            "External/Assimp",
-            "External"
+            "External/Vorbis"
         };
         defines = {
             "OCTAVE_PLUGIN_EXPORT",
@@ -4642,6 +5383,9 @@ bool NativeAddonManager::CreateNativeAddonAtPath(const NativeAddonCreateInfo& in
     WriteVSCodeConfig(addonPath);
     WriteCMakeLists(addonPath, binaryNameClean);
     WriteVSProject(addonPath, info.mName, binaryNameClean);
+
+    // Write GitHub workflow template for binary releases
+    WriteGitHubWorkflowTemplate(addonPath, binaryNameClean);
 
     // Discover the new addon
     DiscoverNativeAddons();

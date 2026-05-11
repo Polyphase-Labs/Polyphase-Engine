@@ -1745,6 +1745,9 @@ void ActionManager::BuildPhase1()
 
                         const std::string vcxprojPath = buildProjDir + buildProjName + ".vcxproj";
                         InjectNativeAddonsIntoVcxproj(vcxprojPath, engineAddons, "Generated\\AddonPlugins.cpp");
+                        // Record for post-build cleanup so the .vcxproj gets restored from .orig
+                        // whether the build succeeds, fails, or is cancelled.
+                        mBuildState.mInjectedVcxprojPath = vcxprojPath;
                     }
                 }
             }
@@ -2122,6 +2125,30 @@ void ActionManager::BuildCompileThreadFunc()
 #define pclose _pclose
 #endif
 
+    // Restore any .vcxproj that was injected before the build (via
+    // InjectNativeAddonsIntoVcxproj). Called from every build-exit path so the
+    // working tree doesn't accumulate uncommitted addon-source injections after
+    // a failed/cancelled build. Idempotent: no-op if nothing was injected, or if
+    // the .orig backup is missing.
+    auto restoreInjectedVcxproj = [this]()
+    {
+        if (mBuildState.mInjectedVcxprojPath.empty()) return;
+        const std::string vcxprojPath = mBuildState.mInjectedVcxprojPath;
+        const std::string backupPath  = vcxprojPath + ".orig";
+        if (SYS_DoesFileExist(backupPath.c_str(), false))
+        {
+            Stream restore;
+            if (restore.ReadFile(backupPath.c_str(), false))
+            {
+                Stream writeBack(restore.GetData(), restore.GetSize());
+                writeBack.WriteFile(vcxprojPath.c_str());
+                SYS_RemoveFile(backupPath.c_str());
+                LogDebug("[BUILD] Restored %s from .orig backup", vcxprojPath.c_str());
+            }
+        }
+        mBuildState.mInjectedVcxprojPath.clear();
+    };
+
     auto runStreamedCommand = [this](const std::string& cmd, const std::string& label) -> int
     {
         AppendBuildOutput(label + "\n");
@@ -2167,6 +2194,7 @@ void ActionManager::BuildCompileThreadFunc()
             mBuildState.mSuccess.store(false);
             mBuildState.mComplete.store(true);
             mBuildState.mRunning.store(false);
+            restoreInjectedVcxproj();
             return;
         }
     }
@@ -2177,6 +2205,7 @@ void ActionManager::BuildCompileThreadFunc()
         mBuildState.mSuccess.store(false);
         mBuildState.mComplete.store(true);
         mBuildState.mRunning.store(false);
+        restoreInjectedVcxproj();
         return;
     }
 
@@ -2203,6 +2232,7 @@ void ActionManager::BuildCompileThreadFunc()
         {
             SYS_RemoveFile(mBuildState.mTmpMakefile.c_str());
         }
+        restoreInjectedVcxproj();
         return;
     }
 
@@ -2224,6 +2254,7 @@ void ActionManager::BuildCompileThreadFunc()
     mBuildState.mSuccess.store(true);
     mBuildState.mComplete.store(true);
     mBuildState.mRunning.store(false);
+    restoreInjectedVcxproj();
 
 #if PLATFORM_WINDOWS
 #undef popen

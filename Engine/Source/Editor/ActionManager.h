@@ -67,6 +67,10 @@ struct LocalBuildState
     std::string mTmpMakefile;
     std::string mShaderCompileCommand;
     std::string mStripCommand;
+    // Path to a .vcxproj that was injected with addon sources/includes before the build.
+    // Restored from .vcxproj.orig after the build completes (success or failure) so the
+    // working tree doesn't accumulate uncommitted changes.
+    std::string mInjectedVcxprojPath;
 
     // Post-build flags
     bool mRunAfterBuild{false};
@@ -107,6 +111,7 @@ struct LocalBuildState
         mTmpMakefile.clear();
         mShaderCompileCommand.clear();
         mStripCommand.clear();
+        mInjectedVcxprojPath.clear();
         mRunAfterBuild = false;
         mRunOnDevice = false;
         mForceRebuild = false;

@@ -16,6 +16,23 @@ enum class NativeAddonTarget
     EngineAndEditor // Loads in editor AND compiled into final builds
 };
 
+enum class NativeAddonResolveMode
+{
+    Source,
+    Binary
+};
+
+struct NativeBinaryDescriptor
+{
+    std::string mPlatform;
+    std::string mArch;
+    std::string mConfig;
+    std::string mType;           // releaseAsset | url | zip
+    std::string mValue;          // asset name or URL
+    std::string mChecksumSha256; // optional
+    std::string mEntryPath;      // optional (zip extraction)
+};
+
 /**
  * @brief Native module configuration for addons with C++ code.
  */
@@ -29,6 +46,8 @@ struct NativeModuleMetadata
     std::string mExportDefine;         // Optional custom export macro (e.g., "INVENTORY_RUNTIME_EXPORTS")
     uint32_t mPluginApiVersion = 1;
     std::vector<std::string> mDependencies;  // IDs of other native addons this depends on
+    NativeAddonResolveMode mResolveMode = NativeAddonResolveMode::Source;
+    std::vector<NativeBinaryDescriptor> mBinaries;
 
     // Optional extras for addons that bundle third-party libraries (e.g. FFmpeg).
     // All relative paths resolve against the addon's package root (folder containing package.json).
@@ -147,6 +166,10 @@ struct InstalledAddon
     std::string mRepoUrl;
     bool mEnabled = true;        // Whether addon is enabled
     bool mEnableNative = true;   // Whether native code should be loaded
+    NativeAddonResolveMode mNativeMode = NativeAddonResolveMode::Source;
+    std::string mLastSyncAt;
+    std::string mLastSyncSource;
+    std::string mLastSyncStatus;
 };
 
 #endif

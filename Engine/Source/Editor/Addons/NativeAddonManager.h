@@ -70,6 +70,11 @@ struct NativeAddonState
     // Native metadata from package.json
     NativeModuleMetadata mNativeMetadata;
 
+    // Runtime resolve/load status
+    NativeAddonResolveMode mActiveResolveMode = NativeAddonResolveMode::Source;
+    bool mLoadedFromBinary = false;
+    std::string mBinaryStatus;
+
     // UUIDs of assets that PurgeAssetsFromModule unloaded during the most
     // recent UnloadNativeAddon. LoadNativeAddon drains this on its next
     // successful load, calling LoadAsset on each so an addon-typed asset
@@ -137,6 +142,15 @@ private:
     /** Write a small key=value meta sidecar next to a freshly-built addon DLL. */
     void WriteAddonBuildMeta(const std::string& outputPath,
                              const std::string& fingerprint);
+
+    /** Resolve effective per-addon native mode (installed settings override manifest default). */
+    NativeAddonResolveMode ResolveModeForAddon(const std::string& addonId) const;
+
+    /** Resolve binary path in binary mode: synced prebuilt first, then local intermediate. */
+    bool ResolveBinaryModulePath(const std::string& addonId, std::string& outModulePath, std::string& outStatus, std::string& outError);
+
+    /** Validate binary descriptor against current host and addon API. */
+    bool IsBinaryDescriptorCompatible(const NativeBinaryDescriptor& descriptor, const NativeAddonState& state) const;
 
     /** Read the meta sidecar and return true if the cached DLL is stale
      *  (config tag differs, or recorded engine binary mtime differs from

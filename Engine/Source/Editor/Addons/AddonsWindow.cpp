@@ -647,10 +647,30 @@ void AddonsWindow::DrawInstalledAddons()
         // Native addon controls
         if (hasNative)
         {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Build"))
+            bool isBinaryMode = (inst.mNativeMode == NativeAddonResolveMode::Binary);
+
+            // Mode-aware buttons
+            if (!isBinaryMode)
             {
-                OnBuildNativeAddon(inst.mId);
+                // Source mode: show Build button
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Build"))
+                {
+                    OnBuildNativeAddon(inst.mId);
+                }
+            }
+            else
+            {
+                // Binary mode: show Sync button if remote binaries are configured
+                bool hasRemoteBinaries = addon && !addon->mNative.mBinaries.empty();
+                if (hasRemoteBinaries)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Sync"))
+                    {
+                        OnSyncNativeAddonBinary(inst.mId);
+                    }
+                }
             }
 
             ImGui::SameLine();
@@ -659,7 +679,7 @@ void AddonsWindow::DrawInstalledAddons()
                 OnReloadNativeAddon(inst.mId);
             }
 
-            // Build status indicator
+            // Status indicator with mode awareness
             if (nativeState)
             {
                 ImGui::SameLine();
@@ -667,21 +687,51 @@ void AddonsWindow::DrawInstalledAddons()
                 {
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Building...");
                 }
-                else if (nativeState->mBuildSucceeded)
+                else if (nam->IsLoaded(inst.mId))
                 {
-                    bool isLoaded = nam->IsLoaded(inst.mId);
-                    if (isLoaded)
+                    // Show load source
+                    if (nativeState->mLoadedFromBinary)
                     {
-                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Loaded");
+                        if (nativeState->mBinaryStatus == "Synced")
+                        {
+                            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Loaded (Synced)");
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.8f, 1.0f), "Loaded (Local Binary)");
+                        }
                     }
                     else
                     {
-                        ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Built");
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Loaded (Source)");
                     }
+                }
+                else if (isBinaryMode)
+                {
+                    // Binary mode not loaded
+                    if (!nativeState->mBinaryStatus.empty())
+                    {
+                        if (nativeState->mBinaryStatus == "Missing Binary")
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Missing Binary");
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::SetTooltip("No precompiled binary found. Use Sync to download or switch to Source mode.");
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", nativeState->mBinaryStatus.c_str());
+                        }
+                    }
+                }
+                else if (nativeState->mBuildSucceeded)
+                {
+                    ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Built");
                 }
                 else if (!nativeState->mBuildError.empty())
                 {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Failed");
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Build Failed");
                     if (ImGui::IsItemHovered())
                     {
                         ImGui::SetTooltip("%s", nativeState->mBuildError.c_str());
@@ -690,10 +740,10 @@ void AddonsWindow::DrawInstalledAddons()
             }
         }
 
-        // Installed date
+        // Second row: installed date + native controls
         ImGui::TextDisabled("Installed: %s", inst.mInstalledDate.c_str());
 
-        // Native enable checkbox
+        // Native enable checkbox and mode selector
         if (hasNative)
         {
             ImGui::SameLine(300);
@@ -701,6 +751,35 @@ void AddonsWindow::DrawInstalledAddons()
             if (Polyphase::Checkbox("Enable Native", &enableNative))
             {
                 OnToggleNativeEnabled(inst.mId);
+            }
+
+            // Mode selector
+            ImGui::SameLine();
+            bool isBinaryMode = (inst.mNativeMode == NativeAddonResolveMode::Binary);
+            const char* modeLabel = isBinaryMode ? "Binary" : "Source";
+            ImGui::PushItemWidth(80);
+            if (ImGui::BeginCombo("##Mode", modeLabel))
+            {
+                if (ImGui::Selectable("Source", !isBinaryMode))
+                {
+                    if (isBinaryMode)
+                    {
+                        OnToggleNativeMode(inst.mId);
+                    }
+                }
+                if (ImGui::Selectable("Binary", isBinaryMode))
+                {
+                    if (!isBinaryMode)
+                    {
+                        OnToggleNativeMode(inst.mId);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::PopItemWidth();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Source: compile from code\nBinary: use precompiled DLL (no compilation)");
             }
 
             // Show build log button if there's a log
@@ -711,6 +790,19 @@ void AddonsWindow::DrawInstalledAddons()
                 {
                     mShowBuildLog = true;
                     mBuildLogAddonId = inst.mId;
+                }
+            }
+
+            // Show sync info if available
+            if (!inst.mLastSyncAt.empty())
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("Last sync: %s", inst.mLastSyncAt.c_str());
+                if (!inst.mLastSyncStatus.empty() && ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Status: %s\nSource: %s",
+                                      inst.mLastSyncStatus.c_str(),
+                                      inst.mLastSyncSource.c_str());
                 }
             }
         }
@@ -1217,6 +1309,62 @@ void AddonsWindow::OnToggleNativeEnabled(const std::string& addonId)
             am->SaveInstalledAddons();
             break;
         }
+    }
+}
+
+void AddonsWindow::OnToggleNativeMode(const std::string& addonId)
+{
+    AddonManager* am = AddonManager::Get();
+    if (am == nullptr)
+    {
+        return;
+    }
+
+    std::vector<InstalledAddon>& installedAddons = am->GetInstalledAddonsMutable();
+
+    for (InstalledAddon& inst : installedAddons)
+    {
+        if (inst.mId == addonId)
+        {
+            // Toggle between Source and Binary
+            if (inst.mNativeMode == NativeAddonResolveMode::Source)
+            {
+                inst.mNativeMode = NativeAddonResolveMode::Binary;
+                mStatusMessage = "Switched to Binary mode. Reload to apply.";
+            }
+            else
+            {
+                inst.mNativeMode = NativeAddonResolveMode::Source;
+                mStatusMessage = "Switched to Source mode. Reload to apply.";
+            }
+
+            am->SaveInstalledAddons();
+            break;
+        }
+    }
+}
+
+void AddonsWindow::OnSyncNativeAddonBinary(const std::string& addonId)
+{
+    AddonManager* am = AddonManager::Get();
+    if (am == nullptr)
+    {
+        mErrorMessage = "Addon manager not initialized.";
+        return;
+    }
+
+    mStatusMessage = "Syncing binary for " + addonId + "...";
+
+    std::string error;
+    if (am->SyncNativeAddonBinary(addonId, error))
+    {
+        mStatusMessage = "Binary synced successfully! Reload to apply.";
+        mErrorMessage.clear();
+    }
+    else
+    {
+        mStatusMessage.clear();
+        mErrorMessage = "Sync failed: " + error;
     }
 }
 

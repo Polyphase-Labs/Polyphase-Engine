@@ -49,9 +49,12 @@ public:
     void LoadInstalledAddons();
     void SaveInstalledAddons();
     const std::vector<InstalledAddon>& GetInstalledAddons() const { return mInstalledAddons; }
+    std::vector<InstalledAddon>& GetInstalledAddonsMutable() { return mInstalledAddons; }
     bool IsAddonInstalled(const std::string& addonId) const;
     bool HasUpdate(const std::string& addonId) const;
     std::string GetInstalledVersion(const std::string& addonId) const;
+    bool SetInstalledAddonNativeMode(const std::string& addonId, NativeAddonResolveMode mode);
+    bool SyncNativeAddonBinary(const std::string& addonId, std::string& outError);
 
     // Find addon by ID
     const Addon* FindAddon(const std::string& addonId) const;
