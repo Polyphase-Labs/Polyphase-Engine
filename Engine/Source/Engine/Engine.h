@@ -24,6 +24,7 @@ void Quit();
 
 POLYPHASE_API class World* GetWorld(int32_t index);
 POLYPHASE_API int32_t GetNumWorlds();
+POLYPHASE_API class SignalBus* GetSignalBus();
 
 POLYPHASE_API struct EngineState* GetEngineState();
 POLYPHASE_API const struct EngineConfig* GetEngineConfig();
