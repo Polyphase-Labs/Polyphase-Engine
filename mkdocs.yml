@@ -153,6 +153,7 @@ nav:
           - Audio: Lua/Systems/Audio.md
           - Network: Lua/Systems/Network.md
           - Timer Manager: Lua/Systems/TimerManager.md
+          - Signal Bus: Lua/Systems/SignalBus.md
           - System: Lua/Systems/System.md
           - Log: Lua/Systems/Log.md
           - Math: Lua/Systems/Math.md
