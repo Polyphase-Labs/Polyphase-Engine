@@ -5,6 +5,19 @@ Engine/Build/
 External/Assimp/Build/
 External/Bullet/Build/
 
+# Stale host build artifacts under External/ — the container regenerates
+# these from source (Dockerfile runs prebuild_libgit2.sh, make -C
+# External/Lua, etc). A leftover CMakeCache.txt from a host build points
+# at the host's source path (e.g. /home/uai/...), and cmake aborts the
+# in-container prebuild with:
+#   "The current CMakeCache.txt directory ... is different than the
+#    directory ... where CMakeCache.txt was created"
+Engine/External/libgit2/build/
+External/Lua/*.o
+External/Lua/liblua.a
+**/CMakeCache.txt
+**/CMakeFiles/
+
 # Intermediate files
 Standalone/Intermediate/
 Engine/Intermediate/
