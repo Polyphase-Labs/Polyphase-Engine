@@ -126,26 +126,44 @@ fi
 # Step 3: install requested packages. Retry on transient failure because
 # pkg.devkitpro.org / packages.libogc2.org sit behind Cloudflare and can
 # 403 individual fetches even after a successful database sync.
-PACKAGES=()
-if [[ $WANT_PPC -eq 1 ]]; then PACKAGES+=(wii-dev gamecube-tools-git libogc2 libogc2-libdvm); fi
-if [[ $WANT_ARM -eq 1 ]]; then PACKAGES+=(3ds-dev); fi
-
-if [[ ${#PACKAGES[@]} -gt 0 ]]; then
-  install_ok=0
+run_dkp_pacman() {
+  local install_ok=0
   for attempt in 1 2 3 4 5; do
     if [[ $attempt -gt 1 ]]; then
-      echo "Retrying package install (attempt $attempt of 5)..." >&2
+      echo "Retrying dkp-pacman (attempt $attempt of 5)..." >&2
       sleep $(( attempt * 3 ))
     fi
-    if dkp-pacman -Syyu --noconfirm "${PACKAGES[@]}"; then
+    if dkp-pacman "$@"; then
       install_ok=1
       break
     fi
   done
   if [[ $install_ok -ne 1 ]]; then
-    echo "ERROR: dkp-pacman package install failed after 5 attempts." >&2
+    echo "ERROR: dkp-pacman failed after 5 attempts: $*" >&2
     exit 1
   fi
+}
+
+# Phase A: libogc2 first. A single-pass install of `wii-dev gamecube-tools-git
+# libogc2 libogc2-libdvm` pulls the legacy `ogc-cmake` (member of the
+# `wii-dev` group) into the same transaction as `libogc2-cmake` (provided by
+# `libogc2`); pacman drops ogc-cmake with a conflict warning, and the
+# libogc2-cmake <-> wii-cmake / gamecube-cmake deps form a cycle it has to
+# break by picking an arbitrary install order. Installing libogc2 first
+# means its cmake helper is on disk before Phase B resolves the dev groups,
+# so `ogc-cmake` is never selected and the cycle is already broken.
+if [[ $WANT_PPC -eq 1 ]]; then
+  run_dkp_pacman -Syyu --noconfirm libogc2 libogc2-libdvm
+fi
+
+# Phase B: the dev groups themselves. `-Syyu` again is cheap (DB is already
+# current when Phase A ran) and keeps the call self-contained for the
+# 3DS-only path where Phase A is skipped.
+PHASE_B=()
+if [[ $WANT_PPC -eq 1 ]]; then PHASE_B+=(wii-dev gamecube-tools-git); fi
+if [[ $WANT_ARM -eq 1 ]]; then PHASE_B+=(3ds-dev); fi
+if [[ ${#PHASE_B[@]} -gt 0 ]]; then
+  run_dkp_pacman -Syyu --noconfirm "${PHASE_B[@]}"
 fi
 
 # Step 4: surface env vars. Under GitHub Actions, write to $GITHUB_ENV and

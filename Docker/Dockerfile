@@ -117,8 +117,16 @@ RUN dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
 # Add libogc2 repo to pacman config
 RUN echo '[libogc2-devkitpro]\nServer = https://packages.libogc2.org/devkitpro/linux/$arch\nServer = https://packages.extremscorner.org/devkitpro/linux/$arch' >> /opt/devkitpro/pacman/etc/pacman.conf
 
-# Install console dev packages
-RUN dkp-pacman -Syyu --noconfirm 3ds-dev wii-dev gamecube-tools-git libogc2 libogc2-libdvm
+# Install console dev packages in two passes. A single-pass install pulls
+# the legacy `ogc-cmake` (member of the `wii-dev` group) into the same
+# transaction as `libogc2-cmake` (provided by `libogc2`) and emits:
+#   warning: removing 'ogc-cmake' from target list because it conflicts with 'libogc2-cmake'
+#   warning: dependency cycle detected: libogc2-cmake will be installed before its wii-cmake dependency
+# Installing libogc2 first means its cmake helper is on disk before
+# wii-dev/gamecube-dev are resolved, so `ogc-cmake` is never selected and
+# the cycle is already broken. Keep in sync with Dockerfile.base.
+RUN dkp-pacman -Syyu --noconfirm libogc2 libogc2-libdvm \
+ && dkp-pacman -S    --noconfirm 3ds-dev wii-dev gamecube-tools-git
 
 # Clean pacman cache
 RUN yes | dkp-pacman -Scc
