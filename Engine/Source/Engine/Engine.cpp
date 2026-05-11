@@ -51,6 +51,7 @@
 #include "ScriptAutoReg.h"
 #include "ScriptFunc.h"
 #include "TimerManager.h"
+#include "SignalBus.h"
 #include "Nodes/Widgets/Button.h"
 #include "FileWatcher.h"
 #include "ScriptUtils.h"
@@ -914,6 +915,7 @@ void Shutdown()
 
     NetworkManager::Get()->Shutdown();
     SerialManager::Get()->Shutdown();
+    GetSignalBus()->Clear();
 
     for (uint32_t i = 0; i < sWorlds.size(); ++i)
     {

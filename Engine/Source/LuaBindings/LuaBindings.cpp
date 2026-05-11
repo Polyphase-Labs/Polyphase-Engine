@@ -88,6 +88,7 @@
 #include "LuaBindings/PolyRect_Lua.h"
 #include "LuaBindings/UIDocument_Lua.h"
 #include "LuaBindings/Signal_Lua.h"
+#include "LuaBindings/SignalBus_Lua.h"
 #include "LuaBindings/Stream_Lua.h"
 #include "LuaBindings/TimerManager_Lua.h"
 #include "LuaBindings/Property_Lua.h"
@@ -121,6 +122,7 @@ void BindLuaInterface()
     AssetManager_Lua::Bind();
     Stream_Lua::Bind();
     Signal_Lua::Bind();
+    SignalBus_Lua::Bind();
     TimerManager_Lua::Bind();
     Easing_Lua::Bind();
     Tween_Lua::Bind();
