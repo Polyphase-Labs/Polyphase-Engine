@@ -1493,8 +1493,7 @@ void ActionManager::BuildPhase1()
                     std::string packageName = dirEntry.mFilename;
                     std::string packageDestDir = packagedDir + projectName + "/Packages/" + packageName + "/";
 
-                    std::string packageScriptsDir = packagesDir + packageName + "/Scripts/";
-                    if (DoesDirExist(packageScriptsDir.c_str()))
+                    auto ensurePackageDestDir = [&]()
                     {
                         // Ensure intermediate dirs exist — Linux SYS_CopyDirectory uses
                         // `cp -r` which fails silently if the destination's parent
@@ -1512,14 +1511,27 @@ void ActionManager::BuildPhase1()
                         {
                             CreateDir(packageDestDir.c_str());
                         }
+                    };
+
+                    std::string packageScriptsDir = packagesDir + packageName + "/Scripts/";
+                    if (DoesDirExist(packageScriptsDir.c_str()))
+                    {
+                        ensurePackageDestDir();
                         SYS_CopyDirectory(packageScriptsDir.c_str(), (packageDestDir + "Scripts/").c_str());
+                    }
+
+                    std::string packageShadersDir = packagesDir + packageName + "/Shaders/";
+                    if (DoesDirExist(packageShadersDir.c_str()))
+                    {
+                        ensurePackageDestDir();
+                        SYS_CopyDirectory(packageShadersDir.c_str(), (packageDestDir + "Shaders/").c_str());
                     }
 
                     // Note: Packages/<addon>/Assets/ are NOT bulk-copied here anymore.
                     // Each file is discovered into AssetManager::mRawAssetEntries
                     // (or mAssetStubs for .oct) and copied/embedded by the unified
                     // raw-asset and saveDir steps above, which apply per-platform .meta
-                    // filtering. This block intentionally only handles Scripts.
+                    // filtering. This block intentionally handles Scripts + Shaders.
                 }
                 SYS_IterateDirectory(dirEntry);
             }
