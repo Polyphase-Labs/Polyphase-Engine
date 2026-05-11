@@ -1,6 +1,17 @@
 #include "CameraFrustum.h"
 #include "Maths.h"
 
+static glm::vec4 NormalizePlane(const glm::vec4& plane)
+{
+    float len = glm::length(glm::vec3(plane));
+    return (len > 0.0f) ? (plane / len) : plane;
+}
+
+static bool IsInsidePlane(const glm::vec4& plane, glm::vec3 point, float radius)
+{
+    return glm::dot(glm::vec3(plane), point) + plane.w >= -radius;
+}
+
 // This camera frustum culling code was taken from:
 // http://www.lighthouse3d.com/tutorials/view-frustum-culling/ 
 // The original algorithm was introduced in Game Programming Gems 5 (radar culling).
@@ -39,6 +50,18 @@ void CameraFrustum::SetOrthographic(float width, float height, float nearDist, f
     mAspectRatio = 1.0f;
 
     mOrtho = true;
+}
+
+void CameraFrustum::SetViewProjection(const glm::mat4& viewProjectionMatrix)
+{
+    glm::mat4 m = glm::transpose(viewProjectionMatrix);
+
+    mPlanes[PlaneIndex::Left] = NormalizePlane(m[3] + m[0]);
+    mPlanes[PlaneIndex::Right] = NormalizePlane(m[3] - m[0]);
+    mPlanes[PlaneIndex::Bottom] = NormalizePlane(m[3] + m[1]);
+    mPlanes[PlaneIndex::Top] = NormalizePlane(m[3] - m[1]);
+    mPlanes[PlaneIndex::Near] = NormalizePlane(m[2]);
+    mPlanes[PlaneIndex::Far] = NormalizePlane(m[3] - m[2]);
 }
 
 void CameraFrustum::SetPosition(glm::vec3 position)
@@ -147,6 +170,32 @@ bool CameraFrustum::IsSphereInFrustumOrtho(glm::vec3 center, float radius) const
     float ax = glm::dot(v, mBasisX);
     if (ax > mNearWidth + radius || ax < -mNearWidth - radius)
         return false;
+
+    return true;
+}
+
+bool CameraFrustum::IsPointInsidePlanes(glm::vec3 p) const
+{
+    for (uint32_t i = 0; i < Count; ++i)
+    {
+        if (!IsInsidePlane(mPlanes[i], p, 0.0f))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool CameraFrustum::IsSphereInsidePlanes(glm::vec3 center, float radius) const
+{
+    for (uint32_t i = 0; i < Count; ++i)
+    {
+        if (!IsInsidePlane(mPlanes[i], center, radius))
+        {
+            return false;
+        }
+    }
 
     return true;
 }

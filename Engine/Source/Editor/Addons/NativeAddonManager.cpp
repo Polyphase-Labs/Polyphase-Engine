@@ -54,7 +54,7 @@ extern "C" {
 
 #include <cstdio>
 #include <cctype>
-#include <cstdlib>  // std::getenv (POLYPHASE_SKIP_ADDON_ONUNLOAD)
+#include <cstdlib>  // std::getenv (POLYPHASE_CALL_ADDON_ONUNLOAD opt-in)
 #include <cstring>
 #include <functional>
 #include <algorithm>
@@ -2351,19 +2351,29 @@ namespace
 // enabled across Engine.lib and Standalone, mixing SEH with template-heavy
 // translation units is a known MSVC pathology.
 //
-// We keep the wrapper functions for two reasons:
-//   1. POLYPHASE_SKIP_ADDON_ONUNLOAD lets the user opt out of the addon's
-//      OnUnload entirely when it's known-buggy (relationship addon today).
-//      MOD_Unload still runs, so the DLL is unmapped and OS-side static
-//      destructors run via DllMain(DLL_PROCESS_DETACH).
-//   2. They isolate addon-touching calls behind a single function name so
-//      we can re-introduce SEH later (e.g. moved to a non-LTCG TU, or
-//      under #pragma optimize) without touching call sites.
+// Default policy: SKIP the addon's OnUnload entirely. Two real-world addons
+// have crashed the editor on Reload inside their own OnUnload destructor
+// cascades (com.polyphase.system.character.relationship,
+// com.polyphase.system.adventure.cutscene — both ~10 frames deep into the
+// addon DLL before the AV). OnUnload is optional in the PolyphasePluginDesc
+// contract, MOD_Unload (FreeLibrary) still runs, and the OS dispatches C++
+// static destructors for in-DLL globals via DllMain(DLL_PROCESS_DETACH).
+// So skipping OnUnload is safe for any addon whose cleanup is "release
+// in-DLL state" — which is the vast majority.
+//
+// Opt back in per-process with POLYPHASE_CALL_ADDON_ONUNLOAD=1 if a
+// specific addon genuinely needs OnUnload to fire (e.g. it releases
+// process-wide resources the OS won't clean up via DllMain — external
+// file handles, sockets, shared memory).
+//
+// Long-term, the right fix is a per-addon flag in PolyphasePluginDesc so
+// each addon opts into the risky path itself, but that's a contract change
+// requiring every addon to rebuild. Skip-by-default ships safely now.
 namespace
 {
-    static bool ShouldSkipAddonOnUnload()
+    static bool ShouldCallAddonOnUnload()
     {
-        const char* v = std::getenv("POLYPHASE_SKIP_ADDON_ONUNLOAD");
+        const char* v = std::getenv("POLYPHASE_CALL_ADDON_ONUNLOAD");
         return (v != nullptr && v[0] != '\0' && v[0] != '0');
     }
 
@@ -2371,10 +2381,11 @@ namespace
     {
         if (desc.OnUnload == nullptr) return true;
 
-        if (ShouldSkipAddonOnUnload())
+        if (!ShouldCallAddonOnUnload())
         {
-            LogDebug("Addon '%s': skipping OnUnload (POLYPHASE_SKIP_ADDON_ONUNLOAD set).",
-                     addonId);
+            LogDebug("Addon '%s': skipping OnUnload by default; DLL static "
+                     "destructors still run via DllMain(PROCESS_DETACH). Set "
+                     "POLYPHASE_CALL_ADDON_ONUNLOAD=1 to re-enable.", addonId);
             return true;
         }
 
@@ -2410,9 +2421,10 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
 
     // OnUnload + RemoveAllHooks are addon-side / addon-touching code that
     // can fault on a poorly-written addon. They go through the Safe* call
-    // sites so we have a single place to bypass (POLYPHASE_SKIP_ADDON_ONUNLOAD)
-    // or re-add exception protection later. hookId formula must match
-    // LoadNativeAddon.
+    // sites so we have a single place to bypass or re-add exception
+    // protection later. OnUnload is skipped by default — set
+    // POLYPHASE_CALL_ADDON_ONUNLOAD=1 to re-enable. hookId formula must
+    // match LoadNativeAddon.
     if (state.mDescValid)
     {
         SafeCallAddonOnUnload(state.mDesc, addonId.c_str());

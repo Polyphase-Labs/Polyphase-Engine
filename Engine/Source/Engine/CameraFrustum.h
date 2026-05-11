@@ -2,9 +2,23 @@
 
 #include "Maths.h"
 
+#include <array>
+
 class CameraFrustum
 {
 public:
+
+    enum PlaneIndex : uint8_t
+    {
+        Left,
+        Right,
+        Bottom,
+        Top,
+        Near,
+        Far,
+
+        Count
+    };
 
     glm::vec3 mPosition = {};
     glm::vec3 mBasisX = { 1.0f, 0.0f, 0.0f };
@@ -23,10 +37,13 @@ public:
 
     bool mOrtho = false;
 
+    std::array<glm::vec4, Count> mPlanes = {};
+
 public:
 
     void SetPerspective(float angle, float ratio, float nearDist, float farDist);
     void SetOrthographic(float width, float height, float nearDist, float farDist);
+    void SetViewProjection(const glm::mat4& viewProjectionMatrix);
     void SetPosition(glm::vec3 position);
     void SetBasis(glm::vec3 forward, glm::vec3 up, glm::vec3 right);
 
@@ -35,4 +52,7 @@ public:
 
     bool IsPointInFrustumOrtho(glm::vec3 p) const;
     bool IsSphereInFrustumOrtho(glm::vec3 center, float radius) const;
+
+    bool IsPointInsidePlanes(glm::vec3 p) const;
+    bool IsSphereInsidePlanes(glm::vec3 center, float radius) const;
 };
