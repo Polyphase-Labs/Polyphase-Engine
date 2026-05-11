@@ -92,6 +92,7 @@ nav:
           - Overview: Development/NativeAddon/NativeAddon.md
           - General Examples:
               - Coin: Development/NativeAddon/Examples/Coin.md
+              - Addon-Packaged Material Shaders: Development/NativeAddon/Examples/AddonMaterialShaders.md
               - Custom Asset Type: Development/NativeAddon/Examples/CustomAssetType.md
               - Custom Context Menu Item: Development/NativeAddon/Examples/CustomContextMenuItem.md
               - Custom Debug Window: Development/NativeAddon/Examples/CustomDebugWindow.md
