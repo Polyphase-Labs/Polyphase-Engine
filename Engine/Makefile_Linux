@@ -29,6 +29,19 @@ endif
 	$(SILENTCMD)$(AR) -rc $@ $^
 
 #---------------------------------------------------------------------------------
+# W1: SHARED library rule — produces libPolyphaseGame.so. Linked from the same
+# .o set as the game .a, but those objects must be PIC. To avoid clobbering the
+# non-PIC objects under Intermediate/Linux/EngineGame, the `shared` target
+# routes through a separate intermediate directory (see SHARED_BUILD below).
+# soname matches the file name so the editor exe resolves via DT_NEEDED; the
+# DT_RPATH points at $ORIGIN so the SO is loaded from next to the exe.
+#---------------------------------------------------------------------------------
+%.so:
+	$(SILENTMSG) $(notdir $@)
+	$(SILENTCMD)rm -f $@
+	$(SILENTCMD)$(CXX) -shared -Wl,-soname,$(notdir $@) -Wl,-rpath,'$$ORIGIN' -o $@ $^ $(LIBPATHS) $(LIBS)
+
+#---------------------------------------------------------------------------------
 %.o: %.cpp
 	$(SILENTMSG) $(notdir $<)
 	$(SILENTCMD)$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
@@ -48,6 +61,7 @@ endif
 TARGET		:=	$(notdir $(CURDIR))
 SOURCES		:=	Source \
 				Source/Engine \
+				Source/Engine/Utils \
 				Source/Engine/Animation \
 				Source/Engine/Nodes \
 				Source/Engine/Nodes/3D \
@@ -91,14 +105,42 @@ ASSIMP_DIR	:=	$(CURDIR)/../External/Assimp
 
 CFLAGS	= -g -O2 -Wall $(MACHDEP) -DPLATFORM_LINUX=1 -DAPI_VULKAN=1 $(INCLUDE)
 
-ifeq ($(strip $(POLYPHASE_EDITOR)),)
+# W1: POLYPHASE_EDITOR_SHARED comes first so the more-specific flag wins when
+# the parent make was invoked with POLYPHASE_SHARED=1 (the var propagates to
+# every recursive sub-make via MAKEFLAGS, so by the time the editor-shared
+# target's recursive call sets POLYPHASE_EDITOR_SHARED=1 we have BOTH flags
+# in scope — and the old order picked the game branch and produced the wrong .so).
+ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+# W1: SHARED editor engine — editor sources included, PIC objects, .so output.
+# Same source set as the static editor below, with DLL_BUILD gating Engine.cpp's
+# main/GameMain block and the OctHookAutoRegister auto-wire (the exe registers
+# its hooks via RegisterOctHooks() at startup).
+CFLAGS	+=	-DEDITOR=1 -DPOLYPHASE_IMGUI_EXPORT -fPIC -DPOLYPHASE_ENGINE_EXPORT=1 -DPOLYPHASE_DLL_BUILD=1
+INCLUDES += ../External/Assimp ../External/IrrXML ../External/Zlib Source/Editor Source/Editor/ImGuizmo ../External/Imgui ../External/imgui-node-editor ../External/zep/include ../External/Crow ../External/asio External/libgit2/include
+SOURCES +=	Source/Editor Source/Editor/ImGuizmo Source/Editor/Widgets Source/Editor/Hotkeys Source/Editor/Preferences Source/Editor/Preferences/General Source/Editor/Preferences/Appearance Source/Editor/Preferences/Appearance/Theme Source/Editor/Preferences/Appearance/Viewport Source/Editor/Preferences/Appearance/Viewport/TilemapGrid Source/Editor/Preferences/External Source/Editor/Preferences/Packaging Source/Editor/Preferences/Network Source/Editor/Preferences/Updates Source/Editor/Preferences/Input Source/Editor/Preferences/EditorHotkeys Source/Editor/ControllerServer Source/Editor/AutoUpdater Source/Editor/Addons Source/Editor/Packaging Source/Editor/AppSettings Source/Editor/ProjectSelect Source/Editor/Timeline Source/Editor/DebugLog Source/Editor/CliTerminal Source/Editor/NodeGraph Source/Editor/GamePreview Source/Editor/AnimationBrowser Source/Editor/Profiling Source/Editor/InputTester Source/Editor/ScriptCreator Source/Editor/ScriptEditor Source/Editor/SecondScreenPreview Source/Editor/ThemeEditor Source/Editor/SpriteAnimationEditor Source/Editor/TextureAtlas Source/Editor/TextureCrop Source/Editor/VoxelSculpt Source/Editor/TerrainSculpt Source/Editor/TilePaint Source/Editor/Validation Source/Editor/Runtime Source/Editor/Git Source/Editor/Git/Dialogs Source/Editor/Preferences/Git Source/Editor/LuaDebugger ../External/Imgui ../External/Imgui/misc/cpp ../External/imgui-node-editor
+TARGET		:= PolyphaseEditor
+BUILD		:=	Intermediate/Linux/EngineEditorShared
+SHARED_BUILD := 1
+export POLYPHASE_PIC := 1
+else ifneq ($(strip $(POLYPHASE_SHARED)),)
+# W1: SHARED game-runtime engine — game-only sources, PIC objects, .so output.
+# Also exports POLYPHASE_PIC=1 to recursive External sub-makes (e.g. Bullet)
+# so their static archives are built with -fPIC into a separate intermediate
+# directory, leaving the non-PIC static build untouched.
+# POLYPHASE_DLL_BUILD=1 gates Engine.cpp's main/GameMain block out of the .so.
+CFLAGS	+=	-DEDITOR=0 -fPIC -DPOLYPHASE_ENGINE_EXPORT=1 -DPOLYPHASE_DLL_BUILD=1
+BUILD		:=	Intermediate/Linux/EngineGameShared
+TARGET		:= PolyphaseGame
+SHARED_BUILD := 1
+export POLYPHASE_PIC := 1
+else ifeq ($(strip $(POLYPHASE_EDITOR)),)
 CFLAGS	+=	-DEDITOR=0
 BUILD		:=	Intermediate/Linux/EngineGame
 TARGET		:= EngineGame
 else
 CFLAGS	+=	-DEDITOR=1 -DPOLYPHASE_IMGUI_EXPORT
 INCLUDES += ../External/Assimp ../External/IrrXML ../External/Zlib Source/Editor Source/Editor/ImGuizmo ../External/Imgui ../External/imgui-node-editor ../External/zep/include ../External/Crow ../External/asio External/libgit2/include
-SOURCES +=	Source/Editor Source/Editor/ImGuizmo Source/Editor/Widgets Source/Editor/Hotkeys Source/Editor/Preferences Source/Editor/Preferences/General Source/Editor/Preferences/Appearance Source/Editor/Preferences/Appearance/Theme Source/Editor/Preferences/Appearance/Viewport Source/Editor/Preferences/Appearance/Viewport/TilemapGrid Source/Editor/Preferences/External Source/Editor/Preferences/Packaging Source/Editor/Preferences/Network Source/Editor/Preferences/Updates Source/Editor/Preferences/Input Source/Editor/Preferences/EditorHotkeys Source/Editor/ControllerServer Source/Editor/AutoUpdater Source/Editor/Addons Source/Editor/Packaging Source/Editor/AppSettings Source/Editor/ProjectSelect Source/Editor/Timeline Source/Editor/DebugLog Source/Editor/CliTerminal Source/Editor/NodeGraph Source/Editor/GamePreview Source/Editor/AnimationBrowser Source/Editor/Profiling Source/Editor/InputTester Source/Editor/ScriptCreator Source/Editor/ScriptEditor Source/Editor/SecondScreenPreview Source/Editor/ThemeEditor Source/Editor/SpriteAnimationEditor Source/Editor/TextureAtlas Source/Editor/TextureCrop Source/Editor/VoxelSculpt Source/Editor/TerrainSculpt Source/Editor/TilePaint Source/Editor/Git Source/Editor/Git/Dialogs Source/Editor/Preferences/Git Source/Editor/LuaDebugger ../External/Imgui ../External/Imgui/misc/cpp ../External/imgui-node-editor
+SOURCES +=	Source/Editor Source/Editor/ImGuizmo Source/Editor/Widgets Source/Editor/Hotkeys Source/Editor/Preferences Source/Editor/Preferences/General Source/Editor/Preferences/Appearance Source/Editor/Preferences/Appearance/Theme Source/Editor/Preferences/Appearance/Viewport Source/Editor/Preferences/Appearance/Viewport/TilemapGrid Source/Editor/Preferences/External Source/Editor/Preferences/Packaging Source/Editor/Preferences/Network Source/Editor/Preferences/Updates Source/Editor/Preferences/Input Source/Editor/Preferences/EditorHotkeys Source/Editor/ControllerServer Source/Editor/AutoUpdater Source/Editor/Addons Source/Editor/Packaging Source/Editor/AppSettings Source/Editor/ProjectSelect Source/Editor/Timeline Source/Editor/DebugLog Source/Editor/CliTerminal Source/Editor/NodeGraph Source/Editor/GamePreview Source/Editor/AnimationBrowser Source/Editor/Profiling Source/Editor/InputTester Source/Editor/ScriptCreator Source/Editor/ScriptEditor Source/Editor/SecondScreenPreview Source/Editor/ThemeEditor Source/Editor/SpriteAnimationEditor Source/Editor/TextureAtlas Source/Editor/TextureCrop Source/Editor/VoxelSculpt Source/Editor/TerrainSculpt Source/Editor/TilePaint Source/Editor/Validation Source/Editor/Runtime Source/Editor/Git Source/Editor/Git/Dialogs Source/Editor/Preferences/Git Source/Editor/LuaDebugger ../External/Imgui ../External/Imgui/misc/cpp ../External/imgui-node-editor
 TARGET		:= EngineEditor
 BUILD		:=	Intermediate/Linux/EngineEditor
 endif
@@ -112,11 +154,21 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 LIBS	:=	-lvulkan -lxcb -lasound -lpthread -lm -ldl -lutil
 
+# When building libPolyphaseEditor.so (editor shared runtime), link the editor's
+# static deps directly INTO the .so so the editor exe doesn't have to re-link
+# them. Re-linking them at exe-link time fails because these archives are built
+# with -fvisibility=hidden (the symbols are hidden in the .so and can't be
+# re-exported).
+ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+LIBS	+=	-lpulse -lAssimp -lshaderc_combined -lspirv-cross-core -lgit2 -lssl -lcrypto
+endif
+
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
 LIBDIRS	:= $(VULKAN_SDK)
+
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -134,7 +186,11 @@ export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 #---------------------------------------------------------------------------------
 CFILES			:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+ifneq ($(strip $(POLYPHASE_PIC)),)
+BULLET_OFILES	:=	$(wildcard $(BULLET_DIR)/Intermediate/Linux-pic/*.o)
+else
 BULLET_OFILES	:=	$(wildcard $(BULLET_DIR)/Intermediate/Linux/*.o)
+endif
 
 #---------------------------------------------------------------------------------
 # use CXX for linking C++ projects, CC for standard C
@@ -160,12 +216,32 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 # build a list of library paths
 #---------------------------------------------------------------------------------
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+# Editor-shared specific search paths for libs that don't follow the "$(dir)/lib"
+# convention: libAssimp.a is under Build/Linux/, libgit2.a under build/.
+ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+LIBPATHS	+=	-L$(ASSIMP_DIR)/Build/Linux-pic -L$(CURDIR)/External/libgit2/build
+endif
 
+ifneq ($(strip $(SHARED_BUILD)),)
+export OUTPUT	:=	$(OUTPUT_DIR)/lib$(TARGET).so
+else
 export OUTPUT	:=	$(OUTPUT_DIR)/lib$(TARGET).a
-.PHONY: $(BUILD) clean
+endif
+.PHONY: $(BUILD) clean shared editor-shared
 
 #---------------------------------------------------------------------------------
 all: $(BUILD)
+
+# W1: convenience entrypoints — `make -f Makefile_Linux shared` triggers a
+# game-only build with -fPIC and links libPolyphaseGame.so;
+# `make -f Makefile_Linux editor-shared` does the same but with EDITOR=1 and
+# produces libPolyphaseEditor.so. Both re-invoke this very Makefile with the
+# matching variable so the rules above retarget.
+shared:
+	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile_Linux POLYPHASE_SHARED=1
+
+editor-shared:
+	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile_Linux POLYPHASE_EDITOR_SHARED=1
 
 OutputDir:
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)

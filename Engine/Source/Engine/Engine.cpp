@@ -185,6 +185,12 @@ void OnScriptFileChanged(const FileChangeEvent& event)
 
 void ForceLinkage()
 {
+    // W1: Keeps OctHookAutoRegister.obj from being GC'd by the static linker.
+    // The TU's only contents are namespace-scoped static initializers, which
+    // the linker doesn't see as referenced — without this call the auto-register
+    // never runs and GetOctHooks() returns an empty struct.
+    FORCE_LINK_CALL(OctHookAutoRegister);
+
     // Node Types
     FORCE_LINK_CALL(Node);
     FORCE_LINK_CALL(Node3D);
@@ -1010,6 +1016,22 @@ EngineConfig* GetMutableEngineConfig()
     return &sEngineConfig;
 }
 
+// W1: Oct* game-hook indirection (see Engine.h for the full rationale). Storage
+// lives in this TU; readers go through GetOctHooks(); the static-init wiring
+// for static-lib builds is in OctHookAutoRegister.cpp; DLL-consumer exes call
+// RegisterOctHooks() directly.
+static OctGameHooks sOctHooks;
+
+void RegisterOctHooks(const OctGameHooks& hooks)
+{
+    sOctHooks = hooks;
+}
+
+const OctGameHooks& GetOctHooks()
+{
+    return sOctHooks;
+}
+
 const Clock* GetAppClock()
 {
     return &sClock;
@@ -1700,6 +1722,14 @@ lua_State* GetLua()
 }
 #endif
 
+// W1: Entry-point block (GameMain + main/WinMain/android_main) is gated out of
+// the engine DLL build. When POLYPHASE_DLL_BUILD=1 (set only in Engine.vcxproj's
+// Debug Shared / Release Shared configs), the DLL has no main and does not call
+// Oct* hooks; the consuming exe (Standalone with POLYPHASE_DLL_CONSUMER=1)
+// provides its own copy. All static-lib configs (Win/Android/3DS/Wii/GCN/Linux)
+// keep this block compiled exactly as before — bit-identical output.
+#if !POLYPHASE_DLL_BUILD
+
 #if !EDITOR
 void GameMain(int32_t argc, char** argv)
 {
@@ -1762,3 +1792,5 @@ int main(int argc, char** argv)
     return 0;
 #endif
 }
+
+#endif  // !POLYPHASE_DLL_BUILD

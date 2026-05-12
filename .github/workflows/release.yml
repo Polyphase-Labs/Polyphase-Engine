@@ -84,6 +84,20 @@ jobs:
       - name: Build Engine (ReleaseEditor x64)
         run: msbuild Polyphase.sln /p:Configuration=ReleaseEditor /p:Platform=x64 /m
 
+      # W1: Also build the DLL-flavor editor + game runtimes. These ship
+      # alongside the static editor exe in the installer (and SDK zip) so
+      # native addons can link against the DLL editor import lib, and shipped
+      # games can use the DLL game runtime. Build is best-effort: a failure
+      # here doesn't gate the release on the assumption that the static
+      # editor is the primary deliverable today.
+      - name: Build Engine (ReleaseEditor Shared x64)
+        continue-on-error: true
+        run: msbuild Polyphase.sln /p:Configuration="ReleaseEditor Shared" /p:Platform=x64 /m
+
+      - name: Build Engine (Release Shared x64)
+        continue-on-error: true
+        run: msbuild Polyphase.sln /p:Configuration="Release Shared" /p:Platform=x64 /m
+
       # stage_distribution.py only WARNS when these are missing, which produces a
       # broken installer where native addons can't link (LNK1181: Polyphase.lib
       # not found). Fail the workflow here so the issue is caught loudly.
@@ -236,6 +250,21 @@ jobs:
 
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
+
+      # W1: Also build the DLL-flavor editor + game shared objects.
+      # `make -C Standalone -f Makefile_Linux_{Editor,Game} POLYPHASE_SHARED=1`
+      # produces libPolyphaseEditor.so / libPolyphaseGame.so under
+      # Engine/Build/Linux/, which stage_distribution.py picks up and copies
+      # into dist/Editor/ alongside the static editor elf. Best-effort:
+      # continue-on-error so a fork that hasn't validated the .so path yet
+      # still gets a working static-only release.
+      - name: Build Engine (Linux Editor Shared)
+        continue-on-error: true
+        run: make -C Standalone -f Makefile_Linux_Editor POLYPHASE_SHARED=1 -j$(nproc)
+
+      - name: Build Engine (Linux Game Shared)
+        continue-on-error: true
+        run: make -C Standalone -f Makefile_Linux_Game POLYPHASE_SHARED=1 -j$(nproc)
 
       # The Linux engine build statically compiles Lua sources directly into
       # libEngineEditor.a, so it does NOT produce a standalone libLua.a the way

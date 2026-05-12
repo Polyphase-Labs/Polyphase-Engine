@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PolyphaseAbi.h"
+
 #define ENGINE_NAME "Polyphase"
 #define POLYPHASE_VERSION 6
 #define POLYPHASE_VERSION_STRING "6.2.0-beta.4"

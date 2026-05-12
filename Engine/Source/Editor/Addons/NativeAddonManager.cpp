@@ -1159,8 +1159,21 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         "rel";
 #endif
 
-    char fingerprint[32];
-    snprintf(fingerprint, sizeof(fingerprint), "%s_%016llx", configTag, (unsigned long long)hash);
+    // W1: Also tag by editor flavor (static vs DLL). When the editor was built
+    // as PolyphaseEditor.dll the addon links against the DLL's import lib;
+    // when static it links against the exe's own export lib. The two produce
+    // ABI-incompatible addon DLLs (different symbol resolution paths), so they
+    // mustn't share a cache slot. Detect at compile time via POLYPHASE_DLL_BUILD
+    // — same source TU compiles into the DLL when set, into the static lib
+    // otherwise.
+#if POLYPHASE_DLL_BUILD
+    const char* flavorTag = "dll";
+#else
+    const char* flavorTag = "static";
+#endif
+
+    char fingerprint[40];
+    snprintf(fingerprint, sizeof(fingerprint), "%s_%s_%016llx", configTag, flavorTag, (unsigned long long)hash);
     return fingerprint;
 }
 
@@ -1881,7 +1894,17 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "/Fe\"" << outputPath << "\" ";
     ss << "/link /DLL ";
 
-    // Get executable directory for installed editor lib paths
+    // Get executable directory for installed editor lib paths.
+    //
+    // W1: normalize backslashes to forward slashes. SYS_GetExecutablePath returns
+    // the Windows-native path with `\` separators; if any directory along the
+    // way contains a space (e.g. `DebugEditor Shared\`), emitting it as
+    // `/LIBPATH:"...DebugEditor Shared\"` makes MSVC's CRT argv parser interpret
+    // the trailing `\"` as an escaped literal `"`, which leaves the LIBPATH arg
+    // unterminated and eats the next several tokens until the real closing `"`.
+    // link.exe then sees a stray `.obj` somewhere in the resulting blob and
+    // dies with LNK1181. cl/link accept `/` as a path separator on Windows so
+    // converting up front sidesteps the escape rule entirely.
     std::string exePath = SYS_GetExecutablePath();
     std::string exeDir;
     {
@@ -1890,7 +1913,23 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         {
             exeDir = exePath.substr(0, lastSlash + 1);
         }
+        for (char& c : exeDir) { if (c == '\\') c = '/'; }
     }
+
+    // W1: We're running inside the editor exe — and this TU (NativeAddonManager.cpp)
+    // is part of the engine source tree, so it compiles either *into* the static
+    // editor or *into* PolyphaseEditor.dll. The DLL build defines
+    // POLYPHASE_DLL_BUILD=1; the static build does not. That makes the editor
+    // flavor a compile-time constant, no filesystem probing required (which had
+    // a false-positive when the installer shipped both flavors side-by-side).
+#if POLYPHASE_DLL_BUILD
+    const bool editorIsDll = true;
+    const char* engineLibName = "PolyphaseEditor.lib";
+#else
+    const bool editorIsDll = false;
+    const char* engineLibName = "Polyphase.lib";
+#endif
+    (void)editorIsDll;  // referenced only by the editorIsDll fingerprint tag below
 
     // Link against Polyphase import library and Lua library
     // First check installed editor paths (alongside executable)
@@ -1899,6 +1938,11 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // Then check development build paths
     ss << "/LIBPATH:\"" << polyphasePath << "/Standalone/Build/Windows/x64/DebugEditor/\" ";
     ss << "/LIBPATH:\"" << polyphasePath << "/Standalone/Build/Windows/x64/ReleaseEditor/\" ";
+    // W1: PolyphaseEditor.lib (DLL flavor import lib) is emitted by the engine
+    // project itself, not by Standalone. Add the engine's DLL-build dirs so
+    // addons built against a DLL editor find the engine import lib.
+    ss << "/LIBPATH:\"" << polyphasePath << "/Engine/Build/Windows/x64/DebugEditor Shared/\" ";
+    ss << "/LIBPATH:\"" << polyphasePath << "/Engine/Build/Windows/x64/ReleaseEditor Shared/\" ";
     ss << "/LIBPATH:\"" << polyphasePath << "/External/Lua/Build/Windows/x64/DebugEditor/\" ";
     ss << "/LIBPATH:\"" << polyphasePath << "/External/Lua/Build/Windows/x64/ReleaseEditor/\" ";
 
@@ -1915,7 +1959,7 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "/LIBPATH:\"" << state.mSourcePath << libDir << "/\" ";
     }
 
-    ss << "Polyphase.lib Lua.lib ";
+    ss << engineLibName << " Lua.lib ";
     for (const std::string& depId : state.mNativeMetadata.mDependencies)
     {
         ss << GenerateLibraryName(depId) << ".lib ";

@@ -1,4 +1,8 @@
-#if EDITOR
+// W1: Compiled on Windows + Linux for both editor (hot-reload native addons)
+// and shipped game (runtime addon DLL/SO discovery in POLYPHASE_DLL_CONSUMER
+// builds). Consoles compile to nothing here — they keep the source-compile-in
+// addon model.
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
 
 #include "ModuleLoader.h"
 #include "Log.h"
@@ -235,4 +239,4 @@ const char* MOD_GetError()
 
 #endif // Platform
 
-#endif // EDITOR
+#endif // PLATFORM_WINDOWS || PLATFORM_LINUX

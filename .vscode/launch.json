@@ -49,6 +49,50 @@
         },
 
         {
+            "name": "Polyphase Game (Shared)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Standalone/Build/Linux/Polyphase.elf",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Make Standalone Game Shared",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+
+        {
+            "name": "Polyphase Editor (Shared)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Standalone/Build/Linux/PolyphaseEditor.elf",
+            "args": ["-validate", "0"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Make Standalone Editor Shared",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+
+        {
             "name": "Polyphase Wii",
             "type": "cppdbg",
             "request": "launch",

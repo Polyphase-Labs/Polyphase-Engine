@@ -23,6 +23,7 @@ echo "[libgit2] Configuring..."
 cmake -B build -S . \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DBUILD_TESTS=OFF \
     -DBUILD_CLI=OFF \
     -DBUILD_EXAMPLES=OFF \

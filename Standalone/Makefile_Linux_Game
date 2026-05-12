@@ -62,14 +62,30 @@ OUTPUT_DIR	:=	$(CURDIR)/Build/Linux
 
 CFLAGS	= -g -O2 -Wall $(MACHDEP) -DPLATFORM_LINUX=1 -DAPI_VULKAN=1 $(INCLUDE)
 
+# W1: shared-engine build (libPolyphaseGame.so). Run `make -f Makefile_Linux_Game POLYPHASE_SHARED=1`.
+# Defines POLYPHASE_DLL_CONSUMER=1 so Standalone/Source/Main.cpp's exe-side
+# entry-point + Oct* hook auto-register block kicks in, links against the .so
+# instead of the static archive, and tells MakeEngine below to build the .so.
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+CFLAGS		+=	-DPOLYPHASE_DLL_CONSUMER=1
+BUILD		:=	Intermediate/Linux/GameShared
+LINK_ENGINE	:=	-lPolyphaseGame
+ENGINE_TARGET	:=	shared
+ENGINE_LIB_NAME	:=	libPolyphaseGame.so
+else
+LINK_ENGINE	:=	-lEngineGame
+ENGINE_TARGET	:=
+ENGINE_LIB_NAME	:=	libEngineGame.a
+endif
+
 CXXFLAGS	=	$(CFLAGS)
 
-LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -Wl,-rpath,'$$ORIGIN'
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngineGame -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lBullet -lpthread -lm
+LIBS	:=	$(LINK_ENGINE) -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lBullet -lpthread -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -124,7 +140,7 @@ export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
 					-L$(CURDIR)/../Engine/Build/Linux
 
 export OUTPUT	:=	$(OUTPUT_DIR)/$(TARGET).elf
-export ENGINE_LIB := $(CURDIR)/../Engine/Build/Linux/libEngineGame.a
+export ENGINE_LIB := $(CURDIR)/../Engine/Build/Linux/$(ENGINE_LIB_NAME)
 .PHONY: $(BUILD) clean
 
 #---------------------------------------------------------------------------------
@@ -135,7 +151,7 @@ OutputDirs:
 	[ -d $(BUILD) ] || mkdir -p $(BUILD)
 
 MakeEngine:
-	$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Linux
+	$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Linux $(ENGINE_TARGET)
 
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
@@ -144,6 +160,9 @@ $(BUILD): OutputDirs MakeEngine
 	# hard-coded `-f Makefile_Linux_Game` here, the inner compile pass would silently
 	# fall back to the pristine source and ignore all addon-injected flags.
 	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+	cp $(ENGINE_LIB) $(OUTPUT_DIR)/$(ENGINE_LIB_NAME)
+endif
 
 #---------------------------------------------------------------------------------
 clean:

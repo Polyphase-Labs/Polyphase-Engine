@@ -57,6 +57,32 @@
 
         {
             "type": "shell",
+            "label": "Make Standalone Game Shared",
+            "command": "make -j 16 -f Makefile_Linux_Game POLYPHASE_SHARED=1 -C ${workspaceFolder}/Standalone/",
+            "args": [],
+            "options": {},
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "Build the game elf linked against libPolyphaseGame.so (W1 DLL/SO mode)."
+        },
+
+        {
+            "type": "shell",
+            "label": "Make Standalone Editor Shared",
+            "command": "make -j 16 -f Makefile_Linux_Editor POLYPHASE_SHARED=1 -C ${workspaceFolder}/Standalone/",
+            "args": [],
+            "options": {},
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "Build the editor elf linked against libPolyphaseEditor.so (W1 DLL/SO mode)."
+        },
+
+        {
+            "type": "shell",
             "label": "Make Standalone Wii",
             "command": "make -j 16 -f Makefile_Wii -C ${workspaceFolder}/Standalone/",
             "args": [],

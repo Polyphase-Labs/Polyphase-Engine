@@ -94,10 +94,14 @@ target_compile_definitions(${TARGET} PUBLIC
 set(TARGET EngineGameLib)
 
 file(GLOB_RECURSE SRC *.cpp *.c *.h)
+# Capture the game source set into a stable variable so the optional
+# EngineGameRuntime SHARED target below reuses the exact same files.
+set(ENGINE_GAME_SRC ${SRC})
+
 add_library(${TARGET} STATIC
     ${SRC}
 )
-target_include_directories(${TARGET} PUBLIC 
+target_include_directories(${TARGET} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/Engine
     ${BULLET_PHYSICS_SOURCE_DIR}/src
@@ -109,3 +113,57 @@ target_compile_definitions(${TARGET} PRIVATE
     ${PLATFORM_DEFINITIONS}
     -DEDITOR=0
 )
+
+# --- W1: Optional SHARED engine runtime (desktop only) -----------------------
+# Additive target: leaves EngineGameLib (STATIC) untouched. POLYPHASE_API
+# annotations switch on POLYPHASE_ENGINE_EXPORT, which is set PRIVATE here so
+# only this target's TUs export symbols. On Linux this produces
+# libPolyphaseGame.so; on Windows PolyphaseGame.dll + PolyphaseGame.lib.
+if(POLYPHASE_DESKTOP_SHARED_RUNTIME)
+    set(TARGET EngineGameRuntime)
+    add_library(${TARGET} SHARED
+        ${ENGINE_GAME_SRC}
+    )
+    set_target_properties(${TARGET} PROPERTIES
+        OUTPUT_NAME PolyphaseGame
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_include_directories(${TARGET} PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/Engine
+        ${BULLET_PHYSICS_SOURCE_DIR}/src
+    )
+    target_link_libraries(${TARGET} PUBLIC
+        ${COMMON_DEPS}
+    )
+    target_compile_definitions(${TARGET} PRIVATE
+        ${PLATFORM_DEFINITIONS}
+        -DEDITOR=0
+        POLYPHASE_ENGINE_EXPORT=1
+    )
+
+    if(PLATFORM_NAME STREQUAL "Linux")
+        # $ORIGIN lets the editor exe find libPolyphaseGame.so next to it,
+        # matching the vendored runtime layout.
+        set_target_properties(${TARGET} PROPERTIES
+            INSTALL_RPATH "$ORIGIN"
+            BUILD_WITH_INSTALL_RPATH TRUE
+        )
+    elseif(PLATFORM_NAME STREQUAL "Windows")
+        # Do NOT enable WINDOWS_EXPORT_ALL_SYMBOLS — symbol export is driven
+        # by POLYPHASE_API annotations. Pin CRT to /MD so std::string and
+        # other STL types share the same allocator across the DLL boundary.
+        if(MSVC)
+            if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.15")
+                set_target_properties(${TARGET} PROPERTIES
+                    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+                )
+            else()
+                target_compile_options(${TARGET} PRIVATE
+                    $<$<CONFIG:Debug>:/MDd>
+                    $<$<NOT:$<CONFIG:Debug>>:/MD>
+                )
+            endif()
+        endif()
+    endif()
+endif()
