@@ -194,16 +194,66 @@ void EditorMain(int32_t argc, char** argv)
 
     // If the editor's built-in assets aren't reachable from the current working
     // directory (e.g. the OS launched the editor by double-clicking a .octp file
-    // and set cwd to the project folder), pivot cwd to the executable's directory
-    // so every "Engine/Assets/..." relative-path lookup resolves. ReadCommandLineArgs
-    // has already absolutized the project path, so the pivot doesn't strand it.
+    // and set cwd to the project folder), pivot cwd to the engine root so every
+    // "Engine/Assets/..." relative-path lookup resolves. ReadCommandLineArgs has
+    // already absolutized the project path, so the pivot doesn't strand it.
+    //
+    // W1: For DLL editor builds the exe lives several directories deep under
+    // Standalone/Build/Windows/x64/<config>/, so the old "pivot to exe dir"
+    // fallback didn't help — Engine/Assets was still unreachable. SYS_GetPolyphasePath()
+    // walks back from the exe to find the engine root (looks for Engine/Source/Engine/Engine.h
+    // and similar markers); use that as the primary pivot target, falling back
+    // to the exe dir for compatibility with whatever the previous behavior was.
     if (!SYS_DoesFileExist("Engine/Assets/Fonts/F_InterRegular18.ttf", false))
     {
-        std::string exePath = SYS_GetExecutablePath();
-        size_t lastSlash = exePath.find_last_of("\\/");
-        if (lastSlash != std::string::npos)
+        const char* kAssetMarker = "Engine/Assets/Fonts/F_InterRegular18.ttf";
+        bool pivoted = false;
+
+        std::string polyphaseRoot = SYS_GetPolyphasePath();
+        if (!polyphaseRoot.empty() &&
+            SYS_DoesFileExist((polyphaseRoot + kAssetMarker).c_str(), false))
         {
-            SYS_SetWorkingDirectory(exePath.substr(0, lastSlash));
+            SYS_SetWorkingDirectory(polyphaseRoot);
+            pivoted = true;
+        }
+
+        // W1: For DLL editor builds the exe lives several dirs below the engine root
+        // (Standalone/Build/Windows/x64/<config>/), so SYS_GetPolyphasePath's
+        // "look in exe dir" heuristic doesn't find Engine/. Walk up from the exe
+        // directory checking each ancestor for the marker asset before giving up.
+        if (!pivoted)
+        {
+            std::string exePath = SYS_GetExecutablePath();
+            size_t lastSlash = exePath.find_last_of("\\/");
+            std::string dir = (lastSlash != std::string::npos)
+                                  ? exePath.substr(0, lastSlash)
+                                  : std::string(".");
+            for (int hops = 0; hops < 8 && !pivoted; ++hops)
+            {
+                if (SYS_DoesFileExist((dir + "/" + kAssetMarker).c_str(), false))
+                {
+                    SYS_SetWorkingDirectory(dir);
+                    pivoted = true;
+                    break;
+                }
+                size_t up = dir.find_last_of("\\/");
+                if (up == std::string::npos) break;
+                dir = dir.substr(0, up);
+            }
+        }
+
+        if (!pivoted)
+        {
+            // Last-resort: pivot to the exe dir so at least the binary's own
+            // side-by-side assets are reachable (preserves the previous fallback
+            // behavior for setups where engine assets just don't exist anywhere
+            // walkable from the exe).
+            std::string exePath = SYS_GetExecutablePath();
+            size_t lastSlash = exePath.find_last_of("\\/");
+            if (lastSlash != std::string::npos)
+            {
+                SYS_SetWorkingDirectory(exePath.substr(0, lastSlash));
+            }
         }
     }
 
