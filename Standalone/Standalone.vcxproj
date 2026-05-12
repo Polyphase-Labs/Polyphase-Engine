@@ -619,4 +619,28 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <!-- W1: Stage the engine DLL next to the exe regardless of whether Standalone
+       itself rebuilt this cycle. The Shared configs already have a PostBuildEvent
+       that does this, but PostBuildEvent only fires when MSBuild actually runs
+       Standalone's Build target — when MSBuild's up-to-date check skips Standalone
+       (because nothing in Standalone changed even though Engine's DLL did), the
+       stale copy next to the exe sticks around and Windows loads it. This Target
+       has explicit Inputs/Outputs so MSBuild's incremental check re-fires it any
+       time the engine DLL is newer than the staged copy. -->
+  <Target Name="StagePolyphaseEditorDll"
+          AfterTargets="Build"
+          Condition="'$(Configuration)|$(Platform)'=='DebugEditor Shared|x64' Or '$(Configuration)|$(Platform)'=='ReleaseEditor Shared|x64'"
+          Inputs="$(SolutionDir)Engine\Build\Windows\$(Platform)\$(Configuration)\PolyphaseEditor.dll"
+          Outputs="$(OutDir)PolyphaseEditor.dll">
+    <Copy SourceFiles="$(SolutionDir)Engine\Build\Windows\$(Platform)\$(Configuration)\PolyphaseEditor.dll"
+          DestinationFolder="$(OutDir)" />
+  </Target>
+  <Target Name="StagePolyphaseGameDll"
+          AfterTargets="Build"
+          Condition="'$(Configuration)|$(Platform)'=='Debug Shared|x64' Or '$(Configuration)|$(Platform)'=='Release Shared|x64'"
+          Inputs="$(SolutionDir)Engine\Build\Windows\$(Platform)\$(Configuration)\PolyphaseGame.dll"
+          Outputs="$(OutDir)PolyphaseGame.dll">
+    <Copy SourceFiles="$(SolutionDir)Engine\Build\Windows\$(Platform)\$(Configuration)\PolyphaseGame.dll"
+          DestinationFolder="$(OutDir)" />
+  </Target>
 </Project>
