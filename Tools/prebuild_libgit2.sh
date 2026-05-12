@@ -12,6 +12,13 @@ LIBGIT2_DIR="$REPO_ROOT/Engine/External/libgit2"
 
 cd "$LIBGIT2_DIR"
 
+# Wipe any pre-existing build/ first. A stale CMakeCache.txt (e.g. from a
+# host build that leaked into a Docker image via COPY, or a host-side build
+# from a different source path) makes cmake abort with
+#   "The current CMakeCache.txt directory ... is different than the
+#    directory ... where CMakeCache.txt was created"
+rm -rf build
+
 echo "[libgit2] Configuring..."
 cmake -B build -S . \
     -DCMAKE_BUILD_TYPE=Release \

@@ -61,6 +61,14 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug Shared|x64">
+      <Configuration>Debug Shared</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release Shared|x64">
+      <Configuration>Release Shared</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{F08D83DC-D5D1-469D-BA01-BEAA593596CF}</ProjectGuid>
@@ -128,6 +136,23 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
+  <!-- W1: DLL runtime configurations. ConfigurationType=DynamicLibrary so MSBuild
+       produces PolyphaseGame.dll + PolyphaseGame.lib instead of Polyphase.lib.
+       CRT pinned to MultiThreadedDLL(Debug) so STL types share the same allocator
+       across the DLL boundary. -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Shared|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Shared|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Android-arm64-v8a'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
@@ -190,6 +215,12 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug Shared|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release Shared|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Android-arm64-v8a'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -235,6 +266,16 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Shared|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>PolyphaseGame</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Shared|x64'">
+    <OutDir>$(ProjectDir)Build\Windows\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)Intermediate\Windows\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetName>PolyphaseGame</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Android-arm64-v8a'">
     <OutDir>$(ProjectDir)Build\Android\$(Configuration)\$(Platform)\</OutDir>
@@ -471,6 +512,59 @@
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(SolutionDir)Engine/External/lib/Lib/;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <!-- W1: DLL configs. Same compile knobs as Debug/Release|x64 plus
+       POLYPHASE_ENGINE_EXPORT=1 to switch POLYPHASE_API to __declspec(dllexport).
+       RuntimeLibrary is MultiThreadedDebugDLL/MultiThreadedDLL so STL types share
+       the same allocator on either side of the DLL boundary. -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug Shared|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT=1;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
+      <AdditionalDependencies>vulkan-1.lib;assimpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(SolutionDir)External/lib/Lib/;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release Shared|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>$(ProjectDir)../External;$(VULKAN_SDK)/Include;$(ProjectDir)Source;$(ProjectDir)Source/Engine;$(ProjectDir)../External/Assimp;$(ProjectDir)../External/Assimp/contrib/rapidjson;$(ProjectDir)../External/Bullet;$(ProjectDir)External/PolyVox/include;$(ProjectDir)../External/recastnavigation/Recast/Include;$(ProjectDir)../External/recastnavigation/Detour/Include;$(ProjectDir)Source/Editor;$(ProjectDir)../External/Lua;$(ProjectDir)../External/Vorbis;;$(ProjectDir)../External/EOS/Include/;$(ProjectDir)../External/Steam/public/steam/</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NET_PLATFORM_STEAM=0;PLATFORM_WINDOWS=1;API_VULKAN=1;EDITOR=0;POLYPHASE_ENGINE_EXPORT=1;WIN32;_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING;VK_USE_PLATFORM_WIN32_KHR;GLM_FORCE_RADIANS;GLM_FORCE_DEPTH_ZERO_TO_ONE;%(PreprocessorDefinitions);NOMINMAX</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
+      <AdditionalDependencies>vulkan-1.lib;assimpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(SolutionDir)External/lib/Lib/;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
     <ProjectReference>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
@@ -738,6 +832,8 @@
     <ClCompile Include="Source\Editor\Hotkeys\EditorAction.cpp" />
     <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeyMap.cpp" />
     <ClCompile Include="Source\Editor\Hotkeys\EditorHotkeysWindow.cpp" />
+    <ClCompile Include="Source\Editor\Validation\ValidationLog.cpp" />
+    <ClCompile Include="Source\Editor\Runtime\EngineRuntimeValidator.cpp" />
     <ClCompile Include="Source\Editor\Git\GitService.cpp" />
     <ClCompile Include="Source\Editor\Git\GitRepository.cpp" />
     <ClCompile Include="Source\Editor\Git\GitOperationQueue.cpp" />
@@ -851,6 +947,8 @@
     <ClCompile Include="Source\Engine\Clock.cpp" />
     <ClCompile Include="Source\Engine\Datum.cpp" />
     <ClCompile Include="Source\Engine\Engine.cpp" />
+    <ClCompile Include="Source\Engine\EngineRuntimeManifest.cpp" />
+    <ClCompile Include="Source\Engine\Utils\Sha256.cpp" />
     <ClCompile Include="Source\Engine\TinyLLMInference.cpp" />
     <ClCompile Include="Source\Engine\TinyLLMManager.cpp" />
     <ClCompile Include="Source\Engine\Gizmos.cpp" />
@@ -1262,6 +1360,8 @@
     <ClInclude Include="Source\Editor\Hotkeys\EditorAction.h" />
     <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeyMap.h" />
     <ClInclude Include="Source\Editor\Hotkeys\EditorHotkeysWindow.h" />
+    <ClInclude Include="Source\Editor\Validation\ValidationLog.h" />
+    <ClInclude Include="Source\Editor\Runtime\EngineRuntimeValidator.h" />
     <ClInclude Include="Source\Editor\Git\GitTypes.h" />
     <ClInclude Include="Source\Editor\Git\GitService.h" />
     <ClInclude Include="Source\Editor\Git\GitRepository.h" />
@@ -1366,9 +1466,12 @@
     <ClInclude Include="Source\Engine\CameraFrustum.h" />
     <ClInclude Include="Source\Engine\Clock.h" />
     <ClInclude Include="Source\Engine\Constants.h" />
+    <ClInclude Include="Source\Engine\PolyphaseAbi.h" />
     <ClInclude Include="Source\Engine\Datum.h" />
     <ClInclude Include="Source\Engine\EmbeddedFile.h" />
     <ClInclude Include="Source\Engine\Engine.h" />
+    <ClInclude Include="Source\Engine\EngineRuntimeManifest.h" />
+    <ClInclude Include="Source\Engine\Utils\Sha256.h" />
     <ClInclude Include="Source\Engine\TinyLLMInference.h" />
     <ClInclude Include="Source\Engine\TinyLLMManager.h" />
     <ClInclude Include="Source\Engine\EngineTypes.h" />

@@ -47,7 +47,19 @@ endif
 # INCLUDES is a list of directories containing extra header files
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
+# When the parent engine build sets POLYPHASE_PIC=1 (used by the shared
+# runtime / libPolyphaseGame.so), route PIC objects AND the .a into a
+# separate intermediate/output directory so they don't clobber the regular
+# non-PIC build. The engine Makefile picks up .o files via wildcard on
+# Intermediate/Linux-pic/, so the output .a path is only used to give make
+# a distinct up-to-date check.
+ifneq ($(strip $(POLYPHASE_PIC)),)
+BUILD		:=	Intermediate/Linux-pic
+PIC_OUTPUT_SUFFIX := -pic
+else
 BUILD		:=	Intermediate/Linux
+PIC_OUTPUT_SUFFIX :=
+endif
 SOURCES		:=	BulletCollision/BroadphaseCollision \
 				BulletCollision/CollisionDispatch \
 				BulletCollision/CollisionShapes \
@@ -61,13 +73,16 @@ SOURCES		:=	BulletCollision/BroadphaseCollision \
 				BulletDynamics/Vehicle \
 				LinearMath 
 INCLUDES	:=	./
-OUTPUT_DIR	:=	$(CURDIR)/Build/Linux
+OUTPUT_DIR	:=	$(CURDIR)/Build/Linux$(PIC_OUTPUT_SUFFIX)
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 
 CFLAGS	= -g -O2 -Wall $(INCLUDE) -DPLATFORM_LINUX=1 -DAPI_VULKAN=1
+ifneq ($(strip $(POLYPHASE_PIC)),)
+CFLAGS	+=	-fPIC
+endif
 CXXFLAGS	=	$(CFLAGS)
 
 LDFLAGS	=	-g -Wl,-Map,$(notdir $@).map

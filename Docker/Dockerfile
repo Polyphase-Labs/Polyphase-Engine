@@ -22,108 +22,31 @@
 #   Interactive:
 #     docker run -it --rm -v ./output:/game -v ./MyGame:/project polyphase-engine bash
 
-# Base must be Debian Bookworm or newer because devkitPro's pacman ships
-# toolchain binaries (powerpc-eabi-gcc/g++, arm-none-eabi-gcc/g++) that are
-# themselves built against glibc 2.36+. An older base (Ubuntu 22.04 = glibc
-# 2.35) installs them successfully but they crash at runtime with:
-#     powerpc-eabi-g++: /lib/x86_64-linux-gnu/libc.so.6:
-#         version `GLIBC_2.36' not found (required by powerpc-eabi-g++)
-# Bookworm (glibc 2.36, gcc 12 / GLIBCXX_3.4.31) is the floor for everything
-# we need. Editor binaries built here will need glibc 2.36+ to run, which
-# covers Bookworm, Ubuntu 24.04+, RHEL 9.4+, and Fedora 36+.
-# Keep this in sync with Docker/Dockerfile.base.
-FROM debian:bookworm-slim
+# Inherit the prebuilt toolchain (Debian Bookworm + GCC 12 + Vulkan SDK +
+# glslc + devkitPPC/ARM + libogc2 + curl-impersonate) from polyphase-bare.
+# That image is built from Docker/Dockerfile.base and published manually
+# from a workstation — see .github/workflows/release.yml's
+# publish-docker-images job docstring for why CI doesn't rebuild it.
+#
+# Reinstalling the toolchain here (FROM debian:bookworm-slim + duplicated
+# apt/wget/dkp-pacman steps) is what made this image's CI build flaky:
+# `apt-get install devkitpro-pacman` runs a postinst that calls
+# `dkp-pacman -Sy` against pkg.devkitpro.org, which routinely times out
+# from GitHub-hosted runners ("failed retrieving file 'dkp-linux.db' ...
+# Operation too slow"). polyphase-bare already paid that toll once
+# locally; we just consume it.
+#
+# Forks publishing under a different namespace can override the base at
+# build time:
+#   docker build --build-arg BASE_IMAGE=myorg/polyphase-bare:latest -f Docker/Dockerfile .
+ARG BASE_IMAGE=polyphaselabs/polyphase-bare:latest
+FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base dependencies. Mirrors Dockerfile.base — keep in sync.
-#   g++/make           - engine + game compile
-#   cmake              - Tools/prebuild_libgit2.sh + addon CMake projects
-#   libx11/asound/pulse/vorbis-dev - engine link deps
-#   libssl-dev         - libgit2 HTTPS backend (SelectHTTPSBackend.cmake)
-#   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
-#   git                - submodules
-#   pkg-config         - addon build scripts resolve FFmpeg etc.
-#   xz-utils           - tar.xz extraction (Vulkan SDK)
-#   sudo, gnupg        - dkp-pacman keyring + post-install hooks
-#   python3            - Tools/generate_embedded_stubs.py
-#   dpkg-dev           - Installers/build_deb_linux.sh uses dpkg-deb
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    g++ \
-    make \
-    cmake \
-    libx11-dev \
-    libasound2-dev \
-    libpulse-dev \
-    libvorbis-dev \
-    libssl-dev \
-    wget \
-    curl \
-    ca-certificates \
-    git \
-    pkg-config \
-    xz-utils \
-    sudo \
-    gnupg \
-    python3 \
-    dpkg-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Vulkan SDK 1.3.275.0
-ENV VULKAN_VERSION=1.3.275.0
-WORKDIR /tmp
-RUN wget -q https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/linux/vulkansdk-linux-x86_64-${VULKAN_VERSION}.tar.xz \
-    && mkdir -p /opt/vulkan \
-    && tar -xf vulkansdk-linux-x86_64-${VULKAN_VERSION}.tar.xz -C /opt/vulkan \
-    && rm vulkansdk-linux-x86_64-${VULKAN_VERSION}.tar.xz
-
-ENV VULKAN_SDK=/opt/vulkan/${VULKAN_VERSION}/x86_64
-ENV PATH="${VULKAN_SDK}/bin:${PATH}"
-ENV LD_LIBRARY_PATH="${VULKAN_SDK}/lib"
-ENV VK_LAYER_PATH="${VULKAN_SDK}/share/vulkan/explicit_layer.d"
-
-# Install devkitPro (for 3DS, GameCube, Wii)
-ENV DEVKITPRO=/opt/devkitpro
-ENV DEVKITPPC=${DEVKITPRO}/devkitPPC
-ENV DEVKITARM=${DEVKITPRO}/devkitARM
-ENV PATH="${DEVKITPRO}/tools/bin:${DEVKITPPC}/bin:${DEVKITARM}/bin:${PATH}"
-
-# Install devkitPro pacman (using their required User-Agent "dkp apt")
-RUN apt-get update && \
-    apt-get install -y apt-transport-https && \
-    mkdir -p /usr/share/keyring/ && \
-    wget -U "dkp apt" -O /usr/share/keyring/devkitpro-pub.gpg https://apt.devkitpro.org/devkitpro-pub.gpg && \
-    echo "deb [signed-by=/usr/share/keyring/devkitpro-pub.gpg] https://apt.devkitpro.org stable main" > /etc/apt/sources.list.d/devkitpro.list && \
-    apt-get update && \
-    apt-get install -y devkitpro-pacman && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install curl-impersonate to bypass Cloudflare (mimics Chrome TLS fingerprint)
-RUN apt-get update && apt-get install -y libnss3 nss-plugin-pem ca-certificates && rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz \
-    | tar -xz -C /usr/local/bin && \
-    ldconfig /usr/local/bin
-
-# Install console development libraries
-# Create /etc/mtab symlink needed by pacman in Docker
-RUN ln -sf /proc/self/mounts /etc/mtab
-
-# Add libogc2 GPG key from keyserver (direct URL returns 403 behind Cloudflare)
-RUN dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
-
-# Sign the libogc2 key
-RUN dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
-
-# Add libogc2 repo to pacman config
-RUN echo '[libogc2-devkitpro]\nServer = https://packages.libogc2.org/devkitpro/linux/$arch\nServer = https://packages.extremscorner.org/devkitpro/linux/$arch' >> /opt/devkitpro/pacman/etc/pacman.conf
-
-# Install console dev packages
-RUN dkp-pacman -Syyu --noconfirm 3ds-dev wii-dev gamecube-tools-git libogc2 libogc2-libdvm
-
-# Clean pacman cache
-RUN yes | dkp-pacman -Scc
-
-# Create directories
+# polyphase-bare already created these and set WORKDIR /polyphase; the
+# explicit calls here are belt-and-braces so a future base swap that
+# omits them doesn't silently break the COPY below.
 RUN mkdir -p /polyphase /game /project /intermediate
 WORKDIR /polyphase
 
