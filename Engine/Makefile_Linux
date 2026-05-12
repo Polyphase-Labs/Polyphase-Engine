@@ -154,11 +154,21 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 LIBS	:=	-lvulkan -lxcb -lasound -lpthread -lm -ldl -lutil
 
+# When building libPolyphaseEditor.so (editor shared runtime), link the editor's
+# static deps directly INTO the .so so the editor exe doesn't have to re-link
+# them. Re-linking them at exe-link time fails because these archives are built
+# with -fvisibility=hidden (the symbols are hidden in the .so and can't be
+# re-exported).
+ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+LIBS	+=	-lpulse -lAssimp -lshaderc_combined -lspirv-cross-core -lgit2 -lssl -lcrypto
+endif
+
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
 LIBDIRS	:= $(VULKAN_SDK)
+
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -206,6 +216,11 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 # build a list of library paths
 #---------------------------------------------------------------------------------
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+# Editor-shared specific search paths for libs that don't follow the "$(dir)/lib"
+# convention: libAssimp.a is under Build/Linux/, libgit2.a under build/.
+ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+LIBPATHS	+=	-L$(ASSIMP_DIR)/Build/Linux-pic -L$(CURDIR)/External/libgit2/build
+endif
 
 ifneq ($(strip $(SHARED_BUILD)),)
 export OUTPUT	:=	$(OUTPUT_DIR)/lib$(TARGET).so

@@ -84,8 +84,19 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -rdynamic -Wl,-rpath,'$$ORIGIN
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
+#
+# Shared mode: the engine .so already statically contains shaderc, spirv-cross,
+# Assimp, Bullet, libgit2, ssl, crypto. Re-linking those static archives into the
+# editor exe both duplicates them and breaks (their symbols are hidden in the
+# .so, so the linker rejects re-exporting them — `hidden symbol ... in ... is
+# referenced by DSO`). In shared mode we only link the engine .so plus the
+# system-provided shared libs the exe genuinely needs at its own boundary.
 #---------------------------------------------------------------------------------
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+LIBS	:=	$(LINK_ENGINE) -lvulkan -lxcb -lasound -lpulse -lpthread -lm -ldl
+else
 LIBS	:=	$(LINK_ENGINE) -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lAssimp -lBullet -lgit2 -lssl -lcrypto -lpthread -lm
+endif
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
