@@ -46,23 +46,46 @@ jobs:
           git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
-      # Vulkan SDK version is pinned to the one documented in
-      # Documentation/Development/SetupEnvironment/Windows.md (1.3.275.0) so CI
-      # builds against the same SDK every contributor's local dev environment uses.
+      # Vulkan SDK is pinned to 1.3.275.0 to match what the engine has been
+      # tested against (shader compilation, spirv-cross / shaderc lib ABI,
+      # validation-layer config). Bumping has been deferred because newer
+      # SDKs trip shader-compile warnings the engine treats as errors.
       #
-      # LunarG's CDN denies bare scripted GETs to the download URL — the
-      # "Not Found / access denied" page is their anti-hotlinking policy in
-      # disguise. The `?Human=true` query parameter is the documented escape
-      # hatch (browser visits include it implicitly via their download flow);
-      # CI scripts have to add it explicitly.
+      # LunarG removed 1.3.275.0 from their direct CDN around 2026-05, and
+      # the SDK self-cleans its installer after running so a fresh dev box
+      # can't even re-archive it from a local install. The workaround: a
+      # one-time PowerShell `Compress-Archive` of the installed
+      # C:\VulkanSDK\1.3.275.0\ tree, published as a GitHub Release asset
+      # on this very repo, then re-extracted on every CI run. No installer
+      # invocation, no license prompts, no startup-component selection —
+      # the zip already reflects the components-selected install from a
+      # working dev box.
+      #
+      # Mirror upload procedure (do once when the version changes):
+      #   1. On a workstation with the SDK installed:
+      #        Compress-Archive -Path 'C:\VulkanSDK\1.3.275.0\*' `
+      #                         -DestinationPath VulkanSDK-1.3.275.0-installed.zip `
+      #                         -CompressionLevel Optimal
+      #   2. GitHub → Releases → Draft new release, tag `vulkan-sdk-1.3.275.0`
+      #      (NOT v-prefixed — that would trigger this very workflow).
+      #   3. Drag the zip in as an asset, publish.
       - name: Install Vulkan SDK
         shell: pwsh
+        env:
+          VULKAN_ZIP_URL: https://github.com/Polyphase-Labs/Polyphase-Engine/releases/download/vulkan-sdk-1.3.275.0/VulkanSDK-1.3.275.0-installed.zip
         run: |
           $VER = "1.3.275.0"
-          $url = "https://sdk.lunarg.com/sdk/download/$VER/windows/VulkanSDK-$VER-Installer.exe?Human=true"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\VulkanSDK.exe" -UserAgent "Mozilla/5.0"
-          Start-Process -FilePath "$env:TEMP\VulkanSDK.exe" -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
-          echo "VULKAN_SDK=C:\VulkanSDK\$VER" >> $env:GITHUB_ENV
+          $dst = "C:\VulkanSDK\$VER"
+          $zip = "$env:TEMP\VulkanSDK.zip"
+          Write-Host "Downloading Vulkan SDK $VER from $env:VULKAN_ZIP_URL"
+          Invoke-WebRequest -Uri $env:VULKAN_ZIP_URL -OutFile $zip -UserAgent "Mozilla/5.0"
+          Write-Host "Extracting to $dst"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $dst -Force
+          # Sanity: the extracted tree must contain Include\vulkan and Lib\vulkan-1.lib
+          if (-not (Test-Path "$dst\Include\vulkan")) { throw "Vulkan SDK extract failed: $dst\Include\vulkan missing" }
+          if (-not (Test-Path "$dst\Lib\vulkan-1.lib")) { throw "Vulkan SDK extract failed: $dst\Lib\vulkan-1.lib missing" }
+          "VULKAN_SDK=$dst" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Compile shaders
         shell: cmd
