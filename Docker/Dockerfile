@@ -129,9 +129,19 @@ RUN make -C External/Lua a -j"$(nproc)" \
 
 # ============================================================================
 # Pre-build Linux Editor (for headless asset cooking)
+#
+# W1: built with POLYPHASE_SHARED=1 so the editor exe is the DLL-consumer
+# flavor and pairs with libPolyphaseEditor.so. End-users pull this image
+# precisely because they want the shared-editor model — native addons link
+# against PolyphaseEditor.lib's .so equivalent, iteration is faster on
+# engine source changes, and the runtime is smaller per-game (engine code
+# isn't statically duplicated into every shipped Linux game). The elf's
+# DT_RPATH=$ORIGIN looks for the .so next to itself, so we stage both
+# under /polyphase/ together.
 # ============================================================================
-RUN cd /polyphase/Standalone && make -j$(nproc) -f Makefile_Linux_Editor
-RUN cp /polyphase/Standalone/Build/Linux/PolyphaseEditor.elf /polyphase/PolyphaseEditor.elf
+RUN cd /polyphase/Standalone && make -j$(nproc) -f Makefile_Linux_Editor POLYPHASE_SHARED=1
+RUN cp /polyphase/Standalone/Build/Linux/PolyphaseEditor.elf  /polyphase/PolyphaseEditor.elf \
+ && cp /polyphase/Standalone/Build/Linux/libPolyphaseEditor.so /polyphase/libPolyphaseEditor.so
 
 # ============================================================================
 # Build Commands
@@ -152,6 +162,11 @@ fi\n\
 \n\
 echo "Copying editor to /game..."\n\
 cp /polyphase/PolyphaseEditor.elf /game/\n\
+# W1: the editor elf is the DLL-consumer flavor and resolves libPolyphaseEditor.so\n\
+# via DT_RPATH=$ORIGIN, so the .so must travel with the elf. The `[ -f ]` guard\n\
+# lets this image keep working if a fork rebuilds it from the static editor\n\
+# path (Dockerfile pre-W1) where no .so exists.\n\
+[ -f /polyphase/libPolyphaseEditor.so ] && cp /polyphase/libPolyphaseEditor.so /game/\n\
 cp -r /polyphase/Engine /game/\n\
 chmod -R 777 /game\n\
 \n\
