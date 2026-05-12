@@ -243,16 +243,18 @@ jobs:
       - name: Generate Standalone embedded asset stubs
         run: python3 Tools/generate_embedded_stubs.py
 
-      - name: Build Engine (Linux Editor)
-        run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
-
-      # W1: Also build the DLL-flavor editor + game shared objects.
-      # `make -C Standalone -f Makefile_Linux_{Editor,Game} POLYPHASE_SHARED=1`
-      # produces libPolyphaseEditor.so / libPolyphaseGame.so under
-      # Engine/Build/Linux/, which stage_distribution.py picks up and copies
-      # into dist/Editor/ alongside the static editor elf. Best-effort:
-      # continue-on-error so a fork that hasn't validated the .so path yet
-      # still gets a working static-only release.
+      # W1: DLL-flavor editor + game shared objects come FIRST so the
+      # subsequent static editor build can overwrite the elf at
+      # Standalone/Build/Linux/PolyphaseEditor.elf without losing the
+      # .so files. Both make invocations write the elf to the same path
+      # (TARGET name is shared) but only the shared build emits the .so —
+      # it lives at Standalone/Build/Linux/libPolyphaseEditor.so afterwards,
+      # picked up by stage_distribution.py and shipped in dist/Editor/.
+      # Static elf is the one verify-test-project downloads via the
+      # polyphase-editor-tree artifact (it has no .so dependency), so
+      # building static last keeps that artifact runnable end-to-end.
+      # Best-effort: continue-on-error so a fork that hasn't validated
+      # the .so path yet still gets a working static-only release.
       - name: Build Engine (Linux Editor Shared)
         continue-on-error: true
         run: make -C Standalone -f Makefile_Linux_Editor POLYPHASE_SHARED=1 -j$(nproc)
@@ -260,6 +262,9 @@ jobs:
       - name: Build Engine (Linux Game Shared)
         continue-on-error: true
         run: make -C Standalone -f Makefile_Linux_Game POLYPHASE_SHARED=1 -j$(nproc)
+
+      - name: Build Engine (Linux Editor)
+        run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
 
       # The Linux engine build statically compiles Lua sources directly into
       # libEngineEditor.a, so it does NOT produce a standalone libLua.a the way
