@@ -159,8 +159,25 @@ LIBS	:=	-lvulkan -lxcb -lasound -lpthread -lm -ldl -lutil
 # them. Re-linking them at exe-link time fails because these archives are built
 # with -fvisibility=hidden (the symbols are hidden in the .so and can't be
 # re-exported).
+#
+# W1: -lBullet pulls in Bullet's PIC static archive at .so link time. The
+# wildcard-based BULLET_OFILES below is evaluated at outer-make parse time
+# (BEFORE MakeBullet has had a chance to run), so on a clean build it expands
+# to nothing and OFILES_EXTRA exports empty — fine for the .a path because
+# the editor exe later adds `-lBullet` at exe-link time, but fatal for the
+# .so path where ld would otherwise produce a .so full of undefined Bullet
+# refs. Linking -lBullet here means the .so is self-contained: ld resolves
+# Bullet symbols against Build/Linux-pic/libBullet.a at .so creation time,
+# the .so has no external Bullet deps, and the editor exe just gets them
+# transitively through libPolyphaseEditor.so's exports.
 ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
-LIBS	+=	-lpulse -lAssimp -lshaderc_combined -lspirv-cross-core -lgit2 -lssl -lcrypto
+LIBS	+=	-lpulse -lAssimp -lshaderc_combined -lspirv-cross-core -lgit2 -lssl -lcrypto -lBullet
+endif
+# Same fix for libPolyphaseGame.so: -lBullet ensures the game shared lib
+# carries its own Bullet implementation rather than leaving it as a hole the
+# game exe has to patch.
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+LIBS	+=	-lBullet
 endif
 
 #---------------------------------------------------------------------------------
@@ -219,7 +236,11 @@ export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 # Editor-shared specific search paths for libs that don't follow the "$(dir)/lib"
 # convention: libAssimp.a is under Build/Linux/, libgit2.a under build/.
 ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
-LIBPATHS	+=	-L$(ASSIMP_DIR)/Build/Linux-pic -L$(CURDIR)/External/libgit2/build
+LIBPATHS	+=	-L$(ASSIMP_DIR)/Build/Linux-pic -L$(CURDIR)/External/libgit2/build -L$(BULLET_DIR)/Build/Linux-pic
+endif
+# W1: game-shared needs the PIC Bullet archive on its lib search path too.
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+LIBPATHS	+=	-L$(BULLET_DIR)/Build/Linux-pic
 endif
 
 ifneq ($(strip $(SHARED_BUILD)),)
