@@ -533,15 +533,20 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
+    <PreLinkEvent>
+      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)" --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Message>Generating engine.def (auto-export every public symbol)</Message>
+    </PreLinkEvent>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
-      <AdditionalDependencies>vulkan-1.lib;assimpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(SolutionDir)External/lib/Lib/;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ModuleDefinitionFile>$(IntDir)engine.def</ModuleDefinitionFile>
+      <AdditionalDependencies>vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ProjectReference>
-      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
     </ProjectReference>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release Shared|x64'">
@@ -556,17 +561,22 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
+    <PreLinkEvent>
+      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)" --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Message>Generating engine.def (auto-export every public symbol)</Message>
+    </PreLinkEvent>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
-      <AdditionalDependencies>vulkan-1.lib;assimpd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(SolutionDir)External/lib/Lib/;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ModuleDefinitionFile>$(IntDir)engine.def</ModuleDefinitionFile>
+      <AdditionalDependencies>vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ProjectReference>
-      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
     </ProjectReference>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Android-arm64-v8a'">
@@ -1290,6 +1300,15 @@
     </ProjectReference>
     <ProjectReference Include="..\External\Vorbis\Vorbis.vcxproj">
       <Project>{9cc47acb-dfde-4fda-adae-ce660f8dd450}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\External\Assimp\Assimp.vcxproj">
+      <Project>{3f6a7d22-1e7c-4708-a88b-676674afca7a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\External\IrrXML\IrrXML.vcxproj">
+      <Project>{843f284e-7382-4e28-9597-027f8145d55a}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\External\Zlib\Zlib.vcxproj">
+      <Project>{8bcd93f2-be7e-48e0-9c7c-82e0640c1712}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
