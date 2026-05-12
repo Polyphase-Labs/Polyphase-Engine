@@ -31,6 +31,7 @@ Exit codes:
   1  dumpbin not on PATH / not found
   2  no .obj files found under --int-dir
   3  parse failure / wrote zero exports
+  4  --int-dir is not a directory
 """
 
 from __future__ import annotations
@@ -134,14 +135,27 @@ def main(argv: list[str]) -> int:
     p.add_argument("--dumpbin", default=None, help="Explicit path to dumpbin.exe (otherwise resolved from PATH)")
     args = p.parse_args(argv)
 
-    int_dir = Path(args.int_dir)
+    # Path resolution: VS hands us $(IntDir) which ends in `\`. We accept the
+    # trailing-dot form ($(IntDir).) which sidesteps the CRT's \"-as-literal-quote
+    # parsing issue, and we strip stray trailing quotes if any survived.
+    raw = args.int_dir.rstrip('"').rstrip()
+    int_dir = Path(raw)
     if not int_dir.is_dir():
-        sys.stderr.write(f"[generate_dll_def] error: --int-dir is not a directory: {int_dir}\n")
-        return 2
+        sys.stderr.write(
+            f"[generate_dll_def] error: --int-dir is not a directory.\n"
+            f"  raw arg: {args.int_dir!r}\n"
+            f"  resolved: {int_dir!r} (exists={int_dir.exists()})\n"
+        )
+        return 4
 
     obj_files = sorted(int_dir.rglob("*.obj"))
     if not obj_files:
-        sys.stderr.write(f"[generate_dll_def] error: no .obj files under {int_dir}\n")
+        sys.stderr.write(
+            f"[generate_dll_def] error: no .obj files under {int_dir}\n"
+            f"  this usually means ClCompile didn't run (the project is being\n"
+            f"  re-linked with no source changes after a previous failed link)\n"
+            f"  fix: Build > Rebuild Engine to force recompile.\n"
+        )
         return 2
 
     dumpbin = args.dumpbin or _find_dumpbin()

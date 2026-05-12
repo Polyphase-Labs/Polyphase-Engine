@@ -534,7 +534,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <PreLinkEvent>
-      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)" --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
       <Message>Generating engine.def (auto-export every public symbol)</Message>
     </PreLinkEvent>
     <Link>
@@ -562,7 +562,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <PreLinkEvent>
-      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)" --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
       <Message>Generating engine.def (auto-export every public symbol)</Message>
     </PreLinkEvent>
     <Link>
