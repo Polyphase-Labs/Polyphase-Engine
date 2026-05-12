@@ -46,11 +46,21 @@ jobs:
           git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
           git submodule update --recursive
 
+      # Vulkan SDK version is pinned to the one documented in
+      # Documentation/Development/SetupEnvironment/Windows.md (1.3.275.0) so CI
+      # builds against the same SDK every contributor's local dev environment uses.
+      #
+      # LunarG's CDN denies bare scripted GETs to the download URL — the
+      # "Not Found / access denied" page is their anti-hotlinking policy in
+      # disguise. The `?Human=true` query parameter is the documented escape
+      # hatch (browser visits include it implicitly via their download flow);
+      # CI scripts have to add it explicitly.
       - name: Install Vulkan SDK
         shell: pwsh
         run: |
           $VER = "1.3.275.0"
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$VER/windows/VulkanSDK-$VER-Installer.exe" -OutFile "$env:TEMP\VulkanSDK.exe"
+          $url = "https://sdk.lunarg.com/sdk/download/$VER/windows/VulkanSDK-$VER-Installer.exe?Human=true"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\VulkanSDK.exe" -UserAgent "Mozilla/5.0"
           Start-Process -FilePath "$env:TEMP\VulkanSDK.exe" -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
           echo "VULKAN_SDK=C:\VulkanSDK\$VER" >> $env:GITHUB_ENV
 
