@@ -295,6 +295,28 @@ def stage(platform, output_dir, engine_root, verbose=False):
                 log(f"Lua.lib: {lua_lib}", verbose)
             else:
                 print("  WARNING: Lua.lib not found - native addon builds may fail")
+
+        # W1: PolyphaseEditor.dll + import lib (DLL editor flavor — optional,
+        # only present when the workflow built `ReleaseEditor Shared|x64`).
+        # Native addons that opt into DLL-mode link against PolyphaseEditor.lib;
+        # NativeAddonManager picks the right lib at build-script generation time
+        # based on its own POLYPHASE_DLL_BUILD compile-time flag.
+        polyphase_editor_dll = engine_root / "Engine" / "Build" / "Windows" / "x64" / "ReleaseEditor Shared" / "PolyphaseEditor.dll"
+        if copy_file(polyphase_editor_dll, dist / "PolyphaseEditor.dll", verbose):
+            log(f"PolyphaseEditor.dll: {polyphase_editor_dll}", verbose)
+        polyphase_editor_lib = engine_root / "Engine" / "Build" / "Windows" / "x64" / "ReleaseEditor Shared" / "PolyphaseEditor.lib"
+        if copy_file(polyphase_editor_lib, dist / "PolyphaseEditor.lib", verbose):
+            log(f"PolyphaseEditor.lib: {polyphase_editor_lib}", verbose)
+
+        # W1: PolyphaseGame.dll + import lib (DLL game runtime flavor — also
+        # optional). Used by shipped Windows games that link against the
+        # engine DLL instead of statically compiling it in.
+        polyphase_game_dll = engine_root / "Engine" / "Build" / "Windows" / "x64" / "Release Shared" / "PolyphaseGame.dll"
+        if copy_file(polyphase_game_dll, dist / "PolyphaseGame.dll", verbose):
+            log(f"PolyphaseGame.dll: {polyphase_game_dll}", verbose)
+        polyphase_game_lib = engine_root / "Engine" / "Build" / "Windows" / "x64" / "Release Shared" / "PolyphaseGame.lib"
+        if copy_file(polyphase_game_lib, dist / "PolyphaseGame.lib", verbose):
+            log(f"PolyphaseGame.lib: {polyphase_game_lib}", verbose)
     else:
         # Linux: Stage libLua.a for native addon builds
         lua_lib = engine_root / "External" / "Lua" / "Build" / "Linux" / "x64" / "ReleaseEditor" / "libLua.a"
@@ -304,6 +326,17 @@ def stage(platform, output_dir, engine_root, verbose=False):
             log(f"libLua.a: {lua_lib}", verbose)
         else:
             print("  WARNING: libLua.a not found - native addon builds may need system Lua")
+
+        # W1: libPolyphaseEditor.so + libPolyphaseGame.so (DLL editor/game
+        # flavors — optional). Sits next to PolyphaseEditor.elf so the elf's
+        # DT_RPATH=$ORIGIN finds it at runtime when the .elf was built with
+        # POLYPHASE_DLL_CONSUMER=1.
+        editor_so = engine_root / "Engine" / "Build" / "Linux" / "libPolyphaseEditor.so"
+        if copy_file(editor_so, dist / "libPolyphaseEditor.so", verbose):
+            log(f"libPolyphaseEditor.so: {editor_so}", verbose)
+        game_so = engine_root / "Engine" / "Build" / "Linux" / "libPolyphaseGame.so"
+        if copy_file(game_so, dist / "libPolyphaseGame.so", verbose):
+            log(f"libPolyphaseGame.so: {game_so}", verbose)
 
     # --- Write version file ---
     # INI format so Inno Setup's ReadIni() can parse it

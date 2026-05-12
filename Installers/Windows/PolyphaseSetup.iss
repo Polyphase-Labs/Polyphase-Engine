@@ -120,6 +120,22 @@ Source: "..\..\dist\Editor\Engine\CMakeLists.txt"; DestDir: "{app}\Engine"; Flag
 Source: "..\..\dist\Editor\Polyphase.lib"; DestDir: "{app}"; Flags: ignoreversion; Components: sdk
 Source: "..\..\dist\Editor\Lua.lib"; DestDir: "{app}"; Flags: ignoreversion; Components: sdk
 
+; --- Core: DLL-flavor engine runtimes (W1) ---
+; PolyphaseEditor.dll / PolyphaseGame.dll ship alongside the static editor
+; for two purposes:
+;   1. Native addons can link against PolyphaseEditor.lib for the DLL-editor
+;      flavor (NativeAddonManager auto-picks the right import lib based on
+;      its own POLYPHASE_DLL_BUILD at script-generation time).
+;   2. Shipped Windows game exes built in `Debug Shared`/`Release Shared`
+;      load PolyphaseGame.dll at runtime — devs can copy the DLL next to
+;      their packaged exe straight out of the install dir.
+; skipifsourcedoesntexist so forks that don't build the Shared configs
+; (yet) don't fail installer compilation.
+Source: "..\..\dist\Editor\PolyphaseEditor.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: core
+Source: "..\..\dist\Editor\PolyphaseEditor.lib"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: sdk
+Source: "..\..\dist\Editor\PolyphaseGame.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: core
+Source: "..\..\dist\Editor\PolyphaseGame.lib"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: sdk
+
 ; --- SDK: External ---
 Source: "..\..\dist\Editor\External\*"; DestDir: "{app}\External"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: sdk
 

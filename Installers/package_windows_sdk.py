@@ -30,8 +30,20 @@ from pathlib import Path
 POLYPHASE_LIB_SRC = Path("Standalone") / "Build" / "Windows" / "x64" / "ReleaseEditor" / "Polyphase.lib"
 LUA_LIB_SRC       = Path("External") / "Lua" / "Build" / "Windows" / "x64" / "ReleaseEditor" / "Lua.lib"
 
+# W1: DLL-flavor engine runtimes. Optional — only present if the workflow
+# also built `ReleaseEditor Shared|x64` / `Release Shared|x64`. Addon CI that
+# wants to link against the DLL editor pulls these from the SDK zip; the
+# packager skips them silently when absent so we don't break forks that
+# haven't enabled the Shared configs yet.
+POLYPHASE_EDITOR_DLL_SRC = Path("Engine") / "Build" / "Windows" / "x64" / "ReleaseEditor Shared" / "PolyphaseEditor.dll"
+POLYPHASE_EDITOR_LIB_SRC = Path("Engine") / "Build" / "Windows" / "x64" / "ReleaseEditor Shared" / "PolyphaseEditor.lib"
+POLYPHASE_GAME_DLL_SRC   = Path("Engine") / "Build" / "Windows" / "x64" / "Release Shared"        / "PolyphaseGame.dll"
+POLYPHASE_GAME_LIB_SRC   = Path("Engine") / "Build" / "Windows" / "x64" / "Release Shared"        / "PolyphaseGame.lib"
+
 # Where the libs land inside the SDK zip.
 LIB_DST_DIR = Path("Lib") / "Windows" / "x64" / "ReleaseEditor"
+# DLL-flavor staging dir inside the SDK zip — parallel to the static one.
+DLL_DST_DIR = Path("Lib") / "Windows" / "x64" / "Shared"
 
 # External subdirs to ship. Header-only filter is applied recursively; glm is
 # header-only end-to-end (.hpp / .inl) so the filter catches everything.
@@ -91,6 +103,25 @@ def stage_sdk(source_root: Path, stage_dir: Path, verbose: bool) -> None:
     print("Staging import libraries...")
     copy_lib(source_root / POLYPHASE_LIB_SRC, stage_dir / LIB_DST_DIR / "Polyphase.lib", verbose)
     copy_lib(source_root / LUA_LIB_SRC,       stage_dir / LIB_DST_DIR / "Lua.lib",       verbose)
+
+    # W1: Stage the DLL-flavor engine runtimes too, when present. Unlike the
+    # static libs above we don't abort if missing — the Shared configs are
+    # opt-in for forks. copy_lib_optional logs and continues.
+    print("Staging DLL-flavor engine runtimes (W1, optional)...")
+    for src_rel, dst_name in (
+        (POLYPHASE_EDITOR_DLL_SRC, "PolyphaseEditor.dll"),
+        (POLYPHASE_EDITOR_LIB_SRC, "PolyphaseEditor.lib"),
+        (POLYPHASE_GAME_DLL_SRC,   "PolyphaseGame.dll"),
+        (POLYPHASE_GAME_LIB_SRC,   "PolyphaseGame.lib"),
+    ):
+        src = source_root / src_rel
+        if src.is_file():
+            dst = stage_dir / DLL_DST_DIR / dst_name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            log(f"  + {dst_name} ({src})", verbose)
+        else:
+            log(f"  - {dst_name}: not built ({src})", verbose)
 
     print("Staging Engine/Source headers...")
     n = copy_headers(source_root / "Engine" / "Source",

@@ -1163,20 +1163,14 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
     // as PolyphaseEditor.dll the addon links against the DLL's import lib;
     // when static it links against the exe's own export lib. The two produce
     // ABI-incompatible addon DLLs (different symbol resolution paths), so they
-    // mustn't share a cache slot. Detection: PolyphaseEditor.dll sitting next
-    // to the host exe means DLL mode.
+    // mustn't share a cache slot. Detect at compile time via POLYPHASE_DLL_BUILD
+    // — same source TU compiles into the DLL when set, into the static lib
+    // otherwise.
+#if POLYPHASE_DLL_BUILD
+    const char* flavorTag = "dll";
+#else
     const char* flavorTag = "static";
-    {
-        std::string exePath = SYS_GetExecutablePath();
-        size_t lastSlash = exePath.find_last_of("/\\");
-        std::string exeDir = (lastSlash != std::string::npos)
-                                 ? exePath.substr(0, lastSlash + 1)
-                                 : std::string();
-        if (SYS_DoesFileExist((exeDir + "PolyphaseEditor.dll").c_str(), false))
-        {
-            flavorTag = "dll";
-        }
-    }
+#endif
 
     char fingerprint[40];
     snprintf(fingerprint, sizeof(fingerprint), "%s_%s_%016llx", configTag, flavorTag, (unsigned long long)hash);
@@ -1922,15 +1916,20 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         for (char& c : exeDir) { if (c == '\\') c = '/'; }
     }
 
-    // W1: Detect whether the running editor is the DLL flavor by looking for
-    // PolyphaseEditor.dll next to the exe. In DLL mode the engine symbols are
-    // exported by PolyphaseEditor.dll (with its import lib PolyphaseEditor.lib
-    // sitting in Engine/Build/...). In static mode the engine is statically
-    // linked into the exe, exported via the exe's own Polyphase.lib that lives
-    // alongside the exe. The script's link line and library search paths have
-    // to follow whichever world the editor was built into.
-    const bool editorIsDll = SYS_DoesFileExist((exeDir + "PolyphaseEditor.dll").c_str(), false);
-    const char* engineLibName = editorIsDll ? "PolyphaseEditor.lib" : "Polyphase.lib";
+    // W1: We're running inside the editor exe — and this TU (NativeAddonManager.cpp)
+    // is part of the engine source tree, so it compiles either *into* the static
+    // editor or *into* PolyphaseEditor.dll. The DLL build defines
+    // POLYPHASE_DLL_BUILD=1; the static build does not. That makes the editor
+    // flavor a compile-time constant, no filesystem probing required (which had
+    // a false-positive when the installer shipped both flavors side-by-side).
+#if POLYPHASE_DLL_BUILD
+    const bool editorIsDll = true;
+    const char* engineLibName = "PolyphaseEditor.lib";
+#else
+    const bool editorIsDll = false;
+    const char* engineLibName = "Polyphase.lib";
+#endif
+    (void)editorIsDll;  // referenced only by the editorIsDll fingerprint tag below
 
     // Link against Polyphase import library and Lua library
     // First check installed editor paths (alongside executable)
