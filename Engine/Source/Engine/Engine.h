@@ -14,6 +14,31 @@ extern void OctPostUpdate();
 extern void OctPreShutdown();
 extern void OctPostShutdown();
 
+// W1: Hook registration indirection. Today the engine static-lib path resolves
+// the six Oct* externs above at exe-link time (Standalone/Main.cpp,
+// Template/Main.cpp, or a user game's Main.cpp provides the defs). That extern
+// model can't cross the engine-DLL boundary, so the engine routes its hook
+// calls through this small function-pointer struct instead.
+//
+// - Static-lib builds (POLYPHASE_DLL_BUILD undefined): Engine/Source/Engine/OctHookAutoRegister.cpp
+//   takes the address of the externs at static-init time and calls RegisterOctHooks().
+//   Zero source change required of existing game projects.
+// - DLL builds (POLYPHASE_DLL_BUILD=1): the engine DLL has no Oct* externs in
+//   its TUs. The consuming exe (POLYPHASE_DLL_CONSUMER=1) defines its own Oct*
+//   and registers them via the DLL-exported RegisterOctHooks() at exe static
+//   init — see Standalone/Source/Main.cpp.
+struct OctGameHooks
+{
+    void (*preInitialize)(EngineConfig&) = nullptr;
+    void (*postInitialize)()             = nullptr;
+    void (*preUpdate)()                  = nullptr;
+    void (*postUpdate)()                 = nullptr;
+    void (*preShutdown)()                = nullptr;
+    void (*postShutdown)()               = nullptr;
+};
+POLYPHASE_API void RegisterOctHooks(const OctGameHooks& hooks);
+POLYPHASE_API const OctGameHooks& GetOctHooks();
+
 bool Initialize();
 
 bool Update();

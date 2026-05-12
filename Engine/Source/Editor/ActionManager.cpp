@@ -1720,7 +1720,15 @@ void ActionManager::BuildPhase1()
 
         if (platform == Platform::Windows)
         {
-            std::string solutionPath = "Polyphase.sln";
+            // W1: Default the solution to the absolute path of the engine's
+            // Polyphase.sln. Previous behavior was relative "Polyphase.sln",
+            // which depended on the editor's current working directory at the
+            // moment devenv was invoked. When a test project's .octp lives
+            // somewhere far away from the engine and cwd has drifted (e.g. the
+            // user opened the .octp via File Explorer), devenv would fail with
+            // "Invalid project" because Polyphase.sln wasn't reachable from
+            // cwd. An absolute path makes the launch robust to any cwd.
+            std::string solutionPath = polyphaseDirectory + "Polyphase.sln";
             if (engineState->mSolutionPath != "")
             {
                 solutionPath = engineState->mSolutionPath;
@@ -1816,16 +1824,21 @@ void ActionManager::BuildPhase1()
                 }
             }
 
-            std::string devenvCmd = "\"" + GetDevenvPath();
-            if (useSteam)
-            {
-                devenvCmd += std::string(" ") + solutionPath + " /Build \"ReleaseSteam|x64\" /Project " + buildProjName;
-            }
-            else
-            {
-                devenvCmd += std::string(" ") + solutionPath + " /Build \"Release|x64\" /Project " + buildProjName;
-            }
-            devenvCmd += "\"";
+            // W1: popen routes through `cmd /c "<cmd>"`. When the inner cmd
+            // has multiple `"` (which ours does — devenv path, solution path,
+            // and config name are all quoted), cmd applies rule 2 of its
+            // quote-handling and strips the *leading* `"` and *last* `"` of
+            // the whole string. That means we have to wrap the entire
+            // command in our own outer `"…"` so the stripping consumes our
+            // wrapper instead of breaking the first argument.
+            //
+            // GetDevenvPath() already returns the executable path wrapped in
+            // its own quotes, so the wrapper opens with `""` (outer + path's
+            // own leading quote) — that's exactly what we want.
+            std::string devenvCmd = "\"" + GetDevenvPath()
+                                  + " \"" + solutionPath + "\""
+                                  + " /Build \"" + (useSteam ? "ReleaseSteam|x64" : "Release|x64") + "\""
+                                  + " /Project " + buildProjName + "\"";
             mBuildState.mCompileCommand = devenvCmd;
         }
         else if (platform == Platform::Android)
@@ -1886,6 +1899,40 @@ void ActionManager::BuildPhase1()
             {
                 ReplaceStringInFile(tmpMakefile, "PolyphaseApp", projectName);
                 ReplaceStringInFile(tmpMakefile, "$(CURDIR)/Makefile_3DS", "$(CURDIR)/Makefile_TEMP");
+            }
+
+            // W1: Console/Linux Makefiles reference the engine via the relative
+            // path `../Engine` (and `../External`), assuming the project lives
+            // as a sibling of the engine source tree. Legacy or relocated
+            // projects (e.g. anything under TestProjects/) don't satisfy that
+            // assumption — `$(CURDIR)/../Engine` then resolves to a missing
+            // directory and the build dies at the MakeEngine recursion with
+            // "No such file or directory". Detect that and rewrite the
+            // references in Makefile_TEMP to absolute engine paths.
+            //
+            // MAKE_VPATH in the project's makefile treats paths starting with
+            // `/` (POSIX) or containing `:` (Windows drive) as absolute, so
+            // either form of the absolute engine path is left alone instead
+            // of being prefixed with $(CURDIR)/.
+            {
+                std::string projParentEngine = buildProjDir + "../Engine";
+                if (!DoesDirExist(projParentEngine.c_str()))
+                {
+                    // MSYS make on Windows wants forward-slash paths;
+                    // strip any trailing slash so substitutions don't double up.
+                    std::string engRoot = polyphaseDirectory;
+                    while (!engRoot.empty() && (engRoot.back() == '/' || engRoot.back() == '\\'))
+                    {
+                        engRoot.pop_back();
+                    }
+                    for (char& c : engRoot) { if (c == '\\') c = '/'; }
+
+                    LogDebug("Makefile path rewrite: ../Engine and ../External -> %s", engRoot.c_str());
+                    ReplaceStringInFile(tmpMakefile, "$(CURDIR)/../Engine", engRoot + "/Engine");
+                    ReplaceStringInFile(tmpMakefile, "$(CURDIR)/../External", engRoot + "/External");
+                    ReplaceStringInFile(tmpMakefile, "../Engine", engRoot + "/Engine");
+                    ReplaceStringInFile(tmpMakefile, "../External", engRoot + "/External");
+                }
             }
 
             std::string projSourceDir = buildProjDir + "Source";

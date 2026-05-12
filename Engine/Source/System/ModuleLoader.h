@@ -4,10 +4,13 @@
  * @file ModuleLoader.h
  * @brief Cross-platform dynamic library loading utility.
  *
- * Only available in EDITOR builds for hot-loading native addons.
+ * Available in EDITOR builds (for hot-loading native addons in the editor)
+ * and in shipped Windows/Linux game builds (for loading addon DLLs/SOs that
+ * sit alongside the game exe). Consoles (3DS, Wii, GCN, Dolphin, Android)
+ * keep the source-compile-in addon model and do not expose this API.
  */
 
-#if EDITOR
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
 
 /**
  * @brief Load a dynamic library.
@@ -40,4 +43,4 @@ void MOD_Unload(void* handle);
  */
 const char* MOD_GetError();
 
-#endif // EDITOR
+#endif // PLATFORM_WINDOWS || PLATFORM_LINUX

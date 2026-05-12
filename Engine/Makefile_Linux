@@ -39,7 +39,7 @@ endif
 %.so:
 	$(SILENTMSG) $(notdir $@)
 	$(SILENTCMD)rm -f $@
-	$(SILENTCMD)$(CXX) -shared -Wl,-soname,libPolyphaseGame.so -Wl,-rpath,'$$ORIGIN' -o $@ $^ $(LIBPATHS) $(LIBS)
+	$(SILENTCMD)$(CXX) -shared -Wl,-soname,$(notdir $@) -Wl,-rpath,'$$ORIGIN' -o $@ $^ $(LIBPATHS) $(LIBS)
 
 #---------------------------------------------------------------------------------
 %.o: %.cpp
@@ -106,13 +106,26 @@ ASSIMP_DIR	:=	$(CURDIR)/../External/Assimp
 CFLAGS	= -g -O2 -Wall $(MACHDEP) -DPLATFORM_LINUX=1 -DAPI_VULKAN=1 $(INCLUDE)
 
 ifneq ($(strip $(POLYPHASE_SHARED)),)
-# W1: SHARED engine runtime — game-only sources, PIC objects, .so output.
+# W1: SHARED game-runtime engine — game-only sources, PIC objects, .so output.
 # Also exports POLYPHASE_PIC=1 to recursive External sub-makes (e.g. Bullet)
 # so their static archives are built with -fPIC into a separate intermediate
 # directory, leaving the non-PIC static build untouched.
-CFLAGS	+=	-DEDITOR=0 -fPIC -DPOLYPHASE_ENGINE_EXPORT=1
+# POLYPHASE_DLL_BUILD=1 gates Engine.cpp's main/GameMain block out of the .so.
+CFLAGS	+=	-DEDITOR=0 -fPIC -DPOLYPHASE_ENGINE_EXPORT=1 -DPOLYPHASE_DLL_BUILD=1
 BUILD		:=	Intermediate/Linux/EngineGameShared
 TARGET		:= PolyphaseGame
+SHARED_BUILD := 1
+export POLYPHASE_PIC := 1
+else ifneq ($(strip $(POLYPHASE_EDITOR_SHARED)),)
+# W1: SHARED editor engine — editor sources included, PIC objects, .so output.
+# Same source set as the static editor below, with DLL_BUILD gating Engine.cpp's
+# main/GameMain block and the OctHookAutoRegister auto-wire (the exe registers
+# its hooks via RegisterOctHooks() at startup).
+CFLAGS	+=	-DEDITOR=1 -DPOLYPHASE_IMGUI_EXPORT -fPIC -DPOLYPHASE_ENGINE_EXPORT=1 -DPOLYPHASE_DLL_BUILD=1
+INCLUDES += ../External/Assimp ../External/IrrXML ../External/Zlib Source/Editor Source/Editor/ImGuizmo ../External/Imgui ../External/imgui-node-editor ../External/zep/include ../External/Crow ../External/asio External/libgit2/include
+SOURCES +=	Source/Editor Source/Editor/ImGuizmo Source/Editor/Widgets Source/Editor/Hotkeys Source/Editor/Preferences Source/Editor/Preferences/General Source/Editor/Preferences/Appearance Source/Editor/Preferences/Appearance/Theme Source/Editor/Preferences/Appearance/Viewport Source/Editor/Preferences/Appearance/Viewport/TilemapGrid Source/Editor/Preferences/External Source/Editor/Preferences/Packaging Source/Editor/Preferences/Network Source/Editor/Preferences/Updates Source/Editor/Preferences/Input Source/Editor/Preferences/EditorHotkeys Source/Editor/ControllerServer Source/Editor/AutoUpdater Source/Editor/Addons Source/Editor/Packaging Source/Editor/AppSettings Source/Editor/ProjectSelect Source/Editor/Timeline Source/Editor/DebugLog Source/Editor/CliTerminal Source/Editor/NodeGraph Source/Editor/GamePreview Source/Editor/AnimationBrowser Source/Editor/Profiling Source/Editor/InputTester Source/Editor/ScriptCreator Source/Editor/ScriptEditor Source/Editor/SecondScreenPreview Source/Editor/ThemeEditor Source/Editor/SpriteAnimationEditor Source/Editor/TextureAtlas Source/Editor/TextureCrop Source/Editor/VoxelSculpt Source/Editor/TerrainSculpt Source/Editor/TilePaint Source/Editor/Validation Source/Editor/Runtime Source/Editor/Git Source/Editor/Git/Dialogs Source/Editor/Preferences/Git Source/Editor/LuaDebugger ../External/Imgui ../External/Imgui/misc/cpp ../External/imgui-node-editor
+TARGET		:= PolyphaseEditor
+BUILD		:=	Intermediate/Linux/EngineEditorShared
 SHARED_BUILD := 1
 export POLYPHASE_PIC := 1
 else ifeq ($(strip $(POLYPHASE_EDITOR)),)
@@ -199,11 +212,16 @@ endif
 #---------------------------------------------------------------------------------
 all: $(BUILD)
 
-# W1: convenience entrypoint — `make -f Makefile_Linux shared` triggers a
-# game-only build with -fPIC and links libPolyphaseGame.so. This re-invokes
-# this very Makefile with POLYPHASE_SHARED=1 so the rules above retarget.
+# W1: convenience entrypoints — `make -f Makefile_Linux shared` triggers a
+# game-only build with -fPIC and links libPolyphaseGame.so;
+# `make -f Makefile_Linux editor-shared` does the same but with EDITOR=1 and
+# produces libPolyphaseEditor.so. Both re-invoke this very Makefile with the
+# matching variable so the rules above retarget.
 shared:
 	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile_Linux POLYPHASE_SHARED=1
+
+editor-shared:
+	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile_Linux POLYPHASE_EDITOR_SHARED=1
 
 OutputDir:
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)

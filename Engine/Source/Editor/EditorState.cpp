@@ -882,8 +882,13 @@ void EditorState::BeginPlayInEditor()
     }
 
     // Fake-Initialize the Game
+    // W1: route through OctGameHooks (see Engine.h) so this still wires up
+    // when the editor is built as PolyphaseEditor.dll.
     //OctPreInitialize();
-    OctPostInitialize();
+    {
+        const OctGameHooks& hooks = GetOctHooks();
+        if (hooks.postInitialize) hooks.postInitialize();
+    }
 
     EditScene* editScene = GetEditScene(mPieEditSceneIdx);
     if (editScene != nullptr &&
@@ -927,8 +932,12 @@ void EditorState::EndPlayInEditor()
     }
 
     // Fake Shutdown
-    OctPreShutdown();
-    OctPostShutdown();
+    // W1: route through OctGameHooks (see Engine.h).
+    {
+        const OctGameHooks& hooks = GetOctHooks();
+        if (hooks.preShutdown)  hooks.preShutdown();
+        if (hooks.postShutdown) hooks.postShutdown();
+    }
 
     SetSelectedNode(nullptr);
     SetSelectedAssetStub(nullptr);

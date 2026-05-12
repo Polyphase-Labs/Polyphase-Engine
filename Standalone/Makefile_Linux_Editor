@@ -63,14 +63,29 @@ OUTPUT_DIR	:=	$(CURDIR)/Build/Linux
 
 CFLAGS	= -g -O2 -Wall $(MACHDEP) -DEDITOR=1 -DPLATFORM_LINUX=1 -DAPI_VULKAN=1 $(INCLUDE)
 
+# W1: shared-engine editor build (libPolyphaseEditor.so). Run
+# `make -f Makefile_Linux_Editor POLYPHASE_SHARED=1`. POLYPHASE_DLL_CONSUMER=1
+# turns on Standalone/Source/Main.cpp's exe-side entry-point + hook auto-register.
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+CFLAGS		+=	-DPOLYPHASE_DLL_CONSUMER=1
+BUILD		:=	Intermediate/Linux/EditorShared
+LINK_ENGINE	:=	-lPolyphaseEditor
+ENGINE_TARGET	:=	editor-shared
+ENGINE_LIB_NAME	:=	libPolyphaseEditor.so
+else
+LINK_ENGINE	:=	-lEngineEditor
+ENGINE_TARGET	:=
+ENGINE_LIB_NAME	:=	libEngineEditor.a
+endif
+
 CXXFLAGS	=	$(CFLAGS)
 
-LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -rdynamic
+LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -rdynamic -Wl,-rpath,'$$ORIGIN'
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngineEditor -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lAssimp -lBullet -lgit2 -lssl -lcrypto -lpthread -lm
+LIBS	:=	$(LINK_ENGINE) -lspirv-cross-core -lshaderc_combined -lvulkan -lxcb -lasound -lpulse -lAssimp -lBullet -lgit2 -lssl -lcrypto -lpthread -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -124,8 +139,12 @@ export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
 					-L$(CURDIR)/../Engine/External/libgit2/build
 
 export OUTPUT	:=	$(OUTPUT_DIR)/$(TARGET)Editor.elf
-export ENGINE_LIB := $(CURDIR)/../Engine/Build/Linux/libEngineEditor.a
+export ENGINE_LIB := $(CURDIR)/../Engine/Build/Linux/$(ENGINE_LIB_NAME)
+# Only set POLYPHASE_EDITOR for the static-lib path; the shared path passes
+# POLYPHASE_EDITOR_SHARED into MakeEngine which already implies EDITOR=1.
+ifeq ($(strip $(POLYPHASE_SHARED)),)
 export POLYPHASE_EDITOR	:= 1
+endif
 .PHONY: $(BUILD) clean
 
 #---------------------------------------------------------------------------------
@@ -136,11 +155,14 @@ OutputDirs:
 	[ -d $(BUILD) ] || mkdir -p $(BUILD)
 
 MakeEngine:
-	$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Linux
+	$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Linux $(ENGINE_TARGET)
 
 $(BUILD): OutputDirs MakeEngine
 	[ -d $@ ] || mkdir -p $@
 	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+	cp $(ENGINE_LIB) $(OUTPUT_DIR)/$(ENGINE_LIB_NAME)
+endif
 	@# Mirror the Windows post-build copy: stash the latest editor binary at
 	@# the repo root so callers (Tools/CI/run_local_verify.sh, dev shortcuts)
 	@# always have a stable path to the freshest build. Suppress errors so a

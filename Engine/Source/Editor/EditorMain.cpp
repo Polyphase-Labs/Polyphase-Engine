@@ -209,7 +209,9 @@ void EditorMain(int32_t argc, char** argv)
 
     {
         EngineConfig* mutableConfig = GetMutableEngineConfig();
-        OctPreInitialize(*mutableConfig);
+        // W1: route through OctGameHooks so this works inside the editor DLL too.
+        const OctGameHooks& hooks = GetOctHooks();
+        if (hooks.preInitialize) hooks.preInitialize(*mutableConfig);
     }
 
     ReadEngineConfig();
@@ -386,7 +388,9 @@ void EditorMain(int32_t argc, char** argv)
 
         if (playInEditor)
         {
-            OctPreUpdate();
+            // W1: route through OctGameHooks (see Engine.h).
+            const OctGameHooks& hooks = GetOctHooks();
+            if (hooks.preUpdate) hooks.preUpdate();
         }
 
         ret = Update();
@@ -440,7 +444,9 @@ void EditorMain(int32_t argc, char** argv)
 
         if (playInEditor)
         {
-            OctPostUpdate();
+            // W1: route through OctGameHooks (see Engine.h).
+            const OctGameHooks& hooks = GetOctHooks();
+            if (hooks.postUpdate) hooks.postUpdate();
         }
     }
 

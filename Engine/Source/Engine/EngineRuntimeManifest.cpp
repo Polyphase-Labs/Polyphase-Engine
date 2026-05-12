@@ -220,13 +220,23 @@ std::string SerializeEngineRuntimeManifest(const EngineRuntimeManifest& m)
 
     // Emit keys in the schema's documented order to keep the on-disk file
     // tidy and diff-friendly. rapidjson preserves AddMember insertion order.
-    doc.AddMember("schemaVersion", m.schemaVersion, a);
+    //
+    // W1: rapidjson's GenericValue ctor set is {int, unsigned, int64_t,
+    // uint64_t, float, double}. On devkitARM (3DS/Wii/GameCube/Switch), the
+    // <stdint.h> shipped by newlib types uint32_t as `unsigned long` instead
+    // of `unsigned int` — and `unsigned long` matches both `unsigned` (via
+    // narrowing) and `uint64_t` (via widening), so the overload resolution
+    // is ambiguous and the 3DS build fails with
+    // "call of overloaded 'GenericValue(long unsigned int&)' is ambiguous".
+    // Cast each integer field to a candidate that's identical-width on every
+    // platform we ship: `unsigned` for uint32_t-ish, `uint64_t` for moduleSize.
+    doc.AddMember("schemaVersion", static_cast<unsigned>(m.schemaVersion), a);
 
     Value engine(kObjectType);
     addStr(engine, "name", m.engineName);
     addStr(engine, "version", m.engineVersion);
-    engine.AddMember("versionMajor", m.engineVersionMajor, a);
-    engine.AddMember("abi", m.engineAbi, a);
+    engine.AddMember("versionMajor", static_cast<unsigned>(m.engineVersionMajor), a);
+    engine.AddMember("abi", static_cast<unsigned>(m.engineAbi), a);
     addStr(engine, "buildHash", m.buildHash);
     addStr(engine, "buildTimestampUtc", m.buildTimestampUtc);
     doc.AddMember("engine", engine, a);
@@ -237,8 +247,8 @@ std::string SerializeEngineRuntimeManifest(const EngineRuntimeManifest& m)
     addStr(target, "config",   m.targetConfig);
     doc.AddMember("target", target, a);
 
-    doc.AddMember("addonApiVersion", m.addonApiVersion, a);
-    doc.AddMember("assetVersion",    m.assetVersion,    a);
+    doc.AddMember("addonApiVersion", static_cast<unsigned>(m.addonApiVersion), a);
+    doc.AddMember("assetVersion",    static_cast<unsigned>(m.assetVersion),    a);
 
     Value binary(kObjectType);
     addStr(binary, "module",       m.binaryModule);
@@ -246,7 +256,7 @@ std::string SerializeEngineRuntimeManifest(const EngineRuntimeManifest& m)
     addStr(binary, "importLib",    m.binaryImportLib);
     addStr(binary, "debugSymbols", m.binaryDebugSymbols);
     addStr(binary, "moduleSha256", m.binaryModuleSha256);
-    binary.AddMember("moduleSize", m.binaryModuleSize, a);
+    binary.AddMember("moduleSize", static_cast<uint64_t>(m.binaryModuleSize), a);
     doc.AddMember("binary", binary, a);
 
     Value exports(kArrayType);
