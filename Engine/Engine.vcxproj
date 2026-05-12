@@ -534,7 +534,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <PreLinkEvent>
-      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Command>py.exe -3 "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
       <Message>Generating engine.def (auto-export every public symbol)</Message>
     </PreLinkEvent>
     <Link>
@@ -542,7 +542,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
       <ModuleDefinitionFile>$(IntDir)engine.def</ModuleDefinitionFile>
-      <AdditionalDependencies>vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vulkan-1.lib;spirv-cross-cored.lib;shaderc_combinedd.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ProjectReference>
@@ -562,7 +562,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <PreLinkEvent>
-      <Command>python "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
+      <Command>py.exe -3 "$(SolutionDir)Tools\generate_dll_def.py" --int-dir "$(IntDir)." --output "$(IntDir)engine.def" --name PolyphaseGame</Command>
       <Message>Generating engine.def (auto-export every public symbol)</Message>
     </PreLinkEvent>
     <Link>
@@ -572,7 +572,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ImportLibrary>$(OutDir)PolyphaseGame.lib</ImportLibrary>
       <ModuleDefinitionFile>$(IntDir)engine.def</ModuleDefinitionFile>
-      <AdditionalDependencies>vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vulkan-1.lib;spirv-cross-core.lib;shaderc_combined.lib;Xinput.lib;Xaudio2.lib;Ws2_32.lib;Iphlpapi.lib;Shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)/Bin;$(VULKAN_SDK)/Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <ProjectReference>

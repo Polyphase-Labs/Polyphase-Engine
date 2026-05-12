@@ -152,7 +152,10 @@
       "Bash(nm /home/uai/Projects/Octave/Polyphase-Engine/Engine/Intermediate/Linux/EngineEditor/EngineRuntimeValidator.o)",
       "Bash(make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux POLYPHASE_SHARED=1 -j12)",
       "Bash(tee /tmp/shared_build2.log)",
-      "Bash(python3 /home/uai/Projects/Octave/Polyphase-Engine/Tools/generate_dll_def.py --help)"
+      "Bash(python3 /home/uai/Projects/Octave/Polyphase-Engine/Tools/generate_dll_def.py --help)",
+      "Bash(dumpbin /symbols \"Engine/Intermediate/Windows/x64/Debug Shared/Engine/imgui.obj\")",
+      "Bash(Select-Object -First 30)",
+      "Bash(Format-Table -AutoSize)"
     ]
   }
 }

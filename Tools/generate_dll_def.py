@@ -128,6 +128,17 @@ def _collect_symbols(dumpbin_exe: str, obj_files: list[Path]) -> set[str]:
     return exports
 
 def main(argv: list[str]) -> int:
+    # When this script runs under an MSYS2 python (devkitPro ships one and it
+    # is often first on PATH on Polyphase dev boxes), the msys runtime rewrites
+    # any argv element that starts with "/" into a Windows path before launching
+    # a non-msys child — so "/symbols" becomes "C:\\devkitPro\\msys2\\symbols",
+    # which dumpbin then tries to open as a file (LNK1181) instead of treating
+    # as a switch. The rewrite is performed by the *parent* msys runtime by
+    # consulting its own environment, so we have to set this before any
+    # subprocess.run() call below.
+    os.environ.setdefault("MSYS2_ARG_CONV_EXCL", "*")
+    os.environ.setdefault("MSYS_NO_PATHCONV", "1")
+
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--int-dir", required=True, help="Intermediate dir to scan for .obj files (recursive)")
     p.add_argument("--output", required=True, help="Path to write the generated .def file")
