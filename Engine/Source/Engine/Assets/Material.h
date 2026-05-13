@@ -59,6 +59,7 @@ public:
 
     virtual glm::vec4 GetTypeColor() override;
     virtual const char* GetTypeName() override;
+    virtual bool ShouldSnapshotForPie() const override { return true; }
 
     MaterialResource* GetResource();
 

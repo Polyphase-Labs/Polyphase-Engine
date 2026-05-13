@@ -336,11 +336,11 @@ void SecondScreenPreview::DrawPanel()
     if (ImGui::Button(inPie ? "Stop" : "Play"))
     {
         if (inPie)
-            GetEditorState()->EndPlayInEditor();
+            GetEditorState()->RequestEndPlayInEditor();
         else
         {
             GetEditorState()->mPlayInGameWindow = true;
-            GetEditorState()->BeginPlayInEditor();
+            GetEditorState()->RequestBeginPlayInEditor();
         }
     }
 

@@ -1503,6 +1503,49 @@ static void DrawUnsavedCheck()
     }
 }
 
+static void DrawPieLoadingModal()
+{
+    EditorState* editorState = GetEditorState();
+
+    const char* kPopupId = "Polyphase###PieLoadingModal";
+
+    if (editorState->mShowPieLoadingModal && !ImGui::IsPopupOpen(kPopupId))
+    {
+        ImGui::OpenPopup(kPopupId);
+    }
+
+    if (ImGui::IsPopupOpen(kPopupId))
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(420, 110), ImGuiCond_Always);
+    }
+
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoSavedSettings;
+
+    if (ImGui::BeginPopupModal(kPopupId, nullptr, flags))
+    {
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        ImGui::TextUnformatted(editorState->mPieLoadingMessage.c_str());
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
+        // Indeterminate progress: animated marquee using current time as the fraction.
+        float t = (float)ImGui::GetTime();
+        float frac = 0.5f + 0.5f * sinf(t * 4.0f);
+        ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), "");
+
+        if (!editorState->mShowPieLoadingModal)
+        {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 static void DrawProjectUpgradeModal()
 {
     EditorState* editorState = GetEditorState();
@@ -9029,7 +9072,7 @@ static void DrawMainMenuBar()
             {
                 if (inPie)
                 {
-                    GetEditorState()->EndPlayInEditor();
+                    GetEditorState()->RequestEndPlayInEditor();
                 }
                 else
                 {
@@ -9037,10 +9080,10 @@ static void DrawMainMenuBar()
                     {
                     case PlayTarget::PlayInEditor:
                         GetEditorState()->mPlayInGameWindow = true;
-                        GetEditorState()->BeginPlayInEditor();
+                        GetEditorState()->RequestBeginPlayInEditor();
                         break;
                     case PlayTarget::PlayFullScreen:
-                        GetEditorState()->BeginPlayInEditor();
+                        GetEditorState()->RequestBeginPlayInEditor();
                         break;
                     case PlayTarget::Dolphin:
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::GameCube, true, false);
@@ -9150,6 +9193,27 @@ static void DrawMainMenuBar()
             }
         }
 
+        // Global Ctrl+R — runs regardless of which panel has input focus.
+        // Lua-only refresh; native addon reload is gated behind the
+        // project-restart chokepoint (Edit > Reload Native Addons menu and the
+        // AddonsWindow per-row Reload button) to avoid dangling vtables in
+        // open scenes.
+        if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
+        {
+            ReloadAllScripts();
+
+            // Refresh asset directories
+            AssetDir* projDir = AssetManager::Get()->FindProjectDirectory();
+            if (projDir)
+                AssetManager::Get()->RefreshDirectory(projDir);
+            AssetDir* pkgDir = AssetManager::Get()->FindPackagesDirectory();
+            if (pkgDir)
+                AssetManager::Get()->RefreshDirectory(pkgDir);
+
+            // Sync UIDocument .xml <-> .oct files
+            RefreshUIDocuments();
+        }
+
         // Hotkey Menus
         if (GetEditorState()->GetViewport3D()->ShouldHandleInput())
         {
@@ -9173,26 +9237,6 @@ static void DrawMainMenuBar()
             if (hotkeys->IsActionJustTriggered(EditorAction::Asset_CreateScene))
             {
                 GetEditorState()->OpenEditScene(nullptr);
-            }
-
-            if (hotkeys->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
-            {
-                // Ctrl+R is Lua-only. Native addon reload is gated behind the
-                // project-restart chokepoint to avoid dangling vtables in open
-                // scenes; it lives in the Edit > Reload Native Addons menu and
-                // the AddonsWindow per-row Reload button.
-                ReloadAllScripts();
-
-                // Refresh asset directories
-                AssetDir* projDir = AssetManager::Get()->FindProjectDirectory();
-                if (projDir)
-                    AssetManager::Get()->RefreshDirectory(projDir);
-                AssetDir* pkgDir = AssetManager::Get()->FindPackagesDirectory();
-                if (pkgDir)
-                    AssetManager::Get()->RefreshDirectory(pkgDir);
-
-                // Sync UIDocument .xml <-> .oct files
-                RefreshUIDocuments();
             }
         }
 
@@ -12750,6 +12794,7 @@ void EditorImguiDraw()
 
         DrawUnsavedCheck();
         DrawProjectUpgradeModal();
+        DrawPieLoadingModal();
         DrawAddonsDialogs();
         DrawScriptCreatorDialogs();
 

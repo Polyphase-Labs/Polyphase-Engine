@@ -152,6 +152,14 @@ public:
     virtual glm::vec4 GetTypeColor();
     virtual const char* GetTypeName();
     virtual const char* GetTypeImportExt();
+
+    // Editor-only behavior: when true, EditorState snapshots this asset's
+    // serialized state (and dirty flag) at PIE start and restores it at PIE
+    // stop, so script mutations during play don't leak into the editor view.
+    // Kept unconditional to keep vtable layout identical across editor and
+    // runtime builds; the runtime never calls this.
+    virtual bool ShouldSnapshotForPie() const { return false; }
+
     bool IsTransient() const;
     void SetTransient(bool transient);
 

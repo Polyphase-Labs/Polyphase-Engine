@@ -13,6 +13,7 @@
 #include "Nodes/Node.h"
 #include "Asset.h"
 #include "AssetManager.h"
+#include "Stream.h"
 #include "Nodes/Node.h"
 #include "Nodes/3D/Node3d.h"
 #include "Nodes/3D/Camera3d.h"
@@ -809,10 +810,91 @@ static void CopyPersistentUuids(Node* src, Node* dst)
     }
 }
 
+void EditorState::SnapshotAssetsForPie()
+{
+    mPieAssetSnapshots.clear();
+
+    auto& assetMap = AssetManager::Get()->GetAssetMap();
+    for (auto& kv : assetMap)
+    {
+        AssetStub* stub = kv.second;
+        if (stub == nullptr || stub->mAsset == nullptr) continue;
+
+        Asset* asset = stub->mAsset;
+        if (!asset->IsLoaded()) continue;
+        if (!asset->ShouldSnapshotForPie()) continue;
+
+        Stream s;
+        asset->SaveStream(s, Platform::Count);  // Writes header + body via base Asset::SaveStream.
+
+        PieAssetSnapshot snap;
+        char* data = s.GetData();
+        uint32_t size = s.GetSize();
+        snap.mBytes.assign(data, data + size);
+        snap.mWasDirty = asset->GetDirtyFlag();
+        mPieAssetSnapshots.emplace(asset, std::move(snap));
+    }
+}
+
+void EditorState::RestoreAssetsFromPie()
+{
+    if (mPieAssetSnapshots.empty())
+        return;
+
+    // Build a set of live Asset* so we can skip any snapshot whose asset was
+    // purged during PIE (would otherwise dereference a dangling pointer).
+    std::unordered_map<Asset*, bool> liveAssets;
+    auto& assetMap = AssetManager::Get()->GetAssetMap();
+    liveAssets.reserve(assetMap.size());
+    for (auto& kv : assetMap)
+    {
+        if (kv.second && kv.second->mAsset)
+            liveAssets.emplace(kv.second->mAsset, true);
+    }
+
+    for (auto& kv : mPieAssetSnapshots)
+    {
+        Asset* asset = kv.first;
+        PieAssetSnapshot& snap = kv.second;
+        if (snap.mBytes.empty()) continue;
+        if (liveAssets.find(asset) == liveAssets.end()) continue;
+
+        Stream s((const char*)snap.mBytes.data(), (uint32_t)snap.mBytes.size());
+        asset->LoadStream(s, Platform::Count);  // Reads header + body via base Asset::LoadStream.
+
+        if (snap.mWasDirty) asset->SetDirtyFlag();
+        else                asset->ClearDirtyFlag();
+    }
+
+    mPieAssetSnapshots.clear();
+}
+
+void EditorState::RequestBeginPlayInEditor()
+{
+    if (mPlayInEditor || mBeginPieAtEndOfFrame)
+        return;
+    mPieLoadingMessage = "Preparing Play in Editor...";
+    mShowPieLoadingModal = true;
+    mPieLoadingFramesRemaining = 2;  // render the modal cleanly before blocking
+    mBeginPieAtEndOfFrame = true;
+}
+
+void EditorState::RequestEndPlayInEditor()
+{
+    if (!mPlayInEditor || mEndPieAtEndOfFrame)
+        return;
+    mPieLoadingMessage = "Stopping Play in Editor...";
+    mShowPieLoadingModal = true;
+    mPieLoadingFramesRemaining = 2;
+    mEndPieAtEndOfFrame = true;
+}
+
 void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
         return;
+
+    mPieAssetSnapshots.clear();
 
     // Clear any stale Lua debugger pause/skip state left over from the
     // previous PIE run -- otherwise a "skip-once" armed by Continue last
@@ -890,6 +972,11 @@ void EditorState::BeginPlayInEditor()
         if (hooks.postInitialize) hooks.postInitialize();
     }
 
+    // Capture mutable asset state BEFORE the play scene tree is cloned and
+    // play-mode scripts can mutate shared assets (e.g. a Material's texture
+    // slot via Lua). Restored in EndPlayInEditor.
+    SnapshotAssetsForPie();
+
     EditScene* editScene = GetEditScene(mPieEditSceneIdx);
     if (editScene != nullptr &&
         editScene->mRootNode != nullptr)
@@ -903,6 +990,9 @@ void EditorState::BeginPlayInEditor()
     // Fire OnPlayModeChanged(0 = Enter)
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(0);
+
+    mBeginPieAtEndOfFrame = false;
+    mShowPieLoadingModal = false;
 }
 
 void EditorState::EndPlayInEditor()
@@ -971,6 +1061,14 @@ void EditorState::EndPlayInEditor()
 
     ScriptUtils::GarbageCollect();
 
+    // Transient runtime textures owned by play-mode nodes/scripts have now
+    // been destroyed (DestroyRootNode + game-shutdown hooks + Lua GC).
+    // ASSET_LIVE_REF_TRACKING has nulled their back-refs inside any shared
+    // Material assets. Re-apply the pre-PIE snapshot to restore those refs
+    // (and any other script-driven mutations) before the editor scene reads
+    // them again.
+    RestoreAssetsFromPie();
+
     // Restore the scene we were working on
     OpenEditScene(mPieEditSceneIdx);
 
@@ -982,6 +1080,8 @@ void EditorState::EndPlayInEditor()
     // Fire OnPlayModeChanged(1 = Exit)
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(1);
+
+    mShowPieLoadingModal = false;
 }
 
 void EditorState::EjectPlayInEditor()

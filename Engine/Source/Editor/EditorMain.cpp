@@ -470,9 +470,25 @@ void EditorMain(int32_t argc, char** argv)
         // Tick CLI terminal panel: drains output buffer and advances session state
         GetTerminalPanel()->Tick();
 
-        if (GetEditorState()->mEndPieAtEndOfFrame)
+        // If a loading modal is queued, let it render for a couple of frames
+        // before the (potentially slow) Begin/End work blocks the main thread,
+        // so the user sees the modal instead of an apparent freeze.
+        if ((GetEditorState()->mEndPieAtEndOfFrame || GetEditorState()->mBeginPieAtEndOfFrame)
+            && GetEditorState()->mPieLoadingFramesRemaining > 0)
         {
-            GetEditorState()->EndPlayInEditor();
+            GetEditorState()->mPieLoadingFramesRemaining--;
+        }
+        else
+        {
+            if (GetEditorState()->mEndPieAtEndOfFrame)
+            {
+                GetEditorState()->EndPlayInEditor();
+            }
+
+            if (GetEditorState()->mBeginPieAtEndOfFrame)
+            {
+                GetEditorState()->BeginPlayInEditor();
+            }
         }
 
         // We are trying to quit, and haven't done the shutdown check yet

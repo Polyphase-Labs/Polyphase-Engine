@@ -76,7 +76,7 @@ void InputManager::UpdateHotkeys()
             }
             else
             {
-                GetEditorState()->EndPlayInEditor();
+                GetEditorState()->RequestEndPlayInEditor();
             }
         }
         else if (IsKeyJustDown(POLYPHASE_KEY_P) && altDown && ctrlDown)
@@ -134,7 +134,7 @@ void InputManager::UpdateHotkeys()
         {
             if (GetEditorState()->mPlayTarget == 0) // PlayInEditor (game window)
                 GetEditorState()->mPlayInGameWindow = true;
-            GetEditorState()->BeginPlayInEditor();
+            GetEditorState()->RequestBeginPlayInEditor();
         }
         else if (hotkeys->IsActionJustTriggered(EditorAction::File_SaveAllAssets))
         {
