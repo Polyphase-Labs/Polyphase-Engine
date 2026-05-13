@@ -44,6 +44,7 @@ public:
     virtual void GatherProperties(std::vector<Property>& outProps) override;
     virtual glm::vec4 GetTypeColor() override;
     virtual const char* GetTypeName() override;
+    virtual bool ShouldSnapshotForPie() const override { return true; }
 #if EDITOR
     virtual bool DrawCustomProperty(Property& prop) override;
 #endif

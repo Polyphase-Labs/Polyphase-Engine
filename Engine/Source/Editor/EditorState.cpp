@@ -13,6 +13,7 @@
 #include "Nodes/Node.h"
 #include "Asset.h"
 #include "AssetManager.h"
+#include "Stream.h"
 #include "Nodes/Node.h"
 #include "Nodes/3D/Node3d.h"
 #include "Nodes/3D/Camera3d.h"
@@ -95,6 +96,8 @@ void EditorState::Shutdown()
 
     WriteEditorProjectSave();
     WriteEditorSave();
+
+    InvalidateSubSceneDefaultCache();
 
     mEditScenes.clear();
 
@@ -809,10 +812,91 @@ static void CopyPersistentUuids(Node* src, Node* dst)
     }
 }
 
+void EditorState::SnapshotAssetsForPie()
+{
+    mPieAssetSnapshots.clear();
+
+    auto& assetMap = AssetManager::Get()->GetAssetMap();
+    for (auto& kv : assetMap)
+    {
+        AssetStub* stub = kv.second;
+        if (stub == nullptr || stub->mAsset == nullptr) continue;
+
+        Asset* asset = stub->mAsset;
+        if (!asset->IsLoaded()) continue;
+        if (!asset->ShouldSnapshotForPie()) continue;
+
+        Stream s;
+        asset->SaveStream(s, Platform::Count);  // Writes header + body via base Asset::SaveStream.
+
+        PieAssetSnapshot snap;
+        char* data = s.GetData();
+        uint32_t size = s.GetSize();
+        snap.mBytes.assign(data, data + size);
+        snap.mWasDirty = asset->GetDirtyFlag();
+        mPieAssetSnapshots.emplace(asset, std::move(snap));
+    }
+}
+
+void EditorState::RestoreAssetsFromPie()
+{
+    if (mPieAssetSnapshots.empty())
+        return;
+
+    // Build a set of live Asset* so we can skip any snapshot whose asset was
+    // purged during PIE (would otherwise dereference a dangling pointer).
+    std::unordered_map<Asset*, bool> liveAssets;
+    auto& assetMap = AssetManager::Get()->GetAssetMap();
+    liveAssets.reserve(assetMap.size());
+    for (auto& kv : assetMap)
+    {
+        if (kv.second && kv.second->mAsset)
+            liveAssets.emplace(kv.second->mAsset, true);
+    }
+
+    for (auto& kv : mPieAssetSnapshots)
+    {
+        Asset* asset = kv.first;
+        PieAssetSnapshot& snap = kv.second;
+        if (snap.mBytes.empty()) continue;
+        if (liveAssets.find(asset) == liveAssets.end()) continue;
+
+        Stream s((const char*)snap.mBytes.data(), (uint32_t)snap.mBytes.size());
+        asset->LoadStream(s, Platform::Count);  // Reads header + body via base Asset::LoadStream.
+
+        if (snap.mWasDirty) asset->SetDirtyFlag();
+        else                asset->ClearDirtyFlag();
+    }
+
+    mPieAssetSnapshots.clear();
+}
+
+void EditorState::RequestBeginPlayInEditor()
+{
+    if (mPlayInEditor || mBeginPieAtEndOfFrame)
+        return;
+    mPieLoadingMessage = "Preparing Play in Editor...";
+    mShowPieLoadingModal = true;
+    mPieLoadingFramesRemaining = 2;  // render the modal cleanly before blocking
+    mBeginPieAtEndOfFrame = true;
+}
+
+void EditorState::RequestEndPlayInEditor()
+{
+    if (!mPlayInEditor || mEndPieAtEndOfFrame)
+        return;
+    mPieLoadingMessage = "Stopping Play in Editor...";
+    mShowPieLoadingModal = true;
+    mPieLoadingFramesRemaining = 2;
+    mEndPieAtEndOfFrame = true;
+}
+
 void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
         return;
+
+    mPieAssetSnapshots.clear();
 
     // Clear any stale Lua debugger pause/skip state left over from the
     // previous PIE run -- otherwise a "skip-once" armed by Continue last
@@ -890,6 +974,11 @@ void EditorState::BeginPlayInEditor()
         if (hooks.postInitialize) hooks.postInitialize();
     }
 
+    // Capture mutable asset state BEFORE the play scene tree is cloned and
+    // play-mode scripts can mutate shared assets (e.g. a Material's texture
+    // slot via Lua). Restored in EndPlayInEditor.
+    SnapshotAssetsForPie();
+
     EditScene* editScene = GetEditScene(mPieEditSceneIdx);
     if (editScene != nullptr &&
         editScene->mRootNode != nullptr)
@@ -903,6 +992,9 @@ void EditorState::BeginPlayInEditor()
     // Fire OnPlayModeChanged(0 = Enter)
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(0);
+
+    mBeginPieAtEndOfFrame = false;
+    mShowPieLoadingModal = false;
 }
 
 void EditorState::EndPlayInEditor()
@@ -971,6 +1063,14 @@ void EditorState::EndPlayInEditor()
 
     ScriptUtils::GarbageCollect();
 
+    // Transient runtime textures owned by play-mode nodes/scripts have now
+    // been destroyed (DestroyRootNode + game-shutdown hooks + Lua GC).
+    // ASSET_LIVE_REF_TRACKING has nulled their back-refs inside any shared
+    // Material assets. Re-apply the pre-PIE snapshot to restore those refs
+    // (and any other script-driven mutations) before the editor scene reads
+    // them again.
+    RestoreAssetsFromPie();
+
     // Restore the scene we were working on
     OpenEditScene(mPieEditSceneIdx);
 
@@ -982,6 +1082,8 @@ void EditorState::EndPlayInEditor()
     // Fire OnPlayModeChanged(1 = Exit)
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(1);
+
+    mShowPieLoadingModal = false;
 }
 
 void EditorState::EjectPlayInEditor()
@@ -1253,6 +1355,154 @@ int32_t EditorState::GetSelectedInstance()
 void EditorState::SetSelectedInstance(int32_t instance)
 {
     mSelectedInstance = instance;
+}
+
+Node* EditorState::GetSubSceneDefaultTree(Scene* src)
+{
+    if (src == nullptr)
+        return nullptr;
+
+    auto it = mInspectorDefaultCache.find(src);
+    if (it != mInspectorDefaultCache.end() && it->second.IsValid())
+    {
+        return it->second.Get();
+    }
+
+    NodePtr root = src->Instantiate();
+    if (root == nullptr)
+        return nullptr;
+
+    Node* raw = root.Get();
+    mInspectorDefaultCache[src] = std::move(root);
+    return raw;
+}
+
+void EditorState::InvalidateSubSceneDefaultCache(Scene* src)
+{
+    if (src == nullptr)
+    {
+        for (auto& kv : mInspectorDefaultCache)
+        {
+            if (kv.second != nullptr)
+                kv.second->Destroy();
+        }
+        mInspectorDefaultCache.clear();
+    }
+    else
+    {
+        auto it = mInspectorDefaultCache.find(src);
+        if (it != mInspectorDefaultCache.end())
+        {
+            if (it->second != nullptr)
+                it->second->Destroy();
+            mInspectorDefaultCache.erase(it);
+        }
+    }
+}
+
+// Same pure-structural walk that BuildDescendantPath in Utilities.cpp does.
+static bool InspectorBuildDescendantPath(Node* current, Node* target, std::string& outPath)
+{
+    if (current == nullptr || target == nullptr)
+        return false;
+    for (uint32_t i = 0; i < current->GetNumChildren(); ++i)
+    {
+        Node* child = current->GetChild(i);
+        if (child == target) { outPath = child->GetName(); return true; }
+        std::string sub;
+        if (InspectorBuildDescendantPath(child, target, sub))
+        {
+            outPath = child->GetName() + "/" + sub;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Locate the default counterpart for a sub-scene-linked node by walking up
+// to the sub-root, looking up the cached default tree, and resolving the
+// relative path. Returns nullptr if the node isn't part of a sub-scene
+// instance or no counterpart exists in the source Scene.
+static Node* FindDefaultCounterpart(EditorState* state, Node* node)
+{
+    if (node == nullptr || state == nullptr)
+        return nullptr;
+    if (!node->IsSceneLinked(false) && !node->IsSceneLinkedChild(false))
+        return nullptr;
+
+    Node* subRoot = node->GetSubRoot();
+    if (subRoot == nullptr)
+        return nullptr;
+
+    Scene* src = subRoot->GetScene();
+    if (src == nullptr)
+        return nullptr;
+
+    Node* defaultRoot = state->GetSubSceneDefaultTree(src);
+    if (defaultRoot == nullptr)
+        return nullptr;
+
+    if (node == subRoot)
+        return defaultRoot;
+
+    std::string path = FindRelativeNodePath(subRoot, node);
+    if (path.empty())
+    {
+        InspectorBuildDescendantPath(subRoot, node, path);
+    }
+    if (path.empty())
+        return nullptr;
+
+    return ResolveNodePath(defaultRoot, path, defaultRoot);
+}
+
+bool EditorState::IsPropertyOverridden(Node* node, const std::string& propName)
+{
+    Node* defaultNode = FindDefaultCounterpart(this, node);
+    if (defaultNode == nullptr)
+        return false;
+
+    std::vector<Property> liveProps;
+    node->GatherProperties(liveProps);
+    Property* liveProp = FindProperty(liveProps, propName);
+    if (liveProp == nullptr)
+        return false;
+
+    std::vector<Property> defProps;
+    defaultNode->GatherProperties(defProps);
+    Property* defProp = FindProperty(defProps, propName);
+    if (defProp == nullptr)
+    {
+        // Property exists on live node but not on default — treat as override.
+        return true;
+    }
+
+    return *liveProp != *defProp;
+}
+
+void EditorState::RevertPropertyToSource(Node* node, const std::string& propName)
+{
+    Node* defaultNode = FindDefaultCounterpart(this, node);
+    if (defaultNode == nullptr)
+        return;
+
+    std::vector<Property> defProps;
+    defaultNode->GatherProperties(defProps);
+    Property* defProp = FindProperty(defProps, propName);
+    if (defProp == nullptr)
+        return;
+
+    // Route through ActionManager so the revert is undoable. We send one
+    // cell at a time — construct a 1-count Datum holding defProp[i].
+    PropertyOwnerType ownerType = PropertyOwnerType::Node;
+    for (uint32_t i = 0; i < defProp->GetCount(); ++i)
+    {
+        Datum cell;
+        cell.SetType(defProp->GetType());
+        cell.SetCount(1);
+        cell.SetValue(defProp->GetValue(i), 0, 1);
+        ActionManager::Get()->EXE_EditProperty(node, ownerType, propName, i, cell);
+    }
 }
 
 void CacheEditSceneLinkedProps(EditScene& editScene)
@@ -1537,6 +1787,11 @@ void EditorState::CloseEditScene(int32_t idx)
     // Lock scene open/close during PIE
     if (mPlayInEditor)
         return;
+
+    // The cached default trees may reference sub-scene assets that go out
+    // of scope as scenes close; drop them all and let the next inspector
+    // probe rebuild what it needs.
+    InvalidateSubSceneDefaultCache();
 
     if (idx >= 0 && idx < int32_t(mEditScenes.size()))
     {

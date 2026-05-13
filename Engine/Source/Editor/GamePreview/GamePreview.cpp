@@ -766,12 +766,12 @@ void GamePreview::DrawPanel()
         {
             if (inPie)
             {
-                GetEditorState()->EndPlayInEditor();
+                GetEditorState()->RequestEndPlayInEditor();
             }
             else
             {
                 GetEditorState()->mPlayInGameWindow = true;
-                GetEditorState()->BeginPlayInEditor();
+                GetEditorState()->RequestBeginPlayInEditor();
             }
         }
 

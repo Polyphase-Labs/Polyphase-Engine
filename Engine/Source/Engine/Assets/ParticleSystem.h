@@ -79,6 +79,7 @@ public:
     virtual void GatherProperties(std::vector<Property>& outProps) override;
     virtual glm::vec4 GetTypeColor() override;
     virtual const char* GetTypeName() override;
+    virtual bool ShouldSnapshotForPie() const override { return true; }
 
     void SetMaterial(Material* material);
     Material* GetMaterial() const;

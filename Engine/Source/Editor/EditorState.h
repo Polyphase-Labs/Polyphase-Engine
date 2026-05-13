@@ -4,6 +4,8 @@
 
 #include <string>
 #include <set>
+#include <unordered_map>
+#include <vector>
 #include "Maths.h"
 #include "AssetRef.h"
 #include "SmartPointer.h"
@@ -103,6 +105,14 @@ struct RecentScene
     uint64_t mTimestamp = 0;
 };
 
+// Per-asset state captured at BeginPlayInEditor and re-applied at
+// EndPlayInEditor so script mutations during play don't leak into the editor.
+struct PieAssetSnapshot
+{
+    std::vector<uint8_t> mBytes;
+    bool mWasDirty = false;
+};
+
 struct EditorState
 {
     // Data
@@ -134,6 +144,23 @@ struct EditorState
     int32_t mSavedWindowRect[4] = {}; // x, y, w, h — saved before Play Full Screen resize
     int32_t mEditSceneIndex = -1;
     int32_t mPieEditSceneIdx = -1;
+    std::unordered_map<Asset*, PieAssetSnapshot> mPieAssetSnapshots;
+    // Lazy cache of instantiated default trees for sub-scene source assets,
+    // used by the inspector to detect overridden properties and revert them.
+    // Keyed by source Scene*. Invalidated when an EditScene closes, on
+    // editor shutdown, and whenever a source Scene is reimported/saved.
+    std::unordered_map<Scene*, NodePtr> mInspectorDefaultCache;
+    // Deferred PIE start/stop: the click handler sets the *AtEndOfFrame flag
+    // so the loading modal can render for a couple of frames before
+    // BeginPlayInEditor / EndPlayInEditor blocks the main thread on asset
+    // snapshot / scene clone / restore work. mPieLoadingFramesRemaining ticks
+    // down each frame; the actual work runs when it reaches zero. A small
+    // non-zero delay guarantees the modal is presented (and any auto-sizing
+    // has settled) before we block.
+    bool mBeginPieAtEndOfFrame = false;
+    bool mShowPieLoadingModal = false;
+    int32_t mPieLoadingFramesRemaining = 0;
+    std::string mPieLoadingMessage;
     AssetBrowserTab mActiveAssetTab = AssetBrowserTab::Project;
     AssetDir* mTabCurrentDir[(int)AssetBrowserTab::Count] = {};
     std::vector<AssetDir*> mTabDirPast[(int)AssetBrowserTab::Count];
@@ -278,8 +305,24 @@ struct EditorState
 
     void BeginPlayInEditor();
     void EndPlayInEditor();
+    // Defer the start/stop by one frame so the loading modal can render
+    // before the (potentially slow) snapshot/clone or restore work runs.
+    void RequestBeginPlayInEditor();
+    void RequestEndPlayInEditor();
     void EjectPlayInEditor();
     void InjectPlayInEditor();
+    void SnapshotAssetsForPie();
+    void RestoreAssetsFromPie();
+
+    // Sub-scene override inspector helpers. The cache holds an instantiated
+    // copy of each source Scene asset that's currently being inspected; the
+    // inspector compares the live node's property values against the
+    // corresponding default node in the cached tree to detect overrides.
+    // Pass nullptr to InvalidateSubSceneDefaultCache to clear everything.
+    Node* GetSubSceneDefaultTree(Scene* src);
+    void InvalidateSubSceneDefaultCache(Scene* src = nullptr);
+    bool IsPropertyOverridden(Node* node, const std::string& propName);
+    void RevertPropertyToSource(Node* node, const std::string& propName);
     void SetPlayInEditorPaused(bool paused);
     bool IsPlayInEditorPaused();
 
