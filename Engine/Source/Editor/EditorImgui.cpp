@@ -12825,6 +12825,7 @@ void EditorImguiPreShutdown()
     GetScriptEditorWindow()->Shutdown();
     GetTerminalPanel()->Shutdown();
     GetLuaDebuggerPanel()->Shutdown();
+    GetAddonsWindow()->Shutdown();
     ImGui::ShutdownDock();
     UnregisterLogCallback(DebugLogWindow::LogCallback);
     ControllerServer::Destroy();

@@ -119,15 +119,22 @@ Lives in each native addon repo (not the engine repo). Build template scaffolded
 - Tag the addon repo: `git tag v1.0.0 && git push origin v1.0.0`.
 
 **Jobs**
-1. **`build-linux`** — runs inside `polyphaselabs/polyphase-engine:latest` (engine source + Vulkan SDK already baked in). Reads addon binary name from `package.json` (`native.binaryName` or `name`), runs `.github/workflows/build.sh <name> Both`, uploads Release + Debug `.so` artifacts.
-2. **`build-windows`** — clones the engine repo shallowly for headers, installs Vulkan SDK via **the engine's composite action** (`uses: Polyphase-Labs/Polyphase-Engine/.github/actions/install-vulkan-sdk@main`), runs `build.bat <name> Both`, uploads Release + Debug `.dll` artifacts.
-3. **`release`** — needs both build jobs. Downloads all four artifacts, updates `package.json` with `binaries[]` descriptors so the editor's `NativeAddonManager` knows which release asset to fetch per platform/config, publishes a GitHub Release with the four binaries + the updated `package.json` attached.
+1. **`build-linux`** — runs inside `polyphaselabs/polyphase-engine:latest` (engine source + prebuilt engine static libs + Vulkan SDK already baked in). Reads addon binary name from `package.json` (`native.binaryName` or `name`), runs `.github/workflows/build.sh <name> Both`, uploads Release + Debug `.so` artifacts.
+2. **`build-windows`** — downloads `polyphase-sdk-windows-x64.zip` from the engine repo's **latest** GitHub release (contains engine headers + `Polyphase.lib` + `Lua.lib`), installs Vulkan SDK via **the engine's composite action** (`uses: Polyphase-Labs/Polyphase-Engine/.github/actions/install-vulkan-sdk@main`), runs `build.bat <name> Both`, uploads Release `.dll` artifact (Debug is best-effort — see below).
+3. **`release`** — needs both build jobs. Downloads all artifacts, updates `package.json` with `binaries[]` descriptors so the editor's `NativeAddonManager` knows which release asset to fetch per platform/config, publishes a GitHub Release with the binaries + the updated `package.json` attached.
 
 **Required secrets** — none beyond the default `GITHUB_TOKEN`.
 
+**Why the SDK zip, not a source clone**
+Engine headers decorate exported symbols with `__declspec(dllimport)` when consumed from outside the engine TU. An addon DLL that touches `LogWarning`, `Stream::GetSize`, `ImGui::Button`, `lua_pushstring`, etc. emits `__imp_*` references that need `Polyphase.lib` + `Lua.lib` to resolve at link time. Cloning the engine source gives you headers but not the import libs — the linker then fails with ~220 `LNK2019` / `LNK2001` errors against every engine symbol the addon touches. The SDK zip exists specifically to ship those import libs alongside the headers; `release.yml` produces it from `Installers/package_windows_sdk.py` as part of every engine release.
+
+**Why Windows Debug is best-effort**
+The SDK zip currently ships `Lib/Windows/x64/ReleaseEditor/` only (Release-CRT engine libs). A Debug-CRT (`/MDd`) addon linked against Release-CRT (`/MD`) engine libs ABI-mismatches across the engine ↔ addon boundary (different `std::string` allocators, different debug-only struct fields). To avoid that, `build.bat` probes for `Lib/Windows/x64/DebugEditor/Polyphase.lib` and **skips the Debug addon link cleanly** when it's absent. `NativeAddonManager` source-compiles Debug addons at runtime when no Debug binary is shipped (the `#if defined(_DEBUG)` fallback in `Engine/Source/Editor/Addons/NativeAddonManager.cpp`), so end-users with Debug editors aren't blocked. If a fork wants shipped Debug binaries, build `DebugEditor|x64` in `release.yml` and extend `package_windows_sdk.py` to copy the resulting libs into the SDK zip under `Lib/Windows/x64/DebugEditor/`.
+
 **Common failure modes**
 - Vulkan SDK install — same mirror dependency as the engine workflow.
-- Engine import-lib path drift — when the engine's `Polyphase.lib` location moves, `build.bat` needs updating in the addon to match. Track engine SDK release notes for these.
+- SDK zip download 404 — the engine hasn't cut a release yet that includes `polyphase-sdk-windows-x64.zip` as an asset. Either cut an engine release (push a `v*` tag on `main`) or temporarily point `POLYPHASE_REPO` at a fork that has one.
+- Engine import-lib path drift — when the engine's `Polyphase.lib` location inside the SDK zip moves (e.g. `ReleaseEditor` is renamed), `build.bat`'s probe paths need updating. Track engine SDK release notes for these.
 
 ## The Vulkan SDK mirror
 

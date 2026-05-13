@@ -212,27 +212,37 @@ bool ReleaseInfo::IsNewerThan(const std::string& currentVersion, bool cuttingEdg
 
 const ReleaseAsset* ReleaseInfo::GetAssetForPlatform() const
 {
+#if PLATFORM_WINDOWS
+    // Prefer the Inno Setup installer (PolyphaseSetup-*.exe). The release also
+    // ships polyphase-sdk-windows-x64.zip which must NOT be selected here.
     for (const ReleaseAsset& asset : mAssets)
     {
-#if PLATFORM_WINDOWS
-        // Look for Windows installer (.exe)
-        if (asset.mName.find(".exe") != std::string::npos ||
-            asset.mName.find("Setup") != std::string::npos ||
-            asset.mName.find("Windows") != std::string::npos ||
-            asset.mName.find("windows") != std::string::npos)
+        if (asset.mName.find("PolyphaseSetup") != std::string::npos &&
+            asset.mName.find(".exe") != std::string::npos)
         {
             return &asset;
         }
+    }
+
+    // Fallback: any .exe asset (but never a .zip)
+    for (const ReleaseAsset& asset : mAssets)
+    {
+        if (asset.mName.find(".exe") != std::string::npos &&
+            asset.mName.find(".zip") == std::string::npos)
+        {
+            return &asset;
+        }
+    }
 #elif PLATFORM_LINUX
-        // Prefer .deb package, fallback to tarball
+    // Prefer .deb package
+    for (const ReleaseAsset& asset : mAssets)
+    {
         if (asset.mName.find(".deb") != std::string::npos)
         {
             return &asset;
         }
-#endif
     }
 
-#if PLATFORM_LINUX
     // Fallback: look for tarball
     for (const ReleaseAsset& asset : mAssets)
     {

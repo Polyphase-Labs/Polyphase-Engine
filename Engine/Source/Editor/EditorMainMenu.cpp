@@ -705,7 +705,15 @@ static void DrawToolsAddonsMenu()
             // Empty addon list = "all installed enabled native addons".
             // Routed through the project-restart chokepoint so live nodes
             // don't keep vtable pointers into about-to-be-unloaded DLLs.
-            nam->ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/false,
+            //
+            // forceRebuild=true so Reload always source-compiles, even for
+            // resolveMode=binary addons whose synced-binary cache would
+            // otherwise short-circuit the build. Matches the per-addon
+            // Reload button in AddonsWindow.cpp:OnReloadNativeAddon. The
+            // restart machinery also sets mForceSourceForNextLoad for each
+            // target so LoadNativeAddon ignores binary mode on the next load
+            // and picks up the freshly built source DLL.
+            nam->ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/true,
                                                       "Edit > Reload Native Addons");
         }
     }

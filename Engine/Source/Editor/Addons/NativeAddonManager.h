@@ -13,6 +13,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <thread>
 #include <atomic>
@@ -535,6 +536,14 @@ private:
 
     // Project-restart state machine. See ProjectRestartPhase for the flow.
     ProjectRestart                   mRestart;
+
+    // One-shot per-addon override: addon IDs in this set get their next
+    // LoadNativeAddon() invocation treated as resolveMode=source even when
+    // package.json says "binary". Set when the user clicks Reload Native
+    // Addons on a binary-mode addon — Reload means "recompile my local
+    // source", not "redownload the published binary". Consumed (erased)
+    // on first read so the override doesn't persist beyond a single load.
+    std::unordered_set<std::string>  mForceSourceForNextLoad;
 
     // Internal helpers
     void StartNextQueuedBuild();

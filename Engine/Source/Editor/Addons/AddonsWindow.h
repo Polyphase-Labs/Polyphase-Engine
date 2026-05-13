@@ -30,6 +30,11 @@ public:
     void Draw();
     bool IsOpen() const { return mIsOpen; }
 
+    // Release Vulkan-backed thumbnail resources. Must be called while the
+    // Vulkan device is still valid (i.e. from EditorImguiPreShutdown), not
+    // from the static destructor.
+    void Shutdown();
+
 private:
     void DrawAddonBrowser();
     void DrawInstalledAddons();

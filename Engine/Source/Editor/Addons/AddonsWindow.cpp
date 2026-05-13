@@ -40,6 +40,14 @@ AddonsWindow::AddonsWindow()
 
 AddonsWindow::~AddonsWindow()
 {
+    // sAddonsWindow is a translation-unit static; this runs after Engine /
+    // VulkanContext have already been destroyed, so we MUST NOT touch the
+    // GPU here. Thumbnail resources are released earlier via Shutdown(),
+    // called from EditorImguiPreShutdown().
+}
+
+void AddonsWindow::Shutdown()
+{
     ClearThumbnailCache();
 }
 
@@ -1256,8 +1264,17 @@ void AddonsWindow::OnReloadNativeAddon(const std::string& addonId)
     // and the project reopens with all scenes restored. Direct
     // ReloadNativeAddon() is unsafe with open scenes (dangling vtables on
     // live nodes; orphaned Node factory entries → Node3D fallback on reopen).
+    //
+    // forceRebuild=true so the user gets a fresh source compile every time
+    // they click Reload — even on resolveMode=binary addons where the
+    // synced binary cache would otherwise short-circuit the build. The
+    // restart path additionally sets mForceSourceForNextLoad so the
+    // subsequent LoadNativeAddon() ignores binary mode for this load and
+    // picks up the freshly built source DLL. Auto-sync (first install of
+    // a CI-published addon) is handled separately inside LoadNativeAddon
+    // when no override is set.
     std::string reason = "Reload requested for addon '" + addonId + "'";
-    nam->ReloadNativeAddonsWithProjectRestart({addonId}, /*forceRebuild*/false,
+    nam->ReloadNativeAddonsWithProjectRestart({addonId}, /*forceRebuild*/true,
                                               reason.c_str());
     mStatusMessage = "Reload staged. Confirm in the dialog to close + reopen the project.";
     mErrorMessage.clear();

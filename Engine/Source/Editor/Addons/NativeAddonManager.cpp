@@ -2294,6 +2294,24 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
 
     // Determine active resolve mode
     NativeAddonResolveMode activeMode = ResolveModeForAddon(addonId);
+
+    // One-shot override: a prior Reload Native Addons request flagged this
+    // addon to be loaded as if it were source-mode regardless of what its
+    // package.json says. Consume the flag here so a normal load on the next
+    // session is unaffected. See ReloadNativeAddonsWithProjectRestart for
+    // the producer side.
+    auto forceSourceIt = mForceSourceForNextLoad.find(addonId);
+    if (forceSourceIt != mForceSourceForNextLoad.end())
+    {
+        mForceSourceForNextLoad.erase(forceSourceIt);
+        if (activeMode != NativeAddonResolveMode::Source)
+        {
+            LogDebug("LoadNativeAddon: forcing %s to source-compile (Reload Native Addons override)",
+                     addonId.c_str());
+            activeMode = NativeAddonResolveMode::Source;
+        }
+    }
+
     state.mActiveResolveMode = activeMode;
 
     std::string modulePath;
@@ -2303,7 +2321,51 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     {
         // Binary mode: use precompiled binary, never compile
         std::string status;
-        if (!ResolveBinaryModulePath(addonId, modulePath, status, outError))
+        bool resolved = ResolveBinaryModulePath(addonId, modulePath, status, outError);
+
+        // Auto-sync on first load: if the addon has remote binary descriptors
+        // in its package.json (the CI release workflow populates these) and
+        // the local Synced/ cache is empty, fetch the binary now. This is
+        // how "addon install" becomes a zero-click experience — the editor
+        // pulls the matching DLL/SO from the addon's GitHub release the
+        // first time it tries to load. Subsequent loads use the cached
+        // synced binary as before. Source iteration ("I edited Source/*.cpp")
+        // is handled separately by the Reload Native Addons flow which goes
+        // through BuildNativeAddon → fingerprinted intermediate dir.
+        if (!resolved)
+        {
+            const Addon* addonInfo = nullptr;
+            if (AddonManager* am = AddonManager::Get())
+            {
+                addonInfo = am->FindAddon(addonId);
+            }
+            const bool hasRemoteBinaries = addonInfo != nullptr &&
+                                           !addonInfo->mNative.mBinaries.empty();
+            if (hasRemoteBinaries)
+            {
+                LogDebug("Auto-syncing prebuilt binary for %s (first-install fetch)",
+                         addonId.c_str());
+                std::string syncError;
+                if (AddonManager::Get()->SyncNativeAddonBinary(addonId, syncError))
+                {
+                    // Re-probe — sync drops the binary into the Synced cache
+                    // dir at the path ResolveBinaryModulePath expects.
+                    resolved = ResolveBinaryModulePath(addonId, modulePath, status, outError);
+                    if (!resolved)
+                    {
+                        LogWarning("Auto-sync reported success for %s but binary still "
+                                   "not resolvable: %s", addonId.c_str(), outError.c_str());
+                    }
+                }
+                else
+                {
+                    LogWarning("Auto-sync failed for %s: %s", addonId.c_str(), syncError.c_str());
+                    // Fall through to the existing failure handling below.
+                }
+            }
+        }
+
+        if (!resolved)
         {
             // In Debug builds, fall back to source compilation if no Debug binary available
 #if defined(_DEBUG)
@@ -3309,6 +3371,15 @@ void NativeAddonManager::ProjectRestartBeginClose()
     // fingerprint dir so NeedsBuild() returns true and the rebuild actually
     // runs. The unload above already freed the DLL/.pdb file handles, so
     // this delete won't hit a "file in use" error.
+    //
+    // Same condition also flags every target to be loaded in source mode
+    // for its next LoadNativeAddon() call. Without this, an addon with
+    // resolveMode=binary in package.json would skip BuildNativeAddon
+    // entirely and reload from the synced binary cache — which defeats the
+    // entire point of Reload Native Addons for users iterating on local
+    // source of a CI-published addon. The flag is one-shot (consumed by
+    // LoadNativeAddon), so a normal load on the next session reverts to
+    // honoring package.json's resolveMode.
     if (mRestart.mForceRebuild)
     {
         for (const std::string& addonId : toBuild)
@@ -3328,6 +3399,7 @@ void NativeAddonManager::ProjectRestartBeginClose()
             {
                 it->second.mFingerprint.clear();
             }
+            mForceSourceForNextLoad.insert(addonId);
         }
     }
 
