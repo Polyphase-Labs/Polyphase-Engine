@@ -145,6 +145,11 @@ struct EditorState
     int32_t mEditSceneIndex = -1;
     int32_t mPieEditSceneIdx = -1;
     std::unordered_map<Asset*, PieAssetSnapshot> mPieAssetSnapshots;
+    // Lazy cache of instantiated default trees for sub-scene source assets,
+    // used by the inspector to detect overridden properties and revert them.
+    // Keyed by source Scene*. Invalidated when an EditScene closes, on
+    // editor shutdown, and whenever a source Scene is reimported/saved.
+    std::unordered_map<Scene*, NodePtr> mInspectorDefaultCache;
     // Deferred PIE start/stop: the click handler sets the *AtEndOfFrame flag
     // so the loading modal can render for a couple of frames before
     // BeginPlayInEditor / EndPlayInEditor blocks the main thread on asset
@@ -308,6 +313,16 @@ struct EditorState
     void InjectPlayInEditor();
     void SnapshotAssetsForPie();
     void RestoreAssetsFromPie();
+
+    // Sub-scene override inspector helpers. The cache holds an instantiated
+    // copy of each source Scene asset that's currently being inspected; the
+    // inspector compares the live node's property values against the
+    // corresponding default node in the cached tree to detect overrides.
+    // Pass nullptr to InvalidateSubSceneDefaultCache to clear everything.
+    Node* GetSubSceneDefaultTree(Scene* src);
+    void InvalidateSubSceneDefaultCache(Scene* src = nullptr);
+    bool IsPropertyOverridden(Node* node, const std::string& propName);
+    void RevertPropertyToSource(Node* node, const std::string& propName);
     void SetPlayInEditorPaused(bool paused);
     bool IsPlayInEditorPaused();
 

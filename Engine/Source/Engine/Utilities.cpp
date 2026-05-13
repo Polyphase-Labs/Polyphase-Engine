@@ -637,6 +637,34 @@ void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePt
     }
 }
 
+// Pure structural walk from sceneRoot down to target, building a "/"-joined
+// child-name path. Bypasses FindRelativeNodePath/GetSubRoot entirely so it's
+// resilient to addon nodes with custom sub-root semantics. Returns "" only
+// when target is not actually a descendant of sceneRoot.
+static bool BuildDescendantPath(Node* current, Node* target, std::string& outPath)
+{
+    if (current == nullptr || target == nullptr)
+        return false;
+
+    for (uint32_t i = 0; i < current->GetNumChildren(); ++i)
+    {
+        Node* child = current->GetChild(i);
+        if (child == target)
+        {
+            outPath = child->GetName();
+            return true;
+        }
+
+        std::string sub;
+        if (BuildDescendantPath(child, target, sub))
+        {
+            outPath = child->GetName() + "/" + sub;
+            return true;
+        }
+    }
+    return false;
+}
+
 void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs)
 {
     OCT_ASSERT(node && sceneRoot);
@@ -652,22 +680,26 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
     // the SubRoot/parent linkage trips up the path walker (e.g. addon-
     // provided nodes whose GetSubRoot semantics differ from stock nodes).
     // For direct children of sceneRoot we can recover by using the child's
-    // own name as the path — that's the canonical single-step reference
-    // form. Without this fallback, the override for any such child is
-    // silently dropped: the inspector edit lives in memory but isn't
-    // recorded as a SubSceneOverride, so the next scene refresh reverts the
-    // value back to whatever the linked scene defaults to.
+    // own name as the path.
     if (over.mPath == "" && node->GetParent() == sceneRoot)
     {
         over.mPath = node->GetName();
     }
 
+    // Deeper-descendant fallback: walk sceneRoot's tree by pointer identity
+    // and build the child-name path. Without this, overrides on any
+    // grandchild of an "exotic" sub-root are silently dropped — the
+    // inspector edit lives in memory but isn't recorded, so the next
+    // refresh reverts the value to the linked scene's default.
     if (over.mPath == "")
     {
-        LogWarning("GatherSubSceneOverrides: empty relative path for node '%s' under scene root '%s'; skipping",
-                   node->GetName().c_str(),
-                   sceneRoot->GetName().c_str());
+        BuildDescendantPath(sceneRoot, node, over.mPath);
+    }
 
+    if (over.mPath == "")
+    {
+        // node really isn't a descendant of sceneRoot (e.g. a transient node
+        // not yet parented). Still recurse so we don't miss its children.
         for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
         {
             GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
@@ -680,9 +712,15 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
 
     if (defaultNode == nullptr)
     {
-        // Node exists in the instance but not in the base scene (e.g. added as an extra child).
-        // Skip gathering overrides for it — there's no default to compare against.
-        LogWarning("Could not find ref node in GatherSubSceneOverrides()");
+        // Node exists in the instance but not in the base scene (e.g. added
+        // as an extra child of the sub-scene root). No default to compare
+        // against — the parent Scene's SceneNodeDef serializer will pick up
+        // this node's state. Still recurse so we capture overrides on any
+        // descendants that DO have source counterparts.
+        for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
+        {
+            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
+        }
         return;
     }
 

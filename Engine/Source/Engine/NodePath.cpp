@@ -101,6 +101,7 @@ void ResolveNodePaths(Node* node, bool recurseChildren)
     std::vector<Property> props;
     node->GatherProperties(props);
 
+    Node* boundary = node->GetSubRoot();
     for (uint32_t p = 0; p < props.size(); ++p)
     {
         if (IsNodeDatumType(props[p].mType) &&
@@ -111,7 +112,7 @@ void ResolveNodePaths(Node* node, bool recurseChildren)
             for (uint32_t i = 0; i < prop.GetCount(); ++i)
             {
                 std::string path = prop.mExtra->GetString(i);
-                Node* dst = ResolveNodePath(node, path);
+                Node* dst = ResolveNodePath(node, path, boundary);
                 prop.SetNode(ResolveWeakPtr<Node>(dst), i);
             }
 
@@ -120,7 +121,7 @@ void ResolveNodePaths(Node* node, bool recurseChildren)
     }
 }
 
-Node* ResolveNodePath(Node* src, const std::string& path)
+Node* ResolveNodePath(Node* src, const std::string& path, Node* boundary)
 {
     if (src == nullptr)
         return nullptr;
@@ -158,6 +159,13 @@ Node* ResolveNodePath(Node* src, const std::string& path)
         }
         else if (tokens[i] == "..")
         {
+            // A path that was recorded inside a sub-scene must stay inside
+            // that sub-scene; refuse to step above the boundary.
+            if (boundary != nullptr && dst == boundary)
+            {
+                dst = nullptr;
+                break;
+            }
             if (dst->GetParent() != nullptr)
             {
                 dst = dst->GetParent();
@@ -201,12 +209,13 @@ void ResolvePendingNodePaths(std::vector<PendingNodePath>& pending)
                 if (IsNodeDatumType(prop.mType) &&
                     prop.mCount == path.mCount)
                 {
+                    Node* boundary = node->GetSubRoot();
                     for (uint32_t n = 0; n < prop.mCount; ++n)
                     {
                         const std::string& nPath = path.GetString(n);
                         if (nPath != "")
                         {
-                            Node* targetNode = ResolveNodePath(node, nPath);
+                            Node* targetNode = ResolveNodePath(node, nPath, boundary);
                             prop.SetNode(ResolveWeakPtr<Node>(targetNode), n);
                         }
                     }
@@ -222,7 +231,12 @@ void ResolvePendingNodePaths(std::vector<PendingNodePath>& pending)
 
 void ResolveAllNodePathsRecursive(Node* node)
 {
-    auto resolvePaths = [](Node* node, std::vector<Property>& props)
+    // FindRelativeNodePath recorded these paths with the source node's
+    // sub-root as the upper bound; mirror that here so a stale "../" can't
+    // resolve into the parent Scene's tree after a re-parent.
+    Node* boundary = node->GetSubRoot();
+
+    auto resolvePaths = [boundary](Node* node, std::vector<Property>& props)
     {
         for (uint32_t p = 0; p < props.size(); ++p)
         {
@@ -232,7 +246,7 @@ void ResolveAllNodePathsRecursive(Node* node)
             {
                 for (uint32_t c = 0; c < prop.GetCount(); ++c)
                 {
-                    Node* targetNode = ResolveNodePath(node, prop.mExtra->GetString(c));
+                    Node* targetNode = ResolveNodePath(node, prop.mExtra->GetString(c), boundary);
                     prop.SetNode(ResolveWeakPtr(targetNode), c);
                 }
             }

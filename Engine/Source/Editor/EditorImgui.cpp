@@ -2963,11 +2963,43 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
             continue;
         }
 
+        // Detect sub-scene override status so the inspector can mark the
+        // property in a Unity-prefab-style color and offer a right-click
+        // "Revert to Source" item. Only meaningful when the owner is a
+        // sub-scene-linked Node.
+        bool isOverride = false;
+        Node* ownerNode = (ownerType == PropertyOwnerType::Node) ? static_cast<Node*>(owner) : nullptr;
+        if (ownerNode != nullptr &&
+            (ownerNode->IsSceneLinked(false) || ownerNode->IsSceneLinkedChild(false)))
+        {
+            isOverride = GetEditorState()->IsPropertyOverridden(ownerNode, prop.mName);
+        }
+        const ImVec4 kOverrideColor(0.40f, 0.75f, 1.00f, 1.00f);
+
         // Bools handle name on same line after checkbox
         if (propType != DatumType::Bool || prop.GetCount() > 1)
         {
             const char* displayText = prop.mDisplayName.empty() ? prop.mName.c_str() : prop.mDisplayName.c_str();
+            if (isOverride) ImGui::PushStyleColor(ImGuiCol_Text, kOverrideColor);
             ImGui::Text(displayText);
+            if (isOverride) ImGui::PopStyleColor();
+
+            // Right-click the label → "Revert to Source" (only meaningful
+            // for sub-scene-linked nodes where a source default exists).
+            if (ownerNode != nullptr &&
+                (ownerNode->IsSceneLinked(false) || ownerNode->IsSceneLinkedChild(false)))
+            {
+                if (ImGui::BeginPopupContextItem("##PropRevert"))
+                {
+                    if (!isOverride) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("Revert to Source"))
+                    {
+                        GetEditorState()->RevertPropertyToSource(ownerNode, prop.mName);
+                    }
+                    if (!isOverride) ImGui::EndDisabled();
+                    ImGui::EndPopup();
+                }
+            }
 
             if (kIndentWidth > 0.0f)
             {
