@@ -82,14 +82,18 @@ g++ -shared -fPIC -O2 -std=c++17 \
     -o "$OUT_DIR/libcom.polyphase.smoke.material.so" \
     -L"$DIST_DIR/lib" \
     -lLua \
-    -Wl,--unresolved-symbols=ignore-in-shared-libs
+    -Wl,--unresolved-symbols=ignore-all
 
-# Note on --unresolved-symbols=ignore-in-shared-libs:
+# Note on --unresolved-symbols=ignore-all:
 # The addon will be dlopen'd into the editor process at runtime, so engine
-# symbols (MaterialBase, Renderer, AssetManager, IsHeadless) are expected
-# to be undefined at addon-link time and resolved against the running exe
-# via -rdynamic at load time. This is the same model used by every other
-# Polyphase native addon — see NativeAddonManager::GenerateBuildScript's
-# Linux branch.
+# symbols (MaterialBase, Renderer, AssetManager, IsHeadless, Bullet inlines
+# instantiated through engine headers, etc.) are expected to be undefined
+# at addon-link time and resolved against the running exe via -rdynamic at
+# load time. Must use `ignore-all` and not `ignore-in-shared-libs` — the
+# latter only ignores symbols undefined in shared-lib dependencies, but
+# the engine symbols we depend on are undefined in the .so we're producing
+# itself, which `ignore-in-shared-libs` does NOT cover. This matches the
+# exact flag NativeAddonManager::GenerateBuildScript emits for real addon
+# builds (see Engine/Source/Editor/Addons/NativeAddonManager.cpp ~line 2138).
 
 echo "[OK] CI smoke addon linked against $DIST_DIR"
