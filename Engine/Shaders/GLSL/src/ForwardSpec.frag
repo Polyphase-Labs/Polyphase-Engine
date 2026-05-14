@@ -93,6 +93,39 @@ float CalculateShadow(vec4 sc)
     return visibility;
 }
 
+// Vulkan-only PCF directional-shadow sample. See Forward.frag for details.
+float SampleDirShadow(vec3 worldPos)
+{
+    vec4 sc4 = global.mShadowViewProj * vec4(worldPos, 1.0);
+    if (sc4.w <= 0.0)
+    {
+        return 1.0;
+    }
+
+    vec3 sc = sc4.xyz / sc4.w;
+    sc.xy = sc.xy * 0.5 + 0.5;
+
+    if (sc.x < 0.0 || sc.x > 1.0 ||
+        sc.y < 0.0 || sc.y > 1.0 ||
+        sc.z < 0.0 || sc.z > 1.0)
+    {
+        return 1.0;
+    }
+
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowSampler, 0));
+    float visibility = 0.0;
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            vec2 offset = vec2(float(x), float(y)) * texelSize;
+            float depth = texture(shadowSampler, sc.xy + offset).r;
+            visibility += (depth + SHADAOW_DEPTH_BIAS >= sc.z) ? 1.0 : 0.0;
+        }
+    }
+    return visibility / 9.0;
+}
+
 void main()
 {
     vec2 texCoord0 = (inTexcoord0 + material.mUvOffset0) * material.mUvScale0;
@@ -176,7 +209,7 @@ void main()
                 vec4 lightColor = light.mColor;
 
                 vec4 dirLighting = CalculateLighting(shadingModel, L, N, V, lightColor, 1.0);
-                float shadowVis = 1.0; //CalculateShadow(inShadowCoordinate);
+                float shadowVis = SampleDirShadow(inPosition);
                 totalLight += dirLighting * shadowVis;
             }
             else if (light.mType == LIGHT_TYPE_POINT)
