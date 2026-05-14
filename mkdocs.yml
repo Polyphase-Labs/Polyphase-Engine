@@ -42,6 +42,7 @@ nav:
           - Terminal: Development/SetupEnvironment/Terminal.md
           - Compiling: Development/SetupEnvironment/Compiling.md
       - Mesh Instancing: Development/MeshInstancing.md
+      - Shadows: Development/Shadows.md
       - 3D Nodes:
           - Terrain3D: Development/Terrain3D.md
           - TileMap2D: Development/TileMap2D.md

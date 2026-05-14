@@ -1848,8 +1848,9 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
     if (mesh != nullptr)
     {
         VkCommandBuffer cb = GetCommandBuffer();
+        bool cpuSkin = IsCpuSkinningRequired(skeletalMeshComp);
 
-        if (IsCpuSkinningRequired(skeletalMeshComp))
+        if (cpuSkin)
         {
             VkDeviceSize offset = 0;
             VkBuffer vertexBuffer = resource->mVertexBuffer->Get();
@@ -1862,6 +1863,37 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             BindSkeletalMeshResource(mesh);
         }
 
+        // Shadow depth pass: caller has already set PipelineConfig::Shadow.
+        // For GPU-skinned meshes we need to swap the vertex shader to
+        // ShadowSkinned.vert (which reads bone indices/weights at locations 4/5
+        // and skins on the GPU) and set VertexType::VertexSkinned so the
+        // pipeline's vertex input description matches the buffer stride.
+        // CPU-skinned meshes already have pre-skinned positions in a basic
+        // Vertex-format buffer, so Shadow.vert + VertexType::Vertex works as-is.
+        if (GetVulkanContext()->GetCurrentRenderPassId() == RenderPassId::Shadows)
+        {
+            if (cpuSkin)
+            {
+                GetVulkanContext()->SetVertexType(VertexType::Vertex);
+            }
+            else
+            {
+                GetVulkanContext()->SetVertexType(VertexType::VertexSkinned);
+                GetVulkanContext()->SetVertexShader("ShadowSkinned.vert");
+            }
+
+            GetVulkanContext()->CommitPipeline();
+            BindGeometryDescriptorSet(skeletalMeshComp);
+
+            vkCmdDrawIndexed(cb,
+                mesh->GetNumIndices(),
+                1,
+                0,
+                0,
+                0);
+            return;
+        }
+
         Material* material = nullptr;
 
         if (GetVulkanContext()->AreMaterialsEnabled())
@@ -1870,7 +1902,7 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             material = material ? material : Renderer::Get()->GetDefaultMaterial();
         }
 
-        VertexType vertType = IsCpuSkinningRequired(skeletalMeshComp) ? VertexType::Vertex : VertexType::VertexSkinned;
+        VertexType vertType = cpuSkin ? VertexType::Vertex : VertexType::VertexSkinned;
         BindForwardVertexType(vertType, material);
         BindMaterialResource(material);
         GetVulkanContext()->CommitPipeline();
