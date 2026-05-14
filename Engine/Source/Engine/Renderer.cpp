@@ -146,6 +146,8 @@ void Renderer::GatherProperties(std::vector<Property>& props)
         props.push_back(Property(DatumType::Bool, "Light Fade", nullptr, &mEnableLightFade));
         props.push_back(Property(DatumType::Integer, "Light Fade Limit", nullptr, &mLightFadeLimit));
         props.push_back(Property(DatumType::Float, "Light Fade Speed", nullptr, &mLightFadeSpeed));
+
+        props.push_back(Property(DatumType::Asset, "Environment Map", nullptr, &mEnvironmentMap, 1, nullptr, int32_t(Texture::GetStaticType())));
     }
 
     {

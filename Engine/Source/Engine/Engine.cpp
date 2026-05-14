@@ -203,6 +203,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(SkeletalMesh3D);
     FORCE_LINK_CALL(Sphere3D);
     FORCE_LINK_CALL(StaticMesh3D);
+    FORCE_LINK_CALL(Skybox3D);
     FORCE_LINK_CALL(Capsule3D);
     FORCE_LINK_CALL(ShadowMesh3D);
     FORCE_LINK_CALL(TextMesh3D);

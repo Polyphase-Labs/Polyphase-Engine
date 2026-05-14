@@ -1,15 +1,26 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
+// Declared before Common.glsl is included so the helpers in Common.glsl
+// (SampleEnvironment / EquirectDirToUV) can reference this symbol when
+// POLYPHASE_HAS_ENV_MAP is defined by the including template.
+layout (set = 0, binding = 2) uniform sampler2D environmentMap;
+
 #include "Common.glsl"
 #include "Skinning.glsl"
 
-layout (set = 0, binding = 0) uniform GlobalUniformBuffer 
+layout (set = 0, binding = 0) uniform GlobalUniformBuffer
 {
     GlobalUniforms global;
 };
 
-layout (set = 1, binding = 0) uniform GeometryUniformBuffer 
+// Declared so user shader functions that reference `shadowSampler` (e.g. for
+// receiver-side shadow lookups) compile cleanly when their bodies are injected
+// into the vertex shader too. Vertex code rarely calls it directly, but GLSL
+// still compiles all defined functions whether or not they're invoked.
+layout (set = 0, binding = 1) uniform sampler2D shadowSampler;
+
+layout (set = 1, binding = 0) uniform GeometryUniformBuffer
 {
 #if VERTEX_TYPE_SKINNED
 	SkinnedGeometryUniforms geometry;

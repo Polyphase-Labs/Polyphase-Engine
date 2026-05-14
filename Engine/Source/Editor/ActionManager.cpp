@@ -66,6 +66,7 @@
 #include "Nodes/3D/Mesh3d.h"
 #include "VoxelSculpt/VoxelSculptManager.h"
 #include "Nodes/3D/StaticMesh3d.h"
+#include "Nodes/3D/Skybox3D.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/Node3d.h"
@@ -2977,7 +2978,7 @@ Node* ActionManager::SpawnBasicNode(const std::string& name, Node* parent, Asset
     }
     else if (name == BASIC_SKYBOX_TEXTURED || name == BASIC_SKYBOX_VERTEX_COLOR)
     {
-        StaticMesh3D* skyNode = EXE_SpawnNode(StaticMesh3D::GetStaticType())->As<StaticMesh3D>();
+        Skybox3D* skyNode = EXE_SpawnNode(Skybox3D::GetStaticType())->As<Skybox3D>();
         skyNode->SetName("Skybox");
 
         Material* srcMat = (srcAsset != nullptr && srcAsset->Is(Material::ClassRuntimeId()))
@@ -4023,7 +4024,7 @@ Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool 
 
         if (createSkybox)
         {
-            StaticMesh3D* skyNode = root->CreateChild<StaticMesh3D>("Skybox");
+            Skybox3D* skyNode = root->CreateChild<Skybox3D>("Skybox");
             ConfigureSkyboxNode(skyNode);
         }
 

@@ -836,6 +836,9 @@
     <ClCompile Include="Source\Engine\Nodes\3D\Sphere3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\3D\Skybox3D.cpp">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\StaticMesh3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
@@ -2365,6 +2368,9 @@
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\Sphere3d.h">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\3D\Skybox3D.h">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\StaticMesh3d.h">

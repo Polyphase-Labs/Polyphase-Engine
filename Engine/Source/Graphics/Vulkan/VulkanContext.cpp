@@ -20,6 +20,10 @@
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
+#include "Nodes/3D/Skybox3D.h"
+#include "Assets/Texture.h"
+#include "Assets/Material.h"
+#include "Assets/MaterialLite.h"
 
 #include "Assertion.h"
 #include <string>
@@ -1802,13 +1806,76 @@ void VulkanContext::EnableMaterials(bool enable)
     mEnableMaterials = enable;
 }
 
+static Texture* ResolveSkyboxMaterialTexture(Skybox3D* skybox)
+{
+    if (skybox == nullptr)
+        return nullptr;
+
+    Material* mat = skybox->GetMaterial();
+    if (mat == nullptr)
+        return nullptr;
+
+    if (mat->IsLite())
+    {
+        return mat->AsLite()->GetTexture(0);
+    }
+
+    const std::vector<ShaderParameter>& params = mat->GetParameters();
+    for (const ShaderParameter& p : params)
+    {
+        if (p.mType == ShaderParameterType::Texture)
+        {
+            Texture* t = p.mTextureValue.Get<Texture>();
+            if (t != nullptr)
+                return t;
+        }
+    }
+
+    return nullptr;
+}
+
 void VulkanContext::UpdateGlobalDescriptorSet()
 {
     UniformBlock uniformBlock = WriteUniformBlock(&mGlobalUniformData, sizeof(GlobalUniformData));
 
+    // Resolve the global environment map. Gated on the active Skybox3D's mUseEnvMap flag.
+    // Source priority: Renderer.mEnvironmentMap (explicit override) -> Skybox3D material's
+    // first texture parameter -> black fallback (binding is always valid).
+    Image* envImage = nullptr;
+    Renderer* renderer = Renderer::Get();
+    if (renderer != nullptr)
+    {
+        World* world = renderer->GetCurrentWorld();
+        Skybox3D* skybox = (world != nullptr) ? world->FindNode<Skybox3D>() : nullptr;
+
+        if (skybox != nullptr && skybox->IsEnvMapEnabled())
+        {
+            Texture* envTex = renderer->mEnvironmentMap.Get<Texture>();
+            if (envTex == nullptr)
+            {
+                envTex = ResolveSkyboxMaterialTexture(skybox);
+            }
+
+            if (envTex != nullptr)
+            {
+                envImage = envTex->GetResource()->mImage;
+            }
+        }
+
+        if (envImage == nullptr)
+        {
+            Texture* blackTex = renderer->mBlackTexture.Get<Texture>();
+            if (blackTex != nullptr)
+            {
+                envImage = blackTex->GetResource()->mImage;
+            }
+        }
+    }
+
     mGlobalDescriptorSet = DescriptorSet::Begin("Global DS")
         .WriteUniformBuffer(GLD_UNIFORM_BUFFER, uniformBlock)
         .WriteImage(GLD_SHADOW_MAP, mShadowMapImage)
+        .WriteImage(GLD_ENV_MAP, envImage)
         .Build();
 }
 

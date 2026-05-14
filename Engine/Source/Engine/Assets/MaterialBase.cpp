@@ -493,8 +493,11 @@ void MaterialBase::Compile()
             }
             else
             {
-                // Filter out the parameters from the raw code.
+                // Filter out the parameters from the raw code. Re-add the newline that
+                // std::getline stripped — required so any preprocessor directives in user
+                // code (e.g. `#ifdef MATERIAL_MASKED`) stay on their own line.
                 userCode += line;
+                userCode += "\n";
             }
         }
     }

@@ -190,6 +190,15 @@ void Shader::Create(const char* data, uint32_t size)
         shadowMapBinding.pImmutableSamplers = nullptr;
         shadowMapBinding.stageFlags = allStages;
         mDescriptorBindings[0].push_back(shadowMapBinding);
+
+        // Environment Map image at 0.2 (HDRI equirect)
+        VkDescriptorSetLayoutBinding envMapBinding = {};
+        envMapBinding.descriptorCount = 1;
+        envMapBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        envMapBinding.binding = 2;
+        envMapBinding.pImmutableSamplers = nullptr;
+        envMapBinding.stageFlags = allStages;
+        mDescriptorBindings[0].push_back(envMapBinding);
     }
 
     // We will access these descriptor set layouts when creating a pipeline using this shader.

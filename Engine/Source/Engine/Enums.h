@@ -7,7 +7,8 @@
 enum GlobalDescriptor
 {
     GLD_UNIFORM_BUFFER,
-    GLD_SHADOW_MAP
+    GLD_SHADOW_MAP,
+    GLD_ENV_MAP
 };
 
 enum GeometryDescriptor

@@ -1097,6 +1097,7 @@
     <ClCompile Include="Source\Engine\Nodes\3D\Primitive3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\ShadowMesh3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\SkeletalMesh3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\Skybox3D.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Sphere3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Spline3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\StaticMesh3d.cpp" />
@@ -1631,6 +1632,7 @@
     <ClInclude Include="Source\Engine\Nodes\3D\Primitive3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\ShadowMesh3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\SkeletalMesh3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\Skybox3D.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Sphere3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Spline3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\StaticMesh3d.h" />

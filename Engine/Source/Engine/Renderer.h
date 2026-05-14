@@ -171,6 +171,9 @@ public:
     TextureRef mDefaultNormalTexture;
     TextureRef mDefaultORMTexture;
 
+    // Environment / IBL
+    TextureRef mEnvironmentMap;
+
     // Default Materials
     MaterialRef mDefaultMaterial;
 

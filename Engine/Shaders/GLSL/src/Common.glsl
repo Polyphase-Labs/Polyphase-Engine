@@ -284,3 +284,29 @@ vec4 SrgbToLinear(vec4 srgbColor)
     linearColor.a = srgbColor.a;
     return linearColor;
 }
+
+// Note: `environmentMap` is declared directly in MatTemplateVert.glsl and
+// MatTemplateFrag.glsl (set=0, binding=2). The helpers below reference that
+// symbol only when POLYPHASE_HAS_ENV_MAP is defined, so non-material shaders
+// that include Common.glsl without declaring environmentMap still compile.
+
+// World-space direction -> equirectangular UV (Y-up, +X seam).
+vec2 EquirectDirToUV(vec3 dir)
+{
+    vec3 d = normalize(dir);
+    float phi = atan(d.z, d.x);
+    float theta = acos(clamp(d.y, -1.0, 1.0));
+    return vec2((phi + PI) / (2.0 * PI), theta / PI);
+}
+
+// Sample the global HDRI environment map from a world-space direction.
+// Returns black when POLYPHASE_HAS_ENV_MAP is not defined so any shader
+// that includes Common.glsl can call this safely.
+vec3 SampleEnvironment(vec3 dir)
+{
+#ifdef POLYPHASE_HAS_ENV_MAP
+    return texture(environmentMap, EquirectDirToUV(dir)).rgb;
+#else
+    return vec3(0.0);
+#endif
+}

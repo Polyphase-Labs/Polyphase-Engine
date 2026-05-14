@@ -1,10 +1,16 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
+#define POLYPHASE_HAS_ENV_MAP 1
+
+// Declared before Common.glsl is included so the helpers in Common.glsl
+// (SampleEnvironment / EquirectDirToUV) can reference this symbol.
+layout (set = 0, binding = 2) uniform sampler2D environmentMap;
+
 #include "Common.glsl"
 #include "Fog.glsl"
 
-layout (set = 0, binding = 0) uniform GlobalUniformBuffer 
+layout (set = 0, binding = 0) uniform GlobalUniformBuffer
 {
     GlobalUniforms global;
 };
