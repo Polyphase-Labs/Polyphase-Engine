@@ -32,6 +32,28 @@ mkdir -p "$OUT_DIR"
 
 echo "Building CI smoke addon against $DIST_DIR"
 
+# Locate the Vulkan headers — required because the engine's API_VULKAN-gated
+# headers (Graphics/Vulkan/VramAllocator.h, Image.h, Buffer.h) transitively
+# included from MaterialBase.h all #include <vulkan/vulkan.h>. Search the
+# usual layouts: $VULKAN_SDK/include (LunarG SDK on Linux), $VULKAN_SDK/x86_64/include
+# (older LunarG layouts), and /usr/include (distro libvulkan-dev).
+VULKAN_INC=""
+for candidate in \
+    "${VULKAN_SDK:-}/include" \
+    "${VULKAN_SDK:-}/x86_64/include" \
+    "/usr/include"; do
+    if [ -n "$candidate" ] && [ -f "$candidate/vulkan/vulkan.h" ]; then
+        VULKAN_INC="$candidate"
+        break
+    fi
+done
+if [ -z "$VULKAN_INC" ]; then
+    echo "ERROR: could not find vulkan/vulkan.h. Tried VULKAN_SDK/include, VULKAN_SDK/x86_64/include, /usr/include." >&2
+    echo "       Install the Vulkan SDK or libvulkan-dev." >&2
+    exit 2
+fi
+echo "Using Vulkan headers from $VULKAN_INC"
+
 # Linux's POLYPHASE_API resolves to __attribute__((visibility("default")))
 # which is a no-op when the engine isn't built with -fvisibility=hidden, so
 # Linux can't catch a "missing POLYPHASE_API" regression via link failure
@@ -55,6 +77,7 @@ g++ -shared -fPIC -O2 -std=c++17 \
     -I"$DIST_DIR/External/Vorbis" \
     -I"$DIST_DIR/External/Assimp" \
     -I"$ADDON_ROOT/Source" \
+    -I"$VULKAN_INC" \
     "$ADDON_ROOT/Source/SmokeMaterial.cpp" \
     -o "$OUT_DIR/libcom.polyphase.smoke.material.so" \
     -L"$DIST_DIR/lib" \

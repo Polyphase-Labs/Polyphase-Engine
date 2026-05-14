@@ -77,15 +77,26 @@ cl.exe /nologo /EHsc /std:c++17 /O2 /LD /MD ^
     /LIBPATH:"%DIST_DIR%" ^
     Polyphase.lib Lua.lib
 
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [FAIL] CI smoke addon build failed. An engine symbol consumed by
-    echo        the fixture is missing from %DIST_DIR%\Polyphase.lib. Most
-    echo        likely cause: a class addons depend on lost its POLYPHASE_API
-    echo        annotation. Check the LNK2001 symbol names above against the
-    echo        list in Documentation/Development/NativeAddon/NativeAddon.md
-    echo        ("Engine API surface available to addons").
-    exit /b 1
-)
+:: Capture cl.exe's exit code before any other command can clobber it. Then
+:: compare via an explicit string comparison — using `if %ERRORLEVEL% neq 0 (`
+:: inside a parenthesized block trips cmd's parser when echoed messages
+:: contain `(` / `)`, producing a useless "`. was unexpected at this time.`"
+:: instead of the actual link errors. Pull the check out of any nested block
+:: and avoid parens in the diagnostic text so the error surfaces cleanly.
+set "CL_EXIT=%ERRORLEVEL%"
+
+if not "%CL_EXIT%"=="0" goto :smoke_failed
 
 echo [OK] CI smoke addon linked against %DIST_DIR%\Polyphase.lib
+exit /b 0
+
+:smoke_failed
+echo.
+echo [FAIL] CI smoke addon build failed with exit %CL_EXIT%.
+echo        An engine symbol consumed by the fixture is missing from
+echo        %DIST_DIR%\Polyphase.lib. Most likely cause: a class addons
+echo        depend on lost its POLYPHASE_API annotation. Check the LNK2001
+echo        symbol names above against the list in
+echo        Documentation/Development/NativeAddon/NativeAddon.md
+echo        under the "Engine API surface available to addons" section.
+exit /b 1
