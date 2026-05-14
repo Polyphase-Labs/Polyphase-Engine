@@ -74,7 +74,7 @@ void ResizeWindow(uint32_t width, uint32_t height);
 bool IsPlayingInEditor();
 bool IsPlaying();
 
-bool IsHeadless();
+POLYPHASE_API bool IsHeadless();
 
 bool IsGameTickEnabled();
 

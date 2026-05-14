@@ -140,6 +140,16 @@ jobs:
           )
           echo [OK] Import libraries staged into dist\Editor\.
 
+      # Compile a minimal native addon (Tools/CI/TestBuildAddon) against the
+      # freshly-staged dist/Editor/. Catches the class of regression where a
+      # class addons depend on (MaterialBase, AssetManager, Renderer, ...)
+      # loses its POLYPHASE_API export annotation — LNK2001 surfaces here
+      # before the installer ever ships. See the build script header for the
+      # full rationale.
+      - name: Build CI smoke addon (addon-link surface check)
+        shell: cmd
+        run: Tools\CI\TestBuildAddon\build_smoke_addon.bat dist\Editor
+
       # Package the headers + Release-CRT import libs as a standalone SDK zip
       # so native-addon CI (e.g. com.polyphase.system.character.dialogue.core)
       # can curl it from the Release page instead of git-cloning the engine
@@ -308,6 +318,19 @@ jobs:
             exit 1
           fi
           echo "[OK] libLua.a found."
+
+      # Stage dist/Editor early so the smoke-test step can link against it.
+      # build_deb_linux.sh / build_tarball_linux.sh below both re-run this
+      # script (it cleans + re-stages, so the duplicate is harmless).
+      - name: Stage distribution files (Linux)
+        run: python3 Installers/stage_distribution.py --platform linux --verbose
+
+      # Same rationale as the Windows smoke-addon step: compile a fixture
+      # that references every engine symbol addons depend on, fail early if
+      # any of them lose POLYPHASE_API. On Linux this also catches header /
+      # signature drift between the engine and the staged tree.
+      - name: Build CI smoke addon (addon-link surface check)
+        run: bash Tools/CI/TestBuildAddon/build_smoke_addon.sh dist/Editor
 
       # Upload the editor binary plus the source/headers/Makefiles the headless
       # editor needs at runtime (it shells out to make for per-platform game

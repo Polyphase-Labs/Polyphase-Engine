@@ -34,7 +34,7 @@ struct MaterialLiteParams
     CullMode mCullMode = CullMode::Back;
 };
 
-class MaterialLite : public Material
+class POLYPHASE_API MaterialLite : public Material
 {
 public:
 

@@ -4,7 +4,7 @@
 
 class MaterialBase;
 
-class MaterialInstance : public Material
+class POLYPHASE_API MaterialInstance : public Material
 {
 public:
 

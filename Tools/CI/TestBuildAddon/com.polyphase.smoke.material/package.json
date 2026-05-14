@@ -1,0 +1,14 @@
+{
+    "name": "com.polyphase.smoke.material",
+    "author": "Polyphase",
+    "description": "CI smoke-test addon. References every engine symbol that previously failed LNK2001 against the installed editor (Polyphase.lib). Compile-only — never loaded by the editor.",
+    "version": "0.0.1",
+    "tags": ["ci", "smoke-test"],
+    "native": {
+        "target": "engine",
+        "sourceDir": "Source",
+        "binaryName": "com.polyphase.smoke.material",
+        "entrySymbol": "PolyphasePlugin_GetDesc",
+        "apiVersion": 3
+    }
+}

@@ -156,7 +156,10 @@
       "Bash(dumpbin /symbols \"Engine/Intermediate/Windows/x64/Debug Shared/Engine/imgui.obj\")",
       "Bash(Select-Object -First 30)",
       "Bash(Format-Table -AutoSize)",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Read(//c/Polyphase/**)",
+      "Bash(dumpbin /headers Polyphase.lib)",
+      "PowerShell(dumpbin *)"
     ]
   }
 }

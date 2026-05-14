@@ -29,13 +29,18 @@ struct LightDistance2
     LightDistance2(Light3D* comp, float dist2) : mComponent(comp), mDistance2(dist2) {}
 };
 
+// Per-method POLYPHASE_API on Get() only. A class-level export forces MSVC to
+// emit Renderer's implicit ctor/dtor bodies in every TU that includes this
+// header, which in turn instantiates ~SharedPtr<Console> / ~SharedPtr<StatsOverlay>
+// against the forward declarations above → C4150 ("deletion of pointer to
+// incomplete type"). Addons only need the singleton accessor anyway.
 class Renderer
 {
 public:
 
     static void Create();
     static void Destroy();
-    static Renderer* Get();
+    POLYPHASE_API static Renderer* Get();
 
     void Render(World* world, int32_t screenIndex);
 #if EDITOR

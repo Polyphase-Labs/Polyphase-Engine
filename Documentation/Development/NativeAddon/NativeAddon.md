@@ -408,6 +408,41 @@ When building your addon, define `OCTAVE_PLUGIN_EXPORT` to export symbols:
 
 ---
 
+## Engine API Surface Available to Addons
+
+Native addons link against the editor's import library (`Polyphase.lib` on Windows, the editor exe's dynamic symbol table on Linux). Only engine classes and free functions marked with `POLYPHASE_API` are visible across that boundary — derive from or call anything else and you get `LNK2001 unresolved external symbol` against an installed editor build, even though it links fine against the in-tree development tree (where the addon links the full `Engine.lib` static archive directly).
+
+### Supported derive-able / consumable surface
+
+The following are confirmed `POLYPHASE_API`-exported and safe to use from addons:
+
+- **Asset bases** — derive your custom asset types from any of these:
+  - `Asset`
+  - `Material`, `MaterialBase`, `MaterialLite`, `MaterialInstance`
+  - `Texture`, `StaticMesh`, `SkeletalMesh`, `Scene`, `SoundWave`, `Font`, `ParticleSystem`
+- **Node bases** — derive custom nodes from:
+  - `Node`, `Node3D`, `Widget`
+- **Managers / singletons** — call from your addon:
+  - `Renderer::Get()`
+  - `AssetManager::Get()` and `AssetManager::RegisterTransientAsset(Asset*)`
+  - `GetWorld(index)`, `GetNumWorlds()`, `GetSignalBus()`
+  - `GetEngineState()`, `GetEngineConfig()`, `GetMutableEngineConfig()`, `GetAppClock()`
+- **Free functions**:
+  - `LogDebug()`, `LogWarning()`, `LogError()`, `LogConsole()`
+  - `IsHeadless()`
+  - `FetchAsset()`, `LoadAsset()`
+  - `RegisterImportExtension()`
+- **Plugin hook entry points**:
+  - `RegisterOctHooks()`, `GetOctHooks()`
+
+The engine's `Engine/Source/Plugins/PolyphaseEngineAPI.h` wrapper struct is the older, function-pointer-based way to reach a subset of the same surface — useful if you want to keep your addon binary-compatible across engine versions. Using the exported classes directly is more ergonomic but couples your addon to the exact engine ABI.
+
+### If you hit LNK2001 against an engine symbol
+
+If your addon links against an installed editor and you see `unresolved external symbol "<engine class or function>"`, the symbol is almost certainly missing its `POLYPHASE_API` annotation. File an issue with the LNK2001 output — the engine maintainer adds the macro and a CI smoke-test entry that prevents future regressions (see `Tools/CI/TestBuildAddon/com.polyphase.smoke.material/` for the existing fixture, which is built on every Windows/Linux release).
+
+---
+
 ## Development Workflow
 
 There are two ways to develop native addons:

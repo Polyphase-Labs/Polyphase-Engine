@@ -7593,7 +7593,7 @@ static void DrawMaterialShaderParams(Material* mat)
         }
         else if (param.mType == ShaderParameterType::Texture)
         {
-            Property prop(DatumType::Asset, "ShaderParam", nullptr, &param.mTextureValue, 1, nullptr, (int32_t)Texture::GetStaticType());
+            Property prop(DatumType::Asset, param.mName, nullptr, &param.mTextureValue, 1, nullptr, (int32_t)Texture::GetStaticType());
             DrawAssetProperty(prop, 0, nullptr, PropertyOwnerType::Count);
         }
 

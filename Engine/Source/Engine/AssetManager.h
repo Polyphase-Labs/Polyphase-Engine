@@ -111,6 +111,11 @@ T* LoadAsset(const std::string& name)
     return (T*)asset;
 }
 
+// Per-method POLYPHASE_API on the addon-facing surface only. A class-level
+// export expands to dllexport on every member (incl. implicit special-member
+// instantiations in TUs that only forward-decl AssetManager members), which
+// risks C4150 against forward-declared types. Addons reach into AssetManager
+// through Get() and RegisterTransientAsset() only.
 class AssetManager
 {
 public:
@@ -119,7 +124,7 @@ public:
 
     static void Create();
     static void Destroy();
-    static AssetManager* Get();
+    POLYPHASE_API static AssetManager* Get();
 
     void Initialize();
     void Update(float deltaTime);
@@ -133,7 +138,7 @@ public:
     void RefSweep();
     void LoadAll();
 
-    void RegisterTransientAsset(Asset* asset);
+    POLYPHASE_API void RegisterTransientAsset(Asset* asset);
 
     Asset* ImportEngineAsset(TypeId assetType, AssetDir* dir, const std::string& filename, ImportOptions* options = nullptr);
     void ImportEngineAssets();

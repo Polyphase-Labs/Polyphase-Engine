@@ -10,7 +10,7 @@
 class Texture;
 class MaterialLite;
 
-class MaterialBase : public Material
+class POLYPHASE_API MaterialBase : public Material
 {
 public:
 
