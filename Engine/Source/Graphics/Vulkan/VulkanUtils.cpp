@@ -2072,6 +2072,32 @@ void DrawInstancedMeshComp(InstancedMesh3D* instancedMeshComp)
             material = material ? material : Renderer::Get()->GetDefaultMaterial();
         }
 
+        // Shadow depth pass for instanced meshes: caller has already set
+        // PipelineConfig::Shadow (Shadow.vert + Shadow.frag + VertexType::Vertex).
+        // Swap the vertex shader to ShadowInstanced.vert so it reads per-instance
+        // transforms from the SSBO at set=1, binding=1 (already populated by
+        // BindGeometryDescriptorSet when the mesh is an InstancedMesh3D). Match
+        // the pipeline's vertex stride to the mesh's actual format.
+        if (context->GetCurrentRenderPassId() == RenderPassId::Shadows)
+        {
+            VertexType shadowVertType = mesh->HasVertexColor()
+                ? VertexType::VertexColor
+                : VertexType::Vertex;
+            context->SetVertexType(shadowVertType);
+            context->SetVertexShader("ShadowInstanced.vert");
+
+            context->CommitPipeline();
+            BindGeometryDescriptorSet(instancedMeshComp);
+
+            vkCmdDrawIndexed(cb,
+                mesh->GetNumIndices(),
+                numInstances,
+                0,
+                0,
+                0);
+            return;
+        }
+
         BindForwardVertexType(vertexType, material, true);
         BindMaterialResource(material);
 

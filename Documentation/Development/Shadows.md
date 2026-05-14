@@ -49,7 +49,7 @@ That's it. Toggle the flags, point the light downward, and you should see shadow
 |---|---|
 | `StaticMesh3D` | ✅ |
 | `SkeletalMesh3D` | ✅ (CPU- and GPU-skinned variants both wired) |
-| `InstancedMesh3D` | ❌ (not yet wired in shadow pass; would need a similar short-circuit in `DrawInstancedMeshComp`) |
+| `InstancedMesh3D` | ✅ (uses `ShadowInstanced.vert` — per-instance transforms read from the SSBO at set=1, binding=1) |
 | `Particle3D` | ❌ |
 | `TileMap2D` | ❌ |
 | `Terrain3D` | ❌ |
@@ -170,6 +170,34 @@ Material fragment shaders sample the shadow map with `SampleDirectionalShadow` (
 
 Visibility is then multiplied into the directional light's `radiance` term in the shading loop, so it dampens both direct diffuse and direct specular consistently.
 
+### Editing shader source — the GLSL → SPIR-V build step
+
+Global shaders (the ones in `Engine/Shaders/GLSL/src/`) are **not loaded as GLSL at runtime**. The engine loads pre-compiled SPIR-V binaries from `Engine/Shaders/GLSL/bin/` and hands them directly to `vkCreateShaderModule`. There is no shaderc fallback for the global-shader path.
+
+Compilation is a manual offline step driven by `Engine/Shaders/GLSL/compile.bat`:
+
+```bat
+for %%f in (.\src\*) do (
+  if NOT "%%~xf" == ".glsl" (
+    %VULKAN_SDK%/Bin/glslc.exe %%f -O -g -fpreserve-bindings -o .\bin\%%~nxf
+  )
+)
+```
+
+It iterates `src/`, skips `.glsl` (include-only) files, and compiles every `.vert` / `.frag` / `.comp` to a same-named SPIR-V binary in `bin/`.
+
+**Workflow when editing or adding global shaders**:
+
+1. Edit (or create) the source file in `Engine/Shaders/GLSL/src/`.
+2. Run `Engine/Shaders/GLSL/compile.bat` from a shell that has `%VULKAN_SDK%` defined (the Vulkan SDK installer sets this; check with `echo %VULKAN_SDK%`).
+3. Restart the editor so it picks up the new SPIR-V in `bin/`.
+
+If you skip the compile step and add a new shader, `VulkanContext::CreateGlobalShaders` won't see the file in `bin/`, `GetGlobalShader("YourShader.vert")` returns null, and `SetVertexShader` asserts. This is what happens when a new shader gets added without running `compile.bat`.
+
+**`.glsl` files** (e.g. `Common.glsl`, `ForwardVert.glsl`, `Skinning.glsl`) are header-only — they're `#include`'d by `.vert` / `.frag` files and don't need their own compile. Editing one of those still requires recompiling every `.vert`/`.frag` that includes it (the whole `compile.bat` run does this).
+
+**Material shaders are different** — `MaterialBase` compiles its `.glsl` via `shaderc` at material-asset-load time, so material shader edits take effect on the next material save/reload, no `compile.bat` needed.
+
 ### Adding a new caster mesh type
 
 If you add a new mesh type and want it to cast shadows, follow the pattern in `DrawStaticMeshComp` / `DrawSkeletalMeshComp`:
@@ -225,4 +253,5 @@ Don't call `BindForwardVertexType`, `BindMaterialResource`, or `BindMaterialDesc
 | Shadow acne (speckling on lit surfaces) | Bias too low. Bump `0.0005` in the receiver shader's PCF loop. |
 | Peter-panning (shadow detached from caster's feet) | Bias too high. Decrease it. |
 | Static meshes cast, skeletal meshes don't | Skeletal mesh's `Cast Shadows` defaults to `false` — toggle it explicitly. |
-| Shadows look correct on PBR materials but not on lite materials | Editor was never restarted after a `Forward.frag` / `ForwardSpec.frag` change — global shaders compile once at startup. |
+| Shadows look correct on PBR materials but not on lite materials | Editor was never restarted after a `Forward.frag` / `ForwardSpec.frag` change — global shaders compile once at startup, and source edits need `compile.bat` to regenerate `bin/`. |
+| Editor asserts in `GetGlobalShader` with "Failed to find global shader: …" | A new `.vert`/`.frag` was added to `src/` but `Engine/Shaders/GLSL/compile.bat` was never run, so no matching SPIR-V exists in `bin/`. Run the script and restart the editor. |
