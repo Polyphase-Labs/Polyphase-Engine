@@ -9,6 +9,7 @@
 #include "Nodes/Widgets/StatsOverlay.h"
 #include "Assets/Font.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
@@ -1403,14 +1404,28 @@ void Renderer::Render(World* world, int32_t screenIndex)
                     // ***************
                     //  Shadow Depths
                     // ***************
-                    // TODO: Reimplement shadow maps. Possibly for multiple light sources.
-#if 0
+                    // TODO: Multi-light shadow casters. For now we only render the depth
+                    // pass for the first DirectionalLight3D the scene exposes. Receivers
+                    // sample `shadowSampler` (set=0, binding=1) using `mShadowViewProj`
+                    // which is populated alongside the camera view-proj in
+                    // VulkanContext::UpdateGlobalUniformData.
                     GFX_SetViewport(0, 0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION, false);
                     GFX_SetScissor(0, 0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION, false);
 
                     GFX_BeginRenderPass(RenderPassId::Shadows);
 
-                    DirectionalLight3D* dirLight = world->GetDirectionalLight();
+                    DirectionalLight3D* dirLight = nullptr;
+                    {
+                        const std::vector<Light3D*>& lights = world->GetLights();
+                        for (Light3D* light : lights)
+                        {
+                            if (light != nullptr && light->IsDirectionalLight3D())
+                            {
+                                dirLight = static_cast<DirectionalLight3D*>(light);
+                                break;
+                            }
+                        }
+                    }
 
                     if (dirLight && dirLight->ShouldCastShadows())
                     {
@@ -1418,7 +1433,6 @@ void Renderer::Render(World* world, int32_t screenIndex)
                     }
 
                     GFX_EndRenderPass();
-#endif
 
                     GFX_SetViewport(sceneViewportX, sceneViewportY, sceneViewportWidth, sceneViewportHeight);
                     GFX_SetScissor(sceneViewportX, sceneViewportY, sceneViewportWidth, sceneViewportHeight);

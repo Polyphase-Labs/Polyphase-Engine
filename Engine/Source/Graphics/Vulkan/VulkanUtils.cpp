@@ -1668,6 +1668,36 @@ void DrawStaticMeshComp(StaticMesh3D* staticMeshComp, StaticMesh* meshOverride)
 
         BindStaticMeshResource(mesh);
 
+        // Shadow depth pass: caller has already set PipelineConfig::Shadow
+        // (Shadow.vert + Shadow.frag). Don't override the pipeline shaders with
+        // the mesh's forward material. Shadow.frag is depth-only and reads no
+        // descriptors past set=1, so the material descriptor set doesn't need
+        // to be bound either.
+        //
+        // CRITICAL: match the pipeline's vertex stride to the mesh's actual
+        // vertex format. PipelineConfig::Shadow defaults to VertexType::Vertex
+        // (stride 40), but a VertexColor mesh has stride 44 — reading it as
+        // Vertex makes every vertex past the first read positions from the
+        // wrong offset, scattering caster geometry across garbage UV space.
+        if (GetVulkanContext()->GetCurrentRenderPassId() == RenderPassId::Shadows)
+        {
+            VertexType shadowVertType = mesh->HasVertexColor()
+                ? VertexType::VertexColor
+                : VertexType::Vertex;
+            GetVulkanContext()->SetVertexType(shadowVertType);
+
+            GetVulkanContext()->CommitPipeline();
+            BindGeometryDescriptorSet(staticMeshComp);
+
+            vkCmdDrawIndexed(cb,
+                mesh->GetNumIndices(),
+                1,
+                0,
+                0,
+                0);
+            return;
+        }
+
         bool useMaterial = GetVulkanContext()->AreMaterialsEnabled();
 
         // Determine vertex type for binding appropriate pipeline

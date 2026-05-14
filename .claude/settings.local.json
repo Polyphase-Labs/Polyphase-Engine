@@ -159,7 +159,11 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Read(//c/Polyphase/**)",
       "Bash(dumpbin /headers Polyphase.lib)",
-      "PowerShell(dumpbin *)"
+      "PowerShell(dumpbin *)",
+      "Skill(polyphase-controller)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:7890/api/scene\" -Method Get | ConvertTo-Json -Depth 6)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:7890/api/scene\" -UseBasicParsing -TimeoutSec 5; Write-Output \"STATUS: $\\($r.StatusCode\\)\"; Write-Output $r.Content } catch { Write-Output \"ERR: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(Test-NetConnection *)"
     ]
   }
 }

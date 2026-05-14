@@ -429,8 +429,23 @@ void VulkanContext::BeginRenderPass(RenderPassId id)
         rpSetup.mDepthImage = mShadowMapImage;
         rpSetup.mLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         rpSetup.mStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        // Depth-only attachment for the shadow pass — explicitly clear depth to
+        // the far-plane value (1.0) every frame. Without this it defaults to
+        // VK_ATTACHMENT_LOAD_OP_LOAD and the shadow map accumulates garbage
+        // across frames, making every receiver fragment appear in shadow.
+        rpSetup.mDepthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        rpSetup.mDepthStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         rpSetup.mDebugName = "Shadows";
         barrierNeeded = true;
+
+        // RenderPassCache hardcodes the depth attachment's initialLayout to
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL, but the shadow map is otherwise kept
+        // in SHADER_READ_ONLY_OPTIMAL so material shaders can sample it. Manually
+        // transition into the write layout before the pass; the matching exit
+        // transition happens in EndRenderPass.
+        mShadowMapImage->Transition(
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            mCommandBuffers[mFrameIndex]);
         break;
     case RenderPassId::Forward:
         rpSetup.mDepthImage = mDepthImage;
@@ -519,9 +534,23 @@ void VulkanContext::BeginRenderPass(RenderPassId id)
 
 void VulkanContext::BeginVkRenderPass(const RenderPassSetup& rpSetup, bool insertBarrier, glm::vec4 clearColor)
 {
+    // Clear values must align with the actual attachment indices in the render pass.
+    // For passes with a color attachment, color sits at index 0 and depth at index 1.
+    // For depth-only passes (e.g. the shadow map), the depth attachment is at index 0.
+    // Without this distinction, depth-only passes reinterpret the scene's color clear
+    // as a VkClearDepthStencilValue, which causes the shadow map to be cleared to
+    // whatever the scene clear color's red channel happens to be.
     VkClearValue clearValues[2] = {};
-    clearValues[0].color = { clearColor.r, clearColor.g, clearColor.b, clearColor.a };
-    clearValues[1].depthStencil = { 1.0f, 0 };
+    bool hasColorAttachment = (rpSetup.mColorImages[0] != nullptr);
+    if (hasColorAttachment)
+    {
+        clearValues[0].color = { clearColor.r, clearColor.g, clearColor.b, clearColor.a };
+        clearValues[1].depthStencil = { 1.0f, 0 };
+    }
+    else
+    {
+        clearValues[0].depthStencil = { 1.0f, 0 };
+    }
 
     VkRenderPassBeginInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -621,6 +650,17 @@ void VulkanContext::EndRenderPass()
     {
         EndVkRenderPass();
         EndDebugLabel();
+
+        // Transition the shadow map back to a sampleable layout so the forward
+        // pass's combined-image-sampler binding (set=0, binding=1) reads from a
+        // matching layout. The render pass's hardcoded finalLayout left it in
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL after the previous transition.
+        if (mCurrentRenderPassId == RenderPassId::Shadows && mShadowMapImage != nullptr)
+        {
+            mShadowMapImage->Transition(
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                mCommandBuffers[mFrameIndex]);
+        }
 
         if (mCurrentRenderPassId != RenderPassId::HitCheck)
         {
@@ -1664,6 +1704,53 @@ void VulkanContext::UpdateGlobalUniformData()
             mGlobalUniformData.mViewPosition = glm::vec4(camera->GetWorldPosition(), 1.0f);
             mGlobalUniformData.mViewDirection = glm::vec4(camera->GetForwardVector(), 0.0f);
             mGlobalUniformData.mViewToWorld = glm::inverse(camera->GetViewMatrix());
+        }
+
+        // Shadow view-projection — fed to both Shadow.vert (during the shadow depth pass)
+        // and to material shaders that sample `shadowSampler` to receive shadows.
+        // Rebuild the matrix here from the light's current direction + the active
+        // camera position so it always reflects the latest rotation.
+        //
+        // Use the same registered-lights list that GatherLightData iterates rather
+        // than FindNode (which walks the hierarchy and could pick a different
+        // instance if the scene has multiple directional lights).
+        DirectionalLight3D* dirLight = nullptr;
+        {
+            const std::vector<Light3D*>& lights = world->GetLights();
+            for (Light3D* light : lights)
+            {
+                if (light != nullptr && light->IsDirectionalLight3D())
+                {
+                    dirLight = static_cast<DirectionalLight3D*>(light);
+                    break;
+                }
+            }
+        }
+        if (dirLight != nullptr && dirLight->ShouldCastShadows() && camera != nullptr)
+        {
+            glm::vec3 lightDir = dirLight->GetDirection();
+            glm::vec3 cameraPos = camera->GetWorldPosition();
+            glm::vec3 upVector = (fabs(lightDir.y) > 0.5f)
+                ? glm::vec3(1.0f, 0.0f, 0.0f)
+                : glm::vec3(0.0f, 1.0f, 0.0f);
+
+            glm::mat4 lightView = glm::lookAtRH(cameraPos, cameraPos + lightDir, upVector);
+            glm::mat4 lightProj = glm::orthoRH(
+                -SHADOW_RANGE,  SHADOW_RANGE,
+                -SHADOW_RANGE,  SHADOW_RANGE,
+                -SHADOW_RANGE_Z, SHADOW_RANGE_Z);
+
+            // Y-flip for Vulkan NDC.
+            const glm::mat4 clip(1.0f,  0.0f, 0.0f, 0.0f,
+                                 0.0f, -1.0f, 0.0f, 0.0f,
+                                 0.0f,  0.0f, 1.0f, 0.0f,
+                                 0.0f,  0.0f, 0.0f, 1.0f);
+
+            mGlobalUniformData.mShadowViewProj = clip * lightProj * lightView;
+        }
+        else
+        {
+            mGlobalUniformData.mShadowViewProj = glm::mat4(1.0f);
         }
 
         // Determine pre-rotation matrix. This matrix is used in widget shaders to rotate them.
