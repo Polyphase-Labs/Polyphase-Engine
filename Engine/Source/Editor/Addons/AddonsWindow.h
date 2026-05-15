@@ -9,6 +9,7 @@
 #include "imgui.h"
 
 struct Addon;
+struct InstalledAddon;
 class Image;
 
 /**
@@ -43,6 +44,14 @@ private:
     void DrawAddonDetailsPopup();
     void DrawAddRepoPopup();
 
+    // Table-view + shared helpers
+    void DrawViewModeToggle();
+    void DrawAddonTable_Browse(const std::vector<const Addon*>& filtered);
+    void DrawAddonTable_Installed(const std::vector<InstalledAddon>& installed);
+    void DrawClampedName(const char* name, float maxWidth);
+    void LoadViewSettings();
+    void SaveViewSettings();
+
     void OnDownloadAddon(const std::string& addonId);
     void OnViewMore(const std::string& addonId);
     void OnUninstallAddon(const std::string& addonId);
@@ -59,6 +68,9 @@ private:
 
     bool mIsOpen = false;
     int mSelectedTab = 0;  // 0=Browse, 1=Installed, 2=Repositories
+
+    // View mode: true = table (default), false = cards. Persisted to disk via JsonSettings.
+    bool mUseTableView = true;
 
     // Popup state
     bool mShowAddonDetails = false;

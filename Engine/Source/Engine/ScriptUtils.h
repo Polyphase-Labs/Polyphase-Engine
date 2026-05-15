@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ScriptMacros.h"
+#include <functional>
 #include <unordered_set>
 
 class Script;
@@ -13,7 +14,11 @@ public:
     static bool ReloadScriptFile(const std::string& fileName);
     static bool CallLuaFunc(int numArgs, int numResults = 0);
     static bool LoadScriptFile(const std::string& fileName, const std::string& className);
-    static void ReloadAllScriptFiles();
+    // Optional progress callback. Called once per file with (fileName, done,
+    // total). Return false to abort the loop after the current file. Default
+    // nullptr keeps non-editor callers unchanged.
+    using ReloadProgressFn = std::function<bool(const std::string&, int, int)>;
+    static void ReloadAllScriptFiles(const ReloadProgressFn& onProgress = nullptr);
     static void LoadAllScripts();
     static void LoadScriptDirectory(const std::string& dirName, bool recurse = true);
 

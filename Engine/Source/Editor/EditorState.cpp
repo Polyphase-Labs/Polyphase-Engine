@@ -6,6 +6,7 @@
 #include "EditorState.h"
 #include "EditorConstants.h"
 #include "EditorIcons.h"
+#include "EditorImgui.h"
 #include "Imgui/imgui_dock.h"
 #include "Log.h"
 #include "Timeline/TimelineInstance.h"
@@ -873,28 +874,33 @@ void EditorState::RestoreAssetsFromPie()
 
 void EditorState::RequestBeginPlayInEditor()
 {
-    if (mPlayInEditor || mBeginPieAtEndOfFrame)
+    // Refuse re-entry if a progress modal is already running -- the user
+    // hammered Alt+P while a previous transition is still in flight.
+    if (mPlayInEditor || mBeginPieAtEndOfFrame || EditorProgress::IsActive())
         return;
-    mPieLoadingMessage = "Preparing Play in Editor...";
-    mShowPieLoadingModal = true;
-    mPieLoadingFramesRemaining = 2;  // render the modal cleanly before blocking
     mBeginPieAtEndOfFrame = true;
 }
 
 void EditorState::RequestEndPlayInEditor()
 {
-    if (!mPlayInEditor || mEndPieAtEndOfFrame)
+    if (!mPlayInEditor || mEndPieAtEndOfFrame || EditorProgress::IsActive())
         return;
-    mPieLoadingMessage = "Stopping Play in Editor...";
-    mShowPieLoadingModal = true;
-    mPieLoadingFramesRemaining = 2;
     mEndPieAtEndOfFrame = true;
+}
+
+void EditorState::RequestReloadAllScripts()
+{
+    if (mReloadScriptsAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    mReloadScriptsAtEndOfFrame = true;
 }
 
 void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
         return;
+
+    EditorProgress::Begin("Entering Play in Editor", "Preparing...");
 
     mPieAssetSnapshots.clear();
 
@@ -977,15 +983,19 @@ void EditorState::BeginPlayInEditor()
     // Capture mutable asset state BEFORE the play scene tree is cloned and
     // play-mode scripts can mutate shared assets (e.g. a Material's texture
     // slot via Lua). Restored in EndPlayInEditor.
+    EditorProgress::SetStatus("Snapshotting assets...");
     SnapshotAssetsForPie();
 
     EditScene* editScene = GetEditScene(mPieEditSceneIdx);
     if (editScene != nullptr &&
         editScene->mRootNode != nullptr)
     {
+        EditorProgress::SetStatus("Cloning scene...");
         NodePtr clonedRoot = editScene->mRootNode->Clone(true, false, true);
         CopyPersistentUuids(editScene->mRootNode.Get(), clonedRoot.Get());
+        EditorProgress::SetStatus("Resolving node paths...");
         ResolveAllNodePathsRecursive(clonedRoot.Get());
+        EditorProgress::SetStatus("Activating play world...");
         GetWorld(0)->SetRootNode(clonedRoot.Get());
     }
 
@@ -994,13 +1004,15 @@ void EditorState::BeginPlayInEditor()
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(0);
 
     mBeginPieAtEndOfFrame = false;
-    mShowPieLoadingModal = false;
+    EditorProgress::End();
 }
 
 void EditorState::EndPlayInEditor()
 {
     if (!mPlayInEditor)
         return;
+
+    EditorProgress::Begin("Exiting Play in Editor", "Stopping...");
 
     mGamePreviewCaptured = false;
     INP_TrapCursor(false);
@@ -1013,9 +1025,11 @@ void EditorState::EndPlayInEditor()
         cameraTransform = GetWorld(0)->GetActiveCamera()->GetTransform();
     }
 
+    EditorProgress::SetStatus("Destroying scene nodes...");
     GetWorld(0)->DestroyRootNode();
     GetTimerManager()->ClearAllTimers();
 
+    EditorProgress::SetStatus("Stopping audio...");
     AudioManager::StopAllSounds();
 
     if (!NetIsLocal())
@@ -1061,6 +1075,7 @@ void EditorState::EndPlayInEditor()
     mPaused = false;
     mEndPieAtEndOfFrame = false;
 
+    EditorProgress::SetStatus("Collecting Lua garbage...");
     ScriptUtils::GarbageCollect();
 
     // Transient runtime textures owned by play-mode nodes/scripts have now
@@ -1069,9 +1084,11 @@ void EditorState::EndPlayInEditor()
     // Material assets. Re-apply the pre-PIE snapshot to restore those refs
     // (and any other script-driven mutations) before the editor scene reads
     // them again.
+    EditorProgress::SetStatus("Restoring asset snapshots...");
     RestoreAssetsFromPie();
 
     // Restore the scene we were working on
+    EditorProgress::SetStatus("Reopening edit scene...");
     OpenEditScene(mPieEditSceneIdx);
 
     if (GetWorld(0)->GetActiveCamera())
@@ -1083,7 +1100,7 @@ void EditorState::EndPlayInEditor()
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
     if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(1);
 
-    mShowPieLoadingModal = false;
+    EditorProgress::End();
 }
 
 void EditorState::EjectPlayInEditor()

@@ -28,6 +28,7 @@
 
 #if EDITOR
 #include "Editor/EditorState.h"
+#include "Editor/EditorImgui.h"   // EditorProgress -- per-file ticks during Discover
 #include "document.h"          // rapidjson — used for {asset}.meta sidecar parsing
 #include "stringbuffer.h"
 #include "writer.h"
@@ -431,8 +432,24 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
 
     SYS_OpenDirectory(directory->mPath, dirEntry);
 
+#if EDITOR
+    // Per-file tick counter (static so the count is per-recursion, not
+    // per-call). EditorProgress::Step throttles internally to ~60Hz.
+    static thread_local uint32_t sDiscoverTickCounter = 0;
+#endif
+
     while (dirEntry.mValid)
     {
+#if EDITOR
+        if ((sDiscoverTickCounter++ & 31) == 0 && EditorProgress::IsActive())
+        {
+            std::string label = std::string("Discovering: ") + directory->mPath + dirEntry.mFilename;
+            // Indeterminate -- we don't know the total file count without a
+            // pre-pass, and the recursion makes that expensive too. Pass
+            // total=0 to keep the bar in sine-marquee mode.
+            EditorProgress::Step(label.c_str(), 0, 0);
+        }
+#endif
         if (dirEntry.mDirectory)
         {
             // Ignore this directory and parent directory.

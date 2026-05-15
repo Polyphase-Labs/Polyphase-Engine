@@ -17,6 +17,8 @@
 
 #include "imgui.h"
 
+#include "EditorImgui.h"
+
 InputManager* InputManager::sInstance = nullptr;
 
 void InputManager::Create()
@@ -56,6 +58,14 @@ void InputManager::Update()
 
 void InputManager::UpdateHotkeys()
 {
+    // Belt-and-suspenders: while a progress modal is up, swallow all
+    // hotkeys so the user can't queue a second long operation that would
+    // start immediately when the current one finishes. The Request*
+    // methods also check IsActive, but blocking the entire dispatch is
+    // simpler than auditing every entry point.
+    if (EditorProgress::IsActive())
+        return;
+
     // ctrlDown / altDown are still needed by the PIE safety block below
     // (Ctrl+Alt+P releases the cursor, Alt+P pauses). Everything else now
     // routes through EditorHotkeyMap which handles modifier matching itself.
@@ -125,7 +135,7 @@ void InputManager::UpdateHotkeys()
         }
         else if (hotkeys->IsActionJustTriggered(EditorAction::File_OpenProject))
         {
-            ActionManager::Get()->OpenProject();
+            ActionManager::Get()->RequestOpenProject(nullptr);
             ClearControlDown();
             ClearShiftDown();
             hotkeys->ConsumeBindingKey(EditorAction::File_OpenProject);
@@ -140,7 +150,7 @@ void InputManager::UpdateHotkeys()
         {
             if (isScene)
             {
-                ActionManager::Get()->ResaveAllAssets();
+                ActionManager::Get()->RequestResaveAllAssets();
                 hotkeys->ConsumeBindingKey(EditorAction::File_SaveAllAssets);
             }
         }
@@ -148,9 +158,12 @@ void InputManager::UpdateHotkeys()
         {
             if (isScene)
             {
-                ActionManager::Get()->SaveScene(false);
+                ActionManager::Get()->RequestSaveScene(false);
 
-                // Save the edited timeline if one is open
+                // Save the edited timeline if one is open. This is a small
+                // serialization separate from the scene save and remains
+                // synchronous; the user will see the scene save modal which
+                // already covers the perceived wait.
                 Timeline* editedTimeline = GetEditorState()->mEditedTimelineRef.Get<Timeline>();
                 if (editedTimeline != nullptr)
                 {
@@ -164,11 +177,11 @@ void InputManager::UpdateHotkeys()
         }
         else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::File_SaveSelectedAsset))
         {
-            ActionManager::Get()->SaveSelectedAsset();
+            ActionManager::Get()->RequestSaveSelectedAsset();
         }
         else if (hotkeys->IsActionJustTriggered(EditorAction::File_OpenScene))
         {
-            ActionManager::Get()->OpenScene();
+            ActionManager::Get()->RequestOpenSceneFromDialog();
             ClearControlDown();
             hotkeys->ConsumeBindingKey(EditorAction::File_OpenScene);
         }

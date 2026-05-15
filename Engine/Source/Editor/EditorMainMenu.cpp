@@ -367,7 +367,7 @@ static void DrawFileMenu(bool& openSaveSceneAsModal)
                 ImGui::PushID((int)i);
                 if (ImGui::MenuItem(label.c_str()))
                 {
-                    am->OpenProject(projPath.c_str());
+                    am->RequestOpenProject(projPath.c_str());
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("%s", projPath.c_str());
@@ -894,13 +894,13 @@ static void DrawToolsMenu()
     if (ImGui::MenuItem("Run Script"))
         am->RunScript();
     if (ImGui::MenuItem("Resave All Assets"))
-        am->ResaveAllAssets();
+        am->RequestResaveAllAssets();
     if (ImGui::MenuItem("Reload All Scripts"))
     {
         // Lua-only. Native addon reload is gated behind the project-restart
         // chokepoint and lives in the Edit > Reload Native Addons menu and
         // the AddonsWindow per-row Reload button.
-        ReloadAllScripts();
+        GetEditorState()->RequestReloadAllScripts();
     }
 
     ImGui::Separator();

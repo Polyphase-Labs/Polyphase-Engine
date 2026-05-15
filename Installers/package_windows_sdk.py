@@ -137,6 +137,22 @@ def stage_sdk(source_root: Path, stage_dir: Path, verbose: bool) -> None:
                          stage_dir / "External" / sub, verbose)
         print(f"  External/{sub}: {n} header files")
 
+    # Loose single-header libs at External/ root (stb_image.h, stb_truetype.h,
+    # etc.). The recursive copy above only walks the allowlisted subdirs, so
+    # these would otherwise never make it into the zip — addons that #include
+    # "stb_image.h" then C1083 in CI even though /I External is on the cmdline.
+    n = 0
+    ext_root = source_root / "External"
+    if ext_root.is_dir():
+        for path in ext_root.iterdir():
+            if path.is_file() and path.suffix.lower() in HEADER_EXTS:
+                dst = stage_dir / "External" / path.name
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dst)
+                log(f"{path} -> {dst}", verbose)
+                n += 1
+    print(f"  External/ (loose): {n} header files")
+
 
 def zip_stage(stage_dir: Path, output: Path, verbose: bool) -> None:
     print(f"Writing {output} ...")

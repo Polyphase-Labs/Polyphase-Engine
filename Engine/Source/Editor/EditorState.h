@@ -150,17 +150,37 @@ struct EditorState
     // Keyed by source Scene*. Invalidated when an EditScene closes, on
     // editor shutdown, and whenever a source Scene is reimported/saved.
     std::unordered_map<Scene*, NodePtr> mInspectorDefaultCache;
-    // Deferred PIE start/stop: the click handler sets the *AtEndOfFrame flag
-    // so the loading modal can render for a couple of frames before
-    // BeginPlayInEditor / EndPlayInEditor blocks the main thread on asset
-    // snapshot / scene clone / restore work. mPieLoadingFramesRemaining ticks
-    // down each frame; the actual work runs when it reaches zero. A small
-    // non-zero delay guarantees the modal is presented (and any auto-sizing
-    // has settled) before we block.
+    // Deferred dispatch for long-running editor operations: the click/hotkey
+    // handler sets the appropriate *AtEndOfFrame flag, and EditorMain.cpp
+    // picks them up *after* EditorImguiDraw has returned and runs the work
+    // synchronously. The EditorProgress modal pumps additional ImGui frames
+    // during the work so the user sees animated progress instead of a freeze.
     bool mBeginPieAtEndOfFrame = false;
-    bool mShowPieLoadingModal = false;
-    int32_t mPieLoadingFramesRemaining = 0;
-    std::string mPieLoadingMessage;
+    bool mEndPieAtEndOfFrame = false;
+    bool mSaveSceneAtEndOfFrame = false;
+    bool mSaveSelectedAssetAtEndOfFrame = false;
+    bool mResaveAllAtEndOfFrame = false;
+    bool mReloadScriptsAtEndOfFrame = false;
+    bool mOpenProjectAtEndOfFrame = false;
+    std::string mPendingOpenProjectPath;
+    // Deferred OpenScene. Either a stub (preferred -- path is captured at
+    // request time so a later directory rename doesn't break it) or empty
+    // to trigger the OS file dialog inside the worker. Scene* is held as
+    // a raw pointer; the asset map owns the lifetime and the dispatcher
+    // runs same-tick so dangling is not realistic.
+    bool mOpenSceneAtEndOfFrame = false;
+    AssetStub* mPendingOpenSceneStub = nullptr;
+
+    // Generic progress modal state, consumed by DrawProgressModal and driven
+    // by the EditorProgress::* API. Negative fraction = indeterminate sine
+    // marquee; non-negative = determinate 0..1 fill.
+    bool        mProgressActive = false;
+    bool        mProgressCancellable = false;
+    bool        mProgressCancelRequested = false;
+    std::string mProgressTitle;
+    std::string mProgressStatus;
+    float       mProgressFraction = -1.0f;
+    double      mProgressLastPumpTime = 0.0;
     AssetBrowserTab mActiveAssetTab = AssetBrowserTab::Project;
     AssetDir* mTabCurrentDir[(int)AssetBrowserTab::Count] = {};
     std::vector<AssetDir*> mTabDirPast[(int)AssetBrowserTab::Count];
@@ -218,7 +238,6 @@ struct EditorState
     bool mDevMode = false;
     bool mShowBottomPane = true;
     float mBottomPaneHeight = 180.0f;
-    bool mEndPieAtEndOfFrame = false;
     bool mShowProjectUpgradeModal = false;
     bool mProjectUpgradeInProgress = false;
     std::vector<AssetStub*> mAssetsNeedingUpgrade;
@@ -309,6 +328,10 @@ struct EditorState
     // before the (potentially slow) snapshot/clone or restore work runs.
     void RequestBeginPlayInEditor();
     void RequestEndPlayInEditor();
+    // Defer a Lua "Reload All Scripts" until end-of-frame so the progress
+    // modal can render before the script reload loop blocks. The worker is
+    // the global ::ReloadAllScripts() in Engine.cpp.
+    void RequestReloadAllScripts();
     void EjectPlayInEditor();
     void InjectPlayInEditor();
     void SnapshotAssetsForPie();

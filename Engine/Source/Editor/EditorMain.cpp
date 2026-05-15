@@ -46,6 +46,8 @@
 #include "Grid.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/Font.h"
+#include "Assets/Scene.h"
+#include "AssetManager.h"
 #include "EditorState.h"
 #include "EditorImgui.h"
 #include "BuildDependencyWindow.h"
@@ -470,24 +472,76 @@ void EditorMain(int32_t argc, char** argv)
         // Tick CLI terminal panel: drains output buffer and advances session state
         GetTerminalPanel()->Tick();
 
-        // If a loading modal is queued, let it render for a couple of frames
-        // before the (potentially slow) Begin/End work blocks the main thread,
-        // so the user sees the modal instead of an apparent freeze.
-        if ((GetEditorState()->mEndPieAtEndOfFrame || GetEditorState()->mBeginPieAtEndOfFrame)
-            && GetEditorState()->mPieLoadingFramesRemaining > 0)
+        // Deferred dispatcher for long-running editor ops. Each worker now
+        // wraps itself in EditorProgress::Begin()/End() which pumps editor
+        // frames during the work so the modal animates instead of freezing.
+        // The two-frame pre-roll counter is gone -- Begin() itself pumps a
+        // couple of frames to let the popup open and lay out before the
+        // blocking work starts. Only run one op per frame so the progress
+        // modal from one doesn't bleed into the next.
         {
-            GetEditorState()->mPieLoadingFramesRemaining--;
-        }
-        else
-        {
-            if (GetEditorState()->mEndPieAtEndOfFrame)
+            EditorState* es = GetEditorState();
+            if (es->mEndPieAtEndOfFrame)
             {
-                GetEditorState()->EndPlayInEditor();
+                es->EndPlayInEditor();
             }
-
-            if (GetEditorState()->mBeginPieAtEndOfFrame)
+            else if (es->mBeginPieAtEndOfFrame)
             {
-                GetEditorState()->BeginPlayInEditor();
+                es->BeginPlayInEditor();
+            }
+            else if (es->mSaveSceneAtEndOfFrame)
+            {
+                es->mSaveSceneAtEndOfFrame = false;
+                ActionManager::Get()->SaveScene(es->mRequestSaveSceneAs);
+                es->mRequestSaveSceneAs = false;
+            }
+            else if (es->mSaveSelectedAssetAtEndOfFrame)
+            {
+                es->mSaveSelectedAssetAtEndOfFrame = false;
+                ActionManager::Get()->SaveSelectedAsset();
+            }
+            else if (es->mResaveAllAtEndOfFrame)
+            {
+                es->mResaveAllAtEndOfFrame = false;
+                ActionManager::Get()->ResaveAllAssets();
+            }
+            else if (es->mReloadScriptsAtEndOfFrame)
+            {
+                es->mReloadScriptsAtEndOfFrame = false;
+                ::ReloadAllScripts();
+            }
+            else if (es->mOpenProjectAtEndOfFrame)
+            {
+                es->mOpenProjectAtEndOfFrame = false;
+                std::string p = es->mPendingOpenProjectPath;
+                es->mPendingOpenProjectPath.clear();
+                ActionManager::Get()->OpenProject(p.empty() ? nullptr : p.c_str());
+            }
+            else if (es->mOpenSceneAtEndOfFrame)
+            {
+                es->mOpenSceneAtEndOfFrame = false;
+                AssetStub* stub = es->mPendingOpenSceneStub;
+                es->mPendingOpenSceneStub = nullptr;
+                if (stub != nullptr)
+                {
+                    // Ensure the asset is loaded, then open it via the
+                    // Scene* overload so OpenScene's progress modal wraps
+                    // the (potentially heavy) Instantiate.
+                    AssetManager::Get()->LoadAsset(*stub);
+                    if (stub->mAsset != nullptr && stub->mType == Scene::GetStaticType())
+                    {
+                        ActionManager::Get()->OpenScene((Scene*)stub->mAsset);
+                    }
+                    else
+                    {
+                        LogWarning("OpenScene dispatch: stub '%s' is not a Scene", stub->mName.c_str());
+                    }
+                }
+                else
+                {
+                    // Pop the OS file dialog and load whatever the user picks.
+                    ActionManager::Get()->OpenScene();
+                }
             }
         }
 

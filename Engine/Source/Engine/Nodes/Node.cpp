@@ -130,6 +130,28 @@ bool Node::OnRep_OwningHost(Datum* datum, uint32_t index, const void* newValue)
 
 void Node::Deleter(Node* node)
 {
+    // If the node has already been Destroy()'d, skip the RemoveChild sweep.
+    //
+    // When EndPlayInEditor runs, World::DestroyRootNode -> Node::Destroy
+    // recursively tears down the PIE tree; each child's Destroy() calls
+    // Attach(nullptr) which removes itself from its parent's mChildren.
+    // ScriptUtils::GarbageCollect then runs lua_gc, finalising every
+    // unreachable Node_Lua wrapper. The finaliser calls Deleter on a node
+    // whose mDestroyed is already true and whose mChildren is normally empty.
+    //
+    // The crash window: if a child was destroyed by a different path (e.g.
+    // a sibling's __gc finaliser ran earlier in the same GC sweep) without
+    // detaching from this node, mChildren still holds a NodePtr to a
+    // destroyed sibling. Calling RemoveChild on it dereferences a Node
+    // whose mWorld/mParent have already been unwound and crashes inside
+    // SetParent / mWorld->UnregisterNode. The remaining NodePtrs are
+    // released cleanly when the wrapper's destructor runs immediately after
+    // this returns, so there's nothing left for us to do here.
+    if (node->IsDestroyed())
+    {
+        return;
+    }
+
     // Destroy the node first.
     // In case there is a shared pointer referencing a child,
     // we will first remove all children (which will destroy them too if nothing references them)

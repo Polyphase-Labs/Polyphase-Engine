@@ -12,6 +12,7 @@
 
 #if EDITOR
 #include "Editor/Addons/NativeAddonManager.h"
+#include "Editor/EditorImgui.h"
 #endif
 #endif
 #include "Assets/Scene.h"
@@ -1050,14 +1051,19 @@ void LoadProject(const std::string& path, bool discoverAssets)
 #if EDITOR
     if (!IsHeadless())
     {
+        EditorProgress::SetStatus("Stopping play mode...");
         GetEditorState()->EndPlayInEditor();
+        EditorProgress::SetStatus("Closing open scenes...");
         GetEditorState()->CloseAllEditScenes();
 
         // Reset asset manager??
         if (sEngineState.mProjectDirectory != "")
         {
+            EditorProgress::SetStatus("Saving editor state...");
             GetEditorState()->WriteEditorProjectSave();
+            EditorProgress::SetStatus("Purging previous project assets...");
             AssetManager::Get()->Purge(false);
+            EditorProgress::SetStatus("Unloading previous project directory...");
             AssetManager::Get()->UnloadProjectDirectory();
 
             sEngineState.mProjectName = "";
@@ -1136,6 +1142,7 @@ void LoadProject(const std::string& path, bool discoverAssets)
         NativeAddonManager* nam = NativeAddonManager::Get();
         if (nam != nullptr)
         {
+            EditorProgress::SetStatus("Loading native addons...");
             nam->ReloadAllNativeAddons();
         }
     }
@@ -1144,8 +1151,14 @@ void LoadProject(const std::string& path, bool discoverAssets)
     if (discoverAssets &&
         sEngineState.mProjectName != "")
     {
+#if EDITOR
+        EditorProgress::SetStatus("Discovering project assets...");
+#endif
         AssetManager::Get()->Discover(sEngineState.mProjectName.c_str(), (sEngineState.mProjectDirectory + "Assets/").c_str());
 
+#if EDITOR
+        EditorProgress::SetStatus("Discovering addon packages...");
+#endif
         std::string packagesDir = sEngineState.mProjectDirectory + "Packages/";
         AssetManager::Get()->DiscoverAddonPackages(packagesDir);
     }
@@ -1345,6 +1358,10 @@ void ReloadAllScripts(bool restartComponents)
         lua_gc(L, LUA_GCSTOP, 0);
     }
 
+#if EDITOR
+    EditorProgress::Begin("Reload All Scripts", "Gathering script nodes...", /*cancellable*/ true);
+#endif
+
     std::vector<Script*> scripts;
     std::vector<std::vector<Property> > scriptProps;
 
@@ -1368,21 +1385,45 @@ void ReloadAllScripts(bool restartComponents)
             }
         }
 
-        // Stop the script instances
+        // Stop the script instances. Don't honor cancel here: if we stop
+        // some scripts but skip the corresponding restart we leave the world
+        // in a half-functional state. Cancel can only take effect at the
+        // file-reload phase below.
+        const int stopTotal = (int)scripts.size();
         for (uint32_t i = 0; i < scripts.size(); ++i)
         {
+#if EDITOR
+            std::string label = std::string("Stopping ") + scripts[i]->GetScriptClassName();
+            EditorProgress::Step(label.c_str(), (int)i, stopTotal);
+#endif
             scripts[i]->StopScript();
         }
     }
 
-    // Reload script files
+    // Reload script files. Pass a callback so each file shows up in the
+    // modal, and so the user can cancel mid-flight; the restart phase below
+    // still runs to ensure scripts are not left stopped.
+#if EDITOR
+    ScriptUtils::ReloadAllScriptFiles(
+        [](const std::string& fileName, int done, int total) -> bool {
+            std::string label = std::string("Reloading ") + fileName;
+            EditorProgress::Step(label.c_str(), done, total);
+            return !EditorProgress::WasCancelled();
+        });
+#else
     ScriptUtils::ReloadAllScriptFiles();
+#endif
 
     if (restartComponents)
     {
         // Start script instances again
+        const int startTotal = (int)scripts.size();
         for (uint32_t i = 0; i < scripts.size(); ++i)
         {
+#if EDITOR
+            std::string label = std::string("Restarting ") + scripts[i]->GetScriptClassName();
+            EditorProgress::Step(label.c_str(), (int)i, startTotal);
+#endif
             scripts[i]->StartScript();
             scripts[i]->SetScriptProperties(scriptProps[i]);
         }
@@ -1395,6 +1436,10 @@ void ReloadAllScripts(bool restartComponents)
     {
         lua_gc(L, LUA_GCRESTART, 0);
     }
+
+#if EDITOR
+    EditorProgress::End();
+#endif
 
     LogDebug("--Reloaded All Scripts--");
 

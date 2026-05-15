@@ -3803,15 +3803,25 @@ void ActionManager::OpenProject(const char* path)
 
     if (!pathStr.empty())
     {
+        // Wrap the whole open in a progress modal -- LoadProject below can
+        // take many seconds (Purge, ReloadAllNativeAddons, Discover walking
+        // thousands of files). Begin pumps the modal twice so it's fully
+        // visible before any work starts; LoadProject and DiscoverDirectory
+        // call EditorProgress::Step at safe checkpoints so the bar animates.
+        std::string label = std::string("Opening: ") + pathStr;
+        EditorProgress::Begin("Opening Project", label.c_str());
+
         // Save and destroy previous PackagingSettings before loading new project
         if (PackagingSettings::Get() != nullptr)
         {
+            EditorProgress::SetStatus("Saving previous project settings...");
             PackagingSettings::Get()->SaveSettings();
             PackagingSettings::Destroy();
         }
 
         LoadProject(pathStr);
 
+        EditorProgress::SetStatus("Initializing editor state...");
         // Handle new project directory
         GetEditorState()->ClearAssetDirHistory();
         GetEditorState()->SetAssetDirectory(AssetManager::Get()->FindProjectDirectory(), true);
@@ -3819,16 +3829,19 @@ void ActionManager::OpenProject(const char* path)
         GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] = AssetManager::Get()->FindPackagesDirectory();
 
         // Initialize PackagingSettings for the new project
+        EditorProgress::SetStatus("Loading packaging settings...");
         PackagingSettings::Create();
         PackagingSettings::Get()->LoadSettings();
 
         // Load player input actions for the new project
         if (PlayerInputSystem::Get() != nullptr)
         {
+            EditorProgress::SetStatus("Loading input actions...");
             PlayerInputSystem::Get()->LoadProjectActions();
         }
 
         // Check if project needs upgrade to new UUID format
+        EditorProgress::SetStatus("Checking project version...");
         CheckProjectNeedsUpgrade();
         // Note: native addons are loaded inside LoadProject() before asset discovery so that
         // addon-provided node types (registered via DEFINE_NODE static initializers) are
@@ -3852,9 +3865,21 @@ void ActionManager::OpenProject(const char* path)
         EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
         if (hookMgr != nullptr)
         {
+            EditorProgress::SetStatus("Firing project-open hooks...");
             hookMgr->FireOnProjectOpen(pathStr.c_str());
         }
+
+        EditorProgress::End();
     }
+}
+
+void ActionManager::RequestOpenProject(const char* path)
+{
+    EditorState* es = GetEditorState();
+    if (es->mOpenProjectAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mPendingOpenProjectPath = path ? path : "";
+    es->mOpenProjectAtEndOfFrame = true;
 }
 
 // Drop a Directory.Build.props (auto-imported by MSBuild) and a
@@ -3962,7 +3987,7 @@ void ActionManager::OpenScene()
 
     std::vector<std::string> openPaths = SYS_OpenFileDialog();
 
-    // Display the Open dialog box. 
+    // Display the Open dialog box.
     if (openPaths.size() > 0)
     {
         std::string filename = strrchr(openPaths[0].c_str(), '/') + 1;
@@ -3972,10 +3997,17 @@ void ActionManager::OpenScene()
         if (stub != nullptr &&
             stub->mType == Scene::GetStaticType())
         {
+            std::string label = std::string("Loading: ") + stub->mName;
+            EditorProgress::Begin("Opening Scene", label.c_str());
+
+            EditorProgress::SetStatus("Loading scene asset...");
             AssetManager::Get()->LoadAsset(*stub);
             Scene* loadedScene = (Scene*)stub->mAsset;
 
-            OpenScene(loadedScene);
+            EditorProgress::SetStatus("Instantiating scene tree...");
+            GetEditorState()->OpenEditScene(loadedScene);
+
+            EditorProgress::End();
         }
         else
         {
@@ -3986,7 +4018,46 @@ void ActionManager::OpenScene()
 
 void ActionManager::OpenScene(Scene* scene)
 {
+    // Wrap in a progress modal -- Scene::Instantiate (called transitively
+    // from OpenEditScene) walks the saved NodeDef array and constructs
+    // every node, which is the dominant cost for large scenes. The
+    // Instantiate loop calls EditorProgress::Step internally so the bar
+    // animates throughout. Calls from inside an already-active modal
+    // (e.g. EndPlayInEditor reopening the prior edit scene) are a no-op
+    // for Begin/End -- IsActive guard skips re-Begin and End is balanced.
+    bool weStartedModal = !EditorProgress::IsActive();
+    if (weStartedModal)
+    {
+        std::string label = scene ? (std::string("Loading: ") + scene->GetName()) : "Loading scene...";
+        EditorProgress::Begin("Opening Scene", label.c_str());
+    }
     GetEditorState()->OpenEditScene(scene);
+    if (weStartedModal)
+    {
+        EditorProgress::End();
+    }
+}
+
+void ActionManager::RequestOpenScene(AssetStub* stub)
+{
+    EditorState* es = GetEditorState();
+    if (es->mOpenSceneAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mPendingOpenSceneStub = stub;
+    es->mOpenSceneAtEndOfFrame = true;
+}
+
+void ActionManager::RequestOpenSceneFromDialog()
+{
+    // Stub == nullptr means "show OS file dialog inside the worker". The
+    // dialog itself is modal-on-main and blocks the editor anyway, but
+    // routing through the deferred dispatcher means we don't open it from
+    // inside an ImGui frame.
+    EditorState* es = GetEditorState();
+    if (es->mOpenSceneAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mPendingOpenSceneStub = nullptr;
+    es->mOpenSceneAtEndOfFrame = true;
 }
 
 Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox, AssetDir* targetDir)
@@ -4066,7 +4137,7 @@ void ActionManager::SaveScene(bool saveAs)
         // Old method of bringing up OS file browser
         std::string savePath = SYS_SaveFileDialog();
 
-        // Display the Open dialog box. 
+        // Display the Open dialog box.
         if (savePath != "")
         {
             std::replace(savePath.begin(), savePath.end(), '\\', '/');
@@ -4086,8 +4157,20 @@ void ActionManager::SaveScene(bool saveAs)
     {
         Scene* scene = editScene->mSceneAsset.Get<Scene>();
         Node* root = GetWorld(0)->GetRootNode();
+
+        // The Capture + SaveAsset pair below is the freeze hot path for
+        // large scenes (~1 minute on multi-thousand-node trees). Wrap in a
+        // progress modal so the user gets visible feedback. Pump silently
+        // degrades if called from a context that's already inside an ImGui
+        // frame (e.g. the REST controller), so this is safe everywhere.
+        std::string label = std::string("Saving Scene: ") + scene->GetName();
+        EditorProgress::Begin("Saving Scene", label.c_str());
+
+        EditorProgress::SetStatus("Capturing scene...");
         scene->Capture(root);
         root->SetScene(scene);
+
+        EditorProgress::SetStatus("Writing to disk...");
         AssetManager::Get()->SaveAsset(scene->GetName());
 
         // Fire OnProjectSave and OnAssetSaved hooks
@@ -4097,6 +4180,8 @@ void ActionManager::SaveScene(bool saveAs)
             hookMgr->FireOnProjectSave(scene->GetName().c_str());
             hookMgr->FireOnAssetSaved(scene->GetName().c_str());
         }
+
+        EditorProgress::End();
     }
 }
 
@@ -4106,8 +4191,39 @@ void ActionManager::SaveSelectedAsset()
     if (selectedStub != nullptr &&
         selectedStub->mAsset != nullptr)
     {
+        std::string label = std::string("Saving ") + selectedStub->mName;
+        EditorProgress::Begin("Saving Asset", label.c_str());
         AssetManager::Get()->SaveAsset(*selectedStub);
+        EditorProgress::End();
     }
+}
+
+void ActionManager::RequestSaveScene(bool saveAs)
+{
+    EditorState* es = GetEditorState();
+    if (es->mSaveSceneAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    // Stash the saveAs choice in mRequestSaveSceneAs (it's a save-as request
+    // marker that SaveScene checks). When the dispatcher runs, it calls
+    // SaveScene with the captured intent.
+    if (saveAs) es->mRequestSaveSceneAs = true;
+    es->mSaveSceneAtEndOfFrame = true;
+}
+
+void ActionManager::RequestSaveSelectedAsset()
+{
+    EditorState* es = GetEditorState();
+    if (es->mSaveSelectedAssetAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mSaveSelectedAssetAtEndOfFrame = true;
+}
+
+void ActionManager::RequestResaveAllAssets()
+{
+    EditorState* es = GetEditorState();
+    if (es->mResaveAllAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mResaveAllAtEndOfFrame = true;
 }
 
 void ActionManager::DeleteSelectedNodes()
@@ -6306,14 +6422,34 @@ void ActionManager::ResaveAllAssets()
 
     // This action is really meant for doing project-wide data updates when adding new serialized data to an asset.
     // It is important that assets are only loaded once if the LoadStream() / WriteStream() funcs are different
+    EditorProgress::Begin("Resave All Assets", "Preparing...", /*cancellable*/ true);
+
+    const int total = (int)assetMap.size();
+    int done = 0;
     for (auto& pair : assetMap)
     {
+        if (EditorProgress::WasCancelled())
+            break;
+
+        const std::string& name = pair.second ? pair.second->mName : std::string();
+        std::string label = std::string("Saving ") + name;
+        EditorProgress::Step(label.c_str(), done, total);
+
         Asset* asset = AssetManager::Get()->LoadAsset(*pair.second);
         AssetManager::Get()->SaveAsset(*pair.second);
+        ++done;
     }
 
-    // Refsweep afterwards to 
-    AssetManager::Get()->RefSweep();
+    // Refsweep afterwards to drop any assets that lost all references during
+    // resave. Skip when the user cancelled, since partial state could
+    // mis-classify still-referenced assets.
+    if (!EditorProgress::WasCancelled())
+    {
+        EditorProgress::SetStatus("Finalizing (RefSweep)...");
+        AssetManager::Get()->RefSweep();
+    }
+
+    EditorProgress::End();
 }
 
 void ActionManager::DeleteAsset(AssetStub* stub)

@@ -12,6 +12,7 @@
 #if EDITOR
 #include "EditorState.h"
 #include "EditorIconRegistry.h"
+#include "EditorImgui.h"
 
 static std::string sSceneIconStringStorage[kSceneIconCount];
 static const char* sSceneIconStrings[kSceneIconCount + 1];
@@ -251,8 +252,18 @@ void Scene::SaveStream(Stream& stream, Platform platform)
 
     stream.WriteUint32((uint32_t)srcScene->mNodeDefs.size());
 
+    const uint32_t totalDefs = (uint32_t)srcScene->mNodeDefs.size();
     for (uint32_t i = 0; i < srcScene->mNodeDefs.size(); ++i)
     {
+#if EDITOR
+        // Serialization of large scenes is the second bottleneck after
+        // Capture. Tick the progress modal so the bar keeps animating
+        // through the disk write. Throttled internally to ~60Hz.
+        if ((i & 31) == 0 && EditorProgress::IsActive())
+        {
+            EditorProgress::Step("Writing scene to disk...", (int)i, (int)totalDefs);
+        }
+#endif
         const SceneNodeDef& def = srcScene->mNodeDefs[i];
         stream.WriteUint32((uint32_t)def.mType);
         stream.WriteInt32(def.mParentIndex);
@@ -395,8 +406,20 @@ NodePtr Scene::Instantiate()
 
         //LogDebug("Scene::Instantiate() - scene '%s' has %u nodeDefs", GetName().c_str(), (uint32_t)mNodeDefs.size());
 
+        const uint32_t totalDefs = (uint32_t)mNodeDefs.size();
         for (uint32_t i = 0; i < mNodeDefs.size(); ++i)
         {
+#if EDITOR
+            // Tick the progress modal during the node-construction loop.
+            // OpenScene's freeze on large scenes lives here -- each iteration
+            // allocates a Node, sets parent, restores properties. Step is
+            // throttled so this is cheap; non-editor callers (e.g. PIE
+            // clone) still pump correctly because PIE is wrapped too.
+            if ((i & 31) == 0 && EditorProgress::IsActive())
+            {
+                EditorProgress::Step("Instantiating scene tree...", (int)i, (int)totalDefs);
+            }
+#endif
             // LogDebug("  [%u] name='%s' type=%u parentIdx=%u hasScene=%d",
             //     i, mNodeDefs[i].mName.c_str(), (uint32_t)mNodeDefs[i].mType,
             //     (uint32_t)mNodeDefs[i].mParentIndex, mNodeDefs[i].mScene != nullptr ? 1 : 0);
@@ -756,6 +779,21 @@ void Scene::AddNodeDef(Node* node, Platform platform, std::vector<Node*>& nodeLi
     if (node != nullptr)
     {
         nodeList.push_back(node);
+
+#if EDITOR
+        // Tick the editor progress modal periodically while we walk the
+        // scene tree -- without this, large scenes (~1 minute Capture)
+        // freeze the UI between SetStatus calls and the modal can only
+        // flash briefly at phase boundaries instead of animating.
+        // Step is throttled internally so this is cheap; one out of every
+        // ~2 calls actually renders. The check is a no-op when no progress
+        // modal is active, so non-save callers (e.g. PIE clone) pay only
+        // the IsActive bool check.
+        if ((nodeList.size() & 31) == 0 && EditorProgress::IsActive())
+        {
+            EditorProgress::Step("Capturing scene...", (int)nodeList.size(), 0);
+        }
+#endif
 
         Node* parent = node->GetParent();
 

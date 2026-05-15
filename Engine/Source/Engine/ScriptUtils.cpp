@@ -136,7 +136,7 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
     return successful;
 }
 
-void ScriptUtils::ReloadAllScriptFiles()
+void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
 {
     std::vector<std::string> fileNames;
 
@@ -147,8 +147,17 @@ void ScriptUtils::ReloadAllScriptFiles()
 
     sLoadedLuaFiles.clear();
 
+    const int total = (int)fileNames.size();
     for (uint32_t i = 0; i < fileNames.size(); ++i)
     {
+        if (onProgress && !onProgress(fileNames[i], (int)i, total))
+        {
+            // Caller requested cancel. Stop reloading further files; any
+            // not-yet-reloaded files keep their previous code. The
+            // restart-phase in ReloadAllScripts still runs so live scripts
+            // are not left stopped.
+            break;
+        }
         std::string className = GetClassNameFromFileName(fileNames[i]);
         LoadScriptFile(fileNames[i], className);
     }

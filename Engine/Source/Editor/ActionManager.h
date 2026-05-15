@@ -291,7 +291,27 @@ public:
 
     void OpenScene();
     void OpenScene(Scene* scene);
+    // Defer OpenScene so the progress modal renders before Scene::Instantiate
+    // (which builds the node tree) blocks the main thread on large scenes.
+    // Pass nullptr to trigger the OS file dialog inside the worker; pass a
+    // stub to open that scene directly (same as the non-Request OpenScene).
+    void RequestOpenScene(AssetStub* stub);
+    void RequestOpenSceneFromDialog();
     void SaveScene(bool saveAs);
+    // Defer SaveScene/SaveSelectedAsset/ResaveAllAssets to end-of-frame so the
+    // progress modal can render before the (potentially slow) capture and
+    // serialization work blocks the main thread. The hotkey / menu /
+    // command path should prefer these wrappers; SaveScene() etc. remain
+    // available for callers that need synchronous semantics (e.g. the REST
+    // controller, where the response must include the result).
+    void RequestSaveScene(bool saveAs);
+    void RequestSaveSelectedAsset();
+    void RequestResaveAllAssets();
+    // Defer OpenProject so the progress modal renders before LoadProject's
+    // (potentially many-second) Purge / ReloadAddons / Discover sequence
+    // blocks the main thread. Pass empty/null path to trigger the OS folder
+    // picker inside the worker (same as direct OpenProject).
+    void RequestOpenProject(const char* path);
     // sceneType: 0 = 2D Canvas root, 1 = 3D Node3D root. targetDir defaults to the
     // editor's currently-selected asset directory. Returns the created Scene asset
     // (already saved to disk) or nullptr on failure.

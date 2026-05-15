@@ -6,6 +6,7 @@
 #include "AddonManager.h"
 #include "NativeAddonManager.h"
 #include "../ProjectSelect/TemplateData.h"
+#include "Preferences/JsonSettings.h"
 
 #include "Engine.h"
 #include "Log.h"
@@ -15,6 +16,8 @@
 #include "EditorState.h"
 
 #include "imgui.h"
+
+#include "document.h"
 
 #if API_VULKAN
 #include "Graphics/Vulkan/Image.h"
@@ -36,6 +39,8 @@ AddonsWindow::AddonsWindow()
 {
     memset(mSearchBuffer, 0, sizeof(mSearchBuffer));
     memset(mRepoUrlBuffer, 0, sizeof(mRepoUrlBuffer));
+    // View-mode preference is loaded lazily in Open() to avoid touching the
+    // filesystem during static initialization.
 }
 
 AddonsWindow::~AddonsWindow()
@@ -169,6 +174,14 @@ void AddonsWindow::Open()
     mSelectedAddonId.clear();
     mErrorMessage.clear();
     mStatusMessage.clear();
+
+    // Load view-mode preference once per session.
+    static bool sLoadedViewSettings = false;
+    if (!sLoadedViewSettings)
+    {
+        LoadViewSettings();
+        sLoadedViewSettings = true;
+    }
 
     // Load installed addons when opening
     AddonManager* am = AddonManager::Get();
@@ -322,6 +335,482 @@ void AddonsWindow::Draw()
     }
 }
 
+// ---------------------------------------------------------------------------
+// View-mode + shared helpers
+// ---------------------------------------------------------------------------
+
+static const char* kViewPrefFile = "/AddonsWindow.json";
+static const char* kViewPrefKey  = "useTableView";
+
+void AddonsWindow::LoadViewSettings()
+{
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kViewPrefFile;
+    if (!JsonSettings::LoadFromFile(path, doc))
+    {
+        return; // first run -- keep the default (table)
+    }
+    mUseTableView = JsonSettings::GetBool(doc, kViewPrefKey, true);
+}
+
+void AddonsWindow::SaveViewSettings()
+{
+    JsonSettings::EnsurePreferencesDirectory();
+
+    rapidjson::Document doc;
+    std::string path = JsonSettings::GetPreferencesDirectory() + kViewPrefFile;
+    JsonSettings::LoadFromFile(path, doc); // best-effort merge
+    if (!doc.IsObject())
+    {
+        doc.SetObject();
+    }
+    JsonSettings::SetBool(doc, kViewPrefKey, mUseTableView);
+    JsonSettings::SaveToFile(path, doc);
+}
+
+void AddonsWindow::DrawViewModeToggle()
+{
+    ImGui::TextDisabled("View:");
+    ImGui::SameLine();
+
+    auto drawOption = [this](const char* label, bool wantTable)
+    {
+        bool selected = (mUseTableView == wantTable);
+        if (selected)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.5f, 0.8f, 1.0f));
+        }
+        if (ImGui::SmallButton(label))
+        {
+            if (mUseTableView != wantTable)
+            {
+                mUseTableView = wantTable;
+                SaveViewSettings();
+            }
+        }
+        if (selected)
+        {
+            ImGui::PopStyleColor();
+        }
+        ImGui::SameLine();
+    };
+
+    drawOption("Table", true);
+    drawOption("Cards", false);
+    ImGui::NewLine();
+}
+
+void AddonsWindow::DrawClampedName(const char* name, float maxWidth)
+{
+    if (name == nullptr || name[0] == '\0')
+    {
+        ImGui::TextUnformatted("");
+        return;
+    }
+
+    ImVec2 fullSize = ImGui::CalcTextSize(name);
+    if (fullSize.x <= maxWidth)
+    {
+        ImGui::TextUnformatted(name);
+        return;
+    }
+
+    // Binary search for the longest prefix that, with ellipsis, fits in maxWidth.
+    const char ellipsis[] = "...";
+    float ellipsisW = ImGui::CalcTextSize(ellipsis).x;
+    int len = (int)strlen(name);
+
+    int lo = 0;
+    int hi = len;
+    int best = 0;
+    while (lo <= hi)
+    {
+        int mid = (lo + hi) / 2;
+        ImVec2 sz = ImGui::CalcTextSize(name, name + mid);
+        if (sz.x + ellipsisW <= maxWidth)
+        {
+            best = mid;
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid - 1;
+        }
+    }
+
+    std::string truncated;
+    truncated.reserve(best + 3);
+    truncated.assign(name, name + best);
+    truncated += ellipsis;
+    ImGui::TextUnformatted(truncated.c_str());
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", name);
+    }
+}
+
+void AddonsWindow::DrawAddonTable_Browse(const std::vector<const Addon*>& filtered)
+{
+    if (filtered.empty())
+    {
+        ImGui::TextDisabled("No addons match the current filter.");
+        return;
+    }
+
+    AddonManager* am = AddonManager::Get();
+
+    ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_Borders |
+        ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_Resizable |
+        ImGuiTableFlags_SizingStretchProp;
+
+    if (!ImGui::BeginTable("##AddonsBrowseTable", 5, flags))
+    {
+        return;
+    }
+
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("##Icon",  ImGuiTableColumnFlags_WidthFixed,    28.0f);
+    ImGui::TableSetupColumn("Name",    ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Author",  ImGuiTableColumnFlags_WidthStretch, 1.5f);
+    ImGui::TableSetupColumn("Native",  ImGuiTableColumnFlags_WidthFixed,    70.0f);
+    ImGui::TableSetupColumn("Status",  ImGuiTableColumnFlags_WidthFixed,   180.0f);
+    ImGui::TableHeadersRow();
+
+    for (const Addon* addonPtr : filtered)
+    {
+        const Addon& addon = *addonPtr;
+        ImGui::PushID(addon.mMetadata.mId.c_str());
+
+        ImGui::TableNextRow();
+
+        // Icon
+        ImGui::TableNextColumn();
+        ImTextureID thumbTex = GetAddonThumbnail(addon.mMetadata.mId);
+        if (thumbTex != 0)
+        {
+            ImGui::Image(thumbTex, ImVec2(24, 24));
+        }
+        else
+        {
+            ImVec2 cur = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                cur, ImVec2(cur.x + 24, cur.y + 24), IM_COL32(70, 70, 90, 255));
+            ImGui::Dummy(ImVec2(24, 24));
+        }
+
+        // Name (clamped)
+        ImGui::TableNextColumn();
+        {
+            float w = ImGui::GetContentRegionAvail().x;
+            DrawClampedName(addon.mMetadata.mName.c_str(), w);
+        }
+
+        // Author
+        ImGui::TableNextColumn();
+        if (!addon.mMetadata.mAuthor.empty())
+        {
+            float w = ImGui::GetContentRegionAvail().x;
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            DrawClampedName(addon.mMetadata.mAuthor.c_str(), w);
+            ImGui::PopStyleColor();
+        }
+        else
+        {
+            ImGui::TextDisabled("--");
+        }
+
+        // Native badge
+        ImGui::TableNextColumn();
+        if (addon.mNative.mHasNative)
+        {
+            ImVec4 col = (addon.mNative.mTarget == NativeAddonTarget::EditorOnly)
+                ? ImVec4(0.40f, 0.40f, 0.80f, 1.0f)
+                : ImVec4(0.80f, 0.40f, 0.40f, 1.0f);
+            const char* lbl = (addon.mNative.mTarget == NativeAddonTarget::EditorOnly)
+                ? "Editor" : "Eng+Ed";
+            ImGui::TextColored(col, "%s", lbl);
+        }
+        else
+        {
+            ImGui::TextDisabled("--");
+        }
+
+        // Status + actions
+        ImGui::TableNextColumn();
+        if (addon.mIsInstalled)
+        {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Installed");
+            if (am && am->HasUpdate(addon.mMetadata.mId))
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Update"))
+                {
+                    OnDownloadAddon(addon.mMetadata.mId);
+                }
+            }
+        }
+        else
+        {
+            if (ImGui::SmallButton("Download"))
+            {
+                OnDownloadAddon(addon.mMetadata.mId);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Info"))
+        {
+            OnViewMore(addon.mMetadata.mId);
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::EndTable();
+}
+
+void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& installed)
+{
+    AddonManager* am = AddonManager::Get();
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (am == nullptr)
+    {
+        return;
+    }
+
+    ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_Borders |
+        ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_Resizable |
+        ImGuiTableFlags_SizingStretchProp;
+
+    if (!ImGui::BeginTable("##AddonsInstalledTable", 7, flags))
+    {
+        return;
+    }
+
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("##Icon",  ImGuiTableColumnFlags_WidthFixed,    28.0f);
+    ImGui::TableSetupColumn("Name",    ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,    70.0f);
+    ImGui::TableSetupColumn("Native",  ImGuiTableColumnFlags_WidthFixed,   100.0f);
+    ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed,    65.0f);
+    ImGui::TableSetupColumn("Status",  ImGuiTableColumnFlags_WidthStretch, 1.5f);
+    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed,   220.0f);
+    ImGui::TableHeadersRow();
+
+    for (const InstalledAddon& inst : installed)
+    {
+        ImGui::PushID(inst.mId.c_str());
+
+        const Addon* addon = am->FindAddon(inst.mId);
+        bool hasNative = addon && addon->mNative.mHasNative;
+        const NativeAddonState* nativeState = nam ? nam->GetState(inst.mId) : nullptr;
+        bool isBinaryMode = (inst.mNativeMode == NativeAddonResolveMode::Binary);
+
+        ImGui::TableNextRow();
+
+        // Icon
+        ImGui::TableNextColumn();
+        ImTextureID thumbTex = GetAddonThumbnail(inst.mId);
+        if (thumbTex != 0)
+        {
+            ImGui::Image(thumbTex, ImVec2(24, 24));
+        }
+        else
+        {
+            ImVec2 cur = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                cur, ImVec2(cur.x + 24, cur.y + 24), IM_COL32(70, 70, 90, 255));
+            ImGui::Dummy(ImVec2(24, 24));
+        }
+
+        // Name
+        ImGui::TableNextColumn();
+        {
+            const std::string& name = addon ? addon->mMetadata.mName : inst.mId;
+            float w = ImGui::GetContentRegionAvail().x;
+            DrawClampedName(name.c_str(), w);
+        }
+
+        // Version
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("v%s", inst.mVersion.c_str());
+
+        // Native (target chip + mode selector)
+        ImGui::TableNextColumn();
+        if (hasNative)
+        {
+            ImVec4 col = (addon->mNative.mTarget == NativeAddonTarget::EditorOnly)
+                ? ImVec4(0.40f, 0.40f, 0.80f, 1.0f)
+                : ImVec4(0.80f, 0.40f, 0.40f, 1.0f);
+            const char* tgt = (addon->mNative.mTarget == NativeAddonTarget::EditorOnly)
+                ? "Editor" : "Eng+Ed";
+            ImGui::TextColored(col, "%s", tgt);
+
+            const char* modeLabel = isBinaryMode ? "Binary" : "Source";
+            ImGui::PushItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##Mode", modeLabel))
+            {
+                if (ImGui::Selectable("Source", !isBinaryMode))
+                {
+                    if (isBinaryMode) OnToggleNativeMode(inst.mId);
+                }
+                if (ImGui::Selectable("Binary", isBinaryMode))
+                {
+                    if (!isBinaryMode) OnToggleNativeMode(inst.mId);
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::PopItemWidth();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Source: compile from code\nBinary: use precompiled DLL");
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("--");
+        }
+
+        // Enabled checkbox
+        ImGui::TableNextColumn();
+        if (hasNative)
+        {
+            bool enableNative = inst.mEnableNative;
+            if (ImGui::Checkbox("##Enabled", &enableNative))
+            {
+                OnToggleNativeEnabled(inst.mId);
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("--");
+        }
+
+        // Status
+        ImGui::TableNextColumn();
+        if (hasNative && nativeState)
+        {
+            if (nativeState->mBuildInProgress)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Building...");
+            }
+            else if (nam && nam->IsLoaded(inst.mId))
+            {
+                if (nativeState->mLoadedFromBinary)
+                {
+                    if (nativeState->mBinaryStatus == "Synced")
+                    {
+                        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Loaded (Synced)");
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.8f, 1.0f), "Loaded (Local)");
+                    }
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Loaded (Source)");
+                }
+            }
+            else if (isBinaryMode && !nativeState->mBinaryStatus.empty())
+            {
+                if (nativeState->mBinaryStatus == "Missing Binary")
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Missing Binary");
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("No precompiled binary. Use Sync to download or switch to Source.");
+                    }
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", nativeState->mBinaryStatus.c_str());
+                }
+            }
+            else if (nativeState->mBuildSucceeded)
+            {
+                ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Built");
+            }
+            else if (!nativeState->mBuildError.empty())
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Build Failed");
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", nativeState->mBuildError.c_str());
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("--");
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("--");
+        }
+
+        // Actions
+        ImGui::TableNextColumn();
+        bool hasUpdate = addon && am->HasUpdate(inst.mId);
+        if (hasUpdate)
+        {
+            if (ImGui::SmallButton("Update"))
+            {
+                OnDownloadAddon(inst.mId);
+            }
+            ImGui::SameLine();
+        }
+        if (hasNative)
+        {
+            if (!isBinaryMode)
+            {
+                if (ImGui::SmallButton("Build"))
+                {
+                    OnBuildNativeAddon(inst.mId);
+                }
+                ImGui::SameLine();
+            }
+            else if (addon && !addon->mNative.mBinaries.empty())
+            {
+                if (ImGui::SmallButton("Sync"))
+                {
+                    OnSyncNativeAddonBinary(inst.mId);
+                }
+                ImGui::SameLine();
+            }
+            if (ImGui::SmallButton("Reload"))
+            {
+                OnReloadNativeAddon(inst.mId);
+            }
+            ImGui::SameLine();
+            if (nativeState && !nativeState->mBuildLog.empty())
+            {
+                if (ImGui::SmallButton("Log"))
+                {
+                    mShowBuildLog = true;
+                    mBuildLogAddonId = inst.mId;
+                }
+                ImGui::SameLine();
+            }
+        }
+        if (ImGui::SmallButton("Uninstall"))
+        {
+            mUninstallAddonId = inst.mId;
+            mShowUninstallConfirm = true;
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::EndTable();
+}
+
 void AddonsWindow::DrawAddonBrowser()
 {
     AddonManager* am = AddonManager::Get();
@@ -340,6 +829,9 @@ void AddonsWindow::DrawAddonBrowser()
     {
         OnRefreshRepositories();
     }
+
+    // View-mode toggle
+    DrawViewModeToggle();
 
     // Status message
     if (!mStatusMessage.empty())
@@ -466,26 +958,32 @@ void AddonsWindow::DrawAddonBrowser()
         filteredAddons.push_back(&addon);
     }
 
-    // Addon grid
-    float cardWidth = 200.0f;
-    float cardHeight = 200.0f;
-    float spacing = 10.0f;
-    int cardsPerRow = (int)((ImGui::GetContentRegionAvail().x + spacing) / (cardWidth + spacing));
-    if (cardsPerRow < 1) cardsPerRow = 1;
-
-    ImGui::BeginChild("AddonGrid", ImVec2(0, 0), true);
-
-    for (int i = 0; i < (int)filteredAddons.size(); ++i)
+    if (mUseTableView)
     {
-        if (i > 0 && i % cardsPerRow != 0)
+        DrawAddonTable_Browse(filteredAddons);
+    }
+    else
+    {
+        // Addon grid
+        float cardWidth = 200.0f;
+        float spacing = 10.0f;
+        int cardsPerRow = (int)((ImGui::GetContentRegionAvail().x + spacing) / (cardWidth + spacing));
+        if (cardsPerRow < 1) cardsPerRow = 1;
+
+        ImGui::BeginChild("AddonGrid", ImVec2(0, 0), true);
+
+        for (int i = 0; i < (int)filteredAddons.size(); ++i)
         {
-            ImGui::SameLine();
+            if (i > 0 && i % cardsPerRow != 0)
+            {
+                ImGui::SameLine();
+            }
+
+            DrawAddonCard(*filteredAddons[i], cardWidth);
         }
 
-        DrawAddonCard(*filteredAddons[i], cardWidth);
+        ImGui::EndChild();
     }
-
-    ImGui::EndChild();
 }
 
 void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
@@ -530,18 +1028,21 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
         drawList->AddText(ImVec2(badgePos.x + 5, badgePos.y + 1), IM_COL32(255, 255, 255, 255), "Native");
     }
 
-    // Name
+    // Name (single line, ellipsis-clamped, tooltip on hover)
     float textStartY = cardPos.y + thumbSide + 10;
     ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, textStartY));
-    ImGui::PushTextWrapPos(cardPos.x + cardWidth - 5);
-    ImGui::TextWrapped("%s", addon.mMetadata.mName.c_str());
-    ImGui::PopTextWrapPos();
+    DrawClampedName(addon.mMetadata.mName.c_str(), cardWidth - 10);
 
     // Author
     if (!addon.mMetadata.mAuthor.empty())
     {
         ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, textStartY + 20));
-        ImGui::TextDisabled("by %s", addon.mMetadata.mAuthor.c_str());
+        ImGui::PushTextWrapPos(cardPos.x + cardWidth - 5);
+        std::string authorLine = "by " + addon.mMetadata.mAuthor;
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        DrawClampedName(authorLine.c_str(), cardWidth - 10);
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
     }
 
     // Buttons
@@ -591,15 +1092,25 @@ void AddonsWindow::DrawInstalledAddons()
 
     const std::vector<InstalledAddon>& installed = am->GetInstalledAddons();
 
+    ImGui::Text("Installed Addons (%d)", (int)installed.size());
+    ImGui::SameLine();
+    DrawViewModeToggle();
+
     if (installed.empty())
     {
+        ImGui::Separator();
         ImGui::TextDisabled("No addons installed in this project.");
         return;
     }
 
-    ImGui::Text("Installed Addons (%d)", (int)installed.size());
     ImGui::Separator();
     ImGui::Spacing();
+
+    if (mUseTableView)
+    {
+        DrawAddonTable_Installed(installed);
+        return;
+    }
 
     ImGui::BeginChild("InstalledList", ImVec2(0, 0), true);
 

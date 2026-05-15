@@ -1503,13 +1503,13 @@ static void DrawUnsavedCheck()
     }
 }
 
-static void DrawPieLoadingModal()
+static void DrawProgressModal()
 {
     EditorState* editorState = GetEditorState();
 
-    const char* kPopupId = "Polyphase###PieLoadingModal";
+    const char* kPopupId = "Polyphase###ProgressModal";
 
-    if (editorState->mShowPieLoadingModal && !ImGui::IsPopupOpen(kPopupId))
+    if (editorState->mProgressActive && !ImGui::IsPopupOpen(kPopupId))
     {
         ImGui::OpenPopup(kPopupId);
     }
@@ -1518,7 +1518,12 @@ static void DrawPieLoadingModal()
     {
         ImGuiIO& io = ImGui::GetIO();
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(420, 110), ImGuiCond_Always);
+        // Sized generously so neither the progress bar nor (optional) Cancel
+        // button get clipped by the bottom edge -- earlier 110/150 values
+        // were leaving the cancel button half off-screen on systems where
+        // the imgui frame padding/font scaling eats more vertical space.
+        float h = editorState->mProgressCancellable ? 220.0f : 160.0f;
+        ImGui::SetNextWindowSize(ImVec2(540, h), ImGuiCond_Always);
     }
 
     ImGuiWindowFlags flags =
@@ -1527,22 +1532,199 @@ static void DrawPieLoadingModal()
         ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoSavedSettings;
 
-    if (ImGui::BeginPopupModal(kPopupId, nullptr, flags))
-    {
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
-        ImGui::TextUnformatted(editorState->mPieLoadingMessage.c_str());
-        ImGui::Dummy(ImVec2(0.0f, 6.0f));
-        // Indeterminate progress: animated marquee using current time as the fraction.
-        float t = (float)ImGui::GetTime();
-        float frac = 0.5f + 0.5f * sinf(t * 4.0f);
-        ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), "");
+    // The window title is the user-facing operation name (shown in the
+    // popup title bar). The ### suffix on kPopupId keeps the popup identity
+    // stable across title changes.
+    std::string label = editorState->mProgressTitle + "###ProgressModal";
 
-        if (!editorState->mShowPieLoadingModal)
+    if (ImGui::BeginPopupModal(label.c_str(), nullptr, flags))
+    {
+        ImGui::Dummy(ImVec2(0.0f, 6.0f));
+
+        // Status line. If a cancel was requested, prefix to make the user-
+        // visible state unambiguous while the loop drains.
+        if (editorState->mProgressCancelRequested)
+        {
+            ImGui::TextUnformatted("Cancelling...");
+            ImGui::TextDisabled("%s", editorState->mProgressStatus.c_str());
+        }
+        else
+        {
+            ImGui::TextUnformatted(editorState->mProgressStatus.c_str());
+        }
+
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+
+        if (editorState->mProgressFraction >= 0.0f)
+        {
+            // Determinate: clamp 0..1 and let ImGui draw the percent.
+            float f = editorState->mProgressFraction;
+            if (f > 1.0f) f = 1.0f;
+            ImGui::ProgressBar(f, ImVec2(-1.0f, 0.0f));
+        }
+        else
+        {
+            // Indeterminate: animated marquee using current time. This is
+            // why we have to pump frames during the work -- the sine only
+            // advances when a new frame is drawn.
+            float t = (float)ImGui::GetTime();
+            float frac = 0.5f + 0.5f * sinf(t * 4.0f);
+            ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), "");
+        }
+
+        if (editorState->mProgressCancellable)
+        {
+            ImGui::Dummy(ImVec2(0.0f, 6.0f));
+            // Disable the button once cancel has already been requested so
+            // the user doesn't think mashing it speeds anything up.
+            bool disabled = editorState->mProgressCancelRequested;
+            if (disabled) ImGui::BeginDisabled();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                editorState->mProgressCancelRequested = true;
+            }
+            if (disabled) ImGui::EndDisabled();
+        }
+
+        if (!editorState->mProgressActive)
         {
             ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();
+    }
+}
+
+// ============================================================================
+// EditorProgress -- pumps editor frames at safe checkpoints inside long
+// synchronous operations so the modal can animate. See EditorImgui.h for the
+// usage contract. All callers must run after EditorImguiDraw() has returned
+// (i.e., the deferred-end-of-frame dispatcher in EditorMain.cpp); calling
+// Pump() inside an ImGui frame nests NewFrame and asserts.
+// ============================================================================
+namespace EditorProgress
+{
+    // Throttle for Step() and Tick() only -- explicit Begin/SetStatus/End/Pump
+    // calls always render. Step is called per-iteration in tight loops
+    // (ResaveAllAssets on 10k assets) where unbounded rendering would be
+    // wasteful; explicit calls represent intentional "show the user something
+    // changed" moments and should never be silently dropped.
+    static const double kStepThrottleSeconds = 1.0 / 60.0;
+
+    static bool IsInsideImGuiFrame()
+    {
+        ImGuiContext* ctx = ImGui::GetCurrentContext();
+        return ctx != nullptr && ctx->WithinFrameScope;
+    }
+
+    static void DoPumpUnthrottled()
+    {
+        EditorState* es = GetEditorState();
+        if (!es->mProgressActive)
+            return;
+
+        // Reentrancy guard: ImGui frames cannot nest. If a non-deferred
+        // caller (e.g. a REST handler running inside ControllerServer::Tick
+        // which itself runs inside EditorImguiDraw) reaches us, silently
+        // degrade -- the work still completes, just without animation.
+        if (IsInsideImGuiFrame())
+            return;
+
+        es->mProgressLastPumpTime = ImGui::GetTime();
+
+        // Run a normal editor frame so the popup repaints and any time-
+        // driven animation (sine marquee) advances. EditorImguiDraw owns
+        // NewFrame/Render itself.
+        EditorImguiDraw();
+
+        // Present each world so the swapchain actually flips. This mirrors
+        // the render loop in Engine::Tick() at Engine.cpp:891-895.
+        for (int32_t i = 0; i < GetNumWorlds(); ++i)
+        {
+            Renderer::Get()->Render(GetWorld(i), i);
+        }
+    }
+
+    void Begin(const char* title, const char* status, bool cancellable)
+    {
+        EditorState* es = GetEditorState();
+        es->mProgressActive = true;
+        es->mProgressCancellable = cancellable;
+        es->mProgressCancelRequested = false;
+        es->mProgressTitle = title ? title : "Working";
+        es->mProgressStatus = status ? status : "";
+        es->mProgressFraction = -1.0f;
+        es->mProgressLastPumpTime = 0.0;
+        // Pump twice unconditionally so the popup is fully opened and laid
+        // out before the caller starts its blocking work. ImGui's OpenPopup
+        // is queued in frame N and BeginPopupModal returns true in frame
+        // N+1 with focus settled; one pump alone leaves the popup invisible
+        // until the next status update.
+        DoPumpUnthrottled();
+        DoPumpUnthrottled();
+    }
+
+    void SetStatus(const char* msg)
+    {
+        EditorState* es = GetEditorState();
+        if (msg != nullptr) es->mProgressStatus = msg;
+        // Always render -- explicit status changes are intentional UI
+        // updates the user is waiting to see.
+        DoPumpUnthrottled();
+    }
+
+    void SetFraction(float f)
+    {
+        GetEditorState()->mProgressFraction = f;
+    }
+
+    void Step(const char* msg, int done, int total)
+    {
+        EditorState* es = GetEditorState();
+        if (msg != nullptr) es->mProgressStatus = msg;
+        if (total > 0)
+        {
+            float f = (float)done / (float)total;
+            if (f < 0.0f) f = 0.0f;
+            if (f > 1.0f) f = 1.0f;
+            es->mProgressFraction = f;
+        }
+        // Throttled: tight loops can call this every iteration without
+        // making the editor render more frames than the display can show.
+        if (!es->mProgressActive) return;
+        if (IsInsideImGuiFrame()) return;
+        double now = ImGui::GetTime();
+        if (now - es->mProgressLastPumpTime < kStepThrottleSeconds) return;
+        DoPumpUnthrottled();
+    }
+
+    void Pump()
+    {
+        // Public Pump is unthrottled too. Callers that want throttling
+        // should use Step or Tick.
+        DoPumpUnthrottled();
+    }
+
+    void End()
+    {
+        EditorState* es = GetEditorState();
+        es->mProgressActive = false;
+        es->mProgressCancellable = false;
+        es->mProgressFraction = -1.0f;
+        // Force one final pump so the modal close is visible immediately
+        // rather than waiting for the next main tick.
+        DoPumpUnthrottled();
+        es->mProgressCancelRequested = false;
+    }
+
+    bool IsActive()
+    {
+        return GetEditorState()->mProgressActive;
+    }
+
+    bool WasCancelled()
+    {
+        return GetEditorState()->mProgressCancelRequested;
     }
 }
 
@@ -6801,9 +6983,9 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 
                 if (stub->mType == Scene::GetStaticType())
                 {
-                    Scene* scene = stub->mAsset ? stub->mAsset->As<Scene>() : nullptr;
-                    if (scene)
-                        ActionManager::Get()->OpenScene(scene);
+                    // Defer through the dispatcher so the progress modal
+                    // pumps from outside the asset-browser ImGui frame.
+                    ActionManager::Get()->RequestOpenScene(stub);
                 }
                 else if (stub->mType == Timeline::GetStaticType())
                 {
@@ -9091,7 +9273,7 @@ static void DrawMainMenuBar()
             // Edit > Reload Native Addons menu and the AddonsWindow row button.
             if (ImGui::Button(ICON_ION_HAMMER_SHARP))
             {
-                ReloadAllScripts();
+                GetEditorState()->RequestReloadAllScripts();
             }
             if (ImGui::IsItemHovered())
             {
@@ -9232,7 +9414,7 @@ static void DrawMainMenuBar()
         // open scenes.
         if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
         {
-            ReloadAllScripts();
+            GetEditorState()->RequestReloadAllScripts();
 
             // Refresh asset directories
             AssetDir* projDir = AssetManager::Get()->FindProjectDirectory();
@@ -12826,7 +13008,7 @@ void EditorImguiDraw()
 
         DrawUnsavedCheck();
         DrawProjectUpgradeModal();
-        DrawPieLoadingModal();
+        DrawProgressModal();
         DrawAddonsDialogs();
         DrawScriptCreatorDialogs();
 

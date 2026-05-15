@@ -808,7 +808,7 @@ void ProjectSelectWindow::DrawAddTemplatePopup()
 
 void ProjectSelectWindow::OnOpenProject(const std::string& path)
 {
-    ActionManager::Get()->OpenProject(path.c_str());
+    ActionManager::Get()->RequestOpenProject(path.c_str());
     Close();
 }
 
@@ -818,12 +818,11 @@ void ProjectSelectWindow::OnBrowseProject()
 
     if (!selectedFolder.empty())
     {
-        ActionManager::Get()->OpenProject(selectedFolder.c_str());
-    }
-
-    // Close if a project was opened
-    if (!GetEngineState()->mProjectPath.empty())
-    {
+        ActionManager::Get()->RequestOpenProject(selectedFolder.c_str());
+        // Close immediately -- the actual open runs on the next tick from
+        // the deferred dispatcher, after this window is gone, so the modal
+        // doesn't have to fight the project-select window for the user's
+        // attention.
         Close();
     }
 }
@@ -900,7 +899,7 @@ void ProjectSelectWindow::OnCreateFromTemplate(const std::string& templateId)
         std::string octpPath = projectPath + "/" + mProjectNameBuffer + ".octp";
         if (SYS_DoesFileExist(octpPath.c_str(), false))
         {
-            ActionManager::Get()->OpenProject(octpPath.c_str());
+            ActionManager::Get()->RequestOpenProject(octpPath.c_str());
             Close();
         }
         else
