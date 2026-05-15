@@ -733,6 +733,13 @@ NodePtr Scene::Instantiate()
     // Symptom: Crop Texture state survives save/load on disk but the
     // texture renders un-cropped until the user clicks the widget (which
     // forces another MarkDirty path).
+    //
+    // The MarkDirty pass arms all MAX_FRAMES dirty slots so subsequent render
+    // frames in either backbuffer slot will re-bake. The follow-up synchronous
+    // PreRender pass also bakes the *current* GPU slot immediately -- needed
+    // because in EditorMode::Scene3D, Renderer::GatherDrawData has enable2D=false
+    // and never calls PreRender on loaded widgets, leaving the MultiBuffer slots
+    // uninitialized until the user enters PIE or switches to Scene2D.
     if (rootNode)
     {
         rootNode->Traverse([](Node* n) -> bool {
@@ -742,6 +749,30 @@ NodePtr Scene::Instantiate()
             }
             return true;
         });
+
+        // Snapshot the widget tree (parent-first) before PreRender, because
+        // Window::PreRender mutates its children list (EnsureContentContainer,
+        // RerouteChildrenToContent) and live traversal would skip / re-visit
+        // nodes. Node::Traverse is parent-first by default, so the snapshot
+        // ordering already matches the desired PreRender order.
+        std::vector<Widget*> widgetsToBake;
+        rootNode->Traverse([&widgetsToBake](Node* n) -> bool {
+            if (n != nullptr && n->IsWidget())
+            {
+                widgetsToBake.push_back(static_cast<Widget*>(n));
+            }
+            return true;
+        });
+
+        // Mirror Renderer::GatherDrawData's per-widget contract: PreRender(),
+        // then MarkClean() to clear the current frame's dirty bit. The other
+        // MAX_FRAMES-1 dirty slots stay armed and will be baked by the normal
+        // render path the first time it touches each alternate buffer.
+        for (Widget* widget : widgetsToBake)
+        {
+            widget->PreRender();
+            widget->MarkClean();
+        }
     }
 
     return rootNode;

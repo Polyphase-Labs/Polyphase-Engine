@@ -3869,6 +3869,39 @@ void ActionManager::OpenProject(const char* path)
             hookMgr->FireOnProjectOpen(pathStr.c_str());
         }
 
+        // Defensive: re-assert the world root from the active edit scene.
+        //
+        // LoadProject's tail (Engine.cpp:LoadStartupScene) calls OpenScene to
+        // open the project's default scene -- which sets the world's root via
+        // OpenEditScene(idx). But that happens *inside* the OpenProject modal
+        // sequence: my SetStatus/Pump calls between LoadProject's return and
+        // EditorProgress::End render editor frames that read world->GetRootNode().
+        // Anything that desyncs world->mRootNode from mEditScenes[mEditSceneIndex]
+        // .mRootNode between Pump frames (a stray OnProjectOpen hook, an addon
+        // callback, the bake-pass inside Scene::Instantiate touching transient
+        // children mid-attach, etc.) leaves the user with a scene tab visible
+        // (mEditScenes has the entry) but the hierarchy panel empty
+        // (world->GetRootNode() returns null because DrawScenePanel reads from
+        // there). Asset-browser reopen worked because it pushed through its own
+        // standalone OpenScene modal with no further pumps between SetRootNode
+        // and modal end.
+        //
+        // SetRootNode is no-op if mRootNode already equals the new node, so this
+        // is free when nothing's wrong and corrective when it is.
+        {
+            EditorState* es = GetEditorState();
+            EditScene* active = es->GetEditScene();
+            if (active != nullptr && active->mRootNode)
+            {
+                World* w = GetWorld(0);
+                if (w != nullptr && w->GetRootNode() != active->mRootNode.Get())
+                {
+                    LogDebug("OpenProject: re-asserting world root after load (was desynced from active edit scene).");
+                    w->SetRootNode(active->mRootNode.Get());
+                }
+            }
+        }
+
         EditorProgress::End();
     }
 }

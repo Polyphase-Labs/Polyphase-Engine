@@ -60,7 +60,19 @@ bool Button::HandlePropChange(Datum* datum, uint32_t index, const void* newValue
     Button* button = static_cast<Button*>(prop->mOwner);
     bool success = false;
 
-    // Just always mark the button dirty?
+    // GatherProperties registers Button's own "UV Scale"/"UV Offset" *and* re-exposes
+    // the inner Quad's identically-named props via mQuad->GatherQuadProperties().
+    // CopyPropertyValues finds the first dst by name+type and breaks, so on scene
+    // load the saved value lands on Button.mUvScale but never reaches mQuad->mUvScale.
+    // UpdateAppearance pushes the value down later, but only on a dirty PreRender --
+    // forward explicitly here so the inner Quad is correct as soon as the property
+    // is set (load, undo, scripted, inspector).
+    if (button->mQuad != nullptr)
+    {
+        if (prop->mName == "UV Scale")       button->mQuad->SetUvScale(button->mUvScale);
+        else if (prop->mName == "UV Offset") button->mQuad->SetUvOffset(button->mUvOffset);
+    }
+
     button->MarkDirty();
 
     return success;

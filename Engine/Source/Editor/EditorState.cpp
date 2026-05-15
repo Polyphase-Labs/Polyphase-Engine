@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <ctime>
+#include <cstring>
 #include <functional>
 #include "EditorState.h"
 #include "EditorConstants.h"
@@ -825,6 +826,21 @@ void EditorState::SnapshotAssetsForPie()
 
         Asset* asset = stub->mAsset;
         if (!asset->IsLoaded()) continue;
+
+        // Defensive: dangling stub->mAsset whose underlying memory was freed
+        // and reused reads as non-null but with a null vtable pointer at
+        // offset 0. IsLoaded() above is a plain byte read so it sneaks past,
+        // then the virtual ShouldSnapshotForPie call dispatches to address 0
+        // and takes the editor down on PIE entry. Skip those entries.
+        void* vtablePtr = nullptr;
+        std::memcpy(&vtablePtr, asset, sizeof(void*));
+        if (vtablePtr == nullptr)
+        {
+            LogWarning("SnapshotAssetsForPie: skipping asset with null vtable (stub path='%s')",
+                       stub->mPath.empty() ? "<unknown>" : stub->mPath.c_str());
+            continue;
+        }
+
         if (!asset->ShouldSnapshotForPie()) continue;
 
         Stream s;

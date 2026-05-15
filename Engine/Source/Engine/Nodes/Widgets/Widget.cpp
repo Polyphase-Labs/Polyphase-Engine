@@ -914,11 +914,25 @@ void Widget::MarkDirty()
         mDirty[i] = true;
     }
 
+    // Don't recurse into children during/after destruction. SetParent(nullptr)
+    // (called from Node::RemoveChild during teardown) lands here while the
+    // owning Lua-GC sweep may have already finalised sibling/child wrappers,
+    // leaving stale NodePtrs in our mChildren that point at freed Node memory.
+    // Node::Deleter has the symmetric guard (`if (node->IsDestroyed()) return;`
+    // at Node.cpp:150) for the same reason. Without this, exiting PIE while an
+    // addon widget is held alive by the inspector reliably crashes inside
+    // mChildren[i]->IsWidget() in the recursive MarkDirty below.
+    if (IsDestroyed())
+        return;
+
     for (uint32_t i = 0; i < mChildren.size(); ++i)
     {
-        if (mChildren[i]->IsWidget())
+        Node* child = mChildren[i].Get();
+        if (child != nullptr &&
+            !child->IsDestroyed() &&
+            child->IsWidget())
         {
-            static_cast<Widget*>(mChildren[i].Get())->MarkDirty();
+            static_cast<Widget*>(child)->MarkDirty();
         }
     }
 }
