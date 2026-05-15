@@ -8,6 +8,7 @@
 #include "NodePath.h"
 #include "Nodes/Node.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
+#include "Nodes/Widgets/Widget.h"
 
 #if EDITOR
 #include "EditorState.h"
@@ -718,6 +719,29 @@ NodePtr Scene::Instantiate()
     if (sInstantiationCount < 0)
     {
         sInstantiationCount = 0;
+    }
+
+    // Force every widget descendant to rebuild its render data on the next
+    // PreRender. Without this, properties like UV scale/offset (set via
+    // CopyPropertyValues) reach the member fields, but the GPU vertex
+    // buffer keeps the default-UV data that was uploaded by the widget's
+    // Create() call -- because parent->child UV propagation (Button /
+    // Window pushing UV down to their inner Quad in UpdateAppearance /
+    // UpdateLayout) only fires when the parent itself is dirty, and
+    // Widget's per-frame dirty bits set in the constructor get cleared by
+    // intervening render frames before the user-visible PreRender runs.
+    // Symptom: Crop Texture state survives save/load on disk but the
+    // texture renders un-cropped until the user clicks the widget (which
+    // forces another MarkDirty path).
+    if (rootNode)
+    {
+        rootNode->Traverse([](Node* n) -> bool {
+            if (n != nullptr && n->IsWidget())
+            {
+                static_cast<Widget*>(n)->MarkDirty();
+            }
+            return true;
+        });
     }
 
     return rootNode;
