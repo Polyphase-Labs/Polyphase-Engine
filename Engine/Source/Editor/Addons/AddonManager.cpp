@@ -1,6 +1,8 @@
 #if EDITOR
 
 #include "AddonManager.h"
+#include "AddonDependencyResolver.h"
+#include "AddonScriptRunner.h"
 #include "System/System.h"
 #include "Engine.h"
 #include "Stream.h"
@@ -211,6 +213,11 @@ void AddonManager::LoadSettings()
             }
         }
     }
+
+    if (doc.HasMember("autoResolveDependencies") && doc["autoResolveDependencies"].IsBool())
+    {
+        mAutoResolveDeps = doc["autoResolveDependencies"].GetBool();
+    }
 }
 
 void AddonManager::SaveSettings()
@@ -230,6 +237,7 @@ void AddonManager::SaveSettings()
         reposArray.PushBack(repoObj, allocator);
     }
     doc.AddMember("repositories", reposArray, allocator);
+    doc.AddMember("autoResolveDependencies", mAutoResolveDeps, allocator);
 
     rapidjson::StringBuffer buffer;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
@@ -790,6 +798,113 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
     return InstallAddon(cachedAddonPath, addon.mMetadata.mId, outError);
 }
 
+bool AddonManager::DownloadAndInstallFromUrl(const std::string& addonId,
+                                             const std::string& url,
+                                             const std::string& ref,
+                                             std::string& outError)
+{
+    EnsureCacheDirectory();
+
+    // Decide the actual zip URL to fetch.
+    bool isDirectZip = false;
+    {
+        std::string lower = url;
+        for (char& c : lower) c = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
+        isDirectZip = (lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".zip") == 0);
+    }
+
+    std::string zipUrl;
+    std::string branchTried;
+    if (isDirectZip)
+    {
+        zipUrl = url;
+    }
+    else
+    {
+        branchTried = ref.empty() ? "main" : ref;
+        zipUrl = ConvertToDownloadUrl(url, branchTried);
+    }
+
+    std::string zipPath = GetAddonCacheDirectory() + "/_dep_" + addonId + ".zip";
+    std::string extractDir = GetAddonCacheDirectory() + "/_dep_extract_" + addonId;
+
+    if (DoesDirExist(extractDir.c_str()))
+    {
+        SYS_RemoveDirectory(extractDir.c_str());
+    }
+
+    if (!DownloadFile(zipUrl, zipPath, outError))
+    {
+        // For GitHub, try "master" if "main" failed.
+        if (!isDirectZip && ref.empty())
+        {
+            zipUrl = ConvertToDownloadUrl(url, "master");
+            if (!DownloadFile(zipUrl, zipPath, outError))
+            {
+                return false;
+            }
+            branchTried = "master";
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    if (!ExtractZip(zipPath, extractDir, outError))
+    {
+        SYS_RemoveFile(zipPath.c_str());
+        return false;
+    }
+
+    // GitHub zips wrap contents in <repo>-<branch>/. Walk the extract dir to find
+    // the folder that contains a package.json (one level deep is enough for both
+    // GitHub-style and flat zips).
+    std::string addonRoot;
+    if (SYS_DoesFileExist((extractDir + "/package.json").c_str(), false))
+    {
+        addonRoot = extractDir;
+    }
+    else
+    {
+        DirEntry dirEntry;
+        SYS_OpenDirectory(extractDir, dirEntry);
+        while (dirEntry.mValid)
+        {
+            if (dirEntry.mDirectory &&
+                strcmp(dirEntry.mFilename, ".") != 0 &&
+                strcmp(dirEntry.mFilename, "..") != 0)
+            {
+                std::string candidate = extractDir + "/" + dirEntry.mFilename;
+                if (SYS_DoesFileExist((candidate + "/package.json").c_str(), false))
+                {
+                    addonRoot = candidate;
+                    break;
+                }
+            }
+            SYS_IterateDirectory(dirEntry);
+        }
+        SYS_CloseDirectory(dirEntry);
+    }
+
+    if (addonRoot.empty())
+    {
+        outError = "Extracted dependency archive '" + addonId + "' has no package.json";
+        return false;
+    }
+
+    // Stage into AddonCache then call the standard install path.
+    std::string cachedAddonPath = GetAddonCacheDirectory() + "/" + addonId;
+    if (DoesDirExist(cachedAddonPath.c_str()))
+    {
+        SYS_RemoveDirectory(cachedAddonPath.c_str());
+    }
+    SYS_CreateDirectory(cachedAddonPath.c_str());
+    SYS_CopyDirectoryRecursive(addonRoot.c_str(), cachedAddonPath.c_str());
+
+    return InstallAddon(cachedAddonPath, addonId, outError);
+}
+
 std::string AddonManager::GetCurrentTimestamp()
 {
     time_t now = time(nullptr);
@@ -933,6 +1048,96 @@ bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::st
         }
     }
 
+    // Recursively resolve declared dependencies before running onInstall — the
+    // script may assume its deps are present on disk.
+    if (mAutoResolveDeps)
+    {
+        std::vector<std::string> resolveOrder;
+        std::string resolveErr;
+        AddonDependencyResolver::Resolve(addonId, resolveOrder, resolveErr);
+        if (!resolveErr.empty())
+        {
+            LogWarning("Addon '%s': dependency resolution reported: %s",
+                       addonId.c_str(), resolveErr.c_str());
+        }
+    }
+
+    // Read declared onInstall path from the just-installed package.json (works
+    // for native and non-native addons alike).
+    std::vector<AddonDependencySpec> ignoredDeps;
+    std::string onInstall;
+    AddonDependencyResolver::ReadDependenciesFromDisk(destDir, ignoredDeps, onInstall);
+
+    if (!onInstall.empty())
+    {
+        bool trustedNow = AddonScriptRunner::IsTrustedAddonId(addonId);
+        if (!trustedNow)
+        {
+            // Honor any sticky "trust this addon" choice from a prior install.
+            for (const InstalledAddon& rec : mInstalledAddons)
+            {
+                if (rec.mId == addonId && rec.mTrustedScripts)
+                {
+                    trustedNow = true;
+                    break;
+                }
+            }
+        }
+
+        AddonScriptRunner::TrustResult choice = AddonScriptRunner::TrustResult::TrustOnce;
+        if (!trustedNow)
+        {
+            const Addon* a = FindAddon(addonId);
+            std::string source = a ? a->mRepoUrl : std::string();
+            choice = AddonScriptRunner::ShowTrustModal(addonId, source, onInstall);
+        }
+
+        if (choice == AddonScriptRunner::TrustResult::CancelInstall)
+        {
+            // Revert install.
+            if (DoesDirExist(destDir.c_str()))
+            {
+                SYS_RemoveDirectory(destDir.c_str());
+            }
+            for (auto it = mInstalledAddons.begin(); it != mInstalledAddons.end(); ++it)
+            {
+                if (it->mId == addonId)
+                {
+                    mInstalledAddons.erase(it);
+                    break;
+                }
+            }
+            SaveInstalledAddons();
+            outError = "Install cancelled by user (declined onInstall script).";
+            return false;
+        }
+        else if (choice == AddonScriptRunner::TrustResult::Skip)
+        {
+            LogDebug("Addon '%s': onInstall script skipped by user.", addonId.c_str());
+        }
+        else
+        {
+            if (choice == AddonScriptRunner::TrustResult::TrustAlways)
+            {
+                for (InstalledAddon& rec : mInstalledAddons)
+                {
+                    if (rec.mId == addonId)
+                    {
+                        rec.mTrustedScripts = true;
+                        break;
+                    }
+                }
+                SaveInstalledAddons();
+            }
+            std::string scriptErr;
+            if (!AddonScriptRunner::RunOnInstall(addonId, destDir, onInstall, scriptErr))
+            {
+                LogWarning("Addon '%s': onInstall failed: %s",
+                           addonId.c_str(), scriptErr.c_str());
+            }
+        }
+    }
+
     return true;
 }
 
@@ -1049,6 +1254,10 @@ void AddonManager::LoadInstalledAddons()
             {
                 installed.mLastSyncStatus = addonObj["lastSyncStatus"].GetString();
             }
+            if (addonObj.HasMember("trustedScripts") && addonObj["trustedScripts"].IsBool())
+            {
+                installed.mTrustedScripts = addonObj["trustedScripts"].GetBool();
+            }
 
             if (!installed.mId.empty())
             {
@@ -1102,6 +1311,10 @@ void AddonManager::SaveInstalledAddons()
         if (!installed.mLastSyncStatus.empty())
         {
             addonObj.AddMember("lastSyncStatus", rapidjson::Value(installed.mLastSyncStatus.c_str(), allocator), allocator);
+        }
+        if (installed.mTrustedScripts)
+        {
+            addonObj.AddMember("trustedScripts", installed.mTrustedScripts, allocator);
         }
         addonsArray.PushBack(addonObj, allocator);
     }

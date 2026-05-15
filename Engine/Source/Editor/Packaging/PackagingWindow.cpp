@@ -880,10 +880,12 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         am->GetBuildState().mForceRebuild = mForceRebuild;
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
+        am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
         am->BuildData(profile.mTargetPlatform, profile.mEmbedded);
         // Re-set run-after-build flags after BuildData (Reset() clears them in normal path)
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
+        am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
     }
 
     mBuildInProgress = false;

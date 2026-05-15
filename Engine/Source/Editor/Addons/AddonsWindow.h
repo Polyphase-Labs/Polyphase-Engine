@@ -58,6 +58,7 @@ private:
     void OnAddRepository();
     void OnRemoveRepository(const std::string& url);
     void OnRefreshRepositories();
+    void OnResolveDependencies();
 
     // Native addon operations
     void OnBuildNativeAddon(const std::string& addonId);

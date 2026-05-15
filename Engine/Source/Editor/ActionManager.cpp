@@ -2432,7 +2432,7 @@ void ActionManager::FinalizeLocalBuild()
         return;
     }
 
-    if (!IsHeadless())
+    if (!IsHeadless() && mBuildState.mOpenDirectoryOnFinish && !mBuildState.mRunAfterBuild)
     {
         SYS_ExplorerOpenDirectory(packagedDir.c_str());
     }

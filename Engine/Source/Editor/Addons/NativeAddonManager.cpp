@@ -2,6 +2,7 @@
 
 #include "NativeAddonManager.h"
 #include "AddonManager.h"
+#include "AddonDependencyResolver.h"
 #include "ActionManager.h"
 #include "EditorState.h"
 #include "Engine/Assets/Scene.h"
@@ -759,6 +760,27 @@ void NativeAddonManager::DiscoverNativeAddons()
         addonMgr->LoadInstalledAddons();
     }
 
+    // Resolve cross-addon dependencies BEFORE scanning native addons so any
+    // freshly-fetched addon folders (created by AddonDependencyResolver) are
+    // visible to ScanLocalPackages below. This walks all packages, not just
+    // native ones, so non-native (Lua/asset) addons get their deps too.
+    {
+        std::vector<std::string> order;
+        std::vector<std::string> missing;
+        std::string err;
+        if (!AddonDependencyResolver::ResolveAll(order, missing, err))
+        {
+            LogWarning("Addon dependency resolution failed: %s", err.c_str());
+        }
+        mCachedLoadOrder = order;
+        if (!missing.empty())
+        {
+            std::string list;
+            for (const std::string& m : missing) { list += m; list += " "; }
+            LogWarning("Unresolved addon dependencies: %s", list.c_str());
+        }
+    }
+
     // Scan both sources
     ScanLocalPackages();
     ScanInstalledAddons();
@@ -774,6 +796,30 @@ void NativeAddonManager::DiscoverNativeAddons()
     }
 
     LogDebug("Discovered %zu native addons", mStates.size());
+}
+
+std::vector<std::string> NativeAddonManager::GetLoadOrder() const
+{
+    std::vector<std::string> out;
+    // Filter the project-wide topo order down to addons we actually discovered
+    // as native (so non-native packages don't appear and order is stable).
+    for (const std::string& id : mCachedLoadOrder)
+    {
+        if (mStates.find(id) != mStates.end())
+        {
+            out.push_back(id);
+        }
+    }
+    // Any native addon missing from the cached order (e.g. resolver hasn't run,
+    // or the addon has no declared deps and wasn't visited) goes at the end.
+    for (const auto& pair : mStates)
+    {
+        if (std::find(out.begin(), out.end(), pair.first) == out.end())
+        {
+            out.push_back(pair.first);
+        }
+    }
+    return out;
 }
 
 void NativeAddonManager::ScanLocalPackages()
@@ -806,12 +852,14 @@ void NativeAddonManager::ScanLocalPackages()
             if (SYS_DoesFileExist(packageJsonPath.c_str(), false))
             {
                 NativeModuleMetadata metadata;
-                if (ParsePackageJson(packageJsonPath, metadata) && metadata.mHasNative)
+                ContentMetadata content;
+                if (ParsePackageJson(packageJsonPath, metadata, &content) && metadata.mHasNative)
                 {
                     NativeAddonState state;
                     state.mAddonId = dirEntry.mFilename;
                     state.mSourcePath = addonPath;
                     state.mNativeMetadata = metadata;
+                    state.mContentMetadata = content;
 
                     mStates[state.mAddonId] = state;
                     LogDebug("Found local native addon: %s", state.mAddonId.c_str());
@@ -853,12 +901,14 @@ void NativeAddonManager::ScanInstalledAddons()
         if (SYS_DoesFileExist(packageJsonPath.c_str(), false))
         {
             NativeModuleMetadata metadata;
-            if (ParsePackageJson(packageJsonPath, metadata) && metadata.mHasNative)
+            ContentMetadata content;
+            if (ParsePackageJson(packageJsonPath, metadata, &content) && metadata.mHasNative)
             {
                 NativeAddonState state;
                 state.mAddonId = inst.mId;
                 state.mSourcePath = addonCachePath;
                 state.mNativeMetadata = metadata;
+                state.mContentMetadata = content;
 
                 mStates[state.mAddonId] = state;
                 LogDebug("Found installed native addon: %s", state.mAddonId.c_str());
@@ -867,7 +917,7 @@ void NativeAddonManager::ScanInstalledAddons()
     }
 }
 
-bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleMetadata& outMetadata)
+bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleMetadata& outMetadata, ContentMetadata* outContent)
 {
     outMetadata = NativeModuleMetadata{};
 
@@ -886,9 +936,56 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         return false;
     }
 
+    // Helper: parse a "dependencies" value (object map or legacy string array) into outDeps.
+    auto parseDependencies = [&](const rapidjson::Value& deps, std::vector<AddonDependencySpec>& outDeps) {
+        if (deps.IsObject())
+        {
+            for (rapidjson::Value::ConstMemberIterator it = deps.MemberBegin(); it != deps.MemberEnd(); ++it)
+            {
+                if (!it->name.IsString()) continue;
+                std::string id = it->name.GetString();
+                std::string value = it->value.IsString() ? it->value.GetString() : std::string();
+                outDeps.push_back(AddonDependencySpec::FromValue(id, value));
+            }
+        }
+        else if (deps.IsArray())
+        {
+            for (rapidjson::SizeType i = 0; i < deps.Size(); ++i)
+            {
+                if (!deps[i].IsString()) continue;
+                outDeps.push_back(AddonDependencySpec::FromValue(deps[i].GetString(), std::string()));
+            }
+        }
+    };
+
+    // Top-level shared content metadata (works for native + non-native addons).
+    if (outContent != nullptr)
+    {
+        *outContent = ContentMetadata{};
+        if (doc.HasMember("name") && doc["name"].IsString())
+        {
+            outContent->mId = doc["name"].GetString();
+            outContent->mName = outContent->mId;
+        }
+        if (doc.HasMember("author") && doc["author"].IsString())      outContent->mAuthor = doc["author"].GetString();
+        if (doc.HasMember("description") && doc["description"].IsString()) outContent->mDescription = doc["description"].GetString();
+        if (doc.HasMember("url") && doc["url"].IsString())            outContent->mUrl = doc["url"].GetString();
+        if (doc.HasMember("version") && doc["version"].IsString())    outContent->mVersion = doc["version"].GetString();
+        if (doc.HasMember("updated") && doc["updated"].IsString())    outContent->mUpdated = doc["updated"].GetString();
+        if (doc.HasMember("onInstall") && doc["onInstall"].IsString()) outContent->mOnInstallScript = doc["onInstall"].GetString();
+
+        if (doc.HasMember("dependencies"))
+        {
+            parseDependencies(doc["dependencies"], outContent->mDependencies);
+        }
+    }
+
     if (!doc.HasMember("native") || !doc["native"].IsObject())
     {
-        return false;
+        // Non-native addon (Lua/asset-only). Top-level content has already been
+        // populated above. Return true so the caller can use the ContentMetadata;
+        // callers that only want native addons still gate on outMetadata.mHasNative.
+        return true;
     }
 
     const rapidjson::Value& native = doc["native"];
@@ -939,16 +1036,15 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         outMetadata.mExportDefine = native["exportDefine"].GetString();
     }
 
-    // Parse dependencies (other native addon IDs this addon depends on)
-    if (native.HasMember("dependencies") && native["dependencies"].IsArray())
+    // Legacy: native.dependencies. New addons should use top-level "dependencies".
+    // We still accept this, but only when top-level "dependencies" is absent on the
+    // shared ContentMetadata, so we don't duplicate. Logs a deprecation note.
+    if (native.HasMember("dependencies"))
     {
-        const rapidjson::Value& deps = native["dependencies"];
-        for (rapidjson::SizeType i = 0; i < deps.Size(); ++i)
+        if (outContent != nullptr && outContent->mDependencies.empty())
         {
-            if (deps[i].IsString())
-            {
-                outMetadata.mDependencies.push_back(deps[i].GetString());
-            }
+            LogWarning("Addon '%s': native.dependencies is deprecated; move to top-level \"dependencies\".", path.c_str());
+            parseDependencies(native["dependencies"], outContent->mDependencies);
         }
     }
 
@@ -1861,9 +1957,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "/I\"" << sourceDir << "\" ";
 
     // Add dependency addon Source directories
-    for (const std::string& depId : state.mNativeMetadata.mDependencies)
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
-        ss << "/I\"" << packagesDir << depId << "/Source/\" ";
+        ss << "/I\"" << packagesDir << dep.mId << "/Source/\" ";
     }
 
     // Extra include directories from the addon's package.json, resolved relative to the
@@ -1947,10 +2043,10 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "/LIBPATH:\"" << polyphasePath << "/External/Lua/Build/Windows/x64/ReleaseEditor/\" ";
 
     // Add dependency addon library paths and libraries
-    for (const std::string& depId : state.mNativeMetadata.mDependencies)
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
-        ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Debug/\" ";
-        ss << "/LIBPATH:\"" << packagesDir << depId << "/Build/Release/\" ";
+        ss << "/LIBPATH:\"" << packagesDir << dep.mId << "/Build/Debug/\" ";
+        ss << "/LIBPATH:\"" << packagesDir << dep.mId << "/Build/Release/\" ";
     }
 
     // Extra lib directories from the addon's package.json, resolved relative to the addon root
@@ -1960,9 +2056,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     ss << engineLibName << " Lua.lib ";
-    for (const std::string& depId : state.mNativeMetadata.mDependencies)
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
-        ss << GenerateLibraryName(depId) << ".lib ";
+        ss << GenerateLibraryName(dep.mId) << ".lib ";
     }
 
     // Extra libs from the addon's package.json
@@ -2072,9 +2168,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Add dependency addon Source directories (packagesDir already computed above for Windows)
-    for (const std::string& depId : state.mNativeMetadata.mDependencies)
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
-        ss << "  -I\"" << packagesDir << depId << "/Source/\" \\\n";
+        ss << "  -I\"" << packagesDir << dep.mId << "/Source/\" \\\n";
     }
 
     // Add Vulkan SDK include path
@@ -2118,10 +2214,10 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     }
 
     // Link against dependency shared libraries
-    for (const std::string& depId : state.mNativeMetadata.mDependencies)
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
-        std::string depLibName = GenerateLibraryName(depId);
-        ss << "  -L\"" << packagesDir << depId << "/Build/\" \\\n";
+        std::string depLibName = GenerateLibraryName(dep.mId);
+        ss << "  -L\"" << packagesDir << dep.mId << "/Build/\" \\\n";
         ss << "  -l" << depLibName << " \\\n";
     }
 
@@ -2165,6 +2261,7 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
     state.mBuildInProgress = true;
     state.mBuildLog.clear();
     state.mBuildError.clear();
+    state.mBuildFailureAcknowledged = false;
 
     LogDebug("Building native addon: %s", addonId.c_str());
 
@@ -3030,6 +3127,7 @@ void NativeAddonManager::StartNextQueuedBuild()
         state.mBuildInProgress = true;
         state.mBuildLog.clear();
         state.mBuildError.clear();
+        state.mBuildFailureAcknowledged = false;
 
         LogDebug("Building native addon (async): %s [%d/%d]",
                  addonId.c_str(), mBuildQueueIndex, mBuildQueueTotal);
@@ -3115,6 +3213,89 @@ void NativeAddonManager::CancelBlockedBuild()
         LogWarning("Project-restart aborted: user cancelled blocked build.");
         ProjectRestartReset();
     }
+}
+
+// ===== Build-failure surface =====
+//
+// Derived from per-state mBuildSucceeded / mBuildError / mBuildInProgress
+// rather than a separate list, so it stays in sync with the actual state of
+// each addon (a successful re-build clears the failure automatically). The
+// acknowledged flag suppresses re-display after the user dismisses, until the
+// next build attempt resets it.
+std::vector<NativeAddonManager::BuildFailureEntry>
+NativeAddonManager::GetActiveBuildFailures() const
+{
+    std::vector<BuildFailureEntry> out;
+    for (const auto& pair : mStates)
+    {
+        const NativeAddonState& state = pair.second;
+        if (state.mBuildInProgress) continue;
+        if (state.mBuildSucceeded)  continue;
+        if (state.mBuildError.empty()) continue;
+        if (state.mBuildFailureAcknowledged) continue;
+
+        BuildFailureEntry e;
+        e.mAddonId = pair.first;
+        e.mError   = state.mBuildError;
+        e.mLog     = state.mBuildLog;
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+bool NativeAddonManager::HasUnacknowledgedBuildFailures() const
+{
+    for (const auto& pair : mStates)
+    {
+        const NativeAddonState& state = pair.second;
+        if (state.mBuildInProgress) continue;
+        if (state.mBuildSucceeded)  continue;
+        if (state.mBuildError.empty()) continue;
+        if (state.mBuildFailureAcknowledged) continue;
+        return true;
+    }
+    return false;
+}
+
+void NativeAddonManager::DismissBuildFailure(const std::string& addonId)
+{
+    auto it = mStates.find(addonId);
+    if (it == mStates.end()) return;
+    it->second.mBuildFailureAcknowledged = true;
+}
+
+void NativeAddonManager::DismissAllBuildFailures()
+{
+    for (auto& pair : mStates)
+    {
+        if (!pair.second.mBuildSucceeded && !pair.second.mBuildError.empty())
+        {
+            pair.second.mBuildFailureAcknowledged = true;
+        }
+    }
+}
+
+void NativeAddonManager::RetryFailedBuild(const std::string& addonId)
+{
+    auto it = mStates.find(addonId);
+    if (it == mStates.end())
+    {
+        LogWarning("RetryFailedBuild: addon '%s' not found", addonId.c_str());
+        return;
+    }
+
+    // Clear failure state so the modal doesn't bounce back from the previous
+    // error before the new build has a chance to set fresh state.
+    NativeAddonState& state = it->second;
+    state.mBuildError.clear();
+    state.mBuildLog.clear();
+    state.mBuildFailureAcknowledged = false;
+    state.mFingerprint.clear();
+
+    // Reuse the project-aware reload path so vtable safety + dep ordering are
+    // preserved. forceRebuild=true so the user's edit gets a fresh compile.
+    std::vector<std::string> ids = { addonId };
+    ReloadNativeAddonsWithProjectRestart(ids, /*forceRebuild=*/true, "user retry");
 }
 
 // ===== Project-restart reload chokepoint =====
@@ -3597,17 +3778,18 @@ void NativeAddonManager::ReloadAllNativeAddons()
     AddonManager* addonMgr = AddonManager::Get();
     const std::vector<InstalledAddon>& installed = addonMgr ? addonMgr->GetInstalledAddons() : std::vector<InstalledAddon>();
 
-    // Build set of enabled native addons
+    // Build set of enabled native addons IN TOPO ORDER (deps before dependents).
     std::vector<std::string> enabled;
 
     // Local packages are always loaded
     const std::string& projectDir = GetEngineState()->mProjectDirectory;
     std::string packagesDir = projectDir + "Packages/";
 
-    for (const auto& pair : mStates)
+    for (const std::string& addonId : GetLoadOrder())
     {
-        const std::string& addonId = pair.first;
-        const NativeAddonState& state = pair.second;
+        auto it = mStates.find(addonId);
+        if (it == mStates.end()) continue;
+        const NativeAddonState& state = it->second;
 
         // Check if this is a local package
         bool isLocal = state.mSourcePath.find(packagesDir) == 0;
@@ -4616,7 +4798,8 @@ bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
     // Parse package.json for dependencies
     std::string packageJsonPath = addonPath + "package.json";
     NativeModuleMetadata metadata;
-    ParsePackageJson(packageJsonPath, metadata);
+    ContentMetadata pkgContent;
+    ParsePackageJson(packageJsonPath, metadata, &pkgContent);
 
     // Get parent Packages directory and addon ID for resolving sibling addon dependencies
     std::string packagesDir;
@@ -4650,9 +4833,9 @@ bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
         ss << ",\n                \"" << polyphasePathJson << path << "\"";
     }
     // Add dependency addon Source directories
-    for (const std::string& depId : metadata.mDependencies)
+    for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        ss << ",\n                \"" << packagesDirJson << depId << "/Source\"";
+        ss << ",\n                \"" << packagesDirJson << dep.mId << "/Source\"";
     }
     // Add Vulkan SDK include path
 #if PLATFORM_WINDOWS
@@ -4843,7 +5026,8 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     // Parse package.json for dependencies
     std::string packageJsonPath = addonPath + "package.json";
     NativeModuleMetadata metadata;
-    ParsePackageJson(packageJsonPath, metadata);
+    ContentMetadata pkgContent;
+    ParsePackageJson(packageJsonPath, metadata, &pkgContent);
 
     // Get parent Packages directory and addon name for resolving sibling addon dependencies
     std::string packagesDir;
@@ -4873,9 +5057,9 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     }
 
     // Add dependency addon Source directories
-    for (const std::string& depId : metadata.mDependencies)
+    for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        std::string depSourceDir = normalizePath(packagesDir + depId + "/Source");
+        std::string depSourceDir = normalizePath(packagesDir + dep.mId + "/Source");
         ss << "    " << depSourceDir << "\n";
     }
 
@@ -4922,10 +5106,10 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
 
     // Add dependency link directories and libraries
     std::string packagesDirCMake = normalizePath(packagesDir);
-    for (const std::string& depId : metadata.mDependencies)
+    for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        std::string depLibName = GenerateLibraryName(depId);
-        ss << "    target_link_directories(" << binaryName << " PRIVATE \"" << packagesDirCMake << depId << "/Build\")\n";
+        std::string depLibName = GenerateLibraryName(dep.mId);
+        ss << "    target_link_directories(" << binaryName << " PRIVATE \"" << packagesDirCMake << dep.mId << "/Build\")\n";
         ss << "    target_link_libraries(" << binaryName << " PRIVATE " << depLibName << ")\n";
     }
     ss << "endif()\n";
@@ -5165,7 +5349,8 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     // Parse package.json for dependencies
     std::string packageJsonPath = addonPath + "package.json";
     NativeModuleMetadata metadata;
-    ParsePackageJson(packageJsonPath, metadata);
+    ContentMetadata pkgContent;
+    ParsePackageJson(packageJsonPath, metadata, &pkgContent);
 
     // Get parent Packages directory for resolving sibling addon dependencies
     std::string packagesDir;
@@ -5192,9 +5377,9 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
         includesStr += std::string("$(PolyphasePath)") + normalizePathVS(path) + ";";
     }
     // Add dependency addon Source directories
-    for (const std::string& depId : metadata.mDependencies)
+    for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        includesStr += normalizePathVS(packagesDir + depId + "/Source") + ";";
+        includesStr += normalizePathVS(packagesDir + dep.mId + "/Source") + ";";
     }
     // Add Vulkan SDK include path
     includesStr += "$(VULKAN_SDK)\\Include;";
@@ -5228,15 +5413,15 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     // Build library paths and dependencies for dependencies
     std::string depLibPaths;
     std::string depLibs;
-    for (const std::string& depId : metadata.mDependencies)
+    for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
         // Add dependency's build output directory to library search path
-        std::string depBuildPath = normalizePathVS(packagesDir + depId + "/Build");
+        std::string depBuildPath = normalizePathVS(packagesDir + dep.mId + "/Build");
         depLibPaths += depBuildPath + "\\Debug;";
         depLibPaths += depBuildPath + "\\Release;";
 
         // Add dependency's .lib file to linker dependencies
-        std::string depLibName = GenerateLibraryName(depId) + ".lib;";
+        std::string depLibName = GenerateLibraryName(dep.mId) + ".lib;";
         depLibs += depLibName;
     }
 
