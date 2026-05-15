@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <ctime>
+#include <cstring>
 #include <functional>
 #include "EditorState.h"
 #include "EditorConstants.h"
@@ -825,6 +826,21 @@ void EditorState::SnapshotAssetsForPie()
 
         Asset* asset = stub->mAsset;
         if (!asset->IsLoaded()) continue;
+
+        // Defensive: dangling stub->mAsset whose underlying memory was freed
+        // and reused reads as non-null but with a null vtable pointer at
+        // offset 0. IsLoaded() above is a plain byte read so it sneaks past,
+        // then the virtual ShouldSnapshotForPie call dispatches to address 0
+        // and takes the editor down on PIE entry. Skip those entries.
+        void* vtablePtr = nullptr;
+        std::memcpy(&vtablePtr, asset, sizeof(void*));
+        if (vtablePtr == nullptr)
+        {
+            LogWarning("SnapshotAssetsForPie: skipping asset with null vtable (stub path='%s')",
+                       stub->mPath.empty() ? "<unknown>" : stub->mPath.c_str());
+            continue;
+        }
+
         if (!asset->ShouldSnapshotForPie()) continue;
 
         Stream s;
@@ -1581,15 +1597,37 @@ void EditorState::OpenEditScene(Scene* scene)
 
     if (editScene == nullptr)
     {
-        // The scene isn't open yet,
+        // Instantiate BEFORE registering the EditScene entry.
+        //
+        // Scene::Instantiate's loop calls EditorProgress::Step every 32 nodes,
+        // which can fire a Pump frame mid-build (the throttle window opens
+        // wider whenever the most recent prior Pump was a while ago -- e.g.
+        // after LoadProject's Discover phase, the next Pump inside this
+        // Instantiate is unthrottled). That Pump runs EditorImguiDraw, which
+        // renders the scene tab bar. The tab bar's "user clicked a different
+        // tab" detection (EditorImgui.cpp:9224 -- `!sceneJustChanged &&
+        // openedTab != activeSceneIdx`) fires when:
+        //   - mEditSceneIndex is still -1 (or stale) for this open,
+        //   - but the half-built EditScene entry is visible as the only tab,
+        //   - so ImGui auto-activates it and openedTab becomes 0.
+        // That triggers a reentrant OpenEditScene(0) which sets mEditSceneIndex
+        // to 0 and SetRootNodes from the still-null mRootNode. When our own
+        // OpenEditScene(idx) below then runs ShelveEditScene, it reads the
+        // world's (null) root back into mRootNode -- erasing the tree we just
+        // built. Result: tab visible, hierarchy empty.
+        //
+        // Building the tree off-list first and only push_back-ing once the
+        // EditScene fields are final closes the reentrancy window.
+        NodePtr instantiatedRoot;
+        if (scene != nullptr)
+        {
+            instantiatedRoot = scene->Instantiate();
+        }
+
         mEditScenes.push_back(EditScene());
         EditScene& newEditScene = mEditScenes.back();
         newEditScene.mSceneAsset = scene;
-        if (scene != nullptr)
-        {
-            newEditScene.mRootNode = scene->Instantiate();
-        }
-
+        newEditScene.mRootNode = instantiatedRoot;
         newEditScene.mCameraTransform = glm::translate(glm::vec3(0.0f, 2.5f, 10.0f));
 
         editScene = &newEditScene;
