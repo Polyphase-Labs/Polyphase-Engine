@@ -34,6 +34,67 @@ struct NativeBinaryDescriptor
 };
 
 /**
+ * @brief Source for a single addon-to-addon dependency.
+ */
+struct AddonDependencySpec
+{
+    enum Kind
+    {
+        Registry,    // Resolve via configured AddonManager repos
+        GitHubRepo,  // URL is a GitHub repo; mRef selects branch/tag/commit
+        ZipUrl       // URL points directly at a .zip
+    };
+
+    std::string mId;   // Addon ID (folder name under Packages/)
+    std::string mUrl;  // Source URL (empty for Registry)
+    std::string mRef;  // GitHub ref (branch/tag/commit); empty = default branch
+    Kind mKind = Registry;
+
+    // Build a spec from "id" and "<url>[#ref]" / "" (registry lookup).
+    // Classification:
+    //   - empty / no "://"     -> Registry
+    //   - ends in ".zip"        -> ZipUrl
+    //   - contains "github.com" -> GitHubRepo (ref split on '#')
+    //   - other URL             -> ZipUrl (assume direct download)
+    static AddonDependencySpec FromValue(const std::string& id, const std::string& value)
+    {
+        AddonDependencySpec out;
+        out.mId = id;
+        if (value.empty() || value.find("://") == std::string::npos)
+        {
+            out.mKind = Registry;
+            out.mUrl = value;
+            return out;
+        }
+
+        std::string url = value;
+        size_t hashPos = url.find('#');
+        if (hashPos != std::string::npos)
+        {
+            out.mRef = url.substr(hashPos + 1);
+            url = url.substr(0, hashPos);
+        }
+        out.mUrl = url;
+
+        std::string lower = url;
+        for (char& c : lower) c = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
+        if (lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".zip") == 0)
+        {
+            out.mKind = ZipUrl;
+        }
+        else if (lower.find("github.com/") != std::string::npos)
+        {
+            out.mKind = GitHubRepo;
+        }
+        else
+        {
+            out.mKind = ZipUrl;
+        }
+        return out;
+    }
+};
+
+/**
  * @brief Native module configuration for addons with C++ code.
  */
 struct NativeModuleMetadata
@@ -45,7 +106,6 @@ struct NativeModuleMetadata
     std::string mEntrySymbol = "PolyphasePlugin_GetDesc";
     std::string mExportDefine;         // Optional custom export macro (e.g., "INVENTORY_RUNTIME_EXPORTS")
     uint32_t mPluginApiVersion = 1;
-    std::vector<std::string> mDependencies;  // IDs of other native addons this depends on
     NativeAddonResolveMode mResolveMode = NativeAddonResolveMode::Source;
     std::vector<NativeBinaryDescriptor> mBinaries;
 
@@ -118,6 +178,14 @@ struct ContentMetadata
     std::string mUpdated;      // ISO date string
     std::vector<std::string> mTags;
     bool mIsCpp = false;       // C++ or Lua (templates only)
+
+    // Cross-addon dependencies, parsed from top-level "dependencies" in package.json
+    // (works for both native and non-native addons).
+    std::vector<AddonDependencySpec> mDependencies;
+
+    // Relative path (from addon root) to a shell script run after install/dep-resolution.
+    // Invoked as: bash <addonDir>/<mOnInstallScript> <platform> <addonDir>
+    std::string mOnInstallScript;
 };
 
 /**
@@ -170,6 +238,7 @@ struct InstalledAddon
     std::string mLastSyncAt;
     std::string mLastSyncSource;
     std::string mLastSyncStatus;
+    bool mTrustedScripts = false; // User opted into "Always trust this addon" for onInstall scripts
 };
 
 #endif

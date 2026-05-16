@@ -45,6 +45,17 @@ public:
     bool InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError);
     bool UninstallAddon(const std::string& addonId);
 
+    // Fetch an addon from an arbitrary URL (GitHub repo or direct .zip), unzip it,
+    // and install into the current project's Packages/. Used by the dependency resolver.
+    bool DownloadAndInstallFromUrl(const std::string& addonId,
+                                   const std::string& url,
+                                   const std::string& ref,
+                                   std::string& outError);
+
+    // Auto-resolve declared dependencies on install / project load.
+    bool GetAutoResolveDependencies() const { return mAutoResolveDeps; }
+    void SetAutoResolveDependencies(bool v) { mAutoResolveDeps = v; SaveSettings(); }
+
     // Tracking
     void LoadInstalledAddons();
     void SaveInstalledAddons();
@@ -93,6 +104,7 @@ private:
     std::vector<AddonRepository> mRepositories;
     std::vector<Addon> mAvailableAddons;
     std::vector<InstalledAddon> mInstalledAddons;
+    bool mAutoResolveDeps = true;
 };
 
 #endif

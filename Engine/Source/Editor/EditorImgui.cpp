@@ -11122,6 +11122,142 @@ static void DrawNativeAddonBuildBlockedModal()
     }
 }
 
+// Surface compile/link failures so users see which addon broke without having
+// to scan the console log. One pop-up lists every active failure; per-row
+// Retry triggers a fresh build of just that addon, Dismiss hides the entry
+// (it'll re-appear if the addon fails again on a future build). Stays out of
+// the way while a build is in progress so the progress modal can do its job.
+static void DrawNativeAddonBuildFailureModal()
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr) return;
+
+    const char* kPopupName = "Native Addon Build Failed##NativeAddonBuildFailure";
+
+    // Don't compete with the build-in-progress modal or the build-blocked
+    // (locked-files) modal — those have their own affordances. Also avoid
+    // re-opening while ImGui already has another popup at this stack level.
+    const bool hasFailures = nam->HasUnacknowledgedBuildFailures();
+    if (hasFailures && !ImGui::IsPopupOpen(kPopupName) && !nam->IsBuildBlocked())
+    {
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(820, 520), ImGuiCond_FirstUseEver);
+
+    if (ImGui::BeginPopupModal(kPopupName, nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (!hasFailures)
+        {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        const std::vector<NativeAddonManager::BuildFailureEntry> failures =
+            nam->GetActiveBuildFailures();
+
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                           "%d native addon%s failed to compile.",
+                           (int)failures.size(), failures.size() == 1 ? "" : "s");
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "Fix the source errors below, then click Retry on each addon to "
+            "rebuild — or Dismiss to silence the prompt until the next build "
+            "attempt. The full compiler output is captured per addon.");
+        ImGui::Spacing();
+
+        // Reserve room at the bottom for the action-button row.
+        const float buttonRowHeight = ImGui::GetFrameHeightWithSpacing() + 8.0f;
+        ImGui::BeginChild("##NABuildFailList",
+                          ImVec2(0, -buttonRowHeight),
+                          false, ImGuiWindowFlags_None);
+
+        for (size_t i = 0; i < failures.size(); ++i)
+        {
+            const NativeAddonManager::BuildFailureEntry& f = failures[i];
+            ImGui::PushID((int)i);
+
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.5f, 1.0f), "%s", f.mAddonId.c_str());
+
+            // Top-line error summary (one or two lines, easy to scan).
+            ImGui::TextWrapped("%s", f.mError.c_str());
+
+            // Per-addon actions. Retry kicks off a fresh build; Dismiss hides
+            // just this row; Copy/Reveal helpers for log + source.
+            if (ImGui::Button("Retry", ImVec2(110, 0)))
+            {
+                std::string id = f.mAddonId;
+                ImGui::CloseCurrentPopup();
+                // Defer to next frame so the popup tears down cleanly before
+                // we trigger a flow that may pump its own modal (e.g. the
+                // project-restart confirm).
+                nam->RetryFailedBuild(id);
+                ImGui::PopID();
+                break;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Dismiss", ImVec2(110, 0)))
+            {
+                nam->DismissBuildFailure(f.mAddonId);
+                ImGui::PopID();
+                continue;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Copy log", ImVec2(110, 0)))
+            {
+                ImGui::SetClipboardText(f.mLog.c_str());
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reveal source", ImVec2(140, 0)))
+            {
+                const std::string src = nam->GetAddonSourcePath(f.mAddonId);
+                if (!src.empty())
+                {
+                    RevealPathInOSFileManager(src);
+                }
+            }
+
+            // Compiler/linker output in a read-only multiline box. Capped
+            // height keeps long logs scrollable inside the modal.
+            if (!f.mLog.empty())
+            {
+                static thread_local std::string sLogBuf;
+                sLogBuf = f.mLog;
+                ImGui::InputTextMultiline(
+                    "##NABuildFailLog",
+                    sLogBuf.data(), sLogBuf.size() + 1,
+                    ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 8.0f),
+                    ImGuiInputTextFlags_ReadOnly);
+            }
+
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Dismiss All", ImVec2(140, 0)))
+        {
+            nam->DismissAllBuildFailures();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(120, 0)))
+        {
+            // "Close" == Dismiss All for now: closing the modal without
+            // acknowledging would just re-pop next frame.
+            nam->DismissAllBuildFailures();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 // Project-restart confirm + per-scene dirty prompt. Single modal that branches
 // on the manager's restart phase. Stays out of the way (auto-closes) when the
 // flow is in Building/Reopening — the existing build-progress modal covers
@@ -11382,6 +11518,10 @@ void EditorImguiDraw()
         // Surface locked-intermediate-file blockers (LNK1201 etc.) with a
         // Retry/Cancel prompt so the user can release the lock and resume.
         DrawNativeAddonBuildBlockedModal();
+
+        // Surface compile/link failures (the actual source errors) so users
+        // don't have to scan the console to discover which addon broke.
+        DrawNativeAddonBuildFailureModal();
 
         if (GetEditorState()->mShowTimelinePanel)
         {

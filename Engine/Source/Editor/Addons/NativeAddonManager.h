@@ -71,6 +71,9 @@ struct NativeAddonState
     // Native metadata from package.json
     NativeModuleMetadata mNativeMetadata;
 
+    // Shared metadata from package.json (name/version/dependencies/onInstall/etc.)
+    ContentMetadata mContentMetadata;
+
     // Runtime resolve/load status
     NativeAddonResolveMode mActiveResolveMode = NativeAddonResolveMode::Source;
     bool mLoadedFromBinary = false;
@@ -82,6 +85,11 @@ struct NativeAddonState
     // that was loaded before reload comes back loaded after — without this,
     // the post-reload stub has mAsset=null and SaveAsset becomes a no-op.
     std::vector<uint64_t> mPurgedAssetUuids;
+
+    // True once the user has dismissed the build-failure modal entry for the
+    // most recent failure. Reset to false whenever a fresh build attempt starts
+    // so a re-failure surfaces again.
+    bool mBuildFailureAcknowledged = false;
 };
 
 /**
@@ -248,6 +256,31 @@ public:
     void RetryBlockedBuild();
     /** User clicked Cancel: clear blocked state without retrying. */
     void CancelBlockedBuild();
+
+    // ===== Build-failure surface =====
+    //
+    // Aggregates per-addon compile/link failures across both the sync
+    // BuildNativeAddon path and the async TickAsyncBuilds path. Drives the
+    // build-failure modal so users don't have to scan the log to know which
+    // addon broke. An entry stays "active" while:
+    //   state.mBuildSucceeded == false &&
+    //   !state.mBuildError.empty() &&
+    //   !state.mBuildInProgress &&
+    //   !state.mBuildFailureAcknowledged
+    // and is implicitly cleared the next time the addon starts a build.
+    struct BuildFailureEntry
+    {
+        std::string mAddonId;
+        std::string mError;    // High-level message (exit code, "Build failed" etc.)
+        std::string mLog;      // Captured stdout/stderr from the compiler/linker
+    };
+    std::vector<BuildFailureEntry> GetActiveBuildFailures() const;
+    bool                           HasUnacknowledgedBuildFailures() const;
+    void                           DismissBuildFailure(const std::string& addonId);
+    void                           DismissAllBuildFailures();
+    /** Reset the addon's failure state and re-trigger its build (sync or queued
+     *  depending on the host editor's build pipeline). */
+    void                           RetryFailedBuild(const std::string& addonId);
 
     // ===== Project-restart reload chokepoint =====
     //
@@ -471,7 +504,15 @@ private:
     // Discovery helpers
     void ScanLocalPackages();
     void ScanInstalledAddons();
-    bool ParsePackageJson(const std::string& path, NativeModuleMetadata& outMetadata);
+    bool ParsePackageJson(const std::string& path, NativeModuleMetadata& outMetadata, ContentMetadata* outContent = nullptr);
+
+    /// Last-computed topological order for native addons (filtered from the
+    /// project-wide resolver order). Falls back to mStates iteration order when
+    /// the resolver hasn't run yet. Used to drive build-all and load-all.
+    std::vector<std::string> GetLoadOrder() const;
+
+    // Cached topo order produced by the most recent ResolveAll() during discovery.
+    std::vector<std::string> mCachedLoadOrder;
 
     // Build helpers
     std::string GetIntermediateDir(const std::string& addonId);

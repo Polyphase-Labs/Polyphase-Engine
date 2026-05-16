@@ -137,3 +137,47 @@ If `Engine.pdb` itself can't be deleted (lock is real, not stale), the packager 
 If the packaged `.exe` still looks stale after a Force Rebuild run, check:
 - The **editor** (`Polyphase.exe` in `Standalone/Build/Windows/x64/DebugEditor`) is newer than your latest `ActionManager.cpp` edit. Older editor → running old build logic.
 - The packager log shows `[BUILD] needCompile=1`. If you see `needCompile=0 … Reusing pre-compiled game executable.`, Force Rebuild wasn't actually honored — this indicates an older editor build.
+
+
+### VSCode / GDB Debugging Issues on Ubuntu 24+
+
+Some Linux users may encounter extremely slow debugger startup times, hangs, or failed launches when using `cppdbg` in Visual Studio Code on newer Ubuntu releases (22.04+ / 24.04+), especially inside containers, XRDP sessions, or remote development environments.
+
+This is commonly caused by GDB attempting to automatically download external debug symbols from Ubuntu's `debuginfod` servers.
+
+Symptoms may include:
+
+* Debugger hangs before launch
+* `Failed to set controlling terminal: Operation not permitted`
+* Very slow startup times
+* `cppdbg` timing out or freezing
+* GUI applications never appearing
+
+To resolve this issue, disable automatic `debuginfod` symbol downloading by setting:
+
+```json
+"remoteEnv": {
+    "DEBUGINFOD_URLS": ""
+}
+```
+
+For non-container environments, you can also export the variable globally:
+
+```bash
+export DEBUGINFOD_URLS=""
+```
+
+or add it to your shell profile:
+
+```bash
+echo 'export DEBUGINFOD_URLS=""' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Additionally, some users may need to force VSCode automation tasks to use Bash:
+
+```json
+"terminal.integrated.automationShell.linux": "/bin/bash"
+```
+
+This issue is related to newer Ubuntu debugging environments and is not specific to Polyphase or FAW itself.

@@ -4,6 +4,7 @@
 #include "EditorWidgets.h"
 #include "AddonsMenu.h"
 #include "AddonManager.h"
+#include "AddonDependencyResolver.h"
 #include "NativeAddonManager.h"
 #include "../ProjectSelect/TemplateData.h"
 #include "Preferences/JsonSettings.h"
@@ -823,6 +824,16 @@ void AddonsWindow::DrawAddonBrowser()
     // Search and refresh bar
     ImGui::SetNextItemWidth(300);
     ImGui::InputTextWithHint("##Search", "Search addons...", mSearchBuffer, sizeof(mSearchBuffer));
+
+    ImGui::SameLine(ImGui::GetWindowWidth() - 220);
+    if (ImGui::Button("Resolve Deps", ImVec2(110, 0)))
+    {
+        OnResolveDependencies();
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Scan all installed addons and download any missing dependencies.");
+    }
 
     ImGui::SameLine(ImGui::GetWindowWidth() - 100);
     if (ImGui::Button("Refresh", ImVec2(80, 0)))
@@ -1735,6 +1746,35 @@ void AddonsWindow::OnRefreshRepositories()
 
     mStatusMessage = "Repositories refreshed.";
     mIsRefreshing = false;
+}
+
+void AddonsWindow::OnResolveDependencies()
+{
+    mStatusMessage = "Resolving addon dependencies...";
+    std::vector<std::string> order;
+    std::vector<std::string> missing;
+    std::string err;
+    AddonDependencyResolver::ResolveAll(order, missing, err);
+
+    if (!err.empty())
+    {
+        mErrorMessage = err;
+    }
+
+    if (missing.empty())
+    {
+        mStatusMessage = "All dependencies satisfied.";
+    }
+    else
+    {
+        std::string msg = "Unresolved dependencies: ";
+        for (size_t i = 0; i < missing.size(); ++i)
+        {
+            if (i > 0) msg += ", ";
+            msg += missing[i];
+        }
+        mStatusMessage = msg;
+    }
 }
 
 void AddonsWindow::OnBuildNativeAddon(const std::string& addonId)
