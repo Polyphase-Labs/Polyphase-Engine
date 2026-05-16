@@ -19,9 +19,7 @@ echo ""
 
 # --- Shaders ---
 echo "[2/3] Compiling shaders..."
-pushd "$REPO_ROOT/Engine/Shaders/GLSL" > /dev/null
-bash compile.sh
-popd > /dev/null
+(cd "$REPO_ROOT/Engine/Shaders/GLSL" && bash compile.sh)
 echo ""
 
 # --- Standalone embedded asset stubs ---

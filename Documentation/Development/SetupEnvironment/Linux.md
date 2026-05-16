@@ -6,7 +6,7 @@
 
 ### For Debian/Ubuntu based distros:
 
-`sudo apt install g++ make libx11-dev libasound2-dev libpulse-dev libcurl4 cmake pkg-config`
+`sudo apt install g++ make libx11-dev libasound2-dev libpulse-dev libcurl4 cmake pkg-config libssl-dev`
 
 For the VideoPlayer addon (FFmpeg-backed video playback):
 
@@ -14,7 +14,7 @@ For the VideoPlayer addon (FFmpeg-backed video playback):
 
 ### For Arch-based distributions:
 
-`sudo pacman -S gcc make libx11 alsa-lib libpulse curl cmake pkgconf`
+`sudo pacman -S gcc make libx11 alsa-lib libpulse curl cmake pkgconf openssl`
 
 For the VideoPlayer addon (FFmpeg-backed video playback):
 
@@ -28,33 +28,43 @@ Note: On **Ubuntu 24.04+**, the ALSA runtime library was renamed from `libasound
 
 ### Installing Dependencies
 
-#### Install Vulkan SDK version 1.3.275.0:
+#### Install Vulkan SDK version 1.4.350.0:
 
-- Download the 1.3.275.0 tar file from [https://vulkan.lunarg.com/sdk/home#linux](https://vulkan.lunarg.com/sdk/home#linux)
+- Download the 1.4.350.0 tar file from [https://vulkan.lunarg.com/sdk/home#linux](https://vulkan.lunarg.com/sdk/home#linux)
 - Extract the tar file somewhere (e.g. ~/VulkanSDK/)
-- Add these to your ~/.bashrc file (replace `~/VulkanSDK` with the directory where you extracted the files to). You may instead add these to a .sh file in your /etc/profiles.d directory to set up Vulkan for all users.
+- Add these to your ~/.bashrc file (replace `~/VulkanSDK` with the directory where you extracted the files to).
 
   ```
-  export VULKAN_SDK=~/VulkanSDK/1.3.275.0/x86_64
+  export VULKAN_SDK=~/VulkanSDK/1.4.350.0/x86_64
   export PATH=$VULKAN_SDK/bin:$PATH
   export LD_LIBRARY_PATH=$VULKAN_SDK/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
   export VK_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d
   ```
 - Close and reopen your terminal to apply the .bashrc (or run `source ~/.bashrc`)
+- Run this command in a terminal
+```
+sudo apt install libvulkan-dev
+```
 
 #### Install devkitPro
 
-1. Install devkitPro Pacman for GameCube/Wii/3DS development (Optional) ([https://devkitpro.org/wiki/devkitPro_pacman](https://devkitpro.org/wiki/devkitPro_pacman))
-   - wget [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman)
-   - chmod +x ./install-devkitpro-pacman
-   - sudo ./install-devkitpro-pacman
+1. Install devkitPro Pacman
+```
+wget [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman) (May 403 fail, if so just download the file manually)
+chmod +x ./install-devkitpro-pacman
+sudo ./install-devkitpro-pacman
+```
+   
 2. Install Wii/3DS development libraries (Optional) ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started))
-   - sudo dkp-pacman -S wii-dev
-   - sudo dkp-pacman -S 3ds-dev
+``` 
+  sudo dkp-pacman -S wii-dev 3ds-dev
+```
    - Restart computer
 3. If you want to package for GameCube, install `libogc2` ([https://github.com/extremscorner/pacman-packages#readme](https://github.com/extremscorner/pacman-packages#readme))
-   - `sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com`
-   - `sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE`
+```
+sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
+sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
+```
    - Put this entry in `/opt/devkitpro/pacman/etc/pacman.conf` above the `[dkp-libs]` entry:
 
      ```
@@ -62,11 +72,12 @@ Note: On **Ubuntu 24.04+**, the ALSA runtime library was renamed from `libasound
      Server = https://packages.libogc2.org/devkitpro/linux/$arch
      Server = https://packages.extremscorner.org/devkitpro/linux/$arch
      ```
-   - `sudo dkp-pacman -Syuu`
-   - `sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm`
-
+   - Run these
+   ```
+   sudo dkp-pacman -Syuu
+   sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
+   ```
      - Accept overwriting if asked.
-4. 
 
 #### Compile Shaders, libgit2, and Standalone embedded-asset stubs
 
