@@ -362,3 +362,4 @@ build/
 sdk/
 polyphase-sdk-*.zip
 /M_RT_background_color_hills.oct
+.claude/worktrees
