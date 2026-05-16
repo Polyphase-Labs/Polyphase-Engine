@@ -79,8 +79,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Vulkan SDK 1.3.275.0
-ENV VULKAN_VERSION=1.3.275.0
+# Install Vulkan SDK 1.3.275.0 (old) or 1.4.350.0 (new) to ensure compatibility with both versions
+ENV VULKAN_VERSION=1.4.350.0
 WORKDIR /tmp
 RUN wget -q https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/linux/vulkansdk-linux-x86_64-${VULKAN_VERSION}.tar.xz \
     && mkdir -p /opt/vulkan \
