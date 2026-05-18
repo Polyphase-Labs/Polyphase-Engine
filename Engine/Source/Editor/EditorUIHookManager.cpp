@@ -11,6 +11,145 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
+
+// ---------------------------------------------------------------------------
+// Slash-path menu rendering
+// ---------------------------------------------------------------------------
+//
+// Several hook APIs accept an `itemPath` string (e.g. AddMenuItem(menuPath,
+// itemPath, …), AddCreateAssetItem(itemPath, …)). For convenience the path
+// supports '/'-separated nesting so addons can write:
+//
+//     hooks->AddMenuItem(hookId, "Tools", "My Addon/Features/Toggle A", …);
+//     hooks->AddCreateAssetItem(hookId, "WorldStream/World Sector", …);
+//
+// and the dispatcher emits the right nested ImGui::BeginMenu/EndMenu calls.
+// Sibling items sharing a prefix (e.g. "My Addon/Features/Toggle A" and
+// "My Addon/Features/Toggle B") merge under the same `My Addon > Features`
+// submenu — the helper builds an in-place tree first so it doesn't create
+// duplicate intermediate menus.
+//
+// Items without any '/' degrade to a single MenuItem call (zero behavioural
+// change for the bulk of existing callers).
+namespace
+{
+    struct SlashMenuNode
+    {
+        std::string mLabel;          // segment label at this level
+        std::function<void()> mAction; // leaf-only; if null, this is a submenu
+        std::string mShortcut;        // leaf-only
+        bool mEnabled = true;        // leaf-only
+        bool mIsSeparator = false;   // leaf-only
+        std::vector<SlashMenuNode> mChildren;
+    };
+
+    std::vector<std::string> SplitSlashPath(const std::string& path)
+    {
+        std::vector<std::string> segs;
+        size_t start = 0;
+        for (size_t i = 0; i < path.size(); ++i)
+        {
+            if (path[i] == '/')
+            {
+                if (i > start) segs.emplace_back(path.substr(start, i - start));
+                start = i + 1;
+            }
+        }
+        if (start < path.size()) segs.emplace_back(path.substr(start));
+        return segs;
+    }
+
+    // Insert a leaf into the tree under the given path. Intermediate segments
+    // reuse existing submenu nodes whose label matches; if none match, a new
+    // submenu node is appended at the end of the parent's children (preserving
+    // registration order — siblings remain in the order they were inserted).
+    void InsertSlashLeaf(SlashMenuNode& root,
+                         const std::string& path,
+                         std::function<void()> action,
+                         const std::string& shortcut,
+                         bool enabled)
+    {
+        const std::vector<std::string> segs = SplitSlashPath(path);
+        if (segs.empty())
+        {
+            // Path was empty or all-slash. Render raw text as a leaf so the
+            // entry isn't silently dropped — surfaces the bug to the author.
+            SlashMenuNode leaf;
+            leaf.mLabel = path;
+            leaf.mAction = std::move(action);
+            leaf.mShortcut = shortcut;
+            leaf.mEnabled = enabled;
+            root.mChildren.push_back(std::move(leaf));
+            return;
+        }
+
+        SlashMenuNode* cur = &root;
+        for (size_t i = 0; i + 1 < segs.size(); ++i)
+        {
+            SlashMenuNode* child = nullptr;
+            // Match an existing submenu (not leaf, not separator) with same label.
+            for (SlashMenuNode& c : cur->mChildren)
+            {
+                if (!c.mAction && !c.mIsSeparator && c.mLabel == segs[i])
+                {
+                    child = &c;
+                    break;
+                }
+            }
+            if (child == nullptr)
+            {
+                SlashMenuNode newNode;
+                newNode.mLabel = segs[i];
+                cur->mChildren.push_back(std::move(newNode));
+                child = &cur->mChildren.back();
+            }
+            cur = child;
+        }
+
+        SlashMenuNode leaf;
+        leaf.mLabel = segs.back();
+        leaf.mAction = std::move(action);
+        leaf.mShortcut = shortcut;
+        leaf.mEnabled = enabled;
+        cur->mChildren.push_back(std::move(leaf));
+    }
+
+    void InsertSlashSeparator(SlashMenuNode& root)
+    {
+        SlashMenuNode sep;
+        sep.mIsSeparator = true;
+        root.mChildren.push_back(std::move(sep));
+    }
+
+    void DrawSlashMenuTree(const SlashMenuNode& node)
+    {
+        for (const SlashMenuNode& child : node.mChildren)
+        {
+            if (child.mIsSeparator)
+            {
+                ImGui::Separator();
+                continue;
+            }
+            if (child.mAction)
+            {
+                const char* shortcut = child.mShortcut.empty() ? nullptr : child.mShortcut.c_str();
+                if (ImGui::MenuItem(child.mLabel.c_str(), shortcut, false, child.mEnabled))
+                {
+                    child.mAction();
+                }
+            }
+            else
+            {
+                if (ImGui::BeginMenu(child.mLabel.c_str()))
+                {
+                    DrawSlashMenuTree(child);
+                    ImGui::EndMenu();
+                }
+            }
+        }
+    }
+}
 
 void GetImGuiPluginContext(ImGuiPluginContext* outCtx)
 {
@@ -489,6 +628,24 @@ void EditorUIHookManager::InitializeHooks()
             [hookId](const RegisteredCreateAssetItems& item) {
                 return item.mHookId == hookId;
             }), mgr->mCreateAssetItems.end());
+    };
+
+    // Declarative singular variant: addon supplies (itemPath, callback). The
+    // dispatcher splits itemPath on '/' into nested BeginMenu/EndMenu so an
+    // addon can register "WorldStream/World Sector" without writing any
+    // ImGui code. The callback-based AddCreateAssetItems above is still
+    // supported for callers that want full ImGui control.
+    mHooks.AddCreateAssetItem = [](HookId hookId, const char* itemPath,
+                                   MenuCallback callback, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || itemPath == nullptr || *itemPath == '\0') return;
+
+        RegisteredCreateAssetItem item;
+        item.mHookId   = hookId;
+        item.mPath     = itemPath;
+        item.mCallback = callback;
+        item.mUserData = userData;
+        mgr->mCreateAssetItemSingles.push_back(std::move(item));
     };
 
     mHooks.AddSpawnBasic3dItems = [](HookId hookId, MenuSectionDrawCallback drawFunc, void* userData) {
@@ -1007,51 +1164,47 @@ const std::vector<RegisteredMenuItem>& EditorUIHookManager::GetMenuItems(const s
 
 void EditorUIHookManager::DrawMenuItems(const std::string& menuPath)
 {
-    auto it = mMenuItems.find(menuPath);
-    bool hasLegacy = (it != mMenuItems.end() && !it->second.empty());
+    // Build a single in-place tree from both the legacy mMenuItems entries
+    // and the Ex entries for this menu. Slash-separated itemPaths become
+    // nested submenus (e.g. "My Addon/Features/Toggle A"); sibling entries
+    // with a shared prefix merge under the same parent submenu.
+    SlashMenuNode root;
 
-    if (hasLegacy)
+    auto it = mMenuItems.find(menuPath);
+    if (it != mMenuItems.end())
     {
         for (const RegisteredMenuItem& item : it->second)
         {
             if (item.mIsSeparator)
             {
-                ImGui::Separator();
+                InsertSlashSeparator(root);
+                continue;
             }
-            else
-            {
-                const char* shortcut = item.mShortcut.empty() ? nullptr : item.mShortcut.c_str();
-                if (ImGui::MenuItem(item.mItemPath.c_str(), shortcut))
-                {
-                    if (item.mCallback)
-                    {
-                        item.mCallback(item.mUserData);
-                    }
-                }
-            }
+            MenuCallback cb = item.mCallback;
+            void* ud = item.mUserData;
+            InsertSlashLeaf(root, item.mItemPath,
+                            [cb, ud]() { if (cb) cb(ud); },
+                            item.mShortcut,
+                            /*enabled*/ true);
         }
     }
 
-    // Also draw MenuItemEx entries for this menu
     for (const RegisteredMenuItemEx& item : mMenuItemsEx)
     {
         if (item.mMenuPath != menuPath) continue;
 
         bool enabled = true;
-        if (item.mValidateFunc)
-        {
-            enabled = item.mValidateFunc(item.mUserData);
-        }
+        if (item.mValidateFunc) enabled = item.mValidateFunc(item.mUserData);
 
-        const char* shortcut = item.mShortcut.empty() ? nullptr : item.mShortcut.c_str();
-        if (ImGui::MenuItem(item.mItemPath.c_str(), shortcut, false, enabled))
-        {
-            if (item.mCallback)
-            {
-                item.mCallback(item.mUserData);
-            }
-        }
+        MenuCallback cb = item.mCallback;
+        void* ud = item.mUserData;
+        InsertSlashLeaf(root, item.mItemPath,
+                        [cb, ud]() { if (cb) cb(ud); },
+                        item.mShortcut,
+                        enabled);
     }
+
+    DrawSlashMenuTree(root);
 }
 
 void EditorUIHookManager::DrawWindows()
@@ -1244,6 +1397,7 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     removeByHookId(mNodeMenuItems);
     removeByHookId(mSceneTypes);
     removeByHookId(mCreateAssetItems);
+    removeByHookId(mCreateAssetItemSingles);
     removeByHookId(mSpawnBasic3dItems);
     removeByHookId(mSpawnBasicWidgetItems);
     removeByHookId(mViewportContextItems);
@@ -1378,6 +1532,8 @@ void EditorUIHookManager::DrawCustomNodeCategories(void* parentNode)
 
 void EditorUIHookManager::DrawCreateAssetItems()
 {
+    // Callback-style entries (AddCreateAssetItems): the addon owns the ImGui
+    // drawing inside the menu. Kept for callers that need full control.
     for (const RegisteredCreateAssetItems& item : mCreateAssetItems)
     {
         if (item.mDrawFunc)
@@ -1385,6 +1541,26 @@ void EditorUIHookManager::DrawCreateAssetItems()
             ImGui::Separator();
             item.mDrawFunc(nullptr, item.mUserData);
         }
+    }
+
+    // Declarative entries (AddCreateAssetItem singular): we build a slash
+    // path tree across all addons so e.g. "WorldStream/World Sector" and
+    // "WorldStream/Manifest" collapse into the same WorldStream submenu.
+    if (!mCreateAssetItemSingles.empty())
+    {
+        ImGui::Separator();
+
+        SlashMenuNode root;
+        for (const RegisteredCreateAssetItem& item : mCreateAssetItemSingles)
+        {
+            MenuCallback cb = item.mCallback;
+            void* ud = item.mUserData;
+            InsertSlashLeaf(root, item.mPath,
+                            [cb, ud]() { if (cb) cb(ud); },
+                            /*shortcut*/ "",
+                            /*enabled*/ true);
+        }
+        DrawSlashMenuTree(root);
     }
 }
 

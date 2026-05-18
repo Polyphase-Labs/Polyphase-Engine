@@ -725,7 +725,7 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     hooks->AddMenuItem(
         hookId,
         "Tools",                  // Menu to add to
-        "My Addon/Do Something",  // Item path (supports submenus)
+        "My Addon/Do Something",  // Item path — '/' nests into submenus
         [](void* userData) {
             LogDebug("Menu item clicked!");
         },
@@ -737,6 +737,38 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     hooks->AddMenuItem(hookId, "My Addon", "Open Settings", MySettingsCallback, nullptr, nullptr);
 }
 ```
+
+#### Nested submenus via `/`
+
+`itemPath` supports forward-slash–separated nesting. Sibling entries that share
+a prefix collapse under the same parent submenu (in registration order), so
+this:
+
+```cpp
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Features/Toggle A",
+                   OnToggleA, nullptr, nullptr);
+hooks->AddMenuItem(hookId, "Tools", "My Addon/Features/Toggle B",
+                   OnToggleB, nullptr, nullptr);
+hooks->AddMenuItem(hookId, "Tools", "My Addon/About",
+                   OnAbout, nullptr, nullptr);
+```
+
+renders as:
+
+```
+Tools
+└── My Addon
+    ├── Features
+    │   ├── Toggle A
+    │   └── Toggle B
+    └── About
+```
+
+— a single `My Addon > Features` submenu, not two separate ones. The same
+slash-path semantics apply to `AddMenuItemEx` (validation variant) and to the
+new declarative `AddCreateAssetItem` covered below. Older engine builds (before
+the slash-parser was added) render the slash as a literal label character; the
+addon source doesn't need to change either way.
 
 ### Creating Custom Windows
 
@@ -805,6 +837,107 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
     hooks->AddAssetContextItem(hookId, "Process Texture", "Texture", MyTextureAction, nullptr);
 }
 ```
+
+### Asset Browser "Create Asset" Menu
+
+The asset browser's right-click → **Create Asset** submenu surfaces a hardcoded
+list of built-in asset types (Material, Particle System, Scene, …). Addons
+extend it through two hooks; pick the one that matches what you need.
+
+#### Declarative one-leaf entry — `AddCreateAssetItem`
+
+The simplest path. The addon supplies a slash-path and a callback; the engine
+renders the menu entry, opens the modal, and on click invokes your callback —
+which lands the new asset in the **user's currently-browsed folder** with no
+manual Refresh.
+
+```cpp
+static void OnCreateMySector(void* /*userData*/)
+{
+    AssetDir* dir = GetCurrentAssetDir();          // editor-only free function
+    if (dir == nullptr) { return; }                // no project open
+
+    AssetManager::Get()->CreateAndRegisterAsset(
+        MySectorAsset::GetStaticType(),
+        dir,
+        /*name=*/"MySector_001",
+        /*engineAsset=*/false);
+    // The asset is now in the AssetDir tree, on disk, and visible in the
+    // asset browser on the next frame — no Refresh needed.
+}
+
+static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
+{
+    if (hooks->AddCreateAssetItem != nullptr)
+    {
+        hooks->AddCreateAssetItem(hookId,
+                                  "MyAddon/My Sector",
+                                  &OnCreateMySector,
+                                  nullptr);
+    }
+}
+```
+
+That renders as `Create Asset > MyAddon > My Sector`. Multiple addons (or
+multiple entries from the same addon) that share a prefix collapse under one
+`MyAddon` submenu — order is preserved, intermediate submenus are deduplicated.
+
+The two engine functions used in the callback above (`POLYPHASE_API` and
+editor-only):
+
+| Function | Purpose |
+|---|---|
+| `AssetDir* GetCurrentAssetDir()` | Returns the asset browser's currently-browsed `AssetDir`, or `nullptr` if no project is open. Wraps `EditorState::GetAssetDirectory()` so the addon doesn't need the editor-internal class. |
+| `AssetStub* AssetManager::CreateAndRegisterAsset(TypeId, AssetDir*, const std::string& name, bool engineAsset)` | Instantiates the asset, inserts it into the `AssetDir` tree (so the browser sees it), and writes the `.oct` in one call. Pair with `GetCurrentAssetDir()` for the "land in current folder" UX. |
+
+> **Null-check `AddCreateAssetItem`.** It was added late and lives at the end
+> of `EditorUIHooks` to preserve struct layout. Older engine binaries leave
+> the pointer `nullptr`; check before calling and fall back to
+> `AddCreateAssetItems` (callback form, below) if you need to support them.
+
+#### Callback form — `AddCreateAssetItems`
+
+Use this when you need full ImGui control inside the menu — e.g. multiple
+items with subtle layouts, conditional separators, embedded toggles. Your
+callback is invoked inside the engine's `Create Asset` submenu and can call
+any ImGui code, including `BeginMenu` / `EndMenu` for additional nesting.
+
+```cpp
+static void DrawMyCreateSection(void* /*parentNode*/, void* /*userData*/)
+{
+    if (ImGui::BeginMenu("MyAddon"))
+    {
+        if (ImGui::Selectable("My Sector"))
+        {
+            OnCreateMySector(nullptr);
+        }
+        if (ImGui::Selectable("My Manifest"))
+        {
+            OnCreateMyManifest(nullptr);
+        }
+        ImGui::EndMenu();
+    }
+}
+
+static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
+{
+    hooks->AddCreateAssetItems(hookId, &DrawMyCreateSection, nullptr);
+}
+```
+
+Both hooks can be registered side-by-side; declarative entries draw after
+callback-driven sections.
+
+#### When `CreateAndRegisterAsset` vs `RegisterImportExtension`
+
+| You want… | Use |
+|---|---|
+| The user to create a **fresh empty** asset from the menu, in their current folder. | `AddCreateAssetItem` + `CreateAndRegisterAsset(GetCurrentAssetDir(), …)`. |
+| The user to **drop a source file** (`.dialogue`, `.fbx`, `.mp4`, …) and have the engine cook it into an asset. | `RegisterImportExtension(".ext", MyAsset::GetStaticType())` + override `MyAsset::Import(path, options)`. The engine's import pipeline writes the `.oct` next to the source. |
+
+The two paths compose: an addon can do both, and many real addons do
+(VideoPlayer registers six import extensions plus would benefit from a
+create-from-menu entry for its in-memory clip type).
 
 ### Cleanup on Unload
 

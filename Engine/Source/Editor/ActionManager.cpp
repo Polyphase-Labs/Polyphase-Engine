@@ -3123,6 +3123,66 @@ void ActionManager::EXE_EditProperty(void* owner, PropertyOwnerType ownerType, c
     ActionManager::Get()->ExecuteAction(action);
 }
 
+void ActionManager::EXE_EditPropertyOnSelection(void* owner, PropertyOwnerType ownerType, const std::string& name, uint32_t index, Datum newValue)
+{
+    // Fan-out only applies when the inspected target is a Node that's part of
+    // a multi-selection. Asset / Global properties always go single-target.
+    EditorState* es = GetEditorState();
+    Node* ownerNode = (ownerType == PropertyOwnerType::Node) ? (Node*)owner : nullptr;
+    const bool fanOut =
+        ownerNode != nullptr &&
+        es != nullptr &&
+        es->GetSelectedNodes().size() > 1 &&
+        es->IsNodeSelected(ownerNode);
+
+    if (!fanOut)
+    {
+        ActionEditProperty* action = new ActionEditProperty(owner, ownerType, name, index, newValue);
+        ActionManager::Get()->ExecuteAction(action);
+        return;
+    }
+
+    // Resolve the source property's DatumType from the inspected owner itself.
+    // Using `newValue.GetType()` isn't safe because some Datum value constructors
+    // collapse equivalent types (e.g. enum-backed-as-Byte). If the owner happens
+    // not to expose the property, fall back to single-target — the widget that
+    // produced this edit shouldn't have rendered without it, so this is just a
+    // safety net.
+    DatumType sourceType = DatumType::Count;
+    {
+        std::vector<Property> ownerProps;
+        ownerNode->GatherProperties(ownerProps);
+        for (const Property& p : ownerProps)
+        {
+            if (p.mName == name)
+            {
+                sourceType = p.GetType();
+                break;
+            }
+        }
+    }
+
+    if (sourceType == DatumType::Count)
+    {
+        ActionEditProperty* action = new ActionEditProperty(owner, ownerType, name, index, newValue);
+        ActionManager::Get()->ExecuteAction(action);
+        return;
+    }
+
+    std::vector<void*> owners;
+    owners.reserve(es->GetSelectedNodes().size());
+    for (Node* n : es->GetSelectedNodes())
+    {
+        if (n != nullptr)
+        {
+            owners.push_back((void*)n);
+        }
+    }
+
+    ActionEditProperties* action = new ActionEditProperties(owners, ownerType, name, index, newValue, sourceType);
+    ActionManager::Get()->ExecuteAction(action);
+}
+
 void ActionManager::EXE_EditTransform(Node3D* transComp, const glm::mat4& transform)
 {
     std::vector<Node3D*> transComps;
@@ -6778,6 +6838,148 @@ void ActionEditProperty::Reverse()
             PanelManager::Get()->GetPropertiesPanel()->RefreshProperties();
         }
 #endif
+    }
+}
+
+ActionEditProperties::ActionEditProperties(
+    const std::vector<void*>& owners,
+    PropertyOwnerType ownerType,
+    const std::string& propName,
+    uint32_t index,
+    Datum value,
+    DatumType sourceType)
+{
+    mOwners = owners;
+    mOwnerType = ownerType;
+    mPropertyName = propName;
+    mIndex = index;
+    mValue = value;
+    mSourceType = sourceType;
+
+    // Mirror ActionEditProperty's asset-ref hold for any asset-typed targets so
+    // the previous Asset stays alive until this action is destroyed (matters
+    // for undo). Only Node owners are expected in the multi-select path today,
+    // but keep the branch parallel to the single-target action for future
+    // extension to multi-asset edits.
+    if (mOwnerType == PropertyOwnerType::Asset)
+    {
+        mReferencedAssets.reserve(mOwners.size());
+        for (void* o : mOwners)
+        {
+            mReferencedAssets.push_back(AssetRef((Asset*)o));
+        }
+    }
+}
+
+void ActionEditProperties::GatherPropsFor(void* owner, std::vector<Property>& props)
+{
+    if (mOwnerType == PropertyOwnerType::Node)
+    {
+        Node* node = (Node*)owner;
+        if (node != nullptr)
+        {
+            node->GatherProperties(props);
+        }
+    }
+    else if (mOwnerType == PropertyOwnerType::Asset)
+    {
+        Asset* asset = (Asset*)owner;
+        if (asset != nullptr)
+        {
+            asset->GatherProperties(props);
+        }
+    }
+    else if (mOwnerType == PropertyOwnerType::Global)
+    {
+        GatherGlobalProperties(props);
+    }
+}
+
+void ActionEditProperties::Execute()
+{
+    Action::Execute();
+
+    mPreviousValues.assign(mOwners.size(), Datum());
+    mApplied.assign(mOwners.size(), false);
+
+    for (uint32_t i = 0; i < mOwners.size(); ++i)
+    {
+        std::vector<Property> props;
+        GatherPropsFor(mOwners[i], props);
+
+        Property* prop = nullptr;
+        for (uint32_t p = 0; p < props.size(); ++p)
+        {
+            if (props[p].mName == mPropertyName)
+            {
+                prop = &props[p];
+                break;
+            }
+        }
+
+        // Skip silently: property doesn't exist on this target.
+        if (prop == nullptr)
+            continue;
+
+        // Skip silently: same name but different DatumType. SetValue would
+        // misinterpret bytes across types.
+        if (prop->GetType() != mSourceType)
+            continue;
+
+        // Parity with ActionEditProperty's OOB-extend branch for internal
+        // vector-backed properties (e.g. Script asset arrays).
+        uint32_t writeIndex = mIndex;
+        if (prop->IsVector() && !prop->IsExternal() && writeIndex >= prop->GetCount())
+        {
+            writeIndex = prop->GetCount();
+            prop->SetCount(prop->GetCount() + 1);
+        }
+
+        if (writeIndex >= prop->GetCount())
+            continue;
+
+        mPreviousValues[i].Destroy();
+        mPreviousValues[i].SetType(prop->GetType());
+        mPreviousValues[i].SetCount(1);
+        mPreviousValues[i].SetValue(prop->GetValue(writeIndex));
+
+        prop->SetValue(mValue.mData.vp, writeIndex, 1);
+        mApplied[i] = true;
+    }
+}
+
+void ActionEditProperties::Reverse()
+{
+    Action::Reverse();
+
+    for (uint32_t i = 0; i < mOwners.size(); ++i)
+    {
+        if (!mApplied[i])
+            continue;
+
+        std::vector<Property> props;
+        GatherPropsFor(mOwners[i], props);
+
+        Property* prop = nullptr;
+        for (uint32_t p = 0; p < props.size(); ++p)
+        {
+            if (props[p].mName == mPropertyName)
+            {
+                prop = &props[p];
+                break;
+            }
+        }
+
+        if (prop == nullptr)
+            continue;
+
+        if (prop->GetType() != mSourceType)
+            continue;
+
+        if (prop->GetCount() > mIndex)
+        {
+            prop->SetValue(mPreviousValues[i].GetValue(0), mIndex, 1);
+        }
     }
 }
 

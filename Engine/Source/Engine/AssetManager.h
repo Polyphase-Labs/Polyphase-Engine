@@ -79,6 +79,17 @@ POLYPHASE_API AssetStub* FetchAssetStubByUuid(uint64_t uuid);
 // are case-sensitive to match the existing built-in branches.
 POLYPHASE_API void RegisterImportExtension(const std::string& ext, TypeId type);
 POLYPHASE_API TypeId LookupImportExtension(const std::string& ext);
+
+// Returns the AssetDir the user is currently browsing in the asset browser —
+// i.e. the folder a right-click → "Create Asset" should write into. Returns
+// nullptr if no project is open or the editor isn't ready yet.
+//
+// Exposed for native addons that surface custom asset types in the asset
+// browser's New Asset menu (via EditorUIHooks::AddCreateAssetItem(s)) and
+// want the created asset to land in the user's current folder. Wraps
+// GetEditorState()->GetAssetDirectory() so addons don't have to take a
+// dependency on the non-exported EditorState class.
+POLYPHASE_API AssetDir* GetCurrentAssetDir();
 #endif
 
 template<typename T>
@@ -114,8 +125,12 @@ T* LoadAsset(const std::string& name)
 // Per-method POLYPHASE_API on the addon-facing surface only. A class-level
 // export expands to dllexport on every member (incl. implicit special-member
 // instantiations in TUs that only forward-decl AssetManager members), which
-// risks C4150 against forward-declared types. Addons reach into AssetManager
-// through Get() and RegisterTransientAsset() only.
+// risks C4150 against forward-declared types. The addon-facing surface is:
+//   - Get()
+//   - RegisterTransientAsset()
+//   - CreateAndRegisterAsset()
+// plus the file-scope POLYPHASE_API helpers near the top of this header
+// (FetchAsset, LoadAsset, RegisterImportExtension, GetCurrentAssetDir, …).
 class AssetManager
 {
 public:
@@ -185,10 +200,16 @@ public:
     std::string FindDefaultScenePath();
     void UnloadProjectDirectory();
     std::unordered_map<std::string, AssetStub*>& GetAssetMap();
+    std::vector<Asset*>& GetTransientAssets();
     std::vector<AssetStub*> GatherDirtyAssets();
 
     AssetStub* RegisterAsset(const std::string& filename, TypeId type, AssetDir* directory, EmbeddedFile* embeddedAsset, bool engineAsset, uint64_t uuid = 0);
-    AssetStub* CreateAndRegisterAsset(TypeId assetType, AssetDir* directory, const std::string& filename, bool engineAsset);
+    // POLYPHASE_API: exposed to addons so a plugin-registered "Create Asset"
+    // menu entry can drop the .oct directly into the asset browser tree
+    // (RegisterAsset + SaveAsset under the hood) without bouncing through
+    // the import-extension pipeline. Pair with GetCurrentAssetDir() to
+    // land the asset in the user's currently-browsed folder.
+    POLYPHASE_API AssetStub* CreateAndRegisterAsset(TypeId assetType, AssetDir* directory, const std::string& filename, bool engineAsset);
     AssetDir* GetAssetDirFromPath(const std::string& dirPath);
 
     bool IsPurging() const;

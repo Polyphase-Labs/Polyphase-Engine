@@ -179,7 +179,15 @@ void Asset::LoadFile(const char* path, AsyncLoadRequest* request)
 
     Stream stream;
     stream.SetAsyncRequest(request);
-    stream.ReadFile(path, true);
+    if (!stream.ReadFile(path, true))
+    {
+        // ReadFile already logs the underlying error. Bail before LoadStream
+        // so we don't trip the Stream::Read assert in ReadHeader on an empty
+        // Stream (mSize == 0) and crash with an opaque stack — the original
+        // failure (missing/unreadable .oct) is what the user needs to see.
+        LogError("Asset::LoadFile: '%s' could not be read; aborting load", path);
+        return;
+    }
     LoadStream(stream, GetPlatform());
 
     // Only "finish" the load if not async.

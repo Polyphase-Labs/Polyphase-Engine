@@ -2227,7 +2227,7 @@ static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Pr
         {
             if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
             {
-                ActionManager::Get()->EXE_EditProperty(owner, ownerType, prop.mName, index, newAsset);
+                ActionManager::Get()->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, newAsset);
             }
             else
             {
@@ -2309,7 +2309,7 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
             ImGui::IsItemHovered() &&
             EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
         {
-            am->EXE_EditProperty(owner, ownerType, prop.mName, index, (Node*) nullptr);
+            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, (Node*) nullptr);
         }
     }
 
@@ -2353,7 +2353,7 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
             Node* nullNode = nullptr;
             if (ownerType != PropertyOwnerType::Count)
             {
-                am->EXE_EditProperty(owner, ownerType, prop.mName, index, nullNode);
+                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, nullNode);
             }
         }
         else
@@ -2361,7 +2361,7 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
             Node* newNode = ResolveNodePath(src, sTempString);
             if (NodeMatchesProperty(prop, newNode, owner))
             {
-                am->EXE_EditProperty(owner, ownerType, prop.mName, index, newNode);
+                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, newNode);
             }
         }
     }
@@ -2410,7 +2410,7 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
                 ownerType != PropertyOwnerType::Count &&
                 NodeMatchesProperty(prop, droppedNode, owner))
             {
-                am->EXE_EditProperty(owner, ownerType, prop.mName, index, droppedNode);
+                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, droppedNode);
                 sTempString = FindRelativeNodePath(src, droppedNode);
             }
         }
@@ -2758,7 +2758,7 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
         {
             if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
             {
-                am->EXE_EditProperty(owner, ownerType, prop.mName, index, (Asset*) nullptr);
+                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, (Asset*) nullptr);
             }
             else
             {
@@ -2840,7 +2840,7 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
         Asset* nullAsset = nullptr;
         if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
         {
-            am->EXE_EditProperty(owner, ownerType, prop.mName, index, nullAsset);
+            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, nullAsset);
         }
         else
         {
@@ -2986,7 +2986,7 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
             Asset* nullAsset = nullptr;
             if (ownerType != PropertyOwnerType::Count)
             {
-                am->EXE_EditProperty(owner, ownerType, prop.mName, index, nullAsset);
+                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, nullAsset);
             }
             else
             {
@@ -3277,7 +3277,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     {
                         if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                         {
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                         }
                         else
                         {
@@ -3299,7 +3299,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                         if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                         {
                             prop.SetInteger(sOrigVal, i);
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                         }
                         else
                         {
@@ -3331,7 +3331,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
                         prop.SetFloat(sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                     }
                     else
                     {
@@ -3351,7 +3351,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ImGui::Button(ICON_IC_TWOTONE_POWER_SETTINGS_NEW "##RestartScript"))
                     {
                         bool val = true;
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, val);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, val);
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Restart Script");
@@ -3362,7 +3362,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     {
                         bool val = true;
                         std::string reloadName = "Reload Script File";
-                        am->EXE_EditProperty(owner, ownerType, reloadName, 0, val);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, reloadName, 0, val);
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Reload Script File");
@@ -3379,7 +3379,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 {
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                     }
                     else
                     {
@@ -3429,7 +3429,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_SCRIPT))
                         {
                             std::string scriptName((const char*)payload->Data, payload->DataSize - 1);
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, scriptName);
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, scriptName);
                         }
                         ImGui::EndDragDropTarget();
                     }
@@ -3446,7 +3446,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ImGui::Button(ICON_DASHICONS_NO_ALT "##ScriptClear"))
                     {
                         std::string emptyStr;
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, emptyStr);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, emptyStr);
                     }
 
                     // Reveal button - navigate to script in Scripts Panel
@@ -3482,7 +3482,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     {
                         if (sTempString != sOrigVal)
                         {
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, sTempString);
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, sTempString);
                         }
                     }
                 }
@@ -3510,7 +3510,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                         {
                             if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                             {
-                                am->EXE_EditProperty(owner, ownerType, prop.mName, i, sTempString);
+                                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, sTempString);
                             }
                             else
                             {
@@ -3539,7 +3539,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
                         prop.SetVector2D(sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                     }
                     else
                     {
@@ -3582,7 +3582,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                             owner->As<Node3D>()->UpdateTransform(false);
                         }
 
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                     }
                     else
                     {
@@ -3615,7 +3615,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
                         prop.SetColor(sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, propVal);
                     }
                     else
                     {
@@ -3687,7 +3687,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     {
                         if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                         {
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, (uint8_t)propVal);
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, (uint8_t)propVal);
                         }
                         else
                         {
@@ -3741,7 +3741,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                             if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                             {
-                                am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, uint8_t(propVal));
                             }
                             else
                             {
@@ -3770,7 +3770,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                         if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                         {
                             prop.SetByte((uint8_t)sOrigVal, i);
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, uint8_t(propVal));
                         }
                         else
                         {
@@ -3794,7 +3794,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 {
                     if (ImGui::Combo("", &propVal, prop.mEnumStrings, prop.mEnumCount))
                     {
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, (int16_t)propVal);
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, (int16_t)propVal);
                     }
                 }
                 else
@@ -3809,7 +3809,7 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     if (ImGui::IsItemDeactivatedAfterEdit())
                     {
                         prop.SetShort((int16_t)sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, int16_t(propVal));
+                        am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, i, int16_t(propVal));
                     }
                     else if (propVal != preVal)
                     {

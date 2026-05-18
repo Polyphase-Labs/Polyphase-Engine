@@ -118,6 +118,27 @@ the engine, use `polyphase-widget`.
    (implementation in `Engine/Source/Editor/ActionManager.cpp` around line
    233/872). Older docs that show authors writing the macro by hand are stale.
 
+7. **Menu paths use `/` for nesting** — *for real now.* `AddMenuItem`,
+   `AddMenuItemEx`, and the new singular `AddCreateAssetItem` all parse `/`
+   in their `itemPath` into nested `ImGui::BeginMenu` calls; sibling entries
+   with a shared prefix collapse under one parent submenu (in registration
+   order). Before this engine revision the slash was a literal character; if
+   you're targeting older editor builds, the addon source doesn't need to
+   change — older engines render the slash literally, newer ones nest.
+
+8. **Asset browser "Create Asset" menu** — two complementary hooks. Prefer
+   the declarative singular `EditorUIHooks::AddCreateAssetItem(hookId,
+   "MyAddon/MyType", callback, userData)` for fresh-empty-asset entries:
+   pair the callback with `AssetManager::Get()->CreateAndRegisterAsset(
+   type, GetCurrentAssetDir(), name, false)` and the asset appears in the
+   user's current folder on the next frame — no manual Refresh. Fall back to
+   the older `AddCreateAssetItems` (callback form) if you need full ImGui
+   control or compatibility with older engine binaries (the new singular
+   pointer is at the end of `EditorUIHooks` and lives as `nullptr` on older
+   builds — always null-check). For *imported-from-source* asset types
+   (`.dialogue`, `.fbx`, `.mp4`, …) keep using `RegisterImportExtension` —
+   the two paths compose.
+
 ## Locating the addon directory
 
 | Where                                             | Purpose                                               |
@@ -274,6 +295,7 @@ boilerplate.
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Custom Node type                                      | `NativeAddon.md` *Registering Custom Node Types*; `Examples/Rotator3D.md`. Remember `FORCE_LINK_CALL(MyNode)` in `OnLoad`.                                   |
 | Custom Asset type with importer                       | `Examples/CustomAssetType.md`. Use `RegisterImportExtension(".ext", MyAsset::GetStaticType())` inside `#if EDITOR` in `OnLoad`. VideoPlayer's `VideoClip` is a fully-worked example. |
+| Custom **Create Asset** menu entry (fresh asset, current folder, no Refresh) | `NativeAddon.md` *Asset Browser "Create Asset" Menu*. Use the declarative `EditorUIHooks::AddCreateAssetItem(hookId, "MyAddon/MyType", cb, ud)` and let the callback call `AssetManager::Get()->CreateAndRegisterAsset(type, GetCurrentAssetDir(), name, false)`. Pair `RegisterImportExtension` with this when you also want drag-drop. |
 | Custom GraphNode (visual scripting)                   | `Examples/CustomGraphNode.md`. Then the `polyphase` skill's *New Graph Node* checklist for the engine-side patterns.                                         |
 | Lua bindings                                          | `NativeAddon.md` *Exposing Lua Functions*; `polyphase-widget` skill for the binding-macro reference.                                                         |
 | Editor UI — menus, windows, inspectors, importers     | `NativeAddon.md` *Extending the Editor UI* and *Editor Lifecycle Hooks*; `Examples/Editor/`. The engine handles cleanup via `RemoveAllHooks(hookId)`.        |
@@ -308,6 +330,8 @@ your addon's own `OnLoad`.
 | Shipped build link error: `undefined reference to PolyphasePlugin_GetDesc_<id>` | The editor's generated `AddonPlugins.cpp` is out of date. Run **Tools → Addons → Regenerate Native Addon Dependencies** and rebuild.                                          |
 | Addon rebuilds on every load                                         | A timestamped artifact ends up under the source dir, or a build script writes mtimes inside `Source/`. Move generated outputs to `Intermediate/`.                              |
 | `RegisterScriptFuncs(void* L)` fails to compile                      | The signature is `RegisterScriptFuncs(lua_State* L)`. Older docs have the wrong type.                                                                                          |
+| Calling `hooks->AddCreateAssetItem(...)` crashes on an older engine  | The pointer is `nullptr` on engine builds older than the slash-path / declarative-create patch. Null-check it and fall back to `AddCreateAssetItems` (callback form).            |
+| Asset created from menu doesn't appear until Refresh                 | The menu callback used `Asset::SaveFile` directly. Switch to `AssetManager::Get()->CreateAndRegisterAsset(type, GetCurrentAssetDir(), name, false)` — that inserts the stub into the AssetDir tree as well as writing the .oct, so the browser sees it on the next frame. |
 
 ## Where to look for an advanced full-feature example
 

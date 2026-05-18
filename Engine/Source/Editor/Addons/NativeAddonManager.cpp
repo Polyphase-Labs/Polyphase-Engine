@@ -2796,7 +2796,55 @@ namespace
         }
     }
 
+    // Walk AssetManager::mTransientAssets and destroy + erase any asset whose
+    // vtable lies inside the unloaded module. Transient assets have no stub
+    // and no on-disk backing, so they're freed outright — addons that need
+    // them recreated must do so from their next OnLoad. Skipping this leaves
+    // dangling Asset* in mTransientAssets; the next AssetManager::Purge()
+    // dispatches `Destroy()` through a freed vtable and crashes.
+    static void PurgeTransientAssetsByVTableRange(AssetManager* mgr,
+                                                  bool (*inRange)(void* vtable, void* ctx),
+                                                  void* ctx)
+    {
+        std::vector<Asset*>& transients = mgr->GetTransientAssets();
+        if (transients.empty()) return;
+
+        EditorState* es = GetEditorState();
+        size_t removed = 0;
+        for (int32_t i = int32_t(transients.size()) - 1; i >= 0; --i)
+        {
+            Asset* a = transients[i];
+            if (a == nullptr) continue;
+
+            void* vtable = *reinterpret_cast<void**>(a);
+            if (!inRange(vtable, ctx)) continue;
+
+            if (es != nullptr && es->GetInspectedObject() == a)
+            {
+                es->InspectObject(nullptr, true);
+            }
+
+            a->Destroy();
+            delete a;
+            transients.erase(transients.begin() + i);
+            ++removed;
+        }
+
+        if (removed > 0)
+        {
+            LogDebug("PurgeAssetsFromModule: unloaded %zu transient asset(s) belonging to unloaded module", removed);
+        }
+    }
+
 #if PLATFORM_WINDOWS
+    struct WinModuleRange { uintptr_t base; uintptr_t end; };
+    static bool VTableInWinRange(void* vtable, void* ctx)
+    {
+        const WinModuleRange* r = static_cast<const WinModuleRange*>(ctx);
+        uintptr_t v = reinterpret_cast<uintptr_t>(vtable);
+        return v >= r->base && v < r->end;
+    }
+
     void PurgeAssetsFromModule(void* moduleHandle, std::vector<uint64_t>& outRehydrateUuids)
     {
         if (moduleHandle == nullptr) return;
@@ -2811,8 +2859,8 @@ namespace
             return;
         }
 
-        const uintptr_t base = (uintptr_t)info.lpBaseOfDll;
-        const uintptr_t end  = base + info.SizeOfImage;
+        WinModuleRange range = { (uintptr_t)info.lpBaseOfDll,
+                                 (uintptr_t)info.lpBaseOfDll + info.SizeOfImage };
 
         std::vector<AssetStub*> stubsToPurge;
         for (auto& kv : mgr->GetAssetMap())
@@ -2824,15 +2872,23 @@ namespace
             // pointer. Vtables live in .rdata of the module that compiled the
             // class, so an addon-class instance has its vtable inside [base, end).
             uintptr_t vtable = *reinterpret_cast<uintptr_t*>(stub->mAsset);
-            if (vtable >= base && vtable < end)
+            if (vtable >= range.base && vtable < range.end)
             {
                 stubsToPurge.push_back(stub);
             }
         }
 
         PurgeStubsAndCollectUuids(stubsToPurge, outRehydrateUuids);
+        PurgeTransientAssetsByVTableRange(mgr, &VTableInWinRange, &range);
     }
 #elif PLATFORM_LINUX
+    static bool VTableInLinuxModule(void* vtable, void* ctx)
+    {
+        void* moduleBase = ctx;
+        Dl_info dlinf = {};
+        return dladdr(vtable, &dlinf) != 0 && dlinf.dli_fbase == moduleBase;
+    }
+
     void PurgeAssetsFromModule(void* moduleHandle, std::vector<uint64_t>& outRehydrateUuids)
     {
         if (moduleHandle == nullptr) return;
@@ -2863,6 +2919,7 @@ namespace
         }
 
         PurgeStubsAndCollectUuids(stubsToPurge, outRehydrateUuids);
+        PurgeTransientAssetsByVTableRange(mgr, &VTableInLinuxModule, moduleBase);
     }
 #else
     void PurgeAssetsFromModule(void* /*moduleHandle*/, std::vector<uint64_t>& /*outRehydrateUuids*/)

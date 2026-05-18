@@ -189,6 +189,22 @@ struct RegisteredCreateAssetItems
 };
 
 /**
+ * @brief Single declarative entry for the "Create Asset" submenu.
+ *
+ * Companion to the callback-driven RegisteredCreateAssetItems. mPath supports
+ * slash-separated nesting (e.g. "WorldStream/World Sector"); the dispatcher
+ * walks the path, building nested ImGui::BeginMenu / EndMenu and placing the
+ * MenuItem at the leaf.
+ */
+struct RegisteredCreateAssetItem
+{
+    HookId mHookId;
+    std::string mPath;
+    MenuCallback mCallback;
+    void* mUserData;
+};
+
+/**
  * @brief Registered spawn menu extension.
  */
 struct RegisteredSpawnItems
@@ -669,6 +685,7 @@ private:
     // Batch 2: Create/Spawn menu extensions
     std::vector<RegisteredNodeMenuItems> mNodeMenuItems;
     std::vector<RegisteredCreateAssetItems> mCreateAssetItems;
+    std::vector<RegisteredCreateAssetItem>  mCreateAssetItemSingles;
     std::vector<RegisteredSpawnItems> mSpawnBasic3dItems;
     std::vector<RegisteredSpawnItems> mSpawnBasicWidgetItems;
 

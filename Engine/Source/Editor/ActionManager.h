@@ -166,6 +166,7 @@ public:
 
     // Actions
     void EXE_EditProperty(void* owner, PropertyOwnerType ownerType, const std::string& name, uint32_t index, Datum newValue);
+    void EXE_EditPropertyOnSelection(void* owner, PropertyOwnerType ownerType, const std::string& name, uint32_t index, Datum newValue);
     void EXE_EditTransform(Node3D* node, const glm::mat4& transform);
     void EXE_EditTransforms(const std::vector<Node3D*>& nodes, const std::vector<glm::mat4>& newTransforms);
     void EXE_EditWidgetTransforms(const std::vector<Widget*>& widgets, const std::vector<WidgetTransformData>& newTransforms);
@@ -383,6 +384,41 @@ protected:
 
     AssetRef mReferencedAsset;
     Datum mPreviousValue;
+};
+
+// Multi-target counterpart to ActionEditProperty: applies the same value to
+// every target whose GatherProperties() yields a property of the same name
+// AND same DatumType as the source. Targets without that property (or with a
+// type mismatch) are silently skipped and not recorded for undo. One composite
+// action = one undo step. Used by the Properties panel when the user edits a
+// property with multiple Nodes selected in the Scene Hierarchy.
+class ActionEditProperties : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(EditProperties)
+
+    ActionEditProperties(
+        const std::vector<void*>& owners,
+        PropertyOwnerType ownerType,
+        const std::string& propName,
+        uint32_t index,
+        Datum value,
+        DatumType sourceType);
+
+protected:
+
+    void GatherPropsFor(void* owner, std::vector<Property>& props);
+
+    std::vector<void*> mOwners;
+    PropertyOwnerType mOwnerType = PropertyOwnerType::Count;
+    std::string mPropertyName;
+    uint32_t mIndex = 0;
+    DatumType mSourceType = DatumType::Count;
+    Datum mValue;
+
+    std::vector<AssetRef> mReferencedAssets;
+    std::vector<Datum> mPreviousValues;
+    std::vector<bool> mApplied;
 };
 
 class ActionEditTransforms : public Action

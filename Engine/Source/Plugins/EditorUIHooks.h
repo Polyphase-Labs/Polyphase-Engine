@@ -933,6 +933,41 @@ struct EditorUIHooks
      * @param hookId Hook identifier to remove all hooks for
      */
     void (*RemoveAllHooks)(HookId hookId);
+
+    // ===== Late additions (appended to preserve ABI) ====================
+    //
+    // New function pointers must go AT THE END of this struct so prebuilt
+    // plugins compiled against older headers keep finding existing hooks
+    // at their original offsets. Plugin loaders must check each function
+    // pointer for nullptr before calling it — older engine binaries will
+    // leave fields they don't know about as nullptr.
+
+    /**
+     * @brief Add a single declarative entry to the asset browser's
+     *        "Create Asset" submenu — no ImGui code needed from the addon.
+     *
+     * The dispatcher renders one MenuItem and invokes `callback` on click.
+     * `itemPath` supports '/'-separated nesting; sibling items from any
+     * addon that share a prefix merge under the same submenu in
+     * registration order:
+     *
+     *     hooks->AddCreateAssetItem(hookId, "WorldStream/World Sector",
+     *                               &OnCreateSector, userData);
+     *     hooks->AddCreateAssetItem(hookId, "WorldStream/Manifest",
+     *                               &OnCreateManifest, userData);
+     *
+     * renders as `Create Asset > WorldStream > [World Sector | Manifest]`.
+     *
+     * Removed automatically by RemoveAllHooks(hookId). For full ImGui
+     * control inside the menu use AddCreateAssetItems (plural) instead.
+     *
+     * @param hookId Unique identifier for this hook (for cleanup).
+     * @param itemPath '/'-separated menu path; the leaf is the visible label.
+     * @param callback Invoked when the leaf MenuItem is clicked.
+     * @param userData Passed back to the callback.
+     */
+    void (*AddCreateAssetItem)(HookId hookId, const char* itemPath,
+                               MenuCallback callback, void* userData);
 };
 
 /**

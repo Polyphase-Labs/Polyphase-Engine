@@ -144,6 +144,15 @@ TypeId LookupImportExtension(const std::string& ext)
     return AssetManager::Get()->LookupImportExtension(ext);
 }
 
+AssetDir* GetCurrentAssetDir()
+{
+    // Returns the asset browser's currently-browsed AssetDir, or nullptr if
+    // no project is open. Wraps EditorState::GetAssetDirectory() so addon
+    // DLLs don't have to link against the non-exported EditorState class.
+    EditorState* es = GetEditorState();
+    return es ? es->GetAssetDirectory() : nullptr;
+}
+
 void AssetManager::RegisterImportExtension(const std::string& ext, TypeId type)
 {
     if (ext.empty() || type == INVALID_TYPE_ID)
@@ -1984,6 +1993,11 @@ void AssetManager::UnloadProjectDirectory()
 std::unordered_map<std::string, AssetStub*>& AssetManager::GetAssetMap()
 {
     return mAssetMap;
+}
+
+std::vector<Asset*>& AssetManager::GetTransientAssets()
+{
+    return mTransientAssets;
 }
 
 std::vector<AssetStub*> AssetManager::GatherDirtyAssets()
