@@ -46,6 +46,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   g++/make           - engine + game compile
 #   cmake              - Tools/prebuild_libgit2.sh + addon CMake projects
 #   libx11/asound/pulse/vorbis-dev - engine link deps
+#   libvulkan-dev      - distro Vulkan loader; survives SDK layout changes
+#                        (LunarG moved libvulkan.so under lib/VulkanLoader/lib
+#                        in 1.4.x, breaking -L$(VULKAN_SDK)/lib)
 #   libssl-dev         - libgit2 HTTPS backend (SelectHTTPSBackend.cmake)
 #   wget/curl/ca-certs - tarball downloads (Vulkan SDK, curl-impersonate)
 #   git                - actions/checkout + submodules
@@ -62,6 +65,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2-dev \
     libpulse-dev \
     libvorbis-dev \
+    libvulkan-dev \
     libssl-dev \
     wget \
     curl \
@@ -75,8 +79,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dpkg-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Vulkan SDK 1.3.275.0
-ENV VULKAN_VERSION=1.3.275.0
+# Install Vulkan SDK 1.3.275.0 (old) or 1.4.350.0 (new) to ensure compatibility with both versions
+ENV VULKAN_VERSION=1.4.350.0
 WORKDIR /tmp
 RUN wget -q https://sdk.lunarg.com/sdk/download/${VULKAN_VERSION}/linux/vulkansdk-linux-x86_64-${VULKAN_VERSION}.tar.xz \
     && mkdir -p /opt/vulkan \
