@@ -968,6 +968,25 @@ struct EditorUIHooks
      */
     void (*AddCreateAssetItem)(HookId hookId, const char* itemPath,
                                MenuCallback callback, void* userData);
+
+    // ===== Batch 11: Build Targets =====
+    //
+    // Lets an addon register an entire build/packaging target — compile,
+    // cook, finalize, run. See PolyphaseBuildTargetAPI.h for the descriptor
+    // shape. The descriptor is deep-copied; the addon may free its source
+    // strings immediately after this returns. The registration is scoped to
+    // hookId and is automatically cleared by RemoveAllHooks(hookId), so
+    // hot-reload is safe.
+    //
+    // Registering twice with the same targetId replaces the previous entry;
+    // this is what makes addon hot-reload swap in fresh function pointers
+    // without leaving stale ones in the registry.
+
+    /** @brief Register or replace a build/packaging target. */
+    void (*RegisterBuildTarget)(HookId hookId, const struct PolyphaseBuildTargetDesc* desc);
+
+    /** @brief Remove a previously-registered build target by id. */
+    void (*UnregisterBuildTarget)(HookId hookId, const char* targetId);
 };
 
 /**

@@ -408,6 +408,20 @@ public:
     std::string GetAddonSourcePath(const std::string& addonId) const;
 
     /**
+     * @brief Find the addon source path that owns a given build-target id.
+     *
+     * Iterates all discovered native addons and matches against each one's
+     * parsed `native.buildTargets[].id` metadata. Used by ActionManager to
+     * resolve a target's `platformExtensionDir` to an absolute path when
+     * generating Variant 2 bridge headers before compile.
+     *
+     * @param buildTargetId Reverse-DNS build target id (e.g. "homebrew.psp")
+     * @return Absolute source path of the addon that declares this target,
+     *         or empty if no installed addon advertises this id.
+     */
+    std::string FindAddonRootForBuildTarget(const std::string& buildTargetId) const;
+
+    /**
      * @brief Get all addons with engine target (for final build injection).
      */
     std::vector<NativeAddonState> GetEngineAddons() const;

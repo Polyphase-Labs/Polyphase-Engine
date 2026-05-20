@@ -1475,6 +1475,12 @@
     <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\BuildTargetRegistry.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\BuiltInBuildTargets.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\BuildDependencyWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -2964,6 +2970,12 @@
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\BuildTargetRegistry.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\BuiltInBuildTargets.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
@@ -3055,6 +3067,9 @@
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Plugins\PolyphasePluginAPI.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Plugins\PolyphaseBuildTargetAPI.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Plugins\RuntimePluginManager.h">

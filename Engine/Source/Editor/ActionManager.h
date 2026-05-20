@@ -51,6 +51,12 @@ struct LocalBuildState
 
     // Build config (set in BuildData, used by Phase1 and compile thread)
     Platform mPlatform{Platform::Linux};
+    /**
+     * Registered build-target id, e.g. "polyphase.windows", "homebrew.dreamcast".
+     * Empty when the build was launched against a legacy Platform-only profile;
+     * Phase 1 resolves it lazily to the matching built-in by basePlatform.
+     */
+    std::string mTargetId;
     bool mEmbedded{false};
     std::string mPackagedDir;
     std::string mBuildProjDir;
@@ -96,6 +102,7 @@ struct LocalBuildState
             mOutputDirty = false;
         }
         mPlatform = Platform::Linux;
+        mTargetId.clear();
         mEmbedded = false;
         mPackagedDir.clear();
         mBuildProjDir.clear();
@@ -334,6 +341,16 @@ public:
     void BeginReimportAssetWithNewFile(AssetStub* stub);
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);
+    /**
+     * @brief Run a build against a registered build target by id.
+     *
+     * Resolves the id against BuildTargetRegistry. For built-in targets,
+     * delegates to the legacy BuildData(Platform, bool) using the target's
+     * basePlatform. For addon-provided targets, runs a descriptor-callback-
+     * driven pipeline (PreCook → cook with optional CookAsset override →
+     * GetCompileCommand → GetCompiledBinaryPath → PostPackage).
+     */
+    void BuildData(const std::string& targetId, bool embedded);
     void DrawBuildModal();
     bool IsBuildRunning() const;
     LocalBuildState& GetBuildState() { return mBuildState; }

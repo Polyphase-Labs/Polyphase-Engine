@@ -995,6 +995,8 @@
     <ClCompile Include="Source\Editor\PlayerInputEditor.cpp" />
     <ClCompile Include="Source\Editor\PlayerInputDebugger.cpp" />
     <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp" />
+    <ClCompile Include="Source\Editor\Packaging\BuildTargetRegistry.cpp" />
+    <ClCompile Include="Source\Editor\Packaging\BuiltInBuildTargets.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingSettings.cpp" />
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp" />
     <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp" />
@@ -1535,6 +1537,8 @@
     <ClInclude Include="Source\Editor\PlayerInputEditor.h" />
     <ClInclude Include="Source\Editor\PlayerInputDebugger.h" />
     <ClInclude Include="Source\Editor\Packaging\BuildProfile.h" />
+    <ClInclude Include="Source\Editor\Packaging\BuildTargetRegistry.h" />
+    <ClInclude Include="Source\Editor\Packaging\BuiltInBuildTargets.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingSettings.h" />
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h" />
     <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h" />
@@ -1562,6 +1566,7 @@
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />
     <ClInclude Include="Source\Plugins\ImGuiPluginContext.h" />
+    <ClInclude Include="Source\Plugins\PolyphaseBuildTargetAPI.h" />
     <ClInclude Include="Source\Plugins\PolyphaseEngineAPI.h" />
     <ClInclude Include="Source\Plugins\PolyphasePluginAPI.h" />
     <ClInclude Include="Source\Plugins\RuntimePluginManager.h" />

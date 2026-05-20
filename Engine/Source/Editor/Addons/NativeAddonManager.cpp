@@ -1170,6 +1170,37 @@ bool NativeAddonManager::ParsePackageJson(const std::string& path, NativeModuleM
         }
     }
 
+    // Optional `native.buildTargets`: declarative list of build targets this
+    // addon provides. Metadata only — the actual EditorUIHooks::RegisterBuildTarget
+    // call happens inside the addon's RegisterEditorUI callback at load time.
+    // The editor uses this list for AddonsWindow display and to warn when an
+    // addon advertises a target id but never registers it at load.
+    if (native.HasMember("buildTargets") && native["buildTargets"].IsArray())
+    {
+        const rapidjson::Value& bt = native["buildTargets"];
+        for (rapidjson::SizeType i = 0; i < bt.Size(); ++i)
+        {
+            if (!bt[i].IsObject()) continue;
+            const rapidjson::Value& entry = bt[i];
+
+            NativeModuleMetadata::BuildTargetMetadata m;
+            if (entry.HasMember("id") && entry["id"].IsString())
+                m.mId = entry["id"].GetString();
+            if (entry.HasMember("displayName") && entry["displayName"].IsString())
+                m.mDisplayName = entry["displayName"].GetString();
+            if (entry.HasMember("category") && entry["category"].IsString())
+                m.mCategory = entry["category"].GetString();
+
+            if (m.mId.empty())
+            {
+                LogWarning("Native addon manifest '%s' has a buildTargets entry without an 'id'; skipping.",
+                           path.c_str());
+                continue;
+            }
+            outMetadata.mBuildTargets.push_back(std::move(m));
+        }
+    }
+
     return true;
 }
 
@@ -4044,6 +4075,24 @@ std::string NativeAddonManager::GetAddonSourcePath(const std::string& addonId) c
 {
     auto it = mStates.find(addonId);
     return (it != mStates.end()) ? it->second.mSourcePath : "";
+}
+
+std::string NativeAddonManager::FindAddonRootForBuildTarget(const std::string& buildTargetId) const
+{
+    if (buildTargetId.empty()) return "";
+
+    for (const auto& pair : mStates)
+    {
+        const NativeAddonState& state = pair.second;
+        for (const auto& bt : state.mNativeMetadata.mBuildTargets)
+        {
+            if (bt.mId == buildTargetId)
+            {
+                return state.mSourcePath;
+            }
+        }
+    }
+    return "";
 }
 
 std::vector<NativeAddonState> NativeAddonManager::GetEngineAddons() const

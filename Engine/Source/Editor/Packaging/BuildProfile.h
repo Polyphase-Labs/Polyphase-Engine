@@ -4,6 +4,7 @@
 
 #include <string>
 #include <cstdint>
+#include <unordered_map>
 #include "EngineTypes.h"
 #include "document.h"
 
@@ -21,8 +22,31 @@ struct BuildProfile
     /** @brief The display name of this build profile */
     std::string mName = "Default";
 
-    /** @brief Target platform for packaging */
+    /** @brief Target platform for packaging (legacy / backward-compat fallback). */
     Platform mTargetPlatform = Platform::Windows;
+
+    /**
+     * @brief Registered build-target id (e.g. "polyphase.windows", "homebrew.dreamcast").
+     *
+     * If non-empty, this is the authoritative target lookup key against
+     * `BuildTargetRegistry`. If empty, the engine falls back to
+     * `mTargetPlatform` and resolves it to the matching built-in via
+     * `BuildTargetRegistry::FindBuiltInByPlatform`. Empty for profiles
+     * saved before this field existed.
+     */
+    std::string mTargetId = "";
+
+    /**
+     * @brief Opaque per-target options, owned by this profile.
+     *
+     * Flat key/value strings. Targets read/write through the
+     * `GetProfileSetting` / `SetProfileSetting` trampolines on
+     * `PolyphaseBuildContext`. The map is JSON-serialized as a single
+     * nested object under "targetOptions". Targets that need rich
+     * structure should pack their JSON into a single value, or split
+     * across multiple keys with a target-specific namespace prefix.
+     */
+    std::unordered_map<std::string, std::string> mTargetOptions;
 
     /** @brief Whether to embed assets into the executable */
     bool mEmbedded = true;

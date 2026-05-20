@@ -5,6 +5,7 @@
 #include "InputDevices.h"
 #include "Plugins/ImGuiPluginContext.h"
 #include "Profiling/ProfilingWindow.h"
+#include "Packaging/BuiltInBuildTargets.h"
 
 #include "imgui.h"
 #include "imgui_dock.h"
@@ -219,6 +220,9 @@ EditorUIHookManager* EditorUIHookManager::Get()
 EditorUIHookManager::EditorUIHookManager()
 {
     InitializeHooks();
+    // Register the six built-in build targets so they appear in the same
+    // registry as addon-provided ones. Addons hot-loaded later append.
+    BuiltInBuildTargets::RegisterAll(mBuildTargets);
 }
 
 EditorUIHookManager::~EditorUIHookManager()
@@ -646,6 +650,26 @@ void EditorUIHookManager::InitializeHooks()
         item.mCallback = callback;
         item.mUserData = userData;
         mgr->mCreateAssetItemSingles.push_back(std::move(item));
+    };
+
+    // ===== Batch 11: Build Targets =====
+    mHooks.RegisterBuildTarget = [](HookId hookId, const PolyphaseBuildTargetDesc* desc) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || desc == nullptr) return;
+        if (desc->apiVersion != POLYPHASE_BUILD_TARGET_API_VERSION)
+        {
+            LogWarning("RegisterBuildTarget: apiVersion mismatch (got %u, expected %u) for id '%s'",
+                       desc->apiVersion, (unsigned)POLYPHASE_BUILD_TARGET_API_VERSION,
+                       desc->targetId ? desc->targetId : "<null>");
+            return;
+        }
+        mgr->mBuildTargets.Register(hookId, desc, /*isBuiltIn=*/ false);
+    };
+
+    mHooks.UnregisterBuildTarget = [](HookId hookId, const char* targetId) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mBuildTargets.Unregister(hookId, targetId);
     };
 
     mHooks.AddSpawnBasic3dItems = [](HookId hookId, MenuSectionDrawCallback drawFunc, void* userData) {
@@ -1424,6 +1448,12 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     removeByHookId(mGamePreviewResolutions);
     removeByHookId(mControllerRoutes);
     removeByHookId(mOnControllerServerStateChanged);
+
+    // Batch 11: build-target registry. Critical for hot-reload safety —
+    // descriptors hold function pointers into the addon DLL; leaving them
+    // around after FreeLibrary makes the next PackagingWindow::Draw call
+    // jump into freed code. RemoveAllForHook skips built-ins regardless.
+    mBuildTargets.RemoveAllForHook(hookId);
 
     // Remove profiling hooks (managed by ProfilingWindow)
     ProfilingWindow* profiling = GetProfilingWindow();

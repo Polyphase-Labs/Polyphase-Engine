@@ -11,6 +11,7 @@
 #if EDITOR
 
 #include "Plugins/EditorUIHooks.h"
+#include "Packaging/BuildTargetRegistry.h"
 
 #include <string>
 #include <vector>
@@ -736,6 +737,15 @@ private:
     std::vector<RegisteredControllerRoute> mControllerRoutes;
     std::vector<RegisteredControllerServerEvent> mOnControllerServerStateChanged;
 
+    // Batch 11: Build target registry (addon-provided + engine built-ins)
+    BuildTargetRegistry mBuildTargets;
+
+public:
+    /** @brief Access the build-target registry (built-in + addon-provided). */
+    BuildTargetRegistry& GetBuildTargets() { return mBuildTargets; }
+    const BuildTargetRegistry& GetBuildTargets() const { return mBuildTargets; }
+
+private:
     // Empty vector for returning when menu not found
     std::vector<RegisteredMenuItem> mEmptyMenuItems;
 

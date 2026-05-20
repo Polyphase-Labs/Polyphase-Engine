@@ -292,11 +292,12 @@ uint32_t SerialManager::RegisterMessageMatcher(SerialHandle handle, const std::s
 
     if (type == SerialMessageMatcher::Type::Regex)
     {
-#if PLATFORM_3DS
-        // devkitARM compiles the engine for 3DS with -fno-exceptions, so the
-        // typed `catch (const std::regex_error&)` below won't compile. Skip
-        // the guard and rely on caller-side validation of `pattern`. A bad
-        // pattern will std::terminate; this is acceptable for the 3DS target.
+#if PLATFORM_3DS || defined(POLYPHASE_PLATFORM_ADDON)
+        // devkitARM (3DS) and most addon-supplied console toolchains (PSP etc.)
+        // compile the engine with -fno-exceptions, so the typed
+        // `catch (const std::regex_error&)` below won't compile. Skip the
+        // guard and rely on caller-side validation of `pattern`. A bad
+        // pattern will std::terminate; this is acceptable for these targets.
         matcher.mRegex = std::regex(pattern);
 #else
         try

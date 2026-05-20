@@ -135,6 +135,24 @@ struct NativeModuleMetadata
     };
     std::unordered_map<std::string, PlatformExtras> mPerPlatform;
 
+    /**
+     * @brief Metadata-only entries from `native.buildTargets` in package.json.
+     *
+     * Pure documentation/discovery: the addon's actual build-target registration
+     * happens inside its RegisterEditorUI callback via
+     * EditorUIHooks::RegisterBuildTarget. The engine uses this list to (a) show
+     * "this addon provides X targets" in the AddonsWindow, (b) warn if the
+     * addon failed to register a declared target, and (c) keep dropdown labels
+     * correct when the addon DLL fails to load.
+     */
+    struct BuildTargetMetadata
+    {
+        std::string mId;            // Reverse-DNS id, e.g. "homebrew.dreamcast"
+        std::string mDisplayName;   // Human label, e.g. "Dreamcast (KallistiOS)"
+        std::string mCategory;      // UI grouping, e.g. "Retro Consoles"
+    };
+    std::vector<BuildTargetMetadata> mBuildTargets;
+
     // Returns the effective extras for a given platform: common arrays first,
     // then mPerPlatform[platformName] appended (if present). Pass an empty string
     // to get just the common arrays.

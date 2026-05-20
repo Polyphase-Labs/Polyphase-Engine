@@ -164,7 +164,8 @@
       "PowerShell(Invoke-RestMethod -Uri \"http://localhost:7890/api/scene\" -Method Get | ConvertTo-Json -Depth 6)",
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:7890/api/scene\" -UseBasicParsing -TimeoutSec 5; Write-Output \"STATUS: $\\($r.StatusCode\\)\"; Write-Output $r.Content } catch { Write-Output \"ERR: $\\($_.Exception.Message\\)\" })",
       "PowerShell(Test-NetConnection *)",
-      "Bash(xxd ./Engine/Assets/Materials/SkyboxDay/M_SkyboxDay.oct)"
+      "Bash(xxd ./Engine/Assets/Materials/SkyboxDay/M_SkyboxDay.oct)",
+      "Bash(cd M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine *)"
     ]
   }
 }

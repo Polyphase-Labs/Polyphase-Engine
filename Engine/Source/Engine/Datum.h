@@ -176,7 +176,12 @@ public:
 
     // Conversion constructors
     Datum(int32_t value);
-#if PLATFORM_3DS
+#if PLATFORM_3DS || defined(POLYPHASE_PLATFORM_ADDON)
+    // Toolchains where `int` and `int32_t` are distinct types (devkitARM/3DS
+    // and most addon-supplied console toolchains) need an explicit Datum(int)
+    // overload so call sites like `Datum(0)` resolve unambiguously. On
+    // Windows/Linux/Android they're the same underlying type and the
+    // int32_t overload covers both.
     Datum(int value);
 #endif
     Datum(uint32_t value);

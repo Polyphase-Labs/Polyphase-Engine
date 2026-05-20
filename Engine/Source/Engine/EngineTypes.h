@@ -35,6 +35,12 @@ enum class Platform : int
     GameCube,
     Wii,
     N3DS,
+    // NOTE: the literal token `PSP` cannot be used here as an enum value
+    // because PSPSDK predefines `PSP=1` as a command-line macro for every TU
+    // it compiles — leaking into a Polyphase build that links against any
+    // PSP addon. The expansion `Platform::1` is a syntax error. `Psp` is
+    // unaffected and `GetPlatformString` still returns "PSP" for display.
+    Psp,
 
     Count
 };
@@ -49,6 +55,7 @@ enum PlatformBit : uint32_t
     PlatformBit_GameCube = 1u << int(Platform::GameCube),
     PlatformBit_Wii      = 1u << int(Platform::Wii),
     PlatformBit_N3DS     = 1u << int(Platform::N3DS),
+    PlatformBit_Psp      = 1u << int(Platform::Psp),
 
     PlatformBit_All      = (1u << int(Platform::Count)) - 1u,
 };
