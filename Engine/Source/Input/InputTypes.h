@@ -5,7 +5,12 @@
 #include <vector>
 #include <stdint.h>
 
-#if PLATFORM_WINDOWS
+// Variant 2 platform-extension arm — see SystemTypes.h for the full rationale.
+// The addon's InputTypes_Platform.h is expected to provide all platform-
+// specific includes/types this header forks on.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+#include "PolyphasePlatform_InputTypes.h"
+#elif PLATFORM_WINDOWS
 #include <windows.h>
 #include <Xinput.h>
 #define DIRECTINPUT_VERSION 0x0800

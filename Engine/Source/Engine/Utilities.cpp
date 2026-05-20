@@ -482,6 +482,7 @@ const char* GetPlatformString(Platform platform)
     case Platform::GameCube: retString = "GameCube"; break;
     case Platform::Wii: retString = "Wii"; break;
     case Platform::N3DS: retString = "3DS"; break;
+    case Platform::Psp: retString = "PSP"; break;
     default: break;
     }
 

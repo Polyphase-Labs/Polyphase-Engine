@@ -1804,7 +1804,12 @@ void GameMain(int32_t argc, char** argv)
 }
 #endif
 
-// Polyphase main function
+// Polyphase main function — gated out when the build is driven by an addon
+// runtime (e.g. PSP via Main_PSP.cpp). The addon provides its own `int main`
+// with platform-specific entry decorations (PSP_MODULE_INFO etc.) and calls
+// GameMain() directly.
+#if !defined(POLYPHASE_PLATFORM_ADDON)
+
 #if PLATFORM_WINDOWS && !_DEBUG && !EDITOR
 int32_t WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int32_t nCmdShow)
 {
@@ -1838,5 +1843,7 @@ int main(int argc, char** argv)
     return 0;
 #endif
 }
+
+#endif // !POLYPHASE_PLATFORM_ADDON
 
 #endif  // !POLYPHASE_DLL_BUILD

@@ -19,6 +19,28 @@ void BuildProfile::LoadFromJson(const rapidjson::Value& value)
         mTargetPlatform = static_cast<Platform>(value["platform"].GetInt());
     }
 
+    if (value.HasMember("targetId") && value["targetId"].IsString())
+    {
+        mTargetId = value["targetId"].GetString();
+    }
+    else
+    {
+        mTargetId.clear();
+    }
+
+    mTargetOptions.clear();
+    if (value.HasMember("targetOptions") && value["targetOptions"].IsObject())
+    {
+        const rapidjson::Value& opts = value["targetOptions"];
+        for (auto it = opts.MemberBegin(); it != opts.MemberEnd(); ++it)
+        {
+            if (it->name.IsString() && it->value.IsString())
+            {
+                mTargetOptions[it->name.GetString()] = it->value.GetString();
+            }
+        }
+    }
+
     if (value.HasMember("embedded") && value["embedded"].IsBool())
     {
         mEmbedded = value["embedded"].GetBool();
@@ -48,6 +70,21 @@ void BuildProfile::SaveToJson(rapidjson::Document& doc, rapidjson::Value& value)
     value.AddMember("id", mId, allocator);
     value.AddMember("name", rapidjson::Value(mName.c_str(), allocator), allocator);
     value.AddMember("platform", static_cast<int>(mTargetPlatform), allocator);
+    if (!mTargetId.empty())
+    {
+        value.AddMember("targetId", rapidjson::Value(mTargetId.c_str(), allocator), allocator);
+    }
+    if (!mTargetOptions.empty())
+    {
+        rapidjson::Value opts(rapidjson::kObjectType);
+        for (const auto& kv : mTargetOptions)
+        {
+            opts.AddMember(rapidjson::Value(kv.first.c_str(), allocator),
+                           rapidjson::Value(kv.second.c_str(), allocator),
+                           allocator);
+        }
+        value.AddMember("targetOptions", opts, allocator);
+    }
     value.AddMember("embedded", mEmbedded, allocator);
     value.AddMember("outputDirectory", rapidjson::Value(mOutputDirectory.c_str(), allocator), allocator);
     value.AddMember("useDocker", mUseDocker, allocator);

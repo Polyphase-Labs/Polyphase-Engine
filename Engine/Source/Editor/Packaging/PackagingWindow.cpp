@@ -3,6 +3,15 @@
 #include "PackagingWindow.h"
 #include "EditorWidgets.h"
 #include "PackagingSettings.h"
+#include "BuildTargetRegistry.h"
+#include "EditorUIHookManager.h"
+#include <algorithm>
+
+// Active-profile pointer for the DrawProfileOptions trampolines. The C ABI
+// requires captureless function pointers, so this is the only viable channel
+// between the per-frame draw and the lambdas. Single-threaded by construction
+// (editor draws on the main thread); not thread-safe, but doesn't need to be.
+BuildProfile* sActiveProfileForOptionsTrampoline = nullptr;
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/External/LaunchersModule.h"
@@ -387,15 +396,135 @@ void PackagingWindow::DrawProfileSettings()
 
     ImGui::Spacing();
 
-    // Platform
-    ImGui::Text("Platform:");
-    const char* platformNames[] = { "Windows", "Linux", "Android", "GameCube", "Wii", "3DS" };
-    int platformIndex = static_cast<int>(profile->mTargetPlatform);
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::Combo("##Platform", &platformIndex, platformNames, IM_ARRAYSIZE(platformNames)))
+    // Build Target (registry-driven; built-ins + addon-provided)
+    ImGui::Text("Target:");
+
+    // Resolve the current selection: prefer mTargetId, fall back to
+    // mTargetPlatform for profiles saved before mTargetId existed.
+    EditorUIHookManager* uiHookMgr = EditorUIHookManager::Get();
+    const std::vector<RegisteredBuildTarget>& allTargets =
+        (uiHookMgr != nullptr) ? uiHookMgr->GetBuildTargets().GetAll()
+                               : std::vector<RegisteredBuildTarget>();
+
+    std::string activeId = profile->mTargetId;
+    if (activeId.empty() && uiHookMgr != nullptr)
     {
-        profile->mTargetPlatform = static_cast<Platform>(platformIndex);
-        changed = true;
+        const RegisteredBuildTarget* fallback =
+            uiHookMgr->GetBuildTargets().FindBuiltInByPlatform(profile->mTargetPlatform);
+        if (fallback != nullptr) activeId = fallback->mTargetId;
+    }
+
+    const RegisteredBuildTarget* activeTarget = nullptr;
+    for (const RegisteredBuildTarget& t : allTargets)
+    {
+        if (t.mTargetId == activeId) { activeTarget = &t; break; }
+    }
+
+    std::string comboLabel = activeTarget ? activeTarget->mDisplayName : "(unknown target)";
+    if (activeTarget == nullptr && !activeId.empty())
+    {
+        comboLabel = "(unavailable: " + activeId + ")";
+    }
+
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##Target", comboLabel.c_str()))
+    {
+        // Group entries by category for readability. Empty category is "Other".
+        std::vector<std::string> categoryOrder;
+        for (const RegisteredBuildTarget& t : allTargets)
+        {
+            std::string cat = t.mCategory.empty() ? std::string("Other") : t.mCategory;
+            if (std::find(categoryOrder.begin(), categoryOrder.end(), cat) == categoryOrder.end())
+                categoryOrder.push_back(cat);
+        }
+
+        for (const std::string& cat : categoryOrder)
+        {
+            ImGui::TextDisabled("%s", cat.c_str());
+            ImGui::Separator();
+            for (const RegisteredBuildTarget& t : allTargets)
+            {
+                std::string tcat = t.mCategory.empty() ? std::string("Other") : t.mCategory;
+                if (tcat != cat) continue;
+
+                bool selected = (t.mTargetId == activeId);
+                std::string label = t.mDisplayName;
+                if (!t.mIsBuiltIn) label += "  [addon]";
+
+                if (ImGui::Selectable(label.c_str(), selected))
+                {
+                    profile->mTargetId = t.mTargetId;
+                    profile->mTargetPlatform = static_cast<Platform>(t.mDesc.basePlatform);
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    char reason[256] = {0};
+                    if (t.mDesc.Validate != nullptr && t.mDesc.Validate(reason, sizeof(reason)) == 0)
+                    {
+                        ImGui::SetTooltip("UNAVAILABLE: %s", reason[0] ? reason : "toolchain not found");
+                    }
+                    else if (!t.mIsBuiltIn)
+                    {
+                        ImGui::SetTooltip("Addon target — id: %s", t.mTargetId.c_str());
+                    }
+                }
+            }
+            ImGui::Spacing();
+        }
+        ImGui::EndCombo();
+    }
+
+    // Show a warning row if the active id no longer resolves (addon uninstalled).
+    if (activeTarget == nullptr && !activeId.empty())
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Target '%s' is not registered — addon may be missing or disabled.",
+                           activeId.c_str());
+    }
+
+    // Per-target options panel — addons that registered DrawProfileOptions
+    // draw their settings inside a collapsing header so the engine doesn't
+    // need to know anything about target-specific config. Addons interact
+    // with the profile entirely through the context trampolines — they never
+    // touch BuildProfile directly, so the ABI stays a pure C surface.
+    if (activeTarget != nullptr && activeTarget->mDesc.DrawProfileOptions != nullptr)
+    {
+        if (ImGui::CollapsingHeader("Target Options"))
+        {
+            // Build a minimal context wired to this profile. opaqueEngineState
+            // carries the BuildProfile* so the trampolines below resolve it.
+            PolyphaseBuildContext drawCtx{};
+            drawCtx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
+            drawCtx.targetId         = activeTarget->mDesc.targetId;
+            drawCtx.basePlatform     = activeTarget->mDesc.basePlatform;
+            drawCtx.opaqueEngineState = static_cast<void*>(profile);
+
+            drawCtx.GetProfileSetting = [](const char* key, char* outVal, size_t cap) -> int32_t {
+                // The lambda has no captures because the C ABI doesn't allow them;
+                // we rely on the active-frame thread-local set immediately below.
+                extern BuildProfile* sActiveProfileForOptionsTrampoline;
+                BuildProfile* p = sActiveProfileForOptionsTrampoline;
+                if (p == nullptr || key == nullptr || outVal == nullptr || cap == 0) return 0;
+                auto it = p->mTargetOptions.find(key);
+                if (it == p->mTargetOptions.end()) { outVal[0] = '\0'; return 0; }
+                std::snprintf(outVal, cap, "%s", it->second.c_str());
+                return 1;
+            };
+            drawCtx.SetProfileSetting = [](const char* key, const char* val) {
+                extern BuildProfile* sActiveProfileForOptionsTrampoline;
+                BuildProfile* p = sActiveProfileForOptionsTrampoline;
+                if (p == nullptr || key == nullptr) return;
+                p->mTargetOptions[key] = val ? val : "";
+            };
+
+            sActiveProfileForOptionsTrampoline = profile;
+            activeTarget->mDesc.DrawProfileOptions(&drawCtx);
+            sActiveProfileForOptionsTrampoline = nullptr;
+
+            // Trampoline edits dirty the profile; flag for save.
+            changed = true;
+        }
     }
 
     ImGui::Spacing();
@@ -881,7 +1010,18 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
         am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
-        am->BuildData(profile.mTargetPlatform, profile.mEmbedded);
+        // Prefer the registry-resolved target id when present so addon-
+        // provided targets dispatch through their descriptor callbacks. Falls
+        // back to legacy Platform-only build when mTargetId is empty (old
+        // profiles saved before mTargetId existed).
+        if (!profile.mTargetId.empty())
+        {
+            am->BuildData(profile.mTargetId, profile.mEmbedded);
+        }
+        else
+        {
+            am->BuildData(profile.mTargetPlatform, profile.mEmbedded);
+        }
         // Re-set run-after-build flags after BuildData (Reset() clears them in normal path)
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;

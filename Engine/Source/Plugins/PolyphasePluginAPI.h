@@ -29,7 +29,9 @@
 #endif
 
 // Plugin API version - increment when breaking changes are made
-#define POLYPHASE_PLUGIN_API_VERSION 3
+// v4: added EditorUIHooks::RegisterBuildTarget / UnregisterBuildTarget
+//     (ABI-additive; old plugins still load and just don't see the new ptrs)
+#define POLYPHASE_PLUGIN_API_VERSION 4
 
 // Forward declarations
 struct PolyphaseEngineAPI;

@@ -4,7 +4,16 @@
 #include "Maths.h"
 #include <string>
 
-#if PLATFORM_WINDOWS
+// Variant 2 platform-extension arm. When an addon-provided build target sets
+// POLYPHASE_PLATFORM_ADDON, ActionManager has written a bridge header at
+// Generated/PolyphasePlatform_SystemTypes.h that forwards to the addon's own
+// SystemTypes_Platform.h. The addon's Makefile is expected to put Generated/
+// on the include path. This arm takes precedence over the PLATFORM_* arms
+// below so a build that sets BOTH (e.g. basePlatform=Linux + addon override)
+// resolves to the addon's typedefs rather than Linux's.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+#include "PolyphasePlatform_SystemTypes.h"
+#elif PLATFORM_WINDOWS
 #include <Windows.h>
 #elif PLATFORM_LINUX
 #include <stdio.h>
@@ -36,7 +45,12 @@
 #include <sys/stat.h>
 #endif
 
-#if PLATFORM_WINDOWS
+// Threading typedefs — the addon-provided header above is expected to
+// declare ThreadObject / MutexObject / ThreadFuncRet itself, so the arm
+// short-circuits this block too.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+// Provided by Generated/PolyphasePlatform_SystemTypes.h above.
+#elif PLATFORM_WINDOWS
 typedef HANDLE ThreadObject;
 typedef HANDLE MutexObject;
 typedef DWORD ThreadFuncRet;
@@ -56,7 +70,10 @@ typedef void ThreadFuncRet;
 
 typedef ThreadFuncRet(*ThreadFuncFP)(void*);
 
-#if PLATFORM_3DS
+// THREAD_RETURN is `return;` if the platform's ThreadFuncRet is void, else `return 0;`.
+// Addon-provided platforms whose ThreadFuncRet is void should #define
+// POLYPHASE_PLATFORM_ADDON_VOID_THREAD_RETURN in their SystemTypes_Platform.h.
+#if PLATFORM_3DS || defined(POLYPHASE_PLATFORM_ADDON_VOID_THREAD_RETURN)
 #define THREAD_RETURN() return;
 #else
 #define THREAD_RETURN() return 0;
@@ -78,7 +95,14 @@ struct DirEntry
     bool mDirectory = false;
     bool mValid = false;
 
-#if PLATFORM_WINDOWS
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    // Addon may inject members here via POLYPHASE_PLATFORM_ADDON_DIRENTRY_MEMBERS
+    // — e.g. `#define POLYPHASE_PLATFORM_ADDON_DIRENTRY_MEMBERS SceUID mDir;`
+    // in SystemTypes_Platform.h. Stays empty if the addon doesn't need any.
+#ifdef POLYPHASE_PLATFORM_ADDON_DIRENTRY_MEMBERS
+    POLYPHASE_PLATFORM_ADDON_DIRENTRY_MEMBERS
+#endif
+#elif PLATFORM_WINDOWS
     WIN32_FIND_DATA mFindData = { };
     HANDLE mFindHandle = nullptr;
 #elif (PLATFORM_LINUX || PLATFORM_ANDROID)
@@ -92,7 +116,13 @@ struct DirEntry
 
 struct SystemState
 {
-#if PLATFORM_WINDOWS
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    // Addon may inject members here via POLYPHASE_PLATFORM_ADDON_SYSTEMSTATE_MEMBERS
+    // — a single macro that expands to one or more `Type mName;` declarations.
+#ifdef POLYPHASE_PLATFORM_ADDON_SYSTEMSTATE_MEMBERS
+    POLYPHASE_PLATFORM_ADDON_SYSTEMSTATE_MEMBERS
+#endif
+#elif PLATFORM_WINDOWS
     HINSTANCE mConnection = nullptr;
     HWND mWindow = nullptr;
     POINT mMinSize = {};

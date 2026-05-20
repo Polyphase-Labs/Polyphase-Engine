@@ -9,6 +9,13 @@
 
 void ExecCommon(const char* cmd, std::string* output)
 {
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    // Addon-runtime platforms (PSP etc.) have no subprocess facility — newlib
+    // ships no popen/pclose and the kernel has no fork/exec. Just log + return.
+    (void)cmd;
+    if (output) output->clear();
+    LogDebug("[Exec] (no subprocess support on this platform): %s", cmd ? cmd : "");
+#else
 #if PLATFORM_WINDOWS
 #define popen _popen
 #define pclose _pclose
@@ -58,10 +65,19 @@ void ExecCommon(const char* cmd, std::string* output)
 #undef popen
 #undef pclose
 #endif
+#endif // POLYPHASE_PLATFORM_ADDON
 }
 
 bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStderr, int* outExitCode)
 {
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    // No subprocess support — see ExecCommon comment.
+    (void)cmd;
+    if (outStdout)   outStdout->clear();
+    if (outStderr)   outStderr->clear();
+    if (outExitCode) *outExitCode = -1;
+    return false;
+#else
 #if PLATFORM_WINDOWS
 #define popen _popen
 #define pclose _pclose
@@ -127,6 +143,7 @@ bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStder
 #undef popen
 #undef pclose
 #endif
+#endif // POLYPHASE_PLATFORM_ADDON
 }
 
 // ---------------------------------------------------------------------------

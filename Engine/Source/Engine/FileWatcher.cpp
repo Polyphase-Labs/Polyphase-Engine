@@ -4,6 +4,13 @@
 #include "EngineTypes.h"
 #include "Engine.h"
 
+// Variant-2 addon platforms (e.g. PSP) get a tiny stub at the END of this
+// file that returns null from GetFileWatcher() — every call site already
+// null-checks, so this is enough to keep the engine ticking on platforms
+// without inotify/FindFirstChangeNotificationW. The rest of the file is
+// the desktop/console implementation that uses std::thread + Win32 APIs.
+#if !defined(POLYPHASE_PLATFORM_ADDON)
+
 #if PLATFORM_WINDOWS
 #include <Windows.h>
 #include <winbase.h>
@@ -356,7 +363,7 @@ void FileWatcher::ProcessEvents()
             }
             
             mLastModifyTimes[event.filePath] = currentTime;
-            
+
             if (mCallback)
             {
                 mCallback(event);
@@ -364,3 +371,16 @@ void FileWatcher::ProcessEvents()
         }
     }
 }
+
+#else  // POLYPHASE_PLATFORM_ADDON — no-op file watcher for addon platforms.
+
+// PSP and similar consoles have no usable file-watching API and no scripts
+// being hot-reloaded at runtime. Every engine call site uses
+// `if (GetFileWatcher())` before invoking it, so a null return cleanly
+// disables hot-reload without conditionals in the call sites.
+
+FileWatcher* GetFileWatcher() { return nullptr; }
+void CreateFileWatcher() {}
+void DestroyFileWatcher() {}
+
+#endif // !POLYPHASE_PLATFORM_ADDON

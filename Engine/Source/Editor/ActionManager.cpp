@@ -94,6 +94,9 @@
 #include "Addons/NativeAddonManager.h"
 #include "Addons/AddonManager.h"
 #include "EditorUIHookManager.h"
+#include "Packaging/BuildTargetRegistry.h"
+#include "Packaging/BuiltInBuildTargets.h"
+#include "Plugins/PolyphaseBuildTargetAPI.h"
 #include "Packaging/PackagingWindow.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/External/LaunchersModule.h"
@@ -932,6 +935,76 @@ namespace
     }
 }
 
+// ---------------------------------------------------------------------------
+// Build-target registry dispatch helpers
+// ---------------------------------------------------------------------------
+//
+// These bridge the registry-driven build flow (BuildData(targetId)) and the
+// legacy switch-on-Platform pipeline. Built-in targets carry no callbacks —
+// they round-trip through the existing platform path. Addon-provided targets
+// supply GetCompileCommand / GetCompiledBinaryPath / CookAsset etc., and the
+// dispatcher routes through those when they're non-null.
+//
+// The actual per-asset cook override is applied inside Phase 1's saveDir
+// loop; this section just resolves the active target and routes
+// targetId-driven calls to BuildData(Platform, bool).
+
+namespace
+{
+    // Resolve a registered target by id. Falls back to the built-in matching
+    // a Platform enum value if targetId is empty. Returns nullptr if neither
+    // resolves — caller should error out.
+    const RegisteredBuildTarget* ResolveBuildTarget(const std::string& targetId, Platform platform)
+    {
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr == nullptr) return nullptr;
+
+        const BuildTargetRegistry& reg = hookMgr->GetBuildTargets();
+
+        if (!targetId.empty())
+        {
+            const RegisteredBuildTarget* t = reg.Find(targetId.c_str());
+            if (t != nullptr) return t;
+        }
+        return reg.FindBuiltInByPlatform(platform);
+    }
+}
+
+void ActionManager::BuildData(const std::string& targetId, bool embedded)
+{
+    if (IsBuildRunning())
+    {
+        LogError("A build is already in progress.");
+        return;
+    }
+
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr == nullptr)
+    {
+        LogError("BuildData: EditorUIHookManager not available.");
+        return;
+    }
+
+    const RegisteredBuildTarget* target = hookMgr->GetBuildTargets().Find(targetId.c_str());
+    if (target == nullptr)
+    {
+        LogError("BuildData: unknown build target id '%s' (addon may be uninstalled).", targetId.c_str());
+        return;
+    }
+
+    // Remember the targetId for the duration of the build so Phase 1's cook
+    // loop can apply addon-provided per-asset cook overrides.
+    mBuildState.mTargetId = target->mTargetId;
+
+    // Both built-ins and addon targets go through the same legacy pipeline,
+    // which is driven by Platform. Addon targets supply basePlatform as the
+    // cook-compatibility fallback (e.g. Dreamcast → Linux). The pipeline
+    // detects mTargetId during cook + finalize and routes asset cooks /
+    // compile / output paths through the descriptor callbacks where
+    // applicable.
+    BuildData(static_cast<Platform>(target->mDesc.basePlatform), embedded);
+}
+
 void ActionManager::BuildData(Platform platform, bool embedded)
 {
     if (IsBuildRunning())
@@ -1053,6 +1126,14 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     const bool forceRebuildRequested = mBuildState.mForceRebuild;
     mBuildState.mForceRebuild = false;
 
+    // Same snapshot trick for the build-target id: the BuildData(string) overload
+    // sets it before delegating here, but the non-headless path's mBuildState.Reset()
+    // would otherwise wipe it before the deferred BuildPhase1 sees it — which
+    // silently routes addon-provided targets into the legacy switch-on-Platform
+    // path of their basePlatform. The fix is the same idiom as mForceCompile:
+    // capture, allow Reset to run, re-apply.
+    const std::string targetIdRequested = mBuildState.mTargetId;
+
     // In headless mode, run the entire build synchronously (original behavior)
     if (IsHeadless())
     {
@@ -1062,6 +1143,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
         mBuildState.mRunAfterBuild = false;
         mBuildState.mRunOnDevice = false;
         mBuildState.mForceCompile = forceRebuildRequested;
+        mBuildState.mTargetId = targetIdRequested;
         BuildPhase1();
         if (mBuildState.mNeedCompile)
         {
@@ -1076,6 +1158,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     mBuildState.mPlatform = platform;
     mBuildState.mEmbedded = embedded;
     mBuildState.mForceCompile = forceRebuildRequested; // write AFTER Reset so it survives
+    mBuildState.mTargetId    = targetIdRequested;       // same — see snapshot above
     mBuildDisplayOutput.clear();
     mBuildAutoScroll = true;
     mShowBuildModal = true;
@@ -1191,7 +1274,30 @@ void ActionManager::BuildPhase1()
         CreateDir(packagedDir.c_str());
     }
 
-    packagedDir += GetPlatformString(platform);
+    // Built-in targets use the platform name as the package subdir
+    // (Packaged/Linux/, Packaged/Windows/, ...). Addon-provided targets use
+    // their targetId instead (Packaged/homebrew.psp/, Packaged/homebrew.dreamcast/, ...),
+    // because multiple addon targets may share the same basePlatform and
+    // would otherwise collide / overwrite each other's output.
+    if (!mBuildState.mTargetId.empty())
+    {
+        const RegisteredBuildTarget* addonTarget =
+            EditorUIHookManager::Get() ?
+            EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str()) :
+            nullptr;
+        if (addonTarget != nullptr && !addonTarget->mIsBuiltIn)
+        {
+            packagedDir += mBuildState.mTargetId;
+        }
+        else
+        {
+            packagedDir += GetPlatformString(platform);
+        }
+    }
+    else
+    {
+        packagedDir += GetPlatformString(platform);
+    }
     packagedDir += "/";
     if (DoesDirExist(packagedDir.c_str()))
     {
@@ -1255,7 +1361,44 @@ void ActionManager::BuildPhase1()
             }
 
             std::string packFile = packDir + stub->mAsset->GetName() + ".oct";
-            stub->mAsset->SaveFile(packFile.c_str(), platform);
+
+            // Addon CookAsset override: if the resolved build target has a
+            // CookAsset callback and it claims this asset (returns non-zero),
+            // it has written its own cooked bytes into the Stream and we
+            // commit that to disk. Otherwise fall through to the default
+            // Asset::SaveFile path using the target's basePlatform for
+            // cook-format selection.
+            bool cookedByAddon = false;
+            if (!mBuildState.mTargetId.empty())
+            {
+                const RegisteredBuildTarget* target =
+                    EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
+                if (target != nullptr && target->mDesc.CookAsset != nullptr)
+                {
+                    PolyphaseBuildContext ctx{};
+                    ctx.structVersion     = POLYPHASE_BUILD_TARGET_API_VERSION;
+                    ctx.targetId          = target->mDesc.targetId;
+                    ctx.projectName       = mBuildState.mProjectName.c_str();
+                    ctx.projectDir        = mBuildState.mProjectDir.c_str();
+                    ctx.packageOutputDir  = mBuildState.mPackagedDir.c_str();
+                    ctx.basePlatform      = target->mDesc.basePlatform;
+                    ctx.embedded          = embedded ? 1 : 0;
+
+                    Stream stream;
+                    if (target->mDesc.CookAsset(&ctx, stub->mAsset->RuntimeName(),
+                                                static_cast<void*>(stub->mAsset),
+                                                static_cast<void*>(&stream)) != 0)
+                    {
+                        stream.WriteFile(packFile.c_str());
+                        cookedByAddon = true;
+                    }
+                }
+            }
+
+            if (!cookedByAddon)
+            {
+                stub->mAsset->SaveFile(packFile.c_str(), platform);
+            }
 
             if (true)
             {
@@ -1718,6 +1861,227 @@ void ActionManager::BuildPhase1()
     if (needCompile)
     {
         AppendBuildOutput("Setting up compilation...\n");
+
+        // Addon-provided build target override: if the active target carries
+        // a GetCompileCommand callback, it owns the compile invocation
+        // entirely — bypass the built-in MSBuild/Gradle/Makefile selection.
+        // The callback returns a single SYS_ExecFull-able shell command.
+        // Built-in targets leave GetCompileCommand null and fall through to
+        // the legacy switch path below.
+        if (!mBuildState.mTargetId.empty())
+        {
+            const RegisteredBuildTarget* addonTarget =
+                EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
+            if (addonTarget != nullptr && !addonTarget->mIsBuiltIn &&
+                addonTarget->mDesc.GetCompileCommand != nullptr)
+            {
+                PolyphaseBuildContext ctx{};
+                ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
+                ctx.targetId         = addonTarget->mDesc.targetId;
+                ctx.projectName      = projectName.c_str();
+                ctx.projectDir       = projectDir.c_str();
+                ctx.packageOutputDir = mBuildState.mPackagedDir.c_str();
+                ctx.engineDir        = polyphaseDirectory.c_str();
+                ctx.basePlatform     = addonTarget->mDesc.basePlatform;
+                ctx.embedded         = embedded ? 1 : 0;
+                ctx.runAfterBuild    = mBuildState.mRunAfterBuild ? 1 : 0;
+                ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
+
+                // Variant 2 — bridge-header generation. If the addon supplies
+                // a runtime via `platformExtensionDir`, resolve it to an
+                // absolute path and write `<projectDir>/Generated/PolyphasePlatform_*.h`
+                // files that #include the addon's headers directly. The engine's
+                // fork headers (SystemTypes.h, InputTypes.h, …) pick these up
+                // via `#if defined(POLYPHASE_PLATFORM_ADDON)`, so the engine
+                // source never has to know the new platform's name.
+                //
+                // Bridge files are regenerated on every build so a hot-reloaded
+                // addon's new path takes effect on the next click without leaving
+                // stale forwards on disk.
+                if (addonTarget->mDesc.platformExtensionDir != nullptr &&
+                    addonTarget->mDesc.platformExtensionDir[0] != '\0')
+                {
+                    NativeAddonManager* nam = NativeAddonManager::Get();
+                    const std::string addonRoot = (nam != nullptr)
+                        ? nam->FindAddonRootForBuildTarget(addonTarget->mDesc.targetId)
+                        : std::string();
+
+                    if (addonRoot.empty())
+                    {
+                        LogError("Addon target '%s' has platformExtensionDir set but no installed "
+                                 "addon advertises this id in native.buildTargets.",
+                                 addonTarget->mDesc.targetId);
+                        AppendBuildOutput("ERROR: cannot locate addon root for platform extension.\n");
+                        mBuildState.mComplete.store(true);
+                        mBuildState.mSuccess.store(false);
+                        return;
+                    }
+
+                    // Absolute path for file-existence probes (engine side).
+                    std::string extDirAbs = addonRoot;
+                    if (!extDirAbs.empty() && extDirAbs.back() != '/' && extDirAbs.back() != '\\') extDirAbs += '/';
+                    extDirAbs += addonTarget->mDesc.platformExtensionDir;
+                    if (!extDirAbs.empty() && extDirAbs.back() != '/' && extDirAbs.back() != '\\') extDirAbs += '/';
+                    // Forward slashes only — cl/psp-gcc both accept them, avoids
+                    // having to think about C-string escape rules in the #include
+                    // text.
+                    for (char& c : extDirAbs) { if (c == '\\') c = '/'; }
+
+                    // The bridge file lives at <projectDir>/Generated/<bridge>.h
+                    // and is compiled by the target toolchain — which may be
+                    // running in a different shell/sandbox than the editor
+                    // (e.g. psp-gcc inside WSL on a Windows host, where the
+                    // engine's Windows-side absolute path is unreachable).
+                    //
+                    // Workaround: when the addon lives under <projectDir>, emit
+                    // the include as a path RELATIVE to the bridge file. The
+                    // build then resolves identically in any shell that runs
+                    // make from cwd=<projectDir>. Falls back to the absolute
+                    // path if the addon is somewhere outside the project tree
+                    // (e.g. a global install cache) — in that case the user has
+                    // to live with whatever the host's compiler can resolve.
+                    std::string projDirNorm = projectDir;
+                    for (char& c : projDirNorm) { if (c == '\\') c = '/'; }
+                    if (!projDirNorm.empty() && projDirNorm.back() != '/') projDirNorm += '/';
+
+                    std::string extDirInclude;   // path used in the #include directive
+                    if (extDirAbs.size() > projDirNorm.size() &&
+                        extDirAbs.compare(0, projDirNorm.size(), projDirNorm) == 0)
+                    {
+                        // Strip projectDir prefix, prepend ".." (the bridge lives in
+                        // <projectDir>/Generated/, one level deep).
+                        extDirInclude = std::string("../") + extDirAbs.substr(projDirNorm.size());
+                    }
+                    else
+                    {
+                        // Addon outside the project — fall back to absolute. Users
+                        // building under WSL with a Windows-side addon will need
+                        // either to relocate the addon under <projectDir>/Packages/
+                        // or to set up a symlink. Document if it bites someone.
+                        extDirInclude = extDirAbs;
+                    }
+
+                    const std::string genDir = projectDir + "Generated/";
+                    if (!DoesDirExist(genDir.c_str())) CreateDir(genDir.c_str());
+
+                    auto writeBridge = [&](const char* fileName,
+                                           const char* addonHeaderName,
+                                           bool required) -> bool {
+                        // Existence probe uses the absolute path; the #include uses
+                        // the relative one.
+                        const std::string addonHeaderAbs     = extDirAbs     + addonHeaderName;
+                        const std::string addonHeaderInclude = extDirInclude + addonHeaderName;
+                        const bool hasIt = SYS_DoesFileExist(addonHeaderAbs.c_str(), false);
+                        const std::string outPath = genDir + fileName;
+
+                        Stream s;
+                        std::string body = "#pragma once\n";
+                        body += "// Auto-generated by Polyphase ActionManager for target: ";
+                        body += addonTarget->mDesc.targetId;
+                        body += "\n// Source addon root: ";
+                        body += addonRoot;
+                        body += "\n// DO NOT EDIT — regenerated on every build.\n\n";
+                        if (hasIt)
+                        {
+                            body += "#include \"";
+                            body += addonHeaderInclude;
+                            body += "\"\n";
+                        }
+                        else if (required)
+                        {
+                            body += "#error \"Addon ";
+                            body += addonTarget->mDesc.targetId;
+                            body += " is missing required platform extension header: ";
+                            body += addonHeaderName;
+                            body += "\"\n";
+                        }
+                        else
+                        {
+                            body += "// (Optional header not provided by this addon — engine falls back to its own stub.)\n";
+                        }
+                        s.WriteBytes((const uint8_t*)body.data(), (uint32_t)body.size());
+                        return s.WriteFile(outPath.c_str());
+                    };
+
+                    // Required: every addon-runtime target must supply these.
+                    bool ok = true;
+                    ok &= writeBridge("PolyphasePlatform_SystemTypes.h", "SystemTypes_Platform.h", true);
+                    ok &= writeBridge("PolyphasePlatform_InputTypes.h",  "InputTypes_Platform.h",  true);
+                    ok &= writeBridge("PolyphasePlatform_AudioTypes.h",  "AudioTypes_Platform.h",  true);
+                    // Optional: network is allowed to stub if the platform has no net.
+                    writeBridge("PolyphasePlatform_NetworkTypes.h", "NetworkTypes_Platform.h", false);
+
+                    if (!ok)
+                    {
+                        LogError("Failed to write platform bridge headers under '%s'.", genDir.c_str());
+                        mBuildState.mComplete.store(true);
+                        mBuildState.mSuccess.store(false);
+                        return;
+                    }
+
+                    AppendBuildOutput("Wrote Variant 2 platform bridges to Generated/.\n");
+                }
+
+                // Optional PreCook step (fires here once, before compile —
+                // addons that need per-build setup hook in via this).
+                if (addonTarget->mDesc.PreCook != nullptr)
+                {
+                    if (addonTarget->mDesc.PreCook(&ctx) == 0)
+                    {
+                        LogError("Addon target '%s' PreCook returned failure.", addonTarget->mDesc.targetId);
+                        AppendBuildOutput("ERROR: addon PreCook step failed.\n");
+                        mBuildState.mComplete.store(true);
+                        mBuildState.mSuccess.store(false);
+                        return;
+                    }
+                }
+
+                char cmdBuf[4096] = {0};
+                if (addonTarget->mDesc.GetCompileCommand(&ctx, cmdBuf, sizeof(cmdBuf)) == 0 ||
+                    cmdBuf[0] == '\0')
+                {
+                    LogError("Addon target '%s' GetCompileCommand failed.", addonTarget->mDesc.targetId);
+                    AppendBuildOutput("ERROR: addon GetCompileCommand failed.\n");
+                    mBuildState.mComplete.store(true);
+                    mBuildState.mSuccess.store(false);
+                    return;
+                }
+                mBuildState.mCompileCommand = cmdBuf;
+
+                // Compute the post-compile exe path from the addon if it
+                // provides a GetCompiledBinaryPath callback; otherwise fall
+                // back to <compiledBinaryDir>/<projectName><binaryExtension>.
+                char binPath[1024] = {0};
+                std::string addonBinaryPath;
+                if (addonTarget->mDesc.GetCompiledBinaryPath != nullptr &&
+                    addonTarget->mDesc.GetCompiledBinaryPath(&ctx, binPath, sizeof(binPath)) != 0 &&
+                    binPath[0] != '\0')
+                {
+                    addonBinaryPath = binPath;
+                }
+                else
+                {
+                    std::string ext = addonTarget->mDesc.binaryExtension ? addonTarget->mDesc.binaryExtension : "";
+                    addonBinaryPath = buildProjDir + "Build/" + std::string(addonTarget->mDesc.targetId) + "/" +
+                                       (standalone ? "Polyphase" : projectName) + ext;
+                }
+                mBuildState.mExeSrc = addonBinaryPath;
+                mBuildState.mExtension = addonTarget->mDesc.binaryExtension ? addonTarget->mDesc.binaryExtension : "";
+                mBuildState.mExeMTimeBeforeBuild = CheckExeIntegrity(addonBinaryPath).mtime;
+
+                if (IsHeadless())
+                {
+                    // Headless path: the caller (above) will run the compile
+                    // synchronously and then call FinalizeLocalBuild.
+                }
+                else
+                {
+                    mBuildState.mRunning.store(true);
+                    mBuildState.mBuildThread = std::thread(&ActionManager::BuildCompileThreadFunc, this);
+                }
+                return;
+            }
+        }
 
         if (platform == Platform::Windows)
         {
@@ -2391,11 +2755,30 @@ void ActionManager::FinalizeLocalBuild()
         }
     }
 
+    // Resolve once whether we're shipping for an addon-provided target —
+    // several downstream branches need this and recomputing per-branch is
+    // both noisy and racy (the registry could change between calls).
+    bool isAddonTarget = false;
+    if (!mBuildState.mTargetId.empty())
+    {
+        const RegisteredBuildTarget* t =
+            EditorUIHookManager::Get() ?
+            EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str()) :
+            nullptr;
+        isAddonTarget = (t != nullptr && !t->mIsBuiltIn);
+    }
+
     // Copy the executable into the Packaged folder
     SYS_CopyDirectory(exeSrc.c_str(), packagedDir.c_str());
 
-    // Delete the built binary so a stale file isn't copied on a subsequent failed build
-    if (needCompile)
+    // Delete the built binary so a stale file isn't copied on a subsequent
+    // failed build. For ADDON targets we keep the .elf — make's incremental
+    // logic will short-circuit if the .elf exists, and the addon's stage
+    // step won't re-fire to repopulate Build/PSP/ unless we clobber the
+    // intermediate cache anyway. The "stale file copy" concern doesn't apply
+    // because the addon's PostPackage regenerates EBOOT.PBP from the .elf
+    // every build.
+    if (needCompile && !isAddonTarget)
     {
         SYS_RemoveFile(exeSrc.c_str());
     }
@@ -2405,7 +2788,12 @@ void ActionManager::FinalizeLocalBuild()
     // host-specific binaries should put them under nativePerPlatform.<P>.copyBinaries.
     CopyAddonBinariesToPackaged(packagedDir, platform);
 
-    if (standalone)
+    // Engine-built standalone exes ship as "Polyphase.<ext>" and need renaming
+    // to "<projectName>.<ext>" so the launcher's project resolution works.
+    // Addon-built binaries are already named correctly by their own
+    // GetCompiledBinaryPath callback — skip the rename for them, otherwise
+    // it tries to move a "Polyphase.pbp" that never existed.
+    if (standalone && !isAddonTarget)
     {
         SYS_MoveFile((packagedDir + "Polyphase" + extension).c_str(), (packagedDir + projectName + extension).c_str());
     }
@@ -2420,8 +2808,14 @@ void ActionManager::FinalizeLocalBuild()
         idStream.WriteFile((packagedDir + "steam_appid.txt").c_str());
     }
 
-    // Verify executable
-    if (!SYS_DoesFileExist((packagedDir + projectName + extension).c_str(), false))
+    // Verify executable — but only for built-in targets where the post-copy
+    // file naming matches `<projectName><binaryExtension>`. Addon-provided
+    // targets often have non-standard output layouts (e.g. PSP's PostPackage
+    // produces EBOOT.PBP, not <projectName>.pbp), so we defer that
+    // validation to the addon itself: PostPackage already returns a
+    // success/failure code and we honour that below.
+    if (!isAddonTarget &&
+        !SYS_DoesFileExist((packagedDir + projectName + extension).c_str(), false))
     {
         LogError("Packaged executable not found: %s", (packagedDir + projectName + extension).c_str());
         LogError("Packaging failed. Please check the log for errors.");
@@ -2439,6 +2833,45 @@ void ActionManager::FinalizeLocalBuild()
 
     LogDebug("Finished packaging!");
 
+    // Addon PostPackage: gives addon-provided targets a chance to wrap the
+    // packaged dir into a console-native image (Dreamcast .cdi, PS2 .iso,
+    // Xbox .xbe / .xiso, 3DS .cia, NDS .nds-rom, ...). Built-in targets
+    // leave PostPackage null and skip this block.
+    if (!mBuildState.mTargetId.empty())
+    {
+        const RegisteredBuildTarget* addonTarget =
+            EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
+        if (addonTarget != nullptr && !addonTarget->mIsBuiltIn &&
+            addonTarget->mDesc.PostPackage != nullptr)
+        {
+            PolyphaseBuildContext ctx{};
+            ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
+            ctx.targetId         = addonTarget->mDesc.targetId;
+            ctx.projectName      = projectName.c_str();
+            ctx.projectDir       = projectDir.c_str();
+            ctx.packageOutputDir = packagedDir.c_str();
+            ctx.basePlatform     = addonTarget->mDesc.basePlatform;
+            ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
+
+            if (addonTarget->mDesc.PostPackage(&ctx) == 0)
+            {
+                LogError("Addon target '%s' PostPackage returned failure.", addonTarget->mDesc.targetId);
+                AppendBuildOutput("ERROR: addon PostPackage failed.\n");
+                EditorUIHookManager* hookMgrFail = EditorUIHookManager::Get();
+                if (hookMgrFail != nullptr) hookMgrFail->FireOnPackageFinished((int32_t)platform, false);
+                if (hookMgrFail != nullptr) hookMgrFail->FireOnPostBuild((int32_t)platform, false);
+                // Mark the build done so Update() doesn't re-fire FinalizeLocalBuild
+                // every tick. Without this the modal-pending state stays alive and
+                // PostPackage gets retried every frame (visible as a flood of
+                // "PostPackage returned failure" + xcopy lines in the log).
+                mBuildState.mComplete.store(true);
+                mBuildState.mSuccess.store(false);
+                mShowBuildModal = false;
+                return;
+            }
+        }
+    }
+
     // Save build manifest for incremental builds
     BuildCache* cache = BuildCache::Get();
     if (cache != nullptr)
@@ -2455,6 +2888,51 @@ void ActionManager::FinalizeLocalBuild()
     if (mBuildState.mRunAfterBuild)
     {
         std::string outputPath = packagedDir + projectName + extension;
+
+        // Addon-provided run/launch override. If the active target supplies
+        // RunOnDevice / RunInEmulator callbacks, prefer those over the
+        // built-in launcher path so console addons can ship their own
+        // hardware-deploy / emulator-launch logic.
+        if (!mBuildState.mTargetId.empty())
+        {
+            const RegisteredBuildTarget* addonTarget =
+                EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
+            if (addonTarget != nullptr && !addonTarget->mIsBuiltIn)
+            {
+                PolyphaseBuildContext ctx{};
+                ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
+                ctx.targetId         = addonTarget->mDesc.targetId;
+                ctx.projectName      = projectName.c_str();
+                ctx.projectDir       = projectDir.c_str();
+                ctx.packageOutputDir = packagedDir.c_str();
+                ctx.basePlatform     = addonTarget->mDesc.basePlatform;
+                ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
+                ctx.runAfterBuild    = 1;
+                ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
+
+                char cmdBuf[2048] = {0};
+                bool handled = false;
+                if (mBuildState.mRunOnDevice && addonTarget->mDesc.RunOnDevice != nullptr &&
+                    addonTarget->mDesc.RunOnDevice(&ctx, cmdBuf, sizeof(cmdBuf)) != 0 && cmdBuf[0] != '\0')
+                {
+                    LogDebug("Addon RunOnDevice: %s", cmdBuf);
+                    SYS_Exec(cmdBuf);
+                    handled = true;
+                }
+                else if (!mBuildState.mRunOnDevice && addonTarget->mDesc.RunInEmulator != nullptr &&
+                         addonTarget->mDesc.RunInEmulator(&ctx, cmdBuf, sizeof(cmdBuf)) != 0 && cmdBuf[0] != '\0')
+                {
+                    LogDebug("Addon RunInEmulator: %s", cmdBuf);
+                    SYS_Exec(cmdBuf);
+                    handled = true;
+                }
+                if (handled)
+                {
+                    mShowBuildModal = false;
+                    return;
+                }
+            }
+        }
 
         if (mBuildState.mRunOnDevice && platform == Platform::N3DS)
         {

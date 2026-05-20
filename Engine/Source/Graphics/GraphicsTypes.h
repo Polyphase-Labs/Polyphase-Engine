@@ -125,6 +125,15 @@ struct TextureResource
 {
 #if API_VULKAN
     Image* mImage = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // PSPGU / generic-addon storage. Fields are POD; addon code owns them.
+    void*    mPixels    = nullptr;
+    uint32_t mWidth     = 0;
+    uint32_t mHeight    = 0;
+    uint32_t mBufWidth  = 0;     // pitch in pixels (power-of-two or 16-aligned)
+    uint16_t mPsm       = 0;     // GU_PSM_* value
+    uint8_t  mMipCount  = 0;
+    uint8_t  mSwizzled  = 0;     // 0 = linear, 1 = swizzled
 #elif API_GX
     GXTexObj mGxTexObj = {};
     TPLFile mTplFile = {};
@@ -163,6 +172,16 @@ struct StaticMeshResource
 #if API_VULKAN
     Buffer* mVertexBuffer = nullptr;
     Buffer* mIndexBuffer = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // PSPGU stores pre-packed vertices in PSP format (tex/color/normal/pos
+    // interleaved). Counts are kept so the draw can issue sceGuDrawArray
+    // without re-querying the StaticMesh asset.
+    void*    mVertexData     = nullptr;
+    void*    mIndexData      = nullptr;
+    uint32_t mNumVertices    = 0;
+    uint32_t mNumIndices     = 0;
+    uint32_t mVertexStride   = 0;       // bytes per PSP vertex
+    uint32_t mVertexFlags    = 0;       // sceGuDrawArray mode bits for THIS mesh
 #elif API_GX
     void* mDisplayList = nullptr;
     uint32_t mDisplayListSize = 0;
@@ -189,6 +208,8 @@ struct StaticMeshCompResource
 {
 #if API_VULKAN
     Buffer* mColorVertexBuffer = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    void* mColorVertexData = nullptr;       // instance colour buffer
 #elif API_C3D
     void* mColorVertexData = nullptr;
 #endif
