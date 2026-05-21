@@ -25,6 +25,8 @@
 
 #include <string>
 #include <functional>
+#include <cstdlib>  // strtoull
+#include <cctype>   // tolower for case-insensitive FAT extension matching
 
 #if EDITOR
 #include "Editor/EditorState.h"
@@ -258,11 +260,17 @@ AssetStub* AssetManager::RegisterAsset(const std::string& filename, TypeId type,
         }
     }
 
-    // Check for existing asset with same path (rediscovery)
+    // Check for existing asset with same path (rediscovery).
+    // Warn loud: silently dropping a second registration was the original
+    // "asset never resolves at runtime" footgun, so keep the noise here.
     auto foundByPath = mAssetPathMap.find(relativePath);
     if (foundByPath != mAssetPathMap.end())
     {
-        LogDebug("Register asset skipped. Asset already exists at path: %s", relativePath.c_str());
+        LogWarning("RegisterAsset path-skip '%s' (existing path='%s' uuid=0x%llx; new uuid=0x%llx is lost)",
+                   relativePath.c_str(),
+                   foundByPath->second->mPath.c_str(),
+                   (unsigned long long)foundByPath->second->mUuid,
+                   (unsigned long long)uuid);
         return foundByPath->second;
     }
 
@@ -272,10 +280,13 @@ AssetStub* AssetManager::RegisterAsset(const std::string& filename, TypeId type,
         uuid = Maths::GenerateAssetUuid();
     }
 
-    // Check for UUID collision (should be extremely rare)
+    // UUID collision (should be extremely rare)
     if (mUuidMap.find(uuid) != mUuidMap.end())
     {
-        LogWarning("UUID collision detected for %s, regenerating", name.c_str());
+        AssetStub* collider = mUuidMap.find(uuid)->second;
+        LogWarning("RegisterAsset uuid-collision '%s' uuid=0x%llx already used by path='%s' -- regenerating",
+                   name.c_str(), (unsigned long long)uuid,
+                   collider != nullptr ? collider->mPath.c_str() : "<null>");
         uuid = Maths::GenerateAssetUuid();
     }
 
@@ -291,7 +302,9 @@ AssetStub* AssetManager::RegisterAsset(const std::string& filename, TypeId type,
     stub->mPath = path;
     stub->mUuid = uuid;
 
-    // Populate name map (first registered wins for same name)
+    // Populate name map (first registered wins for same name). UUID is still
+    // registered below, so UUID-based lookups for the loser keep working —
+    // only name-based lookups will hit the winner. Warn so that's visible.
     auto foundByName = mAssetMap.find(name);
     if (foundByName == mAssetMap.end())
     {
@@ -299,8 +312,12 @@ AssetStub* AssetManager::RegisterAsset(const std::string& filename, TypeId type,
     }
     else
     {
-        // Same name exists - this is now allowed with UUIDs
-        LogDebug("Asset with same name already exists: %s (use path or UUID to disambiguate)", name.c_str());
+        LogWarning("RegisterAsset name-collision '%s' (existing path='%s' uuid=0x%llx; this path='%s' uuid=0x%llx — name lookup will hit existing)",
+                   name.c_str(),
+                   foundByName->second->mPath.c_str(),
+                   (unsigned long long)foundByName->second->mUuid,
+                   path.c_str(),
+                   (unsigned long long)uuid);
     }
 
     // Populate path map
@@ -437,9 +454,37 @@ bool AssetManager::IsPurging() const
 void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
 {
     std::vector<std::string> subDirectories;
-    DirEntry dirEntry = { };
+    std::vector<std::string> fileNames;
 
-    SYS_OpenDirectory(directory->mPath, dirEntry);
+    // Phase 1: drain the directory into vectors FIRST, then close it, then
+    // process files. The original code did per-file Stream::ReadFile inside
+    // the dir loop, but interleaving sceIoOpen with sceIoDread on PSP makes
+    // sceIoDread terminate early and silently drop the rest of the directory.
+    // Two-phase iteration eliminates the intermixed-I/O hazard.
+    {
+        DirEntry dirEntry = {};
+        SYS_OpenDirectory(directory->mPath, dirEntry);
+
+        while (dirEntry.mValid)
+        {
+            if (dirEntry.mDirectory)
+            {
+                // Ignore "." and ".."
+                if (dirEntry.mFilename[0] != '.')
+                {
+                    subDirectories.push_back(dirEntry.mFilename);
+                }
+            }
+            else
+            {
+                fileNames.push_back(dirEntry.mFilename);
+            }
+
+            SYS_IterateDirectory(dirEntry);
+        }
+
+        SYS_CloseDirectory(dirEntry);
+    }
 
 #if EDITOR
     // Per-file tick counter (static so the count is per-recursion, not
@@ -447,84 +492,102 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
     static thread_local uint32_t sDiscoverTickCounter = 0;
 #endif
 
-    while (dirEntry.mValid)
+    // Phase 2: Process files. The directory handle is closed, so it's safe to
+    // open each .oct file to read its header.
+    for (const std::string& fnameRaw : fileNames)
     {
+        // FAT short-name (8.3) entries come back from sceIoDread as ALL
+        // UPPERCASE (e.g. `TENT.OCT` for a file the editor saved as
+        // `tent.oct`). Lowercase the whole filename only when it contains no
+        // lowercase letters — otherwise we'd corrupt legitimately mixed-case
+        // names like `BeachBG.oct` that have a long filename entry. The file
+        // on disk can be opened with any case since FAT is case-insensitive,
+        // so this only normalises the registered asset NAME.
+        std::string fname = fnameRaw;
+        {
+            bool hasLower = false;
+            for (char c : fname)
+            {
+                if (c >= 'a' && c <= 'z') { hasLower = true; break; }
+            }
+            if (!hasLower)
+            {
+                for (char& c : fname)
+                {
+                    c = (char)tolower((unsigned char)c);
+                }
+            }
+        }
+
 #if EDITOR
         if ((sDiscoverTickCounter++ & 31) == 0 && EditorProgress::IsActive())
         {
-            std::string label = std::string("Discovering: ") + directory->mPath + dirEntry.mFilename;
-            // Indeterminate -- we don't know the total file count without a
-            // pre-pass, and the recursion makes that expensive too. Pass
-            // total=0 to keep the bar in sine-marquee mode.
+            std::string label = std::string("Discovering: ") + directory->mPath + fname;
             EditorProgress::Step(label.c_str(), 0, 0);
         }
 #endif
-        if (dirEntry.mDirectory)
+
+        const char* extension = strrchr(fname.c_str(), '.');
+
+        // Case-insensitive extension match — see comment above re: FAT 8.3.
+        char extLower[16] = {};
+        if (extension != nullptr)
         {
-            // Ignore this directory and parent directory.
-            if (dirEntry.mFilename[0] != '.')
+            size_t i = 0;
+            for (const char* p = extension; *p != '\0' && i < sizeof(extLower) - 1; ++p, ++i)
             {
-                subDirectories.push_back(dirEntry.mFilename);
+                extLower[i] = (char)tolower((unsigned char)*p);
             }
         }
+
+        // Skip {asset}.meta sidecars entirely — they're paired metadata,
+        // not first-class assets. They get loaded on demand alongside
+        // their parent asset (see LoadAssetMeta below).
+        if (extension != nullptr && strcmp(extLower, ".meta") == 0)
+        {
+            // intentionally empty — neither register nor track
+        }
+        else if (extension != nullptr &&
+            strcmp(extLower, ".oct") == 0)
+        {
+            Stream stream;
+            std::string path = directory->mPath + fname;
+            // Read enough bytes for header with UUID (magic + version + type + embedded + uuid)
+            stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t));
+
+            AssetHeader header = Asset::ReadHeader(stream);
+
+            // Pass UUID from header (may be 0 for legacy assets, RegisterAsset will generate one)
+            AssetStub* stub = RegisterAsset(fname, header.mType, directory, nullptr, engineDir, header.mUuid);
+#if EDITOR
+            // Apply paired {asset}.oct.meta sidecar (if any) to the stub.
+            if (stub != nullptr)
+            {
+                AssetMetaSidecar meta = LoadAssetMeta(path);
+                stub->mPlatformMask = meta.mPlatformMask;
+                stub->mEmbed        = meta.mEmbed;
+            }
+#endif
+        }
+#if EDITOR
         else
         {
-            // TODO: Read the asset header to check the asset type.
-            const char* extension = strrchr(dirEntry.mFilename, '.');
+            // Raw asset (.mp4, .json, .png, .txt, …). Track it for the
+            // editor browser AND for packaging-time copy/embed decisions.
+            directory->mLooseFiles.push_back(fname);
 
-            // Skip {asset}.meta sidecars entirely — they're paired metadata,
-            // not first-class assets. They get loaded on demand alongside
-            // their parent asset (see LoadAssetMeta below).
-            if (extension != nullptr && strcmp(extension, ".meta") == 0)
-            {
-                // intentionally empty — neither register nor track
-            }
-            else if (extension != nullptr &&
-                strcmp(extension, ".oct") == 0)
-            {
-                Stream stream;
-                std::string path = directory->mPath + dirEntry.mFilename;
-                // Read enough bytes for header with UUID (magic + version + type + embedded + uuid)
-                stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t));
+            const std::string absPath = directory->mPath + fname;
+            AssetMetaSidecar meta = LoadAssetMeta(absPath);
 
-                AssetHeader header = Asset::ReadHeader(stream);
-
-                // Pass UUID from header (may be 0 for legacy assets, RegisterAsset will generate one)
-                AssetStub* stub = RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
-#if EDITOR
-                // Apply paired {asset}.oct.meta sidecar (if any) to the stub.
-                if (stub != nullptr)
-                {
-                    AssetMetaSidecar meta = LoadAssetMeta(path);
-                    stub->mPlatformMask = meta.mPlatformMask;
-                    stub->mEmbed        = meta.mEmbed;
-                }
-#endif
-            }
-#if EDITOR
-            else
-            {
-                // Raw asset (.mp4, .json, .png, .txt, …). Track it for the
-                // editor browser AND for packaging-time copy/embed decisions.
-                directory->mLooseFiles.push_back(dirEntry.mFilename);
-
-                const std::string absPath = directory->mPath + dirEntry.mFilename;
-                AssetMetaSidecar meta = LoadAssetMeta(absPath);
-
-                RawAssetEntry entry;
-                entry.mAbsolutePath = absPath;
-                entry.mEngineAsset  = engineDir;
-                entry.mPlatformMask = meta.mPlatformMask;
-                entry.mEmbed        = meta.mEmbed;
-                mRawAssetEntries.push_back(std::move(entry));
-            }
-#endif
+            RawAssetEntry entry;
+            entry.mAbsolutePath = absPath;
+            entry.mEngineAsset  = engineDir;
+            entry.mPlatformMask = meta.mPlatformMask;
+            entry.mEmbed        = meta.mEmbed;
+            mRawAssetEntries.push_back(std::move(entry));
         }
-
-        SYS_IterateDirectory(dirEntry);
+#endif
     }
-
-    SYS_CloseDirectory(dirEntry);
 
     // Discover assets of subdirectories.
     for (uint32_t i = 0; i < subDirectories.size(); ++i)
@@ -639,7 +702,7 @@ void AssetManager::Discover(const char* directoryName, const char* directoryPath
 {
     SCOPED_STAT("DiscoverAssets");
 
-    // Make sure directory path ends with 
+    // Make sure directory path ends with /
     std::string dirPath = directoryPath;
     if (dirPath.size() > 0 && dirPath[dirPath.size() - 1] != '/')
     {
@@ -651,7 +714,7 @@ void AssetManager::Discover(const char* directoryName, const char* directoryPath
     newDir->mEngineDir = isEngineDir;
 
     // Recursively iterate through Asset directory and find any .oct asset
-    // and register an Asset to the map. At this point, we also want to read the oct 
+    // and register an Asset to the map. At this point, we also want to read the oct
     // header and determine the asset type so we can instantiate the correct Asset derived class.
 
     DiscoverDirectory(newDir, isEngineDir);
@@ -689,13 +752,60 @@ void AssetManager::DiscoverAssetRegistry(const char* registryPath)
 
             strncpy(typeString, line, 31);
             typeString[31] = '\0';
-            strncpy(filename, comma + 1, MAX_PATH_SIZE - 1);
 
-            // Replace newline with null terminator
-            filename[strcspn(filename, "\r\n")] = 0;
+            // Registry format:
+            //   New: TYPE,PATH,UUID_HEX  (UUID baked in at cook time)
+            //   Old: TYPE,PATH           (re-read .oct header to recover UUID)
+            // Detect new format by the presence of a second comma.
+            char* uuidComma = strchr(comma + 1, ',');
+            uint64_t fileUuid = 0;
+
+            if (uuidComma != nullptr)
+            {
+                *uuidComma = '\0';
+                strncpy(filename, comma + 1, MAX_PATH_SIZE - 1);
+                filename[MAX_PATH_SIZE - 1] = '\0';
+                filename[strcspn(filename, "\r\n")] = 0;
+                fileUuid = strtoull(uuidComma + 1, nullptr, 16);
+            }
+            else
+            {
+                strncpy(filename, comma + 1, MAX_PATH_SIZE - 1);
+                filename[strcspn(filename, "\r\n")] = 0;
+            }
 
             TypeId assetType = Asset::GetTypeIdFromName(typeString);
-            RegisterAsset(filename, assetType, mRootDirectory, nullptr, false);
+
+            if (fileUuid == 0)
+            {
+                // Legacy registry path: re-read the .oct header to recover the
+                // UUID. Without this, RegisterAsset (called below) sees uuid==0
+                // and generates a random one, which guarantees UUID lookup
+                // failure later for every asset discovered via the registry
+                // path. The registry's `filename` is project-relative
+                // (e.g. "BuildTarget-PSP/Assets/Models/colormap.oct") so we
+                // prepend the project directory to actually open the file.
+                std::string absPath = GetEngineState()->mProjectDirectory + filename;
+                Stream hdrStream;
+                hdrStream.ReadFile(absPath.c_str(), false);
+                if (hdrStream.GetData() != nullptr && hdrStream.GetSize() >= sizeof(AssetHeader))
+                {
+                    AssetHeader header = Asset::ReadHeader(hdrStream);
+                    fileUuid = header.mUuid;
+                }
+
+                if (fileUuid == 0)
+                {
+                    // Loud — silent failure here is what caused the PSP
+                    // "Asset UUID 0x... not found, falling back to name" bug.
+                    // Once the registry is regenerated with the new 3-field
+                    // format this branch never runs.
+                    LogWarning("DiscoverRegistry: '%s' header re-read failed (size=%u); registering with random UUID -- scene refs to this asset will UUID-miss",
+                               filename, (unsigned)hdrStream.GetSize());
+                }
+            }
+
+            RegisterAsset(filename, assetType, mRootDirectory, nullptr, false, fileUuid);
         }
     }
     else
@@ -718,11 +828,22 @@ void AssetManager::DiscoverEmbeddedAssets(EmbeddedFile* assets, uint32_t numAsse
             Stream stream(embeddedAsset->mData, glm::min((uint32_t)embeddedAsset->mSize, headerSize));
 
             AssetHeader header = Asset::ReadHeader(stream);
-            AssetStub* stub = GetAssetStub(embeddedAsset->mName);
+            AssetStub* existing = GetAssetStub(embeddedAsset->mName);
 
-            if (stub == nullptr)
+            if (existing == nullptr)
             {
-                stub = RegisterAsset(embeddedAsset->mName, header.mType, nullptr, embeddedAsset, embeddedAsset->mEngine, header.mUuid);
+                RegisterAsset(embeddedAsset->mName, header.mType, nullptr, embeddedAsset, embeddedAsset->mEngine, header.mUuid);
+            }
+            else
+            {
+                // Loud — the existing stub wins by name, so this embedded
+                // entry's UUID never gets registered and any scene reference
+                // by that UUID will silently miss.
+                LogWarning("DiscoverEmbeddedAssets skip '%s' -- stub already exists (existing uuid=0x%llx path='%s'; embedded uuid=0x%llx is lost)",
+                           embeddedAsset->mName,
+                           (unsigned long long)existing->mUuid,
+                           existing->mPath.c_str(),
+                           (unsigned long long)header.mUuid);
             }
         }
     }

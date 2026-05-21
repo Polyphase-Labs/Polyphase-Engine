@@ -66,6 +66,11 @@ struct PolyphaseBuildContext
     int32_t     embedded;               /* non-zero if assets are embedded in the binary */
     int32_t     runAfterBuild;          /* non-zero if user pressed Build & Run */
     int32_t     runOnDevice;            /* non-zero if user wants real-hardware run */
+    int32_t     forceRebuild;           /* non-zero when "Force Rebuild" was checked.
+                                           Addons should clean their per-target build
+                                           artifacts (e.g. `make clean`, delete .o files)
+                                           inside GetCompileCommand or PreCook before
+                                           kicking off their toolchain. */
 
     /* Addon-owned per-build state. The engine never touches this. */
     void*       userData;
