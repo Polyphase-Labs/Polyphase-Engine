@@ -165,7 +165,15 @@
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:7890/api/scene\" -UseBasicParsing -TimeoutSec 5; Write-Output \"STATUS: $\\($r.StatusCode\\)\"; Write-Output $r.Content } catch { Write-Output \"ERR: $\\($_.Exception.Message\\)\" })",
       "PowerShell(Test-NetConnection *)",
       "Bash(xxd ./Engine/Assets/Materials/SkyboxDay/M_SkyboxDay.oct)",
-      "Bash(cd M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine *)"
+      "Bash(cd M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine *)",
+      "Bash(cp -v 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.build.target.psp/Runtime/PSP/Graphics_PSPGU/Graphics_PSPGU.cpp' 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-DevEnv/Packages/com.polyphase.build.target.psp/Runtime/PSP/Graphics_PSPGU/Graphics_PSPGU.cpp')",
+      "Bash(rm -fv 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Graphics_PSPGU.o' 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/BuildTarget-PSP.elf' 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Build/PSP/BuildTarget-PSP.elf')",
+      "Bash(cp -v 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.build.target.psp/README.md' 'M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-DevEnv/Packages/com.polyphase.build.target.psp/README.md')",
+      "Bash(hexdump -C \"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Packaged\\\\homebrew.psp\\\\BuildTarget-PSP\\\\Assets\\\\Scenes\\\\SC_Default.oct\")",
+      "Read(//c/temp/**)",
+      "PowerShell(Format-Hex *)",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Packaged\\\\homebrew.psp\\\\BuildTarget-PSP\\\\Assets\\\\Models\\\\tree.oct\"\\) ; Write-Output \"Tree.oct UUID bytes at offset 0x0C:\" ; [BitConverter]::ToUInt64\\($bytes, 12\\) | Write-Output ; $bytes[12..19] | ForEach-Object { Write-Output $_.ToString\\('X2'\\) } -join ' ')",
+      "PowerShell($srcTree = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Models\\\\tree.oct\"\\) ; $srcColormap = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Materials\\\\colormap.oct\"\\) ; Write-Output \"SOURCE tree.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcTree[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`nSOURCE colormap.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcColormap[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`n=== SOURCE tree.oct hex dump ===\" ; $srcTree[0..79] | Format-Hex)"
     ]
   }
 }

@@ -102,6 +102,28 @@ output paths and a handful of helper trampolines:
 | `SetProfileSetting(key, val)` | Write/overwrite a per-profile option.                               |
 | `ResolvePath(rel, …)`      | Resolve a relative path against `projectDir`.                          |
 
+**`forceRebuild` field**: non-zero when the user checked "Force Rebuild" in the
+Packaging panel. Addons should clean their per-target build artifacts (e.g.
+`make clean`, delete `.o` / `.d` files) inside `GetCompileCommand` or `PreCook`
+before kicking off their toolchain. The engine itself already wipes the
+project-level `Intermediate/` cache and the per-target `Packaged/<id>/` dir
+when this flag is set; addons only need to handle their own build outputs.
+
+Reference (PSP addon's `GetCompileCommand`):
+
+```cpp
+if (ctx->forceRebuild)
+{
+    cleanPrefix =
+        "(cd " + ShellPath(ctx->projectDir) +
+        " && rm -f *.o *.d *.elf 2>/dev/null; true) && ";
+}
+std::snprintf(outCmd, cap, "%s%smake -C %s -f %s -j%d",
+              wslPrefix.c_str(), cleanPrefix.c_str(),
+              ShellPath(projectDir).c_str(),
+              ShellPath(makefilePath).c_str(), jobs);
+```
+
 **Lifetime caveat:** the context pointer and every string it holds are valid
 only for the duration of one callback invocation. Copy out anything you need
 to keep.

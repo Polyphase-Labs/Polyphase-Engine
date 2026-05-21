@@ -295,6 +295,10 @@ struct QuadResource
 {
 #if API_VULKAN
     MultiBuffer* mVertexBuffer = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // PSP UI path: pre-repacked PSP vertex layout (tex/color/pos), 24 B/vtx.
+    void*    mVertexData     = nullptr;
+    uint32_t mVertexCapacity = 0;       // bytes
 #elif API_C3D
     DoubleBuffer mVertexData;
 #endif
@@ -305,6 +309,9 @@ struct PolyResource
 #if API_VULKAN
     MultiBuffer* mVertexBuffer = nullptr;
     uint32_t mNumVerts = 0;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    void*    mVertexData     = nullptr;
+    uint32_t mVertexCapacity = 0;
 #elif API_C3D
     DoubleBuffer mVertexData;
 #endif
@@ -314,6 +321,10 @@ struct TextResource
 {
 #if API_VULKAN
     MultiBuffer* mVertexBuffer = nullptr;
+    uint32_t mNumBufferCharsAllocated = 0;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    void*    mVertexData              = nullptr;
+    uint32_t mVertexCapacity          = 0;       // bytes
     uint32_t mNumBufferCharsAllocated = 0;
 #elif API_C3D
     DoubleBuffer mVertexData;

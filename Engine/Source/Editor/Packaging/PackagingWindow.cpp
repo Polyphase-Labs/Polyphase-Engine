@@ -30,6 +30,7 @@ BuildProfile* sActiveProfileForOptionsTrampoline = nullptr;
 #include <cstdio>
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 
 #if PLATFORM_LINUX
 #include <sys/wait.h>
@@ -46,6 +47,31 @@ PackagingWindow* GetPackagingWindow()
 {
     return &sPackagingWindow;
 }
+
+// Cache for BuildTarget Validate() results. Without this, the target-combo
+// tooltip code calls addon Validate every frame the cursor hovers a Selectable.
+// PSP's Validate shells out via `wsl bash -lc` (std::system), so a hover on
+// the PSP entry was freezing the editor for the duration of every WSL spawn —
+// up to 45s on a cold WSL, and indefinitely if WSL had hung.
+//
+// Validation now runs on a detached background thread; the main thread reads
+// the cached state under a mutex and shows "Checking..." while pending.
+namespace
+{
+    struct ValidateCacheEntry
+    {
+        enum State { kIdle, kPending, kOk, kFailed };
+        State state = kIdle;
+        std::string reason;
+        double lastCheckedTime = 0.0;
+    };
+}
+static std::unordered_map<std::string, ValidateCacheEntry> sValidateCache;
+static std::mutex sValidateCacheMutex;
+// Re-run Validate at most this often per target. Toolchains don't appear and
+// disappear in real time — a generous TTL keeps the tooltip responsive without
+// papering over a real env change forever.
+constexpr double kValidateTTLSeconds = 60.0;
 
 namespace
 {
@@ -459,10 +485,61 @@ void PackagingWindow::DrawProfileSettings()
                 }
                 if (ImGui::IsItemHovered())
                 {
-                    char reason[256] = {0};
-                    if (t.mDesc.Validate != nullptr && t.mDesc.Validate(reason, sizeof(reason)) == 0)
+                    // Snapshot cache state under the lock and decide whether to
+                    // kick off a background revalidation. Keep the lock window
+                    // tiny — the validate call itself runs outside the lock,
+                    // on a detached thread, so a slow/hung addon can never
+                    // block the editor's main thread.
+                    auto validateFn = t.mDesc.Validate;
+                    const std::string targetId = t.mTargetId;
+                    const double now = ImGui::GetTime();
+
+                    ValidateCacheEntry snapshot;
+                    bool kickOff = false;
                     {
-                        ImGui::SetTooltip("UNAVAILABLE: %s", reason[0] ? reason : "toolchain not found");
+                        std::lock_guard<std::mutex> lock(sValidateCacheMutex);
+                        auto& entry = sValidateCache[targetId];
+                        const bool resolved = (entry.state == ValidateCacheEntry::kOk ||
+                                               entry.state == ValidateCacheEntry::kFailed);
+                        const bool stale = (entry.state == ValidateCacheEntry::kIdle) ||
+                                           (resolved && (now - entry.lastCheckedTime) > kValidateTTLSeconds);
+                        if (stale && validateFn != nullptr)
+                        {
+                            entry.state = ValidateCacheEntry::kPending;
+                            entry.lastCheckedTime = now;
+                            kickOff = true;
+                        }
+                        snapshot = entry;
+                    }
+
+                    if (kickOff)
+                    {
+                        // Background thread does the actual Validate call (which
+                        // may block on a subprocess for many seconds) and writes
+                        // the result back under the cache mutex. lastCheckedTime
+                        // was already stamped on kickoff above so the TTL clock
+                        // starts now, not when the call eventually returns.
+                        // Don't touch ImGui from this thread — ImGui APIs are
+                        // main-thread-only.
+                        std::thread([targetId, validateFn]() {
+                            char reason[256] = {0};
+                            const int32_t ok = validateFn(reason, sizeof(reason));
+                            std::lock_guard<std::mutex> lock(sValidateCacheMutex);
+                            auto& e = sValidateCache[targetId];
+                            e.state = (ok != 0) ? ValidateCacheEntry::kOk
+                                                : ValidateCacheEntry::kFailed;
+                            e.reason = reason;
+                        }).detach();
+                    }
+
+                    if (snapshot.state == ValidateCacheEntry::kPending)
+                    {
+                        ImGui::SetTooltip("Checking toolchain availability...");
+                    }
+                    else if (snapshot.state == ValidateCacheEntry::kFailed)
+                    {
+                        ImGui::SetTooltip("UNAVAILABLE: %s",
+                            snapshot.reason.empty() ? "toolchain not found" : snapshot.reason.c_str());
                     }
                     else if (!t.mIsBuiltIn)
                     {

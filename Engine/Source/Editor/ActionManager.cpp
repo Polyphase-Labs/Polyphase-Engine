@@ -1261,6 +1261,24 @@ void ActionManager::BuildPhase1()
     mBuildState.mStandalone = standalone;
     mBuildState.mUseSteam = GetEngineConfig()->mPackageForSteam;
 
+    // Force Rebuild: wipe the cooker's Intermediate/ cache so per-asset cached
+    // artifacts (cooked-texture intermediates, build manifests, etc.) regenerate
+    // from source. Without this, stale UUID associations from a previous
+    // packaging run can leak into the new package's asset chain — symptom is
+    // a runtime "Asset UUID not found" warning while the .oct file is sitting
+    // right there in the package. The packaged target dir itself is already
+    // wiped a few lines down, so this completes the "truly clean build" intent
+    // that users expect from the Force Rebuild checkbox.
+    if (mBuildState.mForceCompile)
+    {
+        const std::string intermediateDir = projectDir + "Intermediate/";
+        if (DoesDirExist(intermediateDir.c_str()))
+        {
+            AppendBuildOutput("Force Rebuild: wiping Intermediate/ for fresh cook...\n");
+            RemoveDir(intermediateDir.c_str());
+        }
+    }
+
     std::string dkpPath = GetDevkitproPath();
     bool dkpInstalled = (dkpPath != "");
     LogDebug("DevkitPro is %s.", dkpInstalled ? "installed" : "not installed");
@@ -1383,6 +1401,7 @@ void ActionManager::BuildPhase1()
                     ctx.packageOutputDir  = mBuildState.mPackagedDir.c_str();
                     ctx.basePlatform      = target->mDesc.basePlatform;
                     ctx.embedded          = embedded ? 1 : 0;
+                    ctx.forceRebuild      = mBuildState.mForceCompile ? 1 : 0;
 
                     Stream stream;
                     if (target->mDesc.CookAsset(&ctx, stub->mAsset->RuntimeName(),
@@ -1566,7 +1585,12 @@ void ActionManager::BuildPhase1()
                 regPath = projectName + "/" + regPath;
             }
 
-            fprintf(registryFile, "%s,%s\n", regType, regPath.c_str());
+            // Format: TYPE,PATH,UUID_HEX. The UUID column is what lets
+            // non-editor runtimes (PSP/GC/etc.) resolve scene asset refs
+            // without re-opening every .oct just to read its header.
+            fprintf(registryFile, "%s,%s,%016llx\n",
+                regType, regPath.c_str(),
+                (unsigned long long)pair.second->mUuid);
         }
     }
 
@@ -1886,6 +1910,7 @@ void ActionManager::BuildPhase1()
                 ctx.embedded         = embedded ? 1 : 0;
                 ctx.runAfterBuild    = mBuildState.mRunAfterBuild ? 1 : 0;
                 ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
+                ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
 
                 // Variant 2 — bridge-header generation. If the addon supplies
                 // a runtime via `platformExtensionDir`, resolve it to an
@@ -2852,6 +2877,7 @@ void ActionManager::FinalizeLocalBuild()
             ctx.packageOutputDir = packagedDir.c_str();
             ctx.basePlatform     = addonTarget->mDesc.basePlatform;
             ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
+            ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
 
             if (addonTarget->mDesc.PostPackage(&ctx) == 0)
             {
@@ -2908,6 +2934,7 @@ void ActionManager::FinalizeLocalBuild()
                 ctx.basePlatform     = addonTarget->mDesc.basePlatform;
                 ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
                 ctx.runAfterBuild    = 1;
+                ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
                 ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
 
                 char cmdBuf[2048] = {0};
