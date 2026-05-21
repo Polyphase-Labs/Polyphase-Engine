@@ -198,6 +198,14 @@ struct SkeletalMeshResource
 #if API_VULKAN
     Buffer* mVertexBuffer = nullptr;
     Buffer* mIndexBuffer = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // CPU-skinning consoles (PSP today, anything else using the engine's CPU
+    // skin path) only need the source mesh's indices persisted platform-side.
+    // The bind-pose vertex array is unused at draw time — the engine CPU-
+    // skins each frame and hands the result to the per-component vertex
+    // buffer via GFX_UpdateSkeletalMeshCompVertexBuffer.
+    void*    mIndexData  = nullptr;
+    uint32_t mNumIndices = 0;
 #elif API_C3D
     void* mVertexData = nullptr;
     void* mIndexData = nullptr;
@@ -229,6 +237,16 @@ struct SkeletalMeshCompResource
 {
 #if API_VULKAN
     MultiBuffer* mVertexBuffer = nullptr;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // Per-component CPU-skinned vertex buffer, in platform-native vertex
+    // format (PSP: psp::StaticVertex — tex/color/normal/pos interleaved).
+    // Sized by GFX_ReallocateSkeletalMeshCompVertexBuffer(numVerts); written
+    // each frame by GFX_UpdateSkeletalMeshCompVertexBuffer; consumed by
+    // GFX_DrawSkeletalMeshComp.
+    void*    mVertexData    = nullptr;
+    uint32_t mVertexCapacity = 0;     // bytes
+    uint32_t mNumVertices    = 0;
+    uint32_t mVertexStride   = 0;     // bytes per platform vertex
 #elif API_C3D
     DoubleBuffer mVertexData;
 #endif
