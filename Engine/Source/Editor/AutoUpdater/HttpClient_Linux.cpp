@@ -1,11 +1,23 @@
 #if EDITOR && PLATFORM_LINUX
 
 #include "HttpClient.h"
+#include "Network/Http/HttpClient.h"
+#include "Network/Http/HttpRequest.h"
+#include "Network/Http/HttpResponse.h"
+#include "Network/Http/HttpTypes.h"
 #include "Log.h"
 
 #include <dlfcn.h>
 #include <fstream>
 #include <cstring>
+
+// `Get` / `IsAvailable` / `GetMissingDependencyMessage` now delegate to the
+// engine-wide `Http::` API (Network/Http/HttpClient.h). The libcurl
+// dlopen-and-bind machinery below is retained only for `DownloadFile`, which
+// the engine's Http stack can't replace yet — it buffers the full response in
+// memory before invoking the callback, so a multi-MB installer download with
+// a progress bar still has to drive libcurl directly. DownloadFile lazy-loads
+// libcurl on first call via InitializePlatform().
 
 // libcurl type definitions
 typedef void CURL;
@@ -135,28 +147,12 @@ void HttpClient::ShutdownPlatform()
 
 bool HttpClient::IsAvailable()
 {
-    if (!sInitialized)
-    {
-        InitializePlatform();
-    }
-    return sAvailable;
+    return Http::IsAvailable();
 }
 
 std::string HttpClient::GetMissingDependencyMessage()
 {
-    if (IsAvailable())
-    {
-        return "";
-    }
-    return "libcurl is required for auto-updates.\n\nInstall with:\n  sudo apt install libcurl4";
-}
-
-// Write callback for curl
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output)
-{
-    size_t totalSize = size * nmemb;
-    output->append((char*)contents, totalSize);
-    return totalSize;
+    return Http::GetMissingDependencyMessage();
 }
 
 // Write callback for file download
@@ -188,68 +184,30 @@ static size_t FileWriteCallback(void* contents, size_t size, size_t nmemb, FileW
     return totalSize;
 }
 
-HttpResponse HttpClient::Get(const std::string& url, int timeoutMs)
+UpdaterHttpResponse HttpClient::Get(const std::string& url, int timeoutMs)
 {
-    HttpResponse response;
+    UpdaterHttpResponse out;
 
-    if (!IsAvailable())
+    HttpRequest req(HttpVerb::Get, url);
+    req.TimeoutMs(timeoutMs);
+    req.Header("Accept",     "application/vnd.github.v3+json");
+    req.Header("User-Agent", "PolyphaseEngine/1.0");
+
+    HttpResponse r = Http::SendSync(std::move(req));
+
+    out.mStatusCode = r.GetStatus();
+    const auto& body = r.GetBody();
+    if (!body.empty())
     {
-        response.mError = GetMissingDependencyMessage();
-        return response;
+        out.mBody.assign(reinterpret_cast<const char*>(body.data()), body.size());
     }
-
-    CURL* curl = p_curl_easy_init();
-    if (!curl)
+    if (r.GetError() != HttpError::None)
     {
-        response.mError = "Failed to initialize curl";
-        return response;
+        out.mError = r.GetErrorMessage().empty()
+            ? HttpErrorToString(r.GetError())
+            : r.GetErrorMessage();
     }
-
-    std::string responseData;
-
-    p_curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    p_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, (void*)WriteCallback);
-    p_curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseData);
-    p_curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)timeoutMs);
-    p_curl_easy_setopt(curl, CURLOPT_USERAGENT, "PolyphaseEngine/1.0");
-    p_curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    // Add headers for GitHub API
-    curl_slist* headers = nullptr;
-    if (p_curl_slist_append)
-    {
-        headers = p_curl_slist_append(headers, "Accept: application/vnd.github.v3+json");
-        p_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    }
-
-    CURLcode res = p_curl_easy_perform(curl);
-
-    if (res == CURLE_OK)
-    {
-        long httpCode = 0;
-        p_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
-        response.mStatusCode = (int)httpCode;
-        response.mBody = std::move(responseData);
-    }
-    else
-    {
-        if (p_curl_easy_strerror)
-        {
-            response.mError = p_curl_easy_strerror(res);
-        }
-        else
-        {
-            response.mError = "Curl error code: " + std::to_string(res);
-        }
-    }
-
-    if (headers && p_curl_slist_free_all)
-    {
-        p_curl_slist_free_all(headers);
-    }
-
-    p_curl_easy_cleanup(curl);
-    return response;
+    return out;
 }
 
 bool HttpClient::DownloadFile(
@@ -258,9 +216,15 @@ bool HttpClient::DownloadFile(
     DownloadProgressCallback progressCallback,
     std::atomic<bool>& cancelFlag)
 {
-    if (!IsAvailable())
+    // IsAvailable() now delegates to the engine, so it no longer lazy-loads
+    // AutoUpdater's private libcurl handle. Do it explicitly here.
+    if (!sInitialized)
     {
-        LogError("HttpClient: %s", GetMissingDependencyMessage().c_str());
+        InitializePlatform();
+    }
+    if (!sAvailable || sCurlHandle == nullptr)
+    {
+        LogError("HttpClient: libcurl not loaded — install libcurl4 to enable downloads");
         return false;
     }
 

@@ -2,6 +2,15 @@
 
 #include <cctype>
 
+HttpRequest::HttpRequest() = default;
+HttpRequest::HttpRequest(HttpVerb verb, std::string url)
+    : mVerb(verb), mUrl(std::move(url)) {}
+HttpRequest::~HttpRequest() = default;
+HttpRequest::HttpRequest(const HttpRequest&) = default;
+HttpRequest::HttpRequest(HttpRequest&&) noexcept = default;
+HttpRequest& HttpRequest::operator=(const HttpRequest&) = default;
+HttpRequest& HttpRequest::operator=(HttpRequest&&) noexcept = default;
+
 bool HttpHeaderLess::operator()(const std::string& a, const std::string& b) const
 {
     const size_t na = a.size();

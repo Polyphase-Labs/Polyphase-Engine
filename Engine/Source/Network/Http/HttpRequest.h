@@ -19,8 +19,15 @@ using HttpHeaderMap = std::map<std::string, std::string, HttpHeaderLess>;
 class POLYPHASE_API HttpRequest
 {
 public:
-    HttpRequest() = default;
-    HttpRequest(HttpVerb verb, std::string url) : mVerb(verb), mUrl(std::move(url)) {}
+    // Out-of-line so the engine DLL is the single owner of construction /
+    // destruction / copy / move. See HttpResponse.h for rationale.
+    HttpRequest();
+    HttpRequest(HttpVerb verb, std::string url);
+    ~HttpRequest();
+    HttpRequest(const HttpRequest&);
+    HttpRequest(HttpRequest&&) noexcept;
+    HttpRequest& operator=(const HttpRequest&);
+    HttpRequest& operator=(HttpRequest&&) noexcept;
 
     // Builder-style mutators. Each returns *this for chaining.
     HttpRequest& Verb(HttpVerb v)                              { mVerb = v;                                 return *this; }

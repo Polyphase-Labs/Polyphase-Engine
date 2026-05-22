@@ -106,7 +106,7 @@ void AutoUpdater::CheckThreadFunc()
     bool isCuttingEdge = cuttingEdge && cuttingEdge->GetCuttingEdgeEnabled();
 
     const char* url = isCuttingEdge ? kGitHubApiAllReleasesUrl : kGitHubApiUrl;
-    HttpResponse response = HttpClient::Get(url, 15000);
+    UpdaterHttpResponse response = HttpClient::Get(url, 15000);
 
     if (mCancelRequested.load())
     {

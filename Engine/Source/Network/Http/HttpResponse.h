@@ -15,7 +15,16 @@ class SoundWave;
 class POLYPHASE_API HttpResponse
 {
 public:
-    HttpResponse() = default;
+    // Out-of-line so the engine DLL is the single owner of the class's
+    // construction/destruction/copy/move code paths. Forces every consumer
+    // through one canonical implementation regardless of the TU's view of
+    // std::string's ABI.
+    HttpResponse();
+    ~HttpResponse();
+    HttpResponse(const HttpResponse&);
+    HttpResponse(HttpResponse&&) noexcept;
+    HttpResponse& operator=(const HttpResponse&);
+    HttpResponse& operator=(HttpResponse&&) noexcept;
 
     int                  GetStatus()      const { return mStatusCode;   }
     HttpError            GetError()       const { return mError;        }

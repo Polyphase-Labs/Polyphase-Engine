@@ -8,8 +8,14 @@
 
 /**
  * @brief HTTP response from a GET request.
+ *
+ * Distinct from engine-wide HttpResponse (Network/Http/HttpResponse.h). Both
+ * lived in the global namespace under the same name — a textbook ODR
+ * violation that caused heap corruption in DLL builds where the linker
+ * COMDAT-folded the two implicit destructors. Renamed to keep this
+ * self-contained class private to AutoUpdater.
  */
-struct HttpResponse
+struct UpdaterHttpResponse
 {
     int mStatusCode = 0;
     std::string mBody;
@@ -56,7 +62,7 @@ public:
      * @param timeoutMs Timeout in milliseconds (default 10 seconds)
      * @return HTTP response with status code, body, and any error message
      */
-    static HttpResponse Get(const std::string& url, int timeoutMs = 10000);
+    static UpdaterHttpResponse Get(const std::string& url, int timeoutMs = 10000);
 
     /**
      * @brief Download a file from a URL to disk.

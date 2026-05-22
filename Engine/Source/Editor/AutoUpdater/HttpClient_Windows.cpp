@@ -1,6 +1,10 @@
 #if EDITOR && PLATFORM_WINDOWS
 
 #include "HttpClient.h"
+#include "Network/Http/HttpClient.h"
+#include "Network/Http/HttpRequest.h"
+#include "Network/Http/HttpResponse.h"
+#include "Network/Http/HttpTypes.h"
 #include "Log.h"
 
 #include <Windows.h>
@@ -10,32 +14,33 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-bool HttpClient::sInitialized = false;
-bool HttpClient::sAvailable = true; // WinHTTP is always available on Windows
+bool HttpClient::sInitialized = true;
+bool HttpClient::sAvailable   = true;
 
-bool HttpClient::InitializePlatform()
-{
-    sInitialized = true;
-    sAvailable = true;
-    return true;
-}
+// `Get` / `IsAvailable` / `GetMissingDependencyMessage` are thin wrappers around
+// the engine-wide `Http::` API (Network/Http/HttpClient.h), so the AutoUpdater
+// no longer ships its own duplicate HTTP stack.
+//
+// `DownloadFile` stays on WinHTTP for now because the engine's Http buffers
+// the full response in memory before invoking the callback — fine for a 100 KB
+// release manifest, but not for a multi-MB installer that wants a progress bar.
+// Migrating DownloadFile would require adding streaming + progress support to
+// `Http::Send`, which is its own task.
 
-void HttpClient::ShutdownPlatform()
-{
-    sInitialized = false;
-}
+bool HttpClient::InitializePlatform() { return true; }
+void HttpClient::ShutdownPlatform()   {}
 
 bool HttpClient::IsAvailable()
 {
-    return true;
+    return Http::IsAvailable();
 }
 
 std::string HttpClient::GetMissingDependencyMessage()
 {
-    return ""; // No dependencies on Windows
+    return Http::GetMissingDependencyMessage();
 }
 
-// Helper to convert UTF-8 to wide string
+// Helper to convert UTF-8 to wide string (used by DownloadFile below).
 static std::wstring Utf8ToWide(const std::string& str)
 {
     if (str.empty()) return std::wstring();
@@ -45,140 +50,30 @@ static std::wstring Utf8ToWide(const std::string& str)
     return result;
 }
 
-// Helper to convert wide string to UTF-8
-static std::string WideToUtf8(const std::wstring& wstr)
+UpdaterHttpResponse HttpClient::Get(const std::string& url, int timeoutMs)
 {
-    if (wstr.empty()) return std::string();
-    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
-    std::string result(size, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &result[0], size, nullptr, nullptr);
-    return result;
-}
+    UpdaterHttpResponse out;
 
-HttpResponse HttpClient::Get(const std::string& url, int timeoutMs)
-{
-    HttpResponse response;
+    HttpRequest req(HttpVerb::Get, url);
+    req.TimeoutMs(timeoutMs);
+    req.Header("Accept",     "application/vnd.github.v3+json");
+    req.Header("User-Agent", "PolyphaseEngine/1.0");
 
-    // Crack the URL
-    URL_COMPONENTS urlComp = {};
-    urlComp.dwStructSize = sizeof(urlComp);
+    HttpResponse r = Http::SendSync(std::move(req));
 
-    wchar_t hostName[256] = {};
-    wchar_t urlPath[2048] = {};
-    urlComp.lpszHostName = hostName;
-    urlComp.dwHostNameLength = 256;
-    urlComp.lpszUrlPath = urlPath;
-    urlComp.dwUrlPathLength = 2048;
-
-    std::wstring wideUrl = Utf8ToWide(url);
-    if (!WinHttpCrackUrl(wideUrl.c_str(), (DWORD)wideUrl.length(), 0, &urlComp))
+    out.mStatusCode = r.GetStatus();
+    const auto& body = r.GetBody();
+    if (!body.empty())
     {
-        response.mError = "Failed to parse URL";
-        return response;
+        out.mBody.assign(reinterpret_cast<const char*>(body.data()), body.size());
     }
-
-    // Open session
-    HINTERNET hSession = WinHttpOpen(
-        L"PolyphaseEngine/1.0",
-        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-        WINHTTP_NO_PROXY_NAME,
-        WINHTTP_NO_PROXY_BYPASS,
-        0);
-
-    if (!hSession)
+    if (r.GetError() != HttpError::None)
     {
-        response.mError = "Failed to open WinHTTP session";
-        return response;
+        out.mError = r.GetErrorMessage().empty()
+            ? HttpErrorToString(r.GetError())
+            : r.GetErrorMessage();
     }
-
-    // Set timeouts
-    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
-
-    // Connect
-    HINTERNET hConnect = WinHttpConnect(hSession, hostName, urlComp.nPort, 0);
-    if (!hConnect)
-    {
-        WinHttpCloseHandle(hSession);
-        response.mError = "Failed to connect to server";
-        return response;
-    }
-
-    // Open request
-    DWORD flags = (urlComp.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET hRequest = WinHttpOpenRequest(
-        hConnect,
-        L"GET",
-        urlPath,
-        nullptr,
-        WINHTTP_NO_REFERER,
-        WINHTTP_DEFAULT_ACCEPT_TYPES,
-        flags);
-
-    if (!hRequest)
-    {
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        response.mError = "Failed to open request";
-        return response;
-    }
-
-    // Add headers for GitHub API
-    WinHttpAddRequestHeaders(hRequest,
-        L"Accept: application/vnd.github.v3+json\r\n"
-        L"User-Agent: PolyphaseEngine/1.0\r\n",
-        (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
-
-    // Send request
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
-    {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        response.mError = "Failed to send request";
-        return response;
-    }
-
-    // Receive response
-    if (!WinHttpReceiveResponse(hRequest, nullptr))
-    {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        response.mError = "Failed to receive response";
-        return response;
-    }
-
-    // Get status code
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest,
-        WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-        WINHTTP_HEADER_NAME_BY_INDEX,
-        &statusCode,
-        &statusCodeSize,
-        WINHTTP_NO_HEADER_INDEX);
-    response.mStatusCode = (int)statusCode;
-
-    // Read response body
-    std::string body;
-    DWORD bytesAvailable = 0;
-    while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) && bytesAvailable > 0)
-    {
-        std::vector<char> buffer(bytesAvailable);
-        DWORD bytesRead = 0;
-        if (WinHttpReadData(hRequest, buffer.data(), bytesAvailable, &bytesRead))
-        {
-            body.append(buffer.data(), bytesRead);
-        }
-    }
-    response.mBody = std::move(body);
-
-    // Cleanup
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-
-    return response;
+    return out;
 }
 
 bool HttpClient::DownloadFile(

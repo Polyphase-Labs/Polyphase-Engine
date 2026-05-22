@@ -5,6 +5,13 @@
 #include "Assets/Texture.h"
 #include "Assets/SoundWave.h"
 
+HttpResponse::HttpResponse() = default;
+HttpResponse::~HttpResponse() = default;
+HttpResponse::HttpResponse(const HttpResponse&) = default;
+HttpResponse::HttpResponse(HttpResponse&&) noexcept = default;
+HttpResponse& HttpResponse::operator=(const HttpResponse&) = default;
+HttpResponse& HttpResponse::operator=(HttpResponse&&) noexcept = default;
+
 const std::string& HttpResponse::GetHeader(const std::string& name) const
 {
     static const std::string sEmpty;
