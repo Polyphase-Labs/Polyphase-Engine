@@ -528,8 +528,18 @@
 
 ///////////////////////////////////////////////////////////////////////////////////
 // Static assert
+//
+// PS2's R5900 EE FPU is not IEC559-conformant (no NaN, no denormals), so
+// std::numeric_limits<float>::is_iec559 is false. Most GLM functions
+// static_assert on is_iec559 — many WITHOUT the GLM_UNRESTRICTED_GENTYPE
+// escape (round, length, dot, normalize, cross, refract, sqrt, etc.).
+// Patching each site is ~89 edits. Instead, no-op GLM_STATIC_ASSERT only
+// on PS2; type errors still trip up at the real instantiation. Zero impact
+// on any other platform.
 
-#if GLM_HAS_STATIC_ASSERT
+#if defined(PLATFORM_PS2)
+#	define GLM_STATIC_ASSERT(x, message) /* disabled on PS2 — R5900 EE FPU is not IEC559 */
+#elif GLM_HAS_STATIC_ASSERT
 #	define GLM_STATIC_ASSERT(x, message) static_assert(x, message)
 #elif defined(BOOST_STATIC_ASSERT)
 #	define GLM_STATIC_ASSERT(x, message) BOOST_STATIC_ASSERT(x)

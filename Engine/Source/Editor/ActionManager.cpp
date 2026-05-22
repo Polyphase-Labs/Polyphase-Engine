@@ -2062,6 +2062,51 @@ void ActionManager::BuildPhase1()
                     }
                 }
 
+                // Resolve the addon's compile command up-front so we can
+                // decide what path style the AddonInject.mk should emit
+                // before writing it. The mk file is `-include`d by the
+                // addon's Makefile, so its INCDIR / LIBDIR / SOURCES paths
+                // have to match the shell that will actually consume them:
+                // a `wsl bash -lc ...` body cannot see `M:/foo`, while a
+                // native Windows / MSYS toolchain cannot see `/mnt/m/foo`.
+                // GetCompileCommand is contractually pure (just formats a
+                // string from ctx + profile settings) so calling it here —
+                // before mk gen instead of after — is safe and keeps the
+                // addon-visible call count at exactly one per build.
+                char cmdBuf[4096] = {0};
+                if (addonTarget->mDesc.GetCompileCommand(&ctx, cmdBuf, sizeof(cmdBuf)) == 0 ||
+                    cmdBuf[0] == '\0')
+                {
+                    LogError("Addon target '%s' GetCompileCommand failed.", addonTarget->mDesc.targetId);
+                    AppendBuildOutput("ERROR: addon GetCompileCommand failed.\n");
+                    mBuildState.mComplete.store(true);
+                    mBuildState.mSuccess.store(false);
+                    return;
+                }
+                mBuildState.mCompileCommand = cmdBuf;
+
+                // Path-style detection for AddonInject.mk. Sniff the
+                // compile command for a `wsl ` invocation — PSP's
+                // GetCompileCommand emits `wsl bash -lc "..."` on Windows,
+                // where Windows-drive paths like `M:/foo` are unreachable
+                // and the mounted equivalent is `/mnt/m/foo`. Any addon
+                // whose toolchain runs natively on Windows (a hypothetical
+                // PS2 build using a Win32-hosted ee-gcc, etc.) won't match
+                // this prefix and AddonInject.mk falls back to plain
+                // forward-slashed `M:/foo` paths — which native make and
+                // MSYS make both accept, but which `wsl` rejects. POSIX
+                // hosts never produce Windows-drive paths in the first
+                // place, so this whole branch is a no-op there.
+                bool addonUsesPosixMount = false;
+                {
+                    const std::string sniff(cmdBuf);
+                    if (sniff.compare(0, 4, "wsl ") == 0 ||
+                        sniff.find(" wsl ") != std::string::npos)
+                    {
+                        addonUsesPosixMount = true;
+                    }
+                }
+
                 // --- Native engine-addon injection for addon-target builds ---
                 // Built-in target dispatch (Windows/Linux/Dolphin/3DS) injects
                 // engine-target addon sources into the Standalone makefile /
@@ -2131,24 +2176,29 @@ void ActionManager::BuildPhase1()
 
                         if (!engineAddons.empty())
                         {
-                            // Path normaliser — forward-slash AND Windows-drive
-                            // conversion. Addon-target builds for PSP run make
-                            // under WSL, where Windows-style paths like
-                            // `M:/Projects/.../Source` are unreachable; the
-                            // mounted equivalent is `/mnt/m/Projects/.../Source`.
-                            // Without this conversion the Makefile's
-                            // `$(wildcard $(dir)/*.cpp)` silently returns empty
-                            // for every addon source dir, addon `.cpp` files
-                            // never get compiled, and the link fails with
-                            // `undefined reference to PolyphasePlugin_GetDesc_<addon>`.
-                            // The legacy InjectNativeAddonSources has the same
-                            // helper for the same reason (line ~538).
-                            auto normSlash = [](std::string s) -> std::string {
+                            // Path normaliser — forward-slash + (optional)
+                            // Windows-drive conversion. The drive→/mnt/<drv>/
+                            // step only fires when the addon's compile
+                            // command runs under WSL (PSP today). For
+                            // addons that drive a native Windows / MSYS
+                            // toolchain, we keep `M:/foo` so make can
+                            // resolve `$(wildcard $(dir)/*.cpp)` against
+                            // the actual filesystem — emitting `/mnt/m/foo`
+                            // there would silently drop every addon source
+                            // dir from the build and the link would fail
+                            // with `undefined reference to
+                            // PolyphasePlugin_GetDesc_<addon>`. The legacy
+                            // InjectNativeAddonSources has a parallel
+                            // helper (`toMsysPath`, line ~538) for the
+                            // built-in console targets that use MSYS make.
+                            auto normSlash = [addonUsesPosixMount](std::string s) -> std::string {
                                 for (char& c : s) { if (c == '\\') c = '/'; }
                                 // Windows drive → /mnt/<lowercase-drive>/...
                                 // e.g. "M:/foo" → "/mnt/m/foo". Idempotent for
-                                // already-MSYS paths.
-                                if (s.size() >= 3 &&
+                                // already-MSYS paths. Skipped when the addon's
+                                // shell speaks Windows paths natively.
+                                if (addonUsesPosixMount &&
+                                    s.size() >= 3 &&
                                     ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
                                     s[1] == ':' &&
                                     s[2] == '/')
@@ -2266,17 +2316,9 @@ void ActionManager::BuildPhase1()
                     }
                 }
 
-                char cmdBuf[4096] = {0};
-                if (addonTarget->mDesc.GetCompileCommand(&ctx, cmdBuf, sizeof(cmdBuf)) == 0 ||
-                    cmdBuf[0] == '\0')
-                {
-                    LogError("Addon target '%s' GetCompileCommand failed.", addonTarget->mDesc.targetId);
-                    AppendBuildOutput("ERROR: addon GetCompileCommand failed.\n");
-                    mBuildState.mComplete.store(true);
-                    mBuildState.mSuccess.store(false);
-                    return;
-                }
-                mBuildState.mCompileCommand = cmdBuf;
+                // (GetCompileCommand was resolved up-front above so we
+                // could pick the right path style for AddonInject.mk;
+                // mBuildState.mCompileCommand is already populated.)
 
                 // Compute the post-compile exe path from the addon if it
                 // provides a GetCompiledBinaryPath callback; otherwise fall

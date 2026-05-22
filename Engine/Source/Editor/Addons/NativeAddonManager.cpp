@@ -2007,14 +2007,60 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // earlier `src.find(".c")` check false-matches any addon whose path
     // contains ".c" (e.g. addon ids with `.character.` or `.core`), passing
     // headers to cl which then forwards them to link → LNK1107.
-    for (const std::string& src : sourceFiles)
+    //
+    // Response-file fallback: cmd.exe caps any single command line at 8191
+    // characters, including when the line lives inside a .bat file. Addons
+    // that vendor large third-party libraries (Chocolate Doom ~90 .c files,
+    // bullet/assimp ports, etc.) overflow that limit even when paths are
+    // moderate. When we'd cross ~6000 bytes worth of inline source args,
+    // spill them into `sources.rsp` and invoke cl with `@sources.rsp` instead.
+    // cl.exe handles response files natively (its own arg limit is 32K).
     {
-        size_t dotPos = src.find_last_of('.');
-        if (dotPos == std::string::npos) continue;
-        std::string ext = src.substr(dotPos);
-        if (ext == ".cpp" || ext == ".c")
+        std::vector<std::string> compileSources;
+        compileSources.reserve(sourceFiles.size());
+        size_t inlineArgBytes = 0;
+        for (const std::string& src : sourceFiles)
         {
-            ss << "\"" << src << "\" ";
+            size_t dotPos = src.find_last_of('.');
+            if (dotPos == std::string::npos) continue;
+            std::string ext = src.substr(dotPos);
+            if (ext != ".cpp" && ext != ".c") continue;
+            compileSources.push_back(src);
+            inlineArgBytes += src.size() + 3; // "<src>" plus a space
+        }
+
+        const size_t kInlineCharBudget = 6000;
+        const bool useResponseFile = inlineArgBytes > kInlineCharBudget;
+
+        if (useResponseFile)
+        {
+            std::string rspPath = outputDir + "sources.rsp";
+            std::ofstream rsp(rspPath, std::ios::binary | std::ios::trunc);
+            if (rsp.is_open())
+            {
+                for (const std::string& src : compileSources)
+                {
+                    rsp << "\"" << src << "\"\n";
+                }
+                rsp.close();
+                ss << "@\"" << rspPath << "\" ";
+            }
+            else
+            {
+                // Couldn't write the response file — fall back to inline and
+                // let cmd surface its own error so the user knows why.
+                for (const std::string& src : compileSources)
+                {
+                    ss << "\"" << src << "\" ";
+                }
+            }
+        }
+        else
+        {
+            for (const std::string& src : compileSources)
+            {
+                ss << "\"" << src << "\" ";
+            }
         }
     }
 

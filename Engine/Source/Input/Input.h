@@ -53,12 +53,12 @@ POLYPHASE_API void INP_GetPointerPosition(int32_t& pointerX, int32_t& pointerY, 
 POLYPHASE_API void INP_GetPointerPositionNormalized(float& pointerX, float& pointerY, int32_t  pointer = 0);
 POLYPHASE_API void INP_GetMouseDelta(int32_t& deltaX, int32_t& deltaY);
 
-bool INP_IsGamepadButtonDown(int32_t gamepadButton, int32_t gamepadIndex);
-bool INP_IsGamepadButtonJustDown(int32_t gamepadButton, int32_t gamepadIndex);
-bool INP_IsGamepadButtonJustUp(int32_t gamepadButton, int32_t gamepadIndex);
-float INP_GetGamepadAxisValue(int32_t gamepadAxis, int32_t gamepadIndex);
-GamepadType INP_GetGamepadType(int32_t gamepadIndex);
-bool INP_IsGamepadConnected(int32_t gamepadIndex);
+POLYPHASE_API bool INP_IsGamepadButtonDown(int32_t gamepadButton, int32_t gamepadIndex);
+POLYPHASE_API bool INP_IsGamepadButtonJustDown(int32_t gamepadButton, int32_t gamepadIndex);
+POLYPHASE_API bool INP_IsGamepadButtonJustUp(int32_t gamepadButton, int32_t gamepadIndex);
+POLYPHASE_API float INP_GetGamepadAxisValue(int32_t gamepadAxis, int32_t gamepadIndex);
+POLYPHASE_API GamepadType INP_GetGamepadType(int32_t gamepadIndex);
+POLYPHASE_API bool INP_IsGamepadConnected(int32_t gamepadIndex);
 int32_t INP_GetGamepadIndex(int32_t inputDevice);
 void INP_SetGamepadAxisValue(GamepadAxisCode axisCode, float axisValue, int32_t gamepadIndex);
 void INP_SetGamepadButton(GamepadButtonCode buttonCode, int32_t gamepadIndex);

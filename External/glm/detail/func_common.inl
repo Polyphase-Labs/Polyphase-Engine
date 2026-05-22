@@ -358,7 +358,7 @@ namespace detail
 	template <typename T, precision P, template <typename, precision> class vecType>
 	GLM_FUNC_QUALIFIER vecType<T, P> round(vecType<T, P> const & x)
 	{
-		GLM_STATIC_ASSERT(std::numeric_limits<T>::is_iec559, "'round' only accept floating-point inputs");
+		GLM_STATIC_ASSERT(std::numeric_limits<T>::is_iec559 || GLM_UNRESTRICTED_GENTYPE, "'round' only accept floating-point inputs");
 		return detail::compute_round<T, P, vecType, detail::is_aligned<P>::value>::call(x);
 	}
 
