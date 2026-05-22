@@ -154,6 +154,43 @@ static std::string GenerateLibraryName(const std::string& addonName)
     return result;
 }
 
+// Stable per-addon GUID for MSBuild cross-project references. Derived
+// deterministically from the addon id so a dependent addon's vcxproj can
+// emit a matching <ProjectReference><Project>{guid}</Project></...> entry
+// without ever reading the dep's vcxproj. The previous behaviour shared
+// one hardcoded GUID across every generated project — fine for a single
+// open project, but any solution containing two addons would have a
+// duplicate-GUID collision, AND MSBuild had no way to express "build
+// dependency addons first" so links against `<dep>.lib` failed with
+// LNK1181 the first time the user opened a dependent addon in VS.
+// (MSBuild does not validate GUID variant/version bits, so a plain hash
+// formatted into the canonical 8-4-4-4-12 layout is sufficient.)
+static std::string MakeStableAddonGuid(const std::string& addonId)
+{
+    // FNV-1a 64-bit for the first half.
+    uint64_t h1 = 0xcbf29ce484222325ull;
+    for (char c : addonId)
+    {
+        h1 ^= static_cast<uint8_t>(c);
+        h1 *= 0x100000001b3ull;
+    }
+    // Splitmix64-style mix for an uncorrelated second half.
+    uint64_t h2 = h1 + 0x9E3779B97F4A7C15ull;
+    h2 = (h2 ^ (h2 >> 30)) * 0xBF58476D1CE4E5B9ull;
+    h2 = (h2 ^ (h2 >> 27)) * 0x94D049BB133111EBull;
+    h2 ^= (h2 >> 31);
+
+    char buf[48];
+    std::snprintf(buf, sizeof(buf),
+        "{%08X-%04X-%04X-%04X-%012llX}",
+        static_cast<uint32_t>(h1 >> 32),
+        static_cast<uint16_t>(h1 >> 16),
+        static_cast<uint16_t>(h1),
+        static_cast<uint16_t>(h2 >> 48),
+        static_cast<unsigned long long>(h2 & 0xFFFFFFFFFFFFull));
+    return buf;
+}
+
 // ===== Engine API Implementation =====
 
 static void PluginLogDebug(const char* fmt, ...)
@@ -2119,9 +2156,28 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "/LIBPATH:\"" << polyphasePath << "/External/Lua/Build/Windows/x64/DebugEditor/\" ";
     ss << "/LIBPATH:\"" << polyphasePath << "/External/Lua/Build/Windows/x64/ReleaseEditor/\" ";
 
-    // Add dependency addon library paths and libraries
+    // Add dependency addon library paths. Primary lookup is the dep's
+    // fingerprinted output dir in the editor's intermediate cache —
+    // that's where BuildNativeAddon actually writes the .dll/.lib pair.
+    // The legacy `<packages>/<dep>/Build/{Debug,Release}/` paths only
+    // ever get populated by the IDE-driven vcxproj build (its OutDir),
+    // so without the intermediate-cache entry the editor's own auto-
+    // build fails with LNK1181 even though the dep was just built one
+    // recursion frame above. Both paths are emitted so users who happen
+    // to build via VS still see their .lib picked up.
     for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
+        auto depIt = mStates.find(dep.mId);
+        if (depIt != mStates.end())
+        {
+            std::string depFp = depIt->second.mFingerprint;
+            if (depFp.empty()) depFp = ComputeFingerprint(dep.mId);
+            if (!depFp.empty())
+            {
+                ss << "/LIBPATH:\"" << GetIntermediateDir(dep.mId)
+                   << depFp << "/\" ";
+            }
+        }
         ss << "/LIBPATH:\"" << packagesDir << dep.mId << "/Build/Debug/\" ";
         ss << "/LIBPATH:\"" << packagesDir << dep.mId << "/Build/Release/\" ";
     }
@@ -2290,10 +2346,24 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "  \"" << luaLibPathLinux << "\" \\\n";
     }
 
-    // Link against dependency shared libraries
+    // Link against dependency shared libraries. Primary search path is the
+    // dep's fingerprinted intermediate output dir (where BuildNativeAddon
+    // actually writes lib<binary>.so). The legacy `<packages>/<dep>/Build/`
+    // path is kept as fallback for CMake/IDE-driven builds.
     for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
     {
         std::string depLibName = GenerateLibraryName(dep.mId);
+        auto depIt = mStates.find(dep.mId);
+        if (depIt != mStates.end())
+        {
+            std::string depFp = depIt->second.mFingerprint;
+            if (depFp.empty()) depFp = ComputeFingerprint(dep.mId);
+            if (!depFp.empty())
+            {
+                ss << "  -L\"" << GetIntermediateDir(dep.mId)
+                   << depFp << "/\" \\\n";
+            }
+        }
         ss << "  -L\"" << packagesDir << dep.mId << "/Build/\" \\\n";
         ss << "  -l" << depLibName << " \\\n";
     }
@@ -2335,10 +2405,52 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
     }
 
     NativeAddonState& state = it->second;
+
+    // Cycle / re-entrance guard. AddonDependencyResolver normally proves the
+    // dep graph is acyclic, but stale metadata across hot-reloads or a
+    // hand-edited package.json could still trip this — fail with a readable
+    // message instead of recursing until the stack blows up.
+    if (state.mBuildInProgress)
+    {
+        outError = "Build cycle detected at addon '" + addonId + "'";
+        return false;
+    }
+
+    // Mark in-progress BEFORE recursing into deps so a cyclic chain (A→B→A)
+    // hits the guard above on the second visit instead of infinite-looping.
     state.mBuildInProgress = true;
     state.mBuildLog.clear();
     state.mBuildError.clear();
     state.mBuildFailureAcknowledged = false;
+
+    // Build native dependencies FIRST so their .lib / .so artifacts exist on
+    // disk when our link step runs. Without this, opening a project that
+    // depends on another native addon (e.g. com.polyphase.freedoom.compat →
+    // com.polyphase.formats.midi) crashes with LNK1181 because the link line
+    // names `<dep>.lib` but nothing has produced one yet. Recursion handles
+    // deep chains (A→B→C) — each level runs the same pre-step for its own
+    // deps. Non-native dependencies (pure Lua/asset addons) have no entry
+    // in mStates and are silently skipped.
+    for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
+    {
+        if (mStates.find(dep.mId) == mStates.end())
+        {
+            continue;
+        }
+        if (NeedsBuild(dep.mId))
+        {
+            std::string depErr;
+            if (!BuildNativeAddon(dep.mId, depErr))
+            {
+                outError = "Failed to build dependency '" + dep.mId +
+                           "' of '" + addonId + "': " + depErr;
+                state.mBuildInProgress = false;
+                state.mBuildSucceeded = false;
+                state.mBuildError = outError;
+                return false;
+            }
+        }
+    }
 
     LogDebug("Building native addon: %s", addonId.c_str());
 
@@ -5340,9 +5452,18 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     // Gather source files for the project
     std::vector<std::string> sourceFiles = GatherSourceFiles(sourceDir + "/");
 
-    // Generate a simple GUID (not truly unique but sufficient for local use)
-    // Format: {8-4-4-4-12}
-    std::string guid = "{12345678-1234-1234-1234-123456789ABC}";
+    // Stable per-addon GUID derived from the addon id (folder name). Lets
+    // dependent addons reference us via <ProjectReference><Project>{guid}</...>
+    // and avoids the previous all-addons-share-one-GUID collision when two
+    // generated projects co-exist in the same VS solution.
+    std::string addonIdFromPath;
+    {
+        std::string p = addonPath;
+        while (!p.empty() && (p.back() == '/' || p.back() == '\\')) p.pop_back();
+        size_t slash = p.find_last_of("/\\");
+        addonIdFromPath = (slash == std::string::npos) ? p : p.substr(slash + 1);
+    }
+    std::string guid = MakeStableAddonGuid(addonIdFromPath);
 
     std::stringstream ss;
     ss << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
@@ -5650,6 +5771,47 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
         }
     }
     ss << "  </ItemGroup>\n";
+
+    // Cross-addon MSBuild dependencies. Each <ProjectReference> tells
+    // MSBuild to build the referenced addon FIRST and propagate its
+    // import library (.lib) onto our link line. Without this, the
+    // generated vcxproj's <AdditionalDependencies> already named
+    // `<dep>.lib` and <AdditionalLibraryDirectories> already pointed at
+    // `<packagesDir>/<dep>/Build/{Debug,Release}/`, but nothing caused
+    // MSBuild to *build* the dep beforehand — so opening a dependent
+    // addon (e.g. com.polyphase.freedoom.compat → com.polyphase.formats.midi)
+    // and hitting Build crashed with LNK1181 "cannot open
+    // com.polyphase.formats.midi.lib". With this block, MSBuild treats
+    // the addon graph as a proper project graph and orders builds
+    // automatically.
+    if (!pkgContent.mDependencies.empty())
+    {
+        ss << "  <ItemGroup>\n";
+        for (const AddonDependencySpec& dep : pkgContent.mDependencies)
+        {
+            // Resolve the dep's vcxproj basename. Default == addon id;
+            // an addon that overrides `binaryName` in its package.json
+            // (the same field that names its .dll) needs that override
+            // mirrored here so the Include path points at the file that
+            // actually exists on disk.
+            std::string depBinaryName = dep.mId;
+            {
+                NativeModuleMetadata depMeta;
+                if (ParsePackageJson(packagesDir + dep.mId + "/package.json", depMeta) &&
+                    !depMeta.mBinaryName.empty())
+                {
+                    depBinaryName = depMeta.mBinaryName;
+                }
+            }
+            std::string depVcxpath = normalizePathVS(packagesDir + dep.mId + "/" + depBinaryName + ".vcxproj");
+            std::string depGuid    = MakeStableAddonGuid(dep.mId);
+
+            ss << "    <ProjectReference Include=\"" << depVcxpath << "\">\n";
+            ss << "      <Project>" << depGuid << "</Project>\n";
+            ss << "    </ProjectReference>\n";
+        }
+        ss << "  </ItemGroup>\n";
+    }
 
     ss << "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.targets\" />\n";
     ss << "  <ImportGroup Label=\"ExtensionTargets\">\n";
