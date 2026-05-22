@@ -458,10 +458,13 @@ const Animation* SkeletalMesh::GetAnimation(const char* name)
         }
     }
 
-    if (mAnimationLookupMesh != nullptr)
+    if (retAnim == nullptr && mAnimationLookupMesh != nullptr)
     {
         SkeletalMesh* animLookup = mAnimationLookupMesh.Get<SkeletalMesh>();
-        retAnim = animLookup->GetAnimation(name);
+        if (animLookup != nullptr && animLookup != this)
+        {
+            retAnim = animLookup->GetAnimation(name);
+        }
     }
 
     return retAnim;

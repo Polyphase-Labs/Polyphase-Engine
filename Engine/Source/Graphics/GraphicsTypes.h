@@ -356,6 +356,15 @@ struct ParticleCompResource
     MultiBuffer* mVertexBuffer = nullptr;
     MultiBuffer* mIndexBuffer = nullptr;
     uint32_t mNumVerticesAllocated = 0;
+#elif defined(POLYPHASE_PLATFORM_ADDON)
+    // Per-component dynamic vertex buffer in PSP HW format
+    // (psp::ParticleVertex — tex/color/pos interleaved). Each engine particle
+    // expands to 6 PSP vertices (two triangles per quad), so this buffer
+    // holds 6 × maxParticles × sizeof(ParticleVertex) bytes once grown.
+    void*    mVertexData      = nullptr;
+    uint32_t mVertexCapacity  = 0;     // bytes
+    uint32_t mNumVertices     = 0;     // PSP vertices (6 per particle)
+    uint32_t mVertexStride    = 0;     // bytes per PSP vertex
 #elif API_C3D
     DoubleBuffer mVertexData;
     DoubleBuffer mIndexData;

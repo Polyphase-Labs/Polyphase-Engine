@@ -5,7 +5,7 @@
 // with the appropriate `#if PLATFORM_*` guard and implement the backend
 // against the platform's HTTP/TLS facility.
 
-#if !PLATFORM_WINDOWS && !PLATFORM_LINUX && !PLATFORM_3DS && !PLATFORM_DOLPHIN
+#if !PLATFORM_WINDOWS && !PLATFORM_LINUX && !PLATFORM_3DS && !PLATFORM_DOLPHIN && !PLATFORM_PSP && !PLATFORM_
 
 #include "Network/Http/Backends/HttpBackend.h"
 

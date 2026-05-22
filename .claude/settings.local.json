@@ -173,7 +173,10 @@
       "Read(//c/temp/**)",
       "PowerShell(Format-Hex *)",
       "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Packaged\\\\homebrew.psp\\\\BuildTarget-PSP\\\\Assets\\\\Models\\\\tree.oct\"\\) ; Write-Output \"Tree.oct UUID bytes at offset 0x0C:\" ; [BitConverter]::ToUInt64\\($bytes, 12\\) | Write-Output ; $bytes[12..19] | ForEach-Object { Write-Output $_.ToString\\('X2'\\) } -join ' ')",
-      "PowerShell($srcTree = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Models\\\\tree.oct\"\\) ; $srcColormap = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Materials\\\\colormap.oct\"\\) ; Write-Output \"SOURCE tree.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcTree[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`nSOURCE colormap.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcColormap[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`n=== SOURCE tree.oct hex dump ===\" ; $srcTree[0..79] | Format-Hex)"
+      "PowerShell($srcTree = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Models\\\\tree.oct\"\\) ; $srcColormap = [System.IO.File]::ReadAllBytes\\(\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\BuildTarget-PSP\\\\Assets\\\\Materials\\\\colormap.oct\"\\) ; Write-Output \"SOURCE tree.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcTree[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`nSOURCE colormap.oct UUID bytes \\(offset 0x0C\\):\" ; \\($srcColormap[12..19] | ForEach-Object { $_.ToString\\('X2'\\) }\\) -join ' ' ; Write-Output \"`n=== SOURCE tree.oct hex dump ===\" ; $srcTree[0..79] | Format-Hex)",
+      "Bash(awk -F'_Data' '{print $1}')",
+      "Bash(awk -F'char ' '{print $2}')",
+      "Bash(wsl bash *)"
     ]
   }
 }
