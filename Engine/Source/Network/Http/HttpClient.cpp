@@ -1,5 +1,13 @@
 #include "Network/Http/HttpClient.h"
 
+// Addon platforms (m68k, etc.) have no usable threading primitives in
+// libstdc++ — the desktop HTTP client uses std::thread / std::mutex /
+// std::condition_variable for a worker-queue model. Stub the whole TU at
+// the bottom of this file for those targets. NET_* and HttpBackend_Stub
+// already return failure cleanly; the Http::* stubs below just need to
+// be no-ops so engine code that calls Http::Tick etc. doesn't link-fail.
+#if !defined(POLYPHASE_PLATFORM_ADDON)
+
 #include "Network/Http/Backends/HttpBackend.h"
 #include "Log.h"
 
@@ -313,3 +321,39 @@ namespace Http
         return response;
     }
 }
+
+#else  // POLYPHASE_PLATFORM_ADDON
+
+// ---------------------------------------------------------------------------
+// Addon-platform stubs. Every Http::* function is a no-op / failure return.
+// No worker thread, no mutex queue — just enough to satisfy the linker for
+// engine code that unconditionally calls Http::Initialize / Tick / Shutdown.
+// ---------------------------------------------------------------------------
+
+namespace Http
+{
+    void  Initialize() {}
+    void  Shutdown()   {}
+    void  Tick()       {}
+
+    bool  IsAvailable() { return false; }
+    const char* GetMissingDependencyMessage()
+    {
+        return "HTTP not supported on this platform.";
+    }
+
+    HttpHandle Send(HttpRequest, HttpResponseCallback)                            { return HttpHandle{}; }
+    HttpHandle Get(const std::string&, HttpResponseCallback)                      { return HttpHandle{}; }
+    HttpHandle Post(const std::string&, std::vector<uint8_t>, HttpResponseCallback)   { return HttpHandle{}; }
+    HttpHandle Put(const std::string&, std::vector<uint8_t>, HttpResponseCallback)    { return HttpHandle{}; }
+    HttpHandle Patch(const std::string&, std::vector<uint8_t>, HttpResponseCallback)  { return HttpHandle{}; }
+    HttpHandle Delete(const std::string&, HttpResponseCallback)                   { return HttpHandle{}; }
+    HttpHandle PostString(const std::string&, const std::string&, HttpResponseCallback) { return HttpHandle{}; }
+
+    HttpResponse SendSync(HttpRequest)
+    {
+        return HttpResponse{};
+    }
+}
+
+#endif  // POLYPHASE_PLATFORM_ADDON

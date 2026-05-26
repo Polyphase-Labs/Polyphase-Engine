@@ -7,7 +7,7 @@ System for handling multiplayer networking and platform services.
 Open a multiplayer session.
 
 Sig: `Network.OpenSession(options)`
- - Arg: `table options`
+ - Arg: `table options` (optional; if omitted, all defaults are used)
    - `string name` Name to identify the session/lobby
    - `boolean lan` Whether session should only be accessible on local network
    - `boolean private` If private, only friends can join
@@ -254,32 +254,48 @@ Sig: `Network.EnableNetRelevancy(enable)`
  - Arg: `boolean enable` Whether to enable net relevancy
 ---
 ### SetConnectCallback
-Set a callback function that will be called when a Connect message is received.
+Set a callback function that will be called when a Connect message is received. This fires on the **server** each time a new client connects. The callback is passed a host-profile table describing the client that connected.
 
 Sig: `Network.SetConnectCallback(func)`
- - Arg: `function func` Callback function
+ - Arg: `function func` Callback function. Invoked as `func(client)`:
+   - `table client` Profile of the connecting client
+     - `string ipAddress`
+     - `integer port`
+     - `integer hostId`
+     - `string onlineId` (e.g. SteamID)
+     - `number ping`
+     - `boolean ready`
 ---
 ### SetAcceptCallback
-Set a callback function that will be called when an Accept message is received.
+Set a callback function that will be called when an Accept message is received. This fires on the **client** when the server accepts its connection request.
 
 Sig: `Network.SetAcceptCallback(func)`
- - Arg: `function func` Callback function
+ - Arg: `function func` Callback function. Invoked as `func()` (no arguments).
 ---
 ### SetRejectCallback
-Set a callback function that will be called when a Reject message is received.
+Set a callback function that will be called when a Reject message is received. This fires on the **client** when the server refuses its connection request.
 
 Sig: `Network.SetRejectCallback(func)`
- - Arg: `function func` Callback function
+ - Arg: `function func` Callback function. Invoked as `func(reason)`:
+   - `integer reason` Why the connection was rejected:
+     - `0` InvalidGameCode
+     - `1` VersionMismatch
+     - `2` SessionFull
 ---
 ### SetDisconnectCallback
-Set a callback function that will be called when a Disconnect message is received.
+Set a callback function that will be called when a Disconnect message is received. This fires on the **server** each time a client disconnects (or is dropped). The callback is passed a host-profile table describing the client that left.
 
 Sig: `Network.SetDisconnectCallback(func)`
- - Arg: `function func` Callback function
+ - Arg: `function func` Callback function. Invoked as `func(client)`:
+   - `table client` Profile of the disconnecting client (same fields as SetConnectCallback)
 ---
 ### SetKickCallback
-Set a callback function that will be called when a Kick message is received.
+Set a callback function that will be called when a Kick message is received. This fires on the **client** when it is kicked from the session (forcibly, on session close, or after a connection timeout).
 
 Sig: `Network.SetKickCallback(func)`
- - Arg: `function func` Callback function
+ - Arg: `function func` Callback function. Invoked as `func(reason)`:
+   - `integer reason` Why the host was kicked:
+     - `0` SessionClose
+     - `1` Timeout
+     - `2` Forced
 ---

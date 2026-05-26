@@ -152,7 +152,9 @@ void Scene::LoadStream(Stream& stream, Platform platform)
                         for (uint32_t c = 0; c < numCols; ++c)
                         {
                             overs[o].mInstanceColors[c] = stream.ReadUint32();
-#if PLATFORM_DOLPHIN
+#if PLATFORM_DOLPHIN || defined(POLYPHASE_BIG_ENDIAN)
+                            // BE hosts (Wii/GameCube via PLATFORM_DOLPHIN, Genesis via POLYPHASE_BIG_ENDIAN)
+                            // reverse the LE-cooked color so the vertex-color uniform reads the right channels.
                             ReverseColorUint32(overs[o].mInstanceColors[c]);
 #endif
                         }

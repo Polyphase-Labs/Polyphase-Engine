@@ -60,5 +60,7 @@
 #define ASSET_LIVE_REF_TRACKING 0
 #endif
 
+#ifndef LUA_ENABLED
 #define LUA_ENABLED 1
+#endif
 #define LUA_TYPE_CHECK 1

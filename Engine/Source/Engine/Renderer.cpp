@@ -456,9 +456,25 @@ void Renderer::LoadDefaultMeshes()
     mTorusMesh = LoadAsset("SM_Torus");
 
     // Setup collision on several meshes
-    // Did you crash here? Make sure you package the project once from the editor to build .oct files for engine assets.
-    mCubeMesh.Get<StaticMesh>()->SetCollisionShape(new btBoxShape(btVector3(1.0f, 1.0f, 1.0f)));
-    mSphereMesh.Get<StaticMesh>()->SetCollisionShape(new btSphereShape(1.0f));
+    // Null-check guards: if the engine assets weren't loadable (e.g. a
+    // console runtime built without EmbeddedAssets.cpp and without a
+    // DragonFS / asset registry, like Phase-1 N64), AssetRef::Get returns
+    // nullptr and the SetCollisionShape call would dereference a null
+    // StaticMesh pointer. Skip the collision-shape setup in that case;
+    // the engine continues to boot without default-mesh collision (the
+    // primitive nodes that use these meshes just lose their collision
+    // shape, which is acceptable on runtimes that lack the assets to
+    // begin with).
+    StaticMesh* cube   = mCubeMesh.Get<StaticMesh>();
+    StaticMesh* sphere = mSphereMesh.Get<StaticMesh>();
+    if (cube != nullptr)
+    {
+        cube->SetCollisionShape(new btBoxShape(btVector3(1.0f, 1.0f, 1.0f)));
+    }
+    if (sphere != nullptr)
+    {
+        sphere->SetCollisionShape(new btSphereShape(1.0f));
+    }
 }
 
 void Renderer::LoadDefaultFonts()

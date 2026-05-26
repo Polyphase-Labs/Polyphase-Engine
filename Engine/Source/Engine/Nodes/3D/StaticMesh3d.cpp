@@ -129,7 +129,9 @@ void StaticMesh3D::LoadStream(Stream& stream, Platform platform, uint32_t versio
     {
         mInstanceColors[i] = stream.ReadUint32();
 
-#if PLATFORM_DOLPHIN
+#if PLATFORM_DOLPHIN || defined(POLYPHASE_BIG_ENDIAN)
+        // BE hosts (Wii/GameCube via PLATFORM_DOLPHIN, Genesis via POLYPHASE_BIG_ENDIAN)
+        // reverse the LE-cooked color so vertex-color reads correctly.
         ReverseColorUint32(mInstanceColors[i]);
 #endif
     }

@@ -61,7 +61,20 @@ namespace
     static bool BuildRecastNavData(World* world, RecastNavData& outData);
 
     static std::unordered_map<World*, std::unique_ptr<RecastNavData>> sWorldNavCache;
-    static std::mutex sWorldNavCacheMutex;
+
+    // Addon platforms (single-core m68k, etc.) don't have std::mutex in
+    // libstdc++ — and have no preemption to defend against anyway. Stub
+    // both types so the nav-cache mutex compiles away to nothing on those
+    // builds while keeping the real implementation on threaded hosts.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    struct NavCacheMutex { void lock() {} void unlock() {} };
+    struct NavCacheLockGuard { NavCacheLockGuard(NavCacheMutex&) {} };
+#else
+    using NavCacheMutex = std::mutex;
+    using NavCacheLockGuard = std::lock_guard<std::mutex>;
+#endif
+
+    static NavCacheMutex sWorldNavCacheMutex;
 
     // Nav query extents for nearest-poly lookups.
     static constexpr float kNavQueryExtX = 2.0f;
@@ -78,7 +91,7 @@ namespace
 
     static void InvalidateWorldNavCache(World* world)
     {
-        std::lock_guard<std::mutex> lock(sWorldNavCacheMutex);
+        NavCacheLockGuard lock(sWorldNavCacheMutex);
         sWorldNavCache.erase(world);
     }
 
@@ -92,7 +105,7 @@ namespace
 
         RecastNavData* ret = nav.get();
         {
-            std::lock_guard<std::mutex> lock(sWorldNavCacheMutex);
+            NavCacheLockGuard lock(sWorldNavCacheMutex);
             sWorldNavCache[world] = std::move(nav);
         }
         return ret;
@@ -101,7 +114,7 @@ namespace
     static RecastNavData* GetOrBuildWorldNav(World* world)
     {
         {
-            std::lock_guard<std::mutex> lock(sWorldNavCacheMutex);
+            NavCacheLockGuard lock(sWorldNavCacheMutex);
             auto it = sWorldNavCache.find(world);
             if (it != sWorldNavCache.end() && it->second && it->second->mQuery)
             {
@@ -556,8 +569,27 @@ World::World() :
 {
     SCOPED_STAT("World()")
 
-    // Setup physics world
+    // Setup physics world.
+    // btDefaultCollisionConfiguration() with no args allocates the default
+    // pool sizes — ~3 MB for the persistent-manifold pool (4096 * sizeof(
+    // btPersistentManifold) ~= 832 bytes each), 5 MB for the stack
+    // allocator, plus the algorithm pool. Fine on desktop; impossible on
+    // a 4-8 MB N64. Pass a shrunk btDefaultCollisionConstructionInfo on
+    // platforms that can't afford the defaults — gameplay scenes
+    // typically use <64 simultaneous contacts so 64 manifolds is plenty.
+#if defined(PLATFORM_N64)
+    // This Bullet version's btDefaultCollisionConstructionInfo only
+    // exposes the two pool-size fields (no stack-allocator size knob in
+    // this fork). The 3-MB allocation that OOMed on N64 was the manifold
+    // pool — shrinking it from the default 4096 to 64 entries is the
+    // load-bearing fix.
+    btDefaultCollisionConstructionInfo n64CollisionInfo;
+    n64CollisionInfo.m_defaultMaxPersistentManifoldPoolSize = 64;
+    n64CollisionInfo.m_defaultMaxCollisionAlgorithmPoolSize = 64;
+    mCollisionConfig = new btDefaultCollisionConfiguration(n64CollisionInfo);
+#else
     mCollisionConfig = new btDefaultCollisionConfiguration();
+#endif
     mCollisionDispatcher = new btCollisionDispatcher(mCollisionConfig);
     mBroadphase = new btDbvtBroadphase();
     mSolver = new btSequentialImpulseConstraintSolver();

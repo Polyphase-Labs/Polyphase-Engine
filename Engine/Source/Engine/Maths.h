@@ -1,3 +1,18 @@
+// SGDK case-collision shim. WSL2's DrvFs on /mnt/c is case-insensitive by
+// default, so when SGDK's sgdk/inc/ext/console.h does `#include "maths.h"`
+// (lowercase), gcc can case-insensitively match this file (`Maths.h`, capital)
+// via the engine's -I path. PolyphaseSGDK.h defines POLYPHASE_IN_SGDK_INCLUDE
+// while pulling SGDK headers — in that scope we DON'T want to load engine
+// content; we want to delegate to SGDK's real maths.h instead. Use
+// #include_next (gcc extension) to skip the engine entry and resume the
+// search at -idirafter $(GDK)/inc where SGDK's lives. Critical: we must NOT
+// #pragma once on this branch — otherwise gcc remembers this file as
+// "loaded" and a later engine `#include "Maths.h"` (which DOES want engine
+// content) gets short-circuited.
+#if defined(POLYPHASE_IN_SGDK_INCLUDE)
+#include_next <maths.h>
+#else
+
 #pragma once
 
 #include <stdint.h>
@@ -100,3 +115,5 @@ glm::vec3 Maths::RandRange<glm::vec3>(glm::vec3 min, glm::vec3 max);
 
 template<>
 glm::vec4 Maths::RandRange<glm::vec4>(glm::vec4 min, glm::vec4 max);
+
+#endif  // POLYPHASE_IN_SGDK_INCLUDE

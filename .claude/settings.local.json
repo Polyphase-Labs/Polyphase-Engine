@@ -180,7 +180,9 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:pcsx2.net)",
-      "Bash(gh release *)"
+      "Bash(gh release *)",
+      "Read(//m/Projects/Octave/TestProjects/octo-bombers/4/Bomber/Scripts/**)",
+      "Read(//m/Projects/Octave/TestProjects/octo-bombers/4/Bomber/Source/**)"
     ]
   }
 }

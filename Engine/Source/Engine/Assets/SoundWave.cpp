@@ -241,6 +241,25 @@ void SoundWave::SaveStream(Stream& stream, Platform platform)
         // storing the data uncompressed later will not result in any better audio. Use only when needed.
         compress = (mCompress && mCompressInternal);
     }
+    else if (platform != Platform::Windows)
+    {
+        // ANY non-Windows build target ships SoundWave assets DECOMPRESSED.
+        // This includes Linux (engine treats addon-target consoles like
+        // PS2 / Dreamcast as basePlatform=Linux), GameCube, Wii, N3DS,
+        // Android, etc.
+        //
+        // Runtime Vorbis decode requires IEC559 float semantics (NaN,
+        // denormals, Inf) that several console FPUs don't provide — PS2
+        // R5900 EE silently produces zeros from ops that should NaN-out,
+        // so Vorbis-decoded buffers end up as 0x80-filled silence.
+        //
+        // The trade-off: shipping raw PCM on Linux desktop bloats Linux
+        // builds. Acceptable because Linux ports usually run on
+        // hardware with disk space to spare, and the runtime cost of
+        // Vorbis-decode-at-load is a startup-time stutter even when it
+        // works. Storage > load time = good trade for all non-Windows.
+        compress = false;
+    }
 
     stream.WriteBool(compress);
 

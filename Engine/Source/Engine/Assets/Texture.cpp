@@ -408,10 +408,39 @@ void Texture::SaveStream(Stream& stream, Platform platform)
     Asset::SaveStream(stream, platform);
 
 #if EDITOR
-    // For now, only allow saving in editor where mPixels is valid.
-    // In the future, copy texture to buffer.
-    stream.WriteUint32(mWidth);
-    stream.WriteUint32(mHeight);
+    // Compute the effective on-disk dimensions BEFORE writing the header.
+    // For platforms that go through CookTexture (GameCube/Wii/N3DS) the
+    // cook path handles its own resize and writes a SECOND copy of the
+    // dimensions later in the stream, so we keep the header dims at
+    // mWidth/mHeight for those. For the raw-RGBA8 path (Windows/Linux/
+    // PS2-via-Linux base/any addon-target on a Linux base) the loader
+    // reads mWidth/mHeight from the header and uses those to size the
+    // pixel buffer — so we have to write the EFFECTIVE dims here, AND
+    // resize the pixel data to match. Without this the per-texture
+    // DownSample (LowQualityDownsampleFactor) editor setting was silently
+    // ignored for any non-GC/Wii/3DS build, including PS2 where a 1024×1024
+    // RGBA8 source = 4 MB EE blob and crashes during asset load.
+    std::vector<uint8_t> rawOutPixels;
+    uint32_t outW = mWidth;
+    uint32_t outH = mHeight;
+    const bool useCooked = UseCookedTextures(platform);
+    // Platform::Count is the sentinel for "save the editor source .oct" — must
+    // never downsample in that path, or the asset shrinks on every save/load.
+    if (!useCooked && !mForceHighQuality && mLowQualityDownsampleFactor > 1 && platform != Platform::Count)
+    {
+        outW = glm::max<uint32_t>(mWidth  >> (mLowQualityDownsampleFactor - 1), 1u);
+        outH = glm::max<uint32_t>(mHeight >> (mLowQualityDownsampleFactor - 1), 1u);
+        rawOutPixels.resize(outW * outH * RGBA8_SIZE);
+        stbir_resize_uint8_srgb(
+            mPixels.data(),
+            (int)mWidth, (int)mHeight, (int)(mWidth * RGBA8_SIZE),
+            rawOutPixels.data(),
+            (int)outW, (int)outH, (int)(outW * RGBA8_SIZE),
+            stbir_pixel_layout::STBIR_RGBA);
+    }
+
+    stream.WriteUint32(outW);     // <- effective width (LQ-resized for raw path)
+    stream.WriteUint32(outH);     // <- effective height
     stream.WriteUint32(mMipmapped ? mMipLevels : 1);
     stream.WriteUint32(mLayers);
     stream.WriteUint32(uint32_t(mFormat));
@@ -425,7 +454,7 @@ void Texture::SaveStream(Stream& stream, Platform platform)
     stream.WriteBool(mForceHighQuality);
     stream.WriteUint8(mLowQualityDownsampleFactor);
 
-    if (UseCookedTextures(platform))
+    if (useCooked)
     {
         std::vector<uint8_t> cookedData;
         uint32_t texWidth = mWidth;
@@ -445,11 +474,14 @@ void Texture::SaveStream(Stream& stream, Platform platform)
     }
     else
     {
-        // If not using an custom formats, just write out the raw RGBA8 pixels, uncompressed.
-        OCT_ASSERT(mPixels.size() == (mWidth * mHeight * RGBA8_SIZE));
-        for (int32_t i = 0; i < int32_t(mPixels.size()); ++i)
+        // Use the LQ-resized pixel buffer if we built one, else original.
+        const uint8_t* srcBytes = rawOutPixels.empty() ? mPixels.data()  : rawOutPixels.data();
+        const uint32_t srcLen   = rawOutPixels.empty() ? (uint32_t)mPixels.size()
+                                                       : (uint32_t)rawOutPixels.size();
+        OCT_ASSERT(srcLen == (outW * outH * RGBA8_SIZE));
+        for (uint32_t i = 0; i < srcLen; ++i)
         {
-            stream.WriteUint8(mPixels[i]);
+            stream.WriteUint8(srcBytes[i]);
         }
     }
 #endif
