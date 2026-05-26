@@ -163,6 +163,7 @@ nav:
           - Asset Manager: Lua/Systems/AssetManager.md
 
       - Networking:
+          - Setting Up Multiplayer: Lua/Networking/Multiplayer.md
           - Http: Lua/Networking/Http.md
 
       - Assets:
