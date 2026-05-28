@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -57,6 +58,14 @@ struct LocalBuildState
      * Phase 1 resolves it lazily to the matching built-in by basePlatform.
      */
     std::string mTargetId;
+    /**
+     * Snapshot of the active build profile's per-target options (the same
+     * key/value map the options panel edits, e.g. "psp.buildToIso"="1"). Copied
+     * in from the profile at build start so the addon build-target callbacks can
+     * read them via ctx->GetProfileSetting during compile / cook / post-package
+     * / run. Without this the callbacks only ever saw their built-in defaults.
+     */
+    std::unordered_map<std::string, std::string> mTargetOptions;
     bool mEmbedded{false};
     std::string mPackagedDir;
     std::string mBuildProjDir;
@@ -103,6 +112,7 @@ struct LocalBuildState
         }
         mPlatform = Platform::Linux;
         mTargetId.clear();
+        mTargetOptions.clear();
         mEmbedded = false;
         mPackagedDir.clear();
         mBuildProjDir.clear();

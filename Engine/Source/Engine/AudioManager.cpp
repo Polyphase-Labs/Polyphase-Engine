@@ -6,6 +6,7 @@
 #include "Engine.h"
 #include "World.h"
 #include "Profiler.h"
+#include "SignalBus.h"
 
 #include "Nodes/3D/Node3d.h"
 #include "Nodes/3D/Audio3d.h"
@@ -35,6 +36,9 @@ struct AudioSource
     float mOuterRadius;
     AttenuationFunc mAttenuationFunc;
     int8_t mAudioClass;
+    float mStartTime;       // Seconds offset passed to AUD_Play.
+    float mPlaybackTime;    // Seconds since AUD_Play (pitch-scaled). Used by audio analysis.
+    bool mLoop;
 
     AudioSource()
     {
@@ -51,7 +55,9 @@ struct AudioSource
         float innerRadius,
         float outerRadius,
         AttenuationFunc attenFunc,
-        int8_t audioClass)
+        int8_t audioClass,
+        float startTime,
+        bool loop)
     {
         mSoundWave = soundWave;
         mComponent = component;
@@ -63,6 +69,9 @@ struct AudioSource
         mOuterRadius = outerRadius;
         mAttenuationFunc = attenFunc;
         mAudioClass = glm::clamp<int8_t>(audioClass, 0, MAX_AUDIO_CLASSES - 1);
+        mStartTime = startTime;
+        mPlaybackTime = 0.0f;
+        mLoop = loop;
     }
 
     void Reset()
@@ -77,6 +86,9 @@ struct AudioSource
         mOuterRadius = -1.0f;
         mAttenuationFunc = AttenuationFunc::Count;
         mAudioClass = 0;
+        mStartTime = 0.0f;
+        mPlaybackTime = 0.0f;
+        mLoop = false;
     }
 
     bool IsSpatial() const
@@ -189,7 +201,9 @@ void PlayAudio(
         innerRadius,
         outerRadius,
         attenFunc,
-        audioClass);
+        audioClass,
+        startTime,
+        loop);
 
     float classVolume = sAudioClassData[audioClass].mVolume;
     float classPitch = sAudioClassData[audioClass].mPitch;
@@ -300,6 +314,9 @@ void AudioManager::Update(float deltaTime)
             SoundWave* soundWave = sAudioSources[i].mSoundWave.Get<SoundWave>();
             bool stopped = false;
 
+            // Advance the audio-analysis playback cursor (pitch-scaled, drives AUD_Get* read offset).
+            sAudioSources[i].mPlaybackTime += deltaTime * sAudioSources[i].mPitchMult;
+
             if (sAudioSources[i].mComponent != nullptr &&
                 !sAudioSources[i].mComponent->IsPlaying())
             {
@@ -309,15 +326,31 @@ void AudioManager::Update(float deltaTime)
             }
             else if (!AUD_IsPlaying(i))
             {
-                // If the audio engine has finished the sound wave, then stop it.
-                if (sAudioSources[i].mComponent != nullptr &&
-                    !sAudioSources[i].mComponent->GetLoop())
+                // Sound wave reached its natural end. Snapshot the component + soundwave BEFORE we
+                // clear the source so signal handlers can inspect them. Loop mode shouldn't take
+                // this branch (AUD_IsPlaying stays true) — but if it ever does we treat it as a
+                // finish event anyway.
+                Audio3D*   finishedComp = sAudioSources[i].mComponent;
+                SoundWave* finishedWave = soundWave;
+
+                if (finishedComp != nullptr && !finishedComp->GetLoop())
                 {
-                    sAudioSources[i].mComponent->StopAudio();
+                    finishedComp->StopAudio();
                 }
 
                 StopAudio(i);
                 stopped = true;
+
+                // Per-node OnFinished signal (Audio3D scripts) + global SoundFinished SignalBus
+                // emit (any subscriber — covers PlaySound2D-spawned voices that have no component).
+                if (finishedComp != nullptr)
+                {
+                    finishedComp->OnSoundFinished();
+                }
+                if (finishedWave != nullptr)
+                {
+                    GetSignalBus()->Emit("SoundFinished", { Datum(finishedWave) });
+                }
             }
             else if (sAudioSources[i].IsSpatial())
             {
@@ -716,5 +749,52 @@ float AudioManager::GetMasterVolume()
 float AudioManager::GetMasterPitch()
 {
     return sMasterPitch;
+}
+
+bool AudioManager::GetVoicePcmInfo(uint32_t voiceIndex, AudioAnalysis::PcmView& outView)
+{
+    outView = AudioAnalysis::PcmView();
+    if (voiceIndex >= MAX_AUDIO_SOURCES) return false;
+
+    SoundWave* soundWave = sAudioSources[voiceIndex].mSoundWave.Get<SoundWave>();
+    if (soundWave == nullptr) return false;
+    if (soundWave->GetWaveData() == nullptr) return false;
+    if (soundWave->GetNumSamples() == 0) return false;
+    if (soundWave->GetSampleRate() == 0) return false;
+
+    const uint64_t totalFrames = soundWave->GetNumSamples();
+    const double cursorSeconds = (double)sAudioSources[voiceIndex].mStartTime
+                               + (double)sAudioSources[voiceIndex].mPlaybackTime;
+    double cursorFramesD = cursorSeconds * (double)soundWave->GetSampleRate();
+    if (sAudioSources[voiceIndex].mLoop && totalFrames > 0)
+    {
+        cursorFramesD = fmod(cursorFramesD, (double)totalFrames);
+        if (cursorFramesD < 0.0) cursorFramesD += (double)totalFrames;
+    }
+    if (cursorFramesD < 0.0) cursorFramesD = 0.0;
+    if (!sAudioSources[voiceIndex].mLoop && cursorFramesD > (double)totalFrames)
+    {
+        cursorFramesD = (double)totalFrames;
+    }
+
+    outView.mData          = soundWave->GetWaveData();
+    outView.mSampleRate    = soundWave->GetSampleRate();
+    outView.mNumChannels   = soundWave->GetNumChannels();
+    outView.mBitsPerSample = soundWave->GetBitsPerSample();
+    outView.mCursorFrame   = (uint64_t)cursorFramesD;
+    outView.mTotalFrames   = totalFrames;
+    outView.mLoop          = sAudioSources[voiceIndex].mLoop;
+    outView.mCacheKey      = voiceIndex;
+    return true;
+}
+
+uint32_t AudioManager::FindVoiceIndex(Audio3D* component)
+{
+    if (component == nullptr) return MAX_AUDIO_SOURCES;
+    for (uint32_t i = 0; i < MAX_AUDIO_SOURCES; ++i)
+    {
+        if (sAudioSources[i].mComponent == component) return i;
+    }
+    return MAX_AUDIO_SOURCES;
 }
 

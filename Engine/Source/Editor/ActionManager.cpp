@@ -971,6 +971,27 @@ namespace
     }
 }
 
+namespace
+{
+    // Profile-option access for addon build-target callbacks. The C-ABI
+    // descriptor callbacks take captureless function pointers, so reads are
+    // routed through this file-scope pointer, set to the in-flight build's
+    // option map immediately before each callback fires. Mirrors the options
+    // trampoline PackagingWindow uses for the DrawProfileOptions panel.
+    const std::unordered_map<std::string, std::string>* sBuildCtxOptions = nullptr;
+
+    int32_t BuildCtx_GetProfileSetting(const char* key, char* outVal, size_t cap)
+    {
+        if (outVal == nullptr || cap == 0) return 0;
+        outVal[0] = '\0';
+        if (sBuildCtxOptions == nullptr || key == nullptr) return 0;
+        const auto it = sBuildCtxOptions->find(key);
+        if (it == sBuildCtxOptions->end()) return 0;
+        std::snprintf(outVal, cap, "%s", it->second.c_str());
+        return 1;
+    }
+}
+
 void ActionManager::BuildData(const std::string& targetId, bool embedded)
 {
     if (IsBuildRunning())
@@ -1403,6 +1424,8 @@ void ActionManager::BuildPhase1()
                     ctx.basePlatform      = target->mDesc.basePlatform;
                     ctx.embedded          = embedded ? 1 : 0;
                     ctx.forceRebuild      = mBuildState.mForceCompile ? 1 : 0;
+                    sBuildCtxOptions      = &mBuildState.mTargetOptions;
+                    ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
 
                     Stream stream;
                     if (target->mDesc.CookAsset(&ctx, stub->mAsset->RuntimeName(),
@@ -1912,6 +1935,8 @@ void ActionManager::BuildPhase1()
                 ctx.runAfterBuild    = mBuildState.mRunAfterBuild ? 1 : 0;
                 ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
                 ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
+                sBuildCtxOptions     = &mBuildState.mTargetOptions;
+                ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
 
                 // Variant 2 — bridge-header generation. If the addon supplies
                 // a runtime via `platformExtensionDir`, resolve it to an
@@ -3116,15 +3141,20 @@ void ActionManager::FinalizeLocalBuild()
         if (addonTarget != nullptr && !addonTarget->mIsBuiltIn &&
             addonTarget->mDesc.PostPackage != nullptr)
         {
+            const std::string engineDirForCtx = SYS_GetPolyphasePath();
+
             PolyphaseBuildContext ctx{};
             ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
             ctx.targetId         = addonTarget->mDesc.targetId;
             ctx.projectName      = projectName.c_str();
             ctx.projectDir       = projectDir.c_str();
             ctx.packageOutputDir = packagedDir.c_str();
+            ctx.engineDir        = engineDirForCtx.c_str();
             ctx.basePlatform     = addonTarget->mDesc.basePlatform;
             ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
             ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
+            sBuildCtxOptions     = &mBuildState.mTargetOptions;
+            ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
 
             if (addonTarget->mDesc.PostPackage(&ctx) == 0)
             {
@@ -3183,6 +3213,8 @@ void ActionManager::FinalizeLocalBuild()
                 ctx.runAfterBuild    = 1;
                 ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
                 ctx.runOnDevice      = mBuildState.mRunOnDevice ? 1 : 0;
+                sBuildCtxOptions     = &mBuildState.mTargetOptions;
+                ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
 
                 char cmdBuf[2048] = {0};
                 bool handled = false;

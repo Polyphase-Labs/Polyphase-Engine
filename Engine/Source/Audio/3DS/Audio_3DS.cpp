@@ -1,6 +1,7 @@
 #if PLATFORM_3DS
 
 #include "Audio/Audio.h"
+#include "Audio/AudioAnalysis.h"
 #include "Audio/AudioConstants.h"
 
 #include "Assets/SoundWave.h"
@@ -575,7 +576,9 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
         ndspChnSetFormat(sv.mChannel, sv.mFormat);
         ApplyStreamMix(sv.mChannel, sv.mVolume);
 
-        return i + 1; // 0 is the "not available" sentinel
+        const uint32_t streamId = i + 1;
+        AudioAnalysis::OnStreamOpened(streamId, sampleRate, numChannels, bitsPerSample);
+        return streamId; // 0 is the "not available" sentinel
     }
 
     LogWarning("AUD_OpenStream: no free streaming voices (pool size %u)", kMaxStreamingVoices);
@@ -584,6 +587,7 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
 
 void AUD_CloseStream(uint32_t streamId)
 {
+    AudioAnalysis::OnStreamClosed(streamId);
     StreamVoice* sv = GetStreamFromId(streamId);
     if (sv == nullptr) return;
 
@@ -644,6 +648,7 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
     // Kick the pipeline immediately so first-submit starts playback this frame.
     AdvanceStream(*sv);
 
+    AudioAnalysis::OnStreamSubmitted(streamId, data, byteSize);
     return int32_t(byteSize);
 }
 

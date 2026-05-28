@@ -900,6 +900,7 @@
     <ClCompile Include="Source\Audio\3DS\Audio_3DS.cpp" />
     <ClCompile Include="Source\Audio\Android\Audio_Android.cpp" />
     <ClCompile Include="Source\Audio\Audio.cpp" />
+    <ClCompile Include="Source\Audio\AudioAnalysis.cpp" />
     <ClCompile Include="Source\Audio\Dolphin\Audio_Dolphin.cpp" />
     <ClCompile Include="Source\Audio\Linux\Audio_Linux.cpp" />
     <ClCompile Include="Source\Audio\Windows\Audio_Windows.cpp" />
@@ -1424,6 +1425,7 @@
   <ItemGroup>
     <ClInclude Include="Source\Editor\FeatureFlags.h" />
     <ClInclude Include="Source\Audio\Audio.h" />
+    <ClInclude Include="Source\Audio\AudioAnalysis.h" />
     <ClInclude Include="Source\Audio\AudioConstants.h" />
     <ClInclude Include="Source\Audio\AudioTypes.h" />
     <ClInclude Include="Source\Editor\ActionManager.h" />

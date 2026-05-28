@@ -41,6 +41,7 @@ nav:
           - VS Code: Development/SetupEnvironment/VSCode.md
           - Terminal: Development/SetupEnvironment/Terminal.md
           - Compiling: Development/SetupEnvironment/Compiling.md
+      - Audio Visualizer: Development/AudioVisualizer.md
       - Mesh Instancing: Development/MeshInstancing.md
       - Shadows: Development/Shadows.md
       - 3D Nodes:

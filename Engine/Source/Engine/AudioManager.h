@@ -2,6 +2,8 @@
 
 #include "EngineTypes.h"
 
+#include "Audio/AudioAnalysis.h"
+
 class SoundWave;
 class Audio3D;
 
@@ -56,4 +58,12 @@ public:
     static void SetMasterPitch(float pitch);
     static float GetMasterVolume();
     static float GetMasterPitch();
+
+    // Audio-analysis helpers. Fills `outView` with the SoundWave PCM + current cursor for the voice;
+    // returns false if the voice is idle. Used by AUD_Get* in the platform-indep Audio.cpp.
+    static bool GetVoicePcmInfo(uint32_t voiceIndex, AudioAnalysis::PcmView& outView);
+
+    // Linear scan for the voice currently driving this Audio3D node. Returns the voice index, or
+    // AUDIO_MAX_VOICES if the node isn't bound to a voice right now.
+    static uint32_t FindVoiceIndex(Audio3D* component);
 };

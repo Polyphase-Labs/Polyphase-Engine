@@ -1,6 +1,7 @@
 #if PLATFORM_WINDOWS
 
 #include "Audio/Audio.h"
+#include "Audio/AudioAnalysis.h"
 #include "Audio/AudioConstants.h"
 #include "System/System.h"
 
@@ -349,7 +350,9 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
             entry.mPaused         = false;
             entry.mPendingBuffers.store(0);
 
-            return i + 1; // 0 is sentinel for invalid
+            const uint32_t streamId = i + 1;
+            AudioAnalysis::OnStreamOpened(streamId, sampleRate, numChannels, bitsPerSample);
+            return streamId; // 0 is sentinel for invalid
         }
     }
 
@@ -360,6 +363,7 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
 void AUD_CloseStream(uint32_t streamId)
 {
     if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    AudioAnalysis::OnStreamClosed(streamId);
     StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
     if (!entry.mInUse) return;
 
@@ -419,6 +423,7 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
     }
 
     entry.mPendingBuffers.fetch_add(1);
+    AudioAnalysis::OnStreamSubmitted(streamId, data, byteSize);
     return (int32_t)byteSize;
 }
 

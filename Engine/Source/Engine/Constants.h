@@ -4,7 +4,7 @@
 
 #define ENGINE_NAME "Polyphase"
 #define POLYPHASE_VERSION 6
-#define POLYPHASE_VERSION_STRING "6.2.0-beta.7"
+#define POLYPHASE_VERSION_STRING "6.2.0-beta.8"
 #define MAX_PATH_SIZE 260
 
 #define DEFAULT_GAME_NAME "Polyphase"
@@ -64,3 +64,21 @@
 #define LUA_ENABLED 1
 #endif
 #define LUA_TYPE_CHECK 1
+
+// Audio analysis (RMS / loudness / FFT spectrum). Override per platform via
+// Constants_<Plat>.h or platform-specific overrides (same idiom as LUA_ENABLED).
+#ifndef AUDIO_ANALYSIS_ENABLED
+#define AUDIO_ANALYSIS_ENABLED 1
+#endif
+#ifndef AUDIO_ANALYSIS_STREAMS_ENABLED
+#define AUDIO_ANALYSIS_STREAMS_ENABLED 1
+#endif
+#ifndef AUDIO_FFT_SIZE
+#define AUDIO_FFT_SIZE 512
+#endif
+#ifndef AUDIO_ANALYSIS_STREAM_SECONDS
+#define AUDIO_ANALYSIS_STREAM_SECONDS 1.0f
+#endif
+#ifndef AUDIO_ANALYSIS_MAX_STREAMS
+#define AUDIO_ANALYSIS_MAX_STREAMS 4
+#endif

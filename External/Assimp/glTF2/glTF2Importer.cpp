@@ -72,6 +72,55 @@ namespace {
         aiVector3D xyz;
         ai_real w;
     };
+
+    // glTF stores vertex colors (COLOR_0/_1) as float OR *normalized* integer components,
+    // and as VEC3 or VEC4. Accessor::ExtractData only does a raw byte copy with no
+    // normalization, which silently corrupts every normalized-integer color stream (the
+    // common case for exporters such as Blender, which emit normalized UNSIGNED_SHORT).
+    // Read and normalize the components explicitly so colors survive import.
+    static void ExtractVertexColors(Accessor& acc, aiColor4D*& outColors) {
+        const unsigned int numComponents = acc.GetNumComponents();
+        const unsigned int componentSize = acc.GetBytesPerComponent();
+        const size_t count = acc.count;
+        const size_t stride = (acc.bufferView && acc.bufferView->byteStride)
+            ? acc.bufferView->byteStride
+            : acc.GetElementSize();
+
+        outColors = new aiColor4D[count];
+
+        uint8_t* base = acc.GetPointer();
+        if (!base) {
+            for (size_t i = 0; i < count; ++i) {
+                outColors[i] = aiColor4D(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            return;
+        }
+
+        for (size_t i = 0; i < count; ++i) {
+            // Alpha defaults to opaque so VEC3 colors stay opaque.
+            float channels[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            uint8_t* element = base + i * stride;
+
+            for (unsigned int c = 0; c < numComponents && c < 4; ++c) {
+                uint8_t* component = element + c * componentSize;
+                switch (acc.componentType) {
+                case ComponentType_FLOAT:
+                    channels[c] = *reinterpret_cast<float*>(component);
+                    break;
+                case ComponentType_UNSIGNED_BYTE:
+                    channels[c] = *reinterpret_cast<uint8_t*>(component) / 255.0f;
+                    break;
+                case ComponentType_UNSIGNED_SHORT:
+                    channels[c] = *reinterpret_cast<uint16_t*>(component) / 65535.0f;
+                    break;
+                default:
+                    break;
+                }
+            }
+
+            outColors[i] = aiColor4D(channels[0], channels[1], channels[2], channels[3]);
+        }
+    }
 } // namespace
 
 //
@@ -444,7 +493,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset& r)
                         "\" does not match the vertex count");
                     continue;
                 }
-                attr.color[c]->ExtractData(aim->mColors[c]);
+                ExtractVertexColors(*attr.color[c], aim->mColors[c]);
             }
             for (size_t tc = 0; tc < attr.texcoord.size() && tc < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++tc) {
                 if (attr.texcoord[tc]->count != aim->mNumVertices) {

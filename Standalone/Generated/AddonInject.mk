@@ -13,9 +13,9 @@
 # anything getting clobbered.
 
 # addon: com.polyphase.formats.video (23 files in 8 dirs)
-ADDON_SOURCES        = /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Assets /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Backends /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Cook /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Lua /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Nodes /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Playlist /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source/Util
+ADDON_SOURCES        = /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Assets /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Backends /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Cook /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Lua /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Nodes /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Playlist /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source/Util
 ADDON_CPPFILES_EXTRA = AddonPlugins.cpp
-ADDON_INCDIR         = /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP/Packages/com.polyphase.formats.video/Source
+ADDON_INCDIR         = /mnt/m/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PSP_2/Packages/com.polyphase.formats.video/Source
 ADDON_DEFINES        =
 ADDON_LIBDIR         =
 ADDON_LIBS           =

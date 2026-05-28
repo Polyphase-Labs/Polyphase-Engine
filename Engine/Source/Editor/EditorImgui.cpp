@@ -2109,25 +2109,44 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
         }
     }
 
-    if (assetType == MaterialLite::GetStaticType())
+    if (assetType == MaterialLite::GetStaticType() &&
+        stub != nullptr &&
+        stub->mAsset != nullptr)
     {
-        Asset* selAsset = GetEditorState()->GetSelectedAsset();
+        const auto& multiStubs = GetEditorState()->GetSelectedAssetStubs();
 
-        if (stub != nullptr &&
-            stub->mAsset != nullptr &&
-            selAsset != nullptr &&
-            selAsset->GetType() == Texture::GetStaticType())
+        std::vector<AssetStub*> texStubs;
+        for (AssetStub* s : multiStubs)
+        {
+            if (s != nullptr && s->mType == Texture::GetStaticType())
+            {
+                texStubs.push_back(s);
+                if (texStubs.size() >= MATERIAL_LITE_MAX_TEXTURES)
+                    break;
+            }
+        }
+
+        if (!texStubs.empty())
         {
             MaterialLite* matLite = stub->mAsset->As<MaterialLite>();
-            Texture* texture = selAsset->As<Texture>();
 
-            // Auto assign the selected texture to index 0
-            matLite->SetTexture(0, texture);
+            for (AssetStub* s : texStubs)
+            {
+                if (s->mAsset == nullptr)
+                    AssetManager::Get()->LoadAsset(*s);
+            }
 
-            // Only auto-rename if user didn't provide a custom name
+            MaterialLiteParams params = matLite->GetLiteParams();
+            params.mNumTextures = (uint32_t)texStubs.size();
+            for (size_t i = 0; i < texStubs.size(); ++i)
+            {
+                params.mTextures[i] = texStubs[i]->mAsset->As<Texture>();
+            }
+            matLite->SetLiteParams(params);
+
             if (!userProvidedName)
             {
-                std::string newMatName = texture->GetName();
+                std::string newMatName = texStubs[0]->mAsset->GetName();
 
                 if (newMatName.length() >= 2 && newMatName[0] == 'T' && newMatName[1] == '_')
                 {

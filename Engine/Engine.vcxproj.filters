@@ -698,6 +698,9 @@
     <ClCompile Include="Source\Audio\Audio.cpp">
       <Filter>Source Files\Audio</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Audio\AudioAnalysis.cpp">
+      <Filter>Source Files\Audio</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\Node.cpp">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClCompile>
@@ -1780,6 +1783,9 @@
       <Filter>Source Files\Audio</Filter>
     </ClInclude>
     <ClInclude Include="Source\Audio\Audio.h">
+      <Filter>Source Files\Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Audio\AudioAnalysis.h">
       <Filter>Source Files\Audio</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\InputManager.h">

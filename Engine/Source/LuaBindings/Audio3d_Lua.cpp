@@ -7,6 +7,8 @@
 
 #include "AssetManager.h"
 
+#include <vector>
+
 #if LUA_ENABLED
 
 int Audio3D_Lua::SetSoundWave(lua_State* L)
@@ -276,6 +278,57 @@ int Audio3D_Lua::ResetAudio(lua_State* L)
     return 0;
 }
 
+int Audio3D_Lua::GetRMS(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    lua_pushnumber(L, comp->GetRMS());
+    return 1;
+}
+
+int Audio3D_Lua::GetLoudness(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    lua_pushnumber(L, comp->GetLoudness());
+    return 1;
+}
+
+int Audio3D_Lua::GetLoudnessDb(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    lua_pushnumber(L, comp->GetLoudnessDb());
+    return 1;
+}
+
+int Audio3D_Lua::GetFrequencies(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    float startHz = CHECK_NUMBER(L, 2);
+    float endHz   = CHECK_NUMBER(L, 3);
+    lua_pushnumber(L, comp->GetFrequencies(startHz, endHz));
+    return 1;
+}
+
+int Audio3D_Lua::GetSpectrum(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    float startHz = CHECK_NUMBER(L, 2);
+    float endHz   = CHECK_NUMBER(L, 3);
+    int32_t numBins = (int32_t)CHECK_INTEGER(L, 4);
+    if (numBins < 1) numBins = 1;
+    if (numBins > 1024) numBins = 1024;
+
+    std::vector<float> bins((size_t)numBins, 0.0f);
+    comp->GetSpectrum(startHz, endHz, bins.data(), (uint32_t)numBins);
+
+    lua_newtable(L);
+    for (int32_t i = 0; i < numBins; ++i)
+    {
+        lua_pushnumber(L, bins[(size_t)i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 void Audio3D_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -339,6 +392,12 @@ void Audio3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, StopAudio);
 
     REGISTER_TABLE_FUNC(L, mtIndex, ResetAudio);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetRMS);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetLoudness);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetLoudnessDb);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetFrequencies);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSpectrum);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

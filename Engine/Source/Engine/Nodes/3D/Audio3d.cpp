@@ -7,6 +7,9 @@
 #include "AudioManager.h"
 #include "AssetManager.h"
 
+#include "Audio/Audio.h"
+#include "Audio/AudioConstants.h"
+
 #if EDITOR
 #include "EditorState.h"
 #endif
@@ -168,6 +171,20 @@ void Audio3D::TickCommon(float deltaTime)
 
 void Audio3D::SetSoundWave(SoundWave* soundWave)
 {
+    if (mSoundWave.Get<SoundWave>() == soundWave)
+    {
+        return;
+    }
+
+    // If a live voice is currently bound to this node, release it now so the
+    // next AudioManager::Update tick re-spawns playback against the new wave
+    // instead of leaving the previous wave running on the old voice.
+    if (mAudible)
+    {
+        AudioManager::StopComponent(this);
+        mPlayTime = 0.0f;
+    }
+
     mSoundWave = soundWave;
 }
 
@@ -332,4 +349,46 @@ void Audio3D::StopAudio()
 void Audio3D::NotifyAudible(bool audible)
 {
     mAudible = audible;
+}
+
+void Audio3D::OnSoundFinished()
+{
+    EmitSignal("OnFinished", {});
+    CallFunction("OnFinished");
+}
+
+float Audio3D::GetRMS() const
+{
+    const uint32_t voice = AudioManager::FindVoiceIndex(const_cast<Audio3D*>(this));
+    if (voice >= AUDIO_MAX_VOICES) return 0.0f;
+    return AUD_GetRMS(voice);
+}
+
+float Audio3D::GetLoudness() const
+{
+    const uint32_t voice = AudioManager::FindVoiceIndex(const_cast<Audio3D*>(this));
+    if (voice >= AUDIO_MAX_VOICES) return 0.0f;
+    return AUD_GetLoudness(voice);
+}
+
+float Audio3D::GetLoudnessDb() const
+{
+    const uint32_t voice = AudioManager::FindVoiceIndex(const_cast<Audio3D*>(this));
+    if (voice >= AUDIO_MAX_VOICES) return -60.0f;
+    return AUD_GetLoudnessDb(voice);
+}
+
+float Audio3D::GetFrequencies(float startHz, float endHz) const
+{
+    const uint32_t voice = AudioManager::FindVoiceIndex(const_cast<Audio3D*>(this));
+    if (voice >= AUDIO_MAX_VOICES) return 0.0f;
+    return AUD_GetFrequencies(voice, startHz, endHz);
+}
+
+void Audio3D::GetSpectrum(float startHz, float endHz, float* outBins, uint32_t numBins) const
+{
+    if (outBins && numBins) { for (uint32_t i = 0; i < numBins; ++i) outBins[i] = 0.0f; }
+    const uint32_t voice = AudioManager::FindVoiceIndex(const_cast<Audio3D*>(this));
+    if (voice >= AUDIO_MAX_VOICES) return;
+    AUD_GetSpectrum(voice, startHz, endHz, outBins, numBins);
 }

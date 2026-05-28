@@ -1,4 +1,6 @@
 #include "Audio/Audio.h"
+#include "Audio/AudioAnalysis.h"
+#include "AudioManager.h"
 
 #include "Assets/SoundWave.h"
 #include "Maths.h"
@@ -11,6 +13,80 @@
 #include <math.h>
 
 #include <vorbis/vorbisenc.h>
+
+// --- Audio analysis (RMS / loudness / FFT-based band magnitude + spectrum). ---
+// Resolves voice → PCM source via AudioManager, then delegates math to AudioAnalysis.
+
+static bool BuildVoiceView(uint32_t voiceIndex, AudioAnalysis::PcmView& outView)
+{
+    return AudioManager::GetVoicePcmInfo(voiceIndex, outView);
+}
+
+float AUD_GetRMS(uint32_t voiceIndex)
+{
+    AudioAnalysis::PcmView v;
+    if (!BuildVoiceView(voiceIndex, v)) return 0.0f;
+    return AudioAnalysis::ComputeRMS(v);
+}
+
+float AUD_GetLoudness(uint32_t voiceIndex)
+{
+    return AudioAnalysis::ComputeLoudnessNormalized(AUD_GetRMS(voiceIndex));
+}
+
+float AUD_GetLoudnessDb(uint32_t voiceIndex)
+{
+    return AudioAnalysis::ComputeLoudnessDb(AUD_GetRMS(voiceIndex));
+}
+
+float AUD_GetFrequencies(uint32_t voiceIndex, float startHz, float endHz)
+{
+    AudioAnalysis::PcmView v;
+    if (!BuildVoiceView(voiceIndex, v)) return 0.0f;
+    return AudioAnalysis::ComputeBandMagnitude(v, startHz, endHz);
+}
+
+void AUD_GetSpectrum(uint32_t voiceIndex, float startHz, float endHz,
+                     float* outBins, uint32_t numBins)
+{
+    if (outBins && numBins) { for (uint32_t i = 0; i < numBins; ++i) outBins[i] = 0.0f; }
+    AudioAnalysis::PcmView v;
+    if (!BuildVoiceView(voiceIndex, v)) return;
+    AudioAnalysis::ComputeSpectrum(v, startHz, endHz, outBins, numBins);
+}
+
+float AUD_GetStreamRMS(uint32_t streamId)
+{
+    AudioAnalysis::PcmView v;
+    if (!AudioAnalysis::BuildStreamPcmView(streamId, v)) return 0.0f;
+    return AudioAnalysis::ComputeRMS(v);
+}
+
+float AUD_GetStreamLoudness(uint32_t streamId)
+{
+    return AudioAnalysis::ComputeLoudnessNormalized(AUD_GetStreamRMS(streamId));
+}
+
+float AUD_GetStreamLoudnessDb(uint32_t streamId)
+{
+    return AudioAnalysis::ComputeLoudnessDb(AUD_GetStreamRMS(streamId));
+}
+
+float AUD_GetStreamFrequencies(uint32_t streamId, float startHz, float endHz)
+{
+    AudioAnalysis::PcmView v;
+    if (!AudioAnalysis::BuildStreamPcmView(streamId, v)) return 0.0f;
+    return AudioAnalysis::ComputeBandMagnitude(v, startHz, endHz);
+}
+
+void AUD_GetStreamSpectrum(uint32_t streamId, float startHz, float endHz,
+                           float* outBins, uint32_t numBins)
+{
+    if (outBins && numBins) { for (uint32_t i = 0; i < numBins; ++i) outBins[i] = 0.0f; }
+    AudioAnalysis::PcmView v;
+    if (!AudioAnalysis::BuildStreamPcmView(streamId, v)) return;
+    AudioAnalysis::ComputeSpectrum(v, startHz, endHz, outBins, numBins);
+}
 
 // Most of this vorbis encoding / decoding code was taken from the official libvorbis samples.
 

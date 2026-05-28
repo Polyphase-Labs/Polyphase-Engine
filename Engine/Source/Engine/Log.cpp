@@ -28,6 +28,14 @@ static void OpenLogFile()
             projName = "Polyphase";
         }
         std::string logName = projName + ".log";
+#if PLATFORM_PSP
+        // PSP ISO boots run from a read-only disc with the working directory at
+        // disc0:/PSP_GAME/SYSDIR/, so a cwd-relative fopen for write fails. Pin
+        // the engine log to the writable memory stick (the dir is created at
+        // boot in Main_PSP). PBP boots resolve to the same place their cwd
+        // would have, so this is correct for both packaging layouts.
+        logName = std::string("ms0:/PSP/GAME/POLYPHASE/") + logName;
+#endif
         engineState->mLogFile = fopen(logName.c_str(), "w");
 
         if (engineState->mLogFile != nullptr)

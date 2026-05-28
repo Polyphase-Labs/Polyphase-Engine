@@ -67,6 +67,30 @@ void     AUD_SetStreamPaused(uint32_t streamId, bool paused);
 // subtract it from subsequent readings to recover a seek-relative clock.
 void     AUD_FlushStream(uint32_t streamId);
 
+// ------------------------------------------------------------------------------------------------
+// Audio analysis — real-time RMS / loudness / band magnitude / full spectrum.
+// Works for both static SoundWave voices (AUD_Play) and push-PCM streaming voices.
+// All values are computed over the most-recent ~AUDIO_FFT_SIZE samples of the voice's current
+// playback window. Returns 0.0f when the voice is not playing or PCM is unavailable.
+// numBins must be > 0; outBins must point to at least numBins floats and is zero-filled on failure.
+// Calls are platform-independent — backends only need to wire the three stream hooks in
+// AudioAnalysis.h to make streaming voices analyzable on their platform.
+// ------------------------------------------------------------------------------------------------
+float AUD_GetRMS         (uint32_t voiceIndex);
+float AUD_GetLoudness    (uint32_t voiceIndex);                     // normalized [0..1]
+float AUD_GetLoudnessDb  (uint32_t voiceIndex);                     // raw dBFS, clamped [-60, 0]
+float AUD_GetFrequencies (uint32_t voiceIndex, float startHz, float endHz);
+void  AUD_GetSpectrum    (uint32_t voiceIndex, float startHz, float endHz,
+                          float* outBins, uint32_t numBins);
+
+// Streaming counterparts (streamId returned by AUD_OpenStream).
+float AUD_GetStreamRMS         (uint32_t streamId);
+float AUD_GetStreamLoudness    (uint32_t streamId);
+float AUD_GetStreamLoudnessDb  (uint32_t streamId);
+float AUD_GetStreamFrequencies (uint32_t streamId, float startHz, float endHz);
+void  AUD_GetStreamSpectrum    (uint32_t streamId, float startHz, float endHz,
+                                float* outBins, uint32_t numBins);
+
 // Platform Independent
 void AUD_EncodeVorbis(Stream& inStream, Stream& outStream, PcmFormat format);
 void AUD_DecodeVorbis(Stream& inStream, Stream& outStream, PcmFormat format);

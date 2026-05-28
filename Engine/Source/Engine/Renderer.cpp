@@ -1155,7 +1155,7 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Dra
     {
         for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
         {
-#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN || PLATFORM_N64
             bool inFrustum = frustum.IsSphereInFrustumOrtho(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
 #else
             bool inFrustum = frustum.IsSphereInsidePlanes(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
@@ -1173,7 +1173,7 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Dra
     {
         for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
         {
-#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN || PLATFORM_N64
             bool inFrustum = frustum.IsSphereInFrustum(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
 #else
             bool inFrustum = frustum.IsSphereInsidePlanes(drawData[i].mBounds.mCenter, drawData[i].mBounds.mRadius);
@@ -1207,7 +1207,7 @@ int32_t Renderer::FrustumCullDraws(const CameraFrustum& frustum, std::vector<Deb
 
         bool cull = false;
 
-#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN || PLATFORM_N64
         if (frustum.mOrtho)
         {
             cull = !frustum.IsSphereInFrustumOrtho(worldBounds.mCenter, worldBounds.mRadius);
@@ -1240,7 +1240,7 @@ int32_t Renderer::FrustumCullLights(const CameraFrustum& frustum, std::vector<Li
         for (int32_t i = int32_t(lightData.size()) - 1; i >= 0; --i)
         {
             bool directional = (lightData[i].mType == LightType::Directional);
-#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN || PLATFORM_N64
             bool inFrustum = directional || frustum.IsSphereInFrustumOrtho(lightData[i].mPosition, lightData[i].mRadius);
 #else
             bool inFrustum = directional || frustum.IsSphereInsidePlanes(lightData[i].mPosition, lightData[i].mRadius);
@@ -1258,7 +1258,7 @@ int32_t Renderer::FrustumCullLights(const CameraFrustum& frustum, std::vector<Li
         for (int32_t i = int32_t(lightData.size()) - 1; i >= 0; --i)
         {
             bool directional = (lightData[i].mType == LightType::Directional);
-#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN
+#if PLATFORM_3DS || PLATFORM_WII || PLATFORM_DOLPHIN || PLATFORM_N64
             bool inFrustum = directional || frustum.IsSphereInFrustum(lightData[i].mPosition, lightData[i].mRadius);
 #else
             bool inFrustum = directional || frustum.IsSphereInsidePlanes(lightData[i].mPosition, lightData[i].mRadius);
@@ -1360,6 +1360,7 @@ void Renderer::Render(World* world, int32_t screenIndex)
             }
         }
     }
+
 
     // Still update UI and cull when minimized (to update animation and particle simulation)
     if (!GetEngineState()->mWindowMinimized)

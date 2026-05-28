@@ -1087,6 +1087,9 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
         am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
+        // Hand the active profile's per-target options to the build so addon
+        // build-target callbacks can read them via ctx->GetProfileSetting.
+        am->GetBuildState().mTargetOptions = profile.mTargetOptions;
         // Prefer the registry-resolved target id when present so addon-
         // provided targets dispatch through their descriptor callbacks. Falls
         // back to legacy Platform-only build when mTargetId is empty (old
@@ -1102,6 +1105,7 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         // Re-set run-after-build flags after BuildData (Reset() clears them in normal path)
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
+        am->GetBuildState().mTargetOptions = profile.mTargetOptions;
         am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
     }
 

@@ -45,6 +45,13 @@ struct Audio3D_Lua
     static int StopAudio(lua_State* L);
     static int ResetAudio(lua_State* L);
 
+    // Audio analysis. Return 0 / zero-filled when the node isn't currently audible.
+    static int GetRMS(lua_State* L);
+    static int GetLoudness(lua_State* L);
+    static int GetLoudnessDb(lua_State* L);
+    static int GetFrequencies(lua_State* L);
+    static int GetSpectrum(lua_State* L);
+
     static void Bind();
 };
 

@@ -1,6 +1,7 @@
 #if PLATFORM_LINUX
 
 #include "Audio/Audio.h"
+#include "Audio/AudioAnalysis.h"
 #include "Audio/AudioConstants.h"
 #include "System/System.h"
 
@@ -547,12 +548,15 @@ uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bits
     entry.mSamplesSubmitted.store(0);
 
     pa_threaded_mainloop_unlock(sPaMainloop);
-    return (uint32_t)slot + 1;
+    const uint32_t streamId = (uint32_t)slot + 1;
+    AudioAnalysis::OnStreamOpened(streamId, sampleRate, numChannels, bitsPerSample);
+    return streamId;
 }
 
 void AUD_CloseStream(uint32_t streamId)
 {
     if (streamId == 0 || streamId > kMaxStreamingVoices) return;
+    AudioAnalysis::OnStreamClosed(streamId);
     if (sPaMainloop == nullptr) return;
 
     StreamingVoiceEntry& entry = sStreamingVoices[streamId - 1];
@@ -617,6 +621,7 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
     }
 
     pa_threaded_mainloop_unlock(sPaMainloop);
+    if (toWrite > 0) AudioAnalysis::OnStreamSubmitted(streamId, data, (uint32_t)toWrite);
     return (int32_t)toWrite;
 }
 

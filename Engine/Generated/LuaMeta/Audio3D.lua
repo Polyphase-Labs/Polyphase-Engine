@@ -79,3 +79,23 @@ function Audio3D:PauseAudio() end
 function Audio3D:StopAudio() end
 
 function Audio3D:ResetAudio() end
+
+---@return number
+function Audio3D:GetRMS() end
+
+---@return number
+function Audio3D:GetLoudness() end
+
+---@return number
+function Audio3D:GetLoudnessDb() end
+
+---@param startHz number
+---@param endHz number
+---@return number
+function Audio3D:GetFrequencies(startHz, endHz) end
+
+---@param startHz number
+---@param endHz number
+---@param numBins integer
+---@return table
+function Audio3D:GetSpectrum(startHz, endHz, numBins) end

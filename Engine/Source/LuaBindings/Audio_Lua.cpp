@@ -4,6 +4,10 @@
 #include "Asset.h"
 #include "Assets/SoundWave.h"
 
+#include "Audio/Audio.h"
+
+#include <vector>
+
 #include "LuaBindings/LuaUtils.h"
 #include "LuaBindings/Audio_Lua.h"
 #include "LuaBindings/Asset_Lua.h"
@@ -188,6 +192,110 @@ int Audio_Lua::GetMasterPitch(lua_State* L)
     return 1;
 }
 
+// ---- Audio analysis bindings ---------------------------------------------------------------------
+
+int Audio_Lua::GetRMS(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetRMS(voice));
+    return 1;
+}
+
+int Audio_Lua::GetLoudness(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetLoudness(voice));
+    return 1;
+}
+
+int Audio_Lua::GetLoudnessDb(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetLoudnessDb(voice));
+    return 1;
+}
+
+int Audio_Lua::GetFrequencies(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    float    startHz = CHECK_NUMBER(L, 2);
+    float    endHz   = CHECK_NUMBER(L, 3);
+    lua_pushnumber(L, AUD_GetFrequencies(voice, startHz, endHz));
+    return 1;
+}
+
+int Audio_Lua::GetSpectrum(lua_State* L)
+{
+    uint32_t voice    = (uint32_t)CHECK_INTEGER(L, 1);
+    float    startHz  = CHECK_NUMBER(L, 2);
+    float    endHz    = CHECK_NUMBER(L, 3);
+    int32_t  numBins  = (int32_t)CHECK_INTEGER(L, 4);
+    if (numBins < 1) numBins = 1;
+    if (numBins > 1024) numBins = 1024;
+
+    std::vector<float> bins((size_t)numBins, 0.0f);
+    AUD_GetSpectrum(voice, startHz, endHz, bins.data(), (uint32_t)numBins);
+
+    lua_newtable(L);
+    for (int32_t i = 0; i < numBins; ++i)
+    {
+        lua_pushnumber(L, bins[(size_t)i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+int Audio_Lua::GetStreamRMS(lua_State* L)
+{
+    uint32_t streamId = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetStreamRMS(streamId));
+    return 1;
+}
+
+int Audio_Lua::GetStreamLoudness(lua_State* L)
+{
+    uint32_t streamId = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetStreamLoudness(streamId));
+    return 1;
+}
+
+int Audio_Lua::GetStreamLoudnessDb(lua_State* L)
+{
+    uint32_t streamId = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AUD_GetStreamLoudnessDb(streamId));
+    return 1;
+}
+
+int Audio_Lua::GetStreamFrequencies(lua_State* L)
+{
+    uint32_t streamId = (uint32_t)CHECK_INTEGER(L, 1);
+    float    startHz  = CHECK_NUMBER(L, 2);
+    float    endHz    = CHECK_NUMBER(L, 3);
+    lua_pushnumber(L, AUD_GetStreamFrequencies(streamId, startHz, endHz));
+    return 1;
+}
+
+int Audio_Lua::GetStreamSpectrum(lua_State* L)
+{
+    uint32_t streamId = (uint32_t)CHECK_INTEGER(L, 1);
+    float    startHz  = CHECK_NUMBER(L, 2);
+    float    endHz    = CHECK_NUMBER(L, 3);
+    int32_t  numBins  = (int32_t)CHECK_INTEGER(L, 4);
+    if (numBins < 1) numBins = 1;
+    if (numBins > 1024) numBins = 1024;
+
+    std::vector<float> bins((size_t)numBins, 0.0f);
+    AUD_GetStreamSpectrum(streamId, startHz, endHz, bins.data(), (uint32_t)numBins);
+
+    lua_newtable(L);
+    for (int32_t i = 0; i < numBins; ++i)
+    {
+        lua_pushnumber(L, bins[(size_t)i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 void Audio_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -223,6 +331,18 @@ void Audio_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, SetMasterPitch);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetMasterPitch);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetRMS);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetLoudness);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetLoudnessDb);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetFrequencies);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetSpectrum);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetStreamRMS);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetStreamLoudness);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetStreamLoudnessDb);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetStreamFrequencies);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetStreamSpectrum);
 
     lua_setglobal(L, AUDIO_LUA_NAME);
 

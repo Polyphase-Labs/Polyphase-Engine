@@ -65,7 +65,19 @@ public:
     void StopAudio();
     void ResetAudio();
 
+    // Audio analysis — wraps AUD_Get* on this node's currently-bound voice.
+    // All return 0 / zero-fill when the node isn't currently audible.
+    float GetRMS() const;
+    float GetLoudness() const;
+    float GetLoudnessDb() const;
+    float GetFrequencies(float startHz, float endHz) const;
+    void  GetSpectrum(float startHz, float endHz, float* outBins, uint32_t numBins) const;
+
     void NotifyAudible(bool audible);
+
+    // Called by AudioManager when this node's voice plays to its natural end (non-looping).
+    // Emits the "OnFinished" signal and invokes the script's OnFinished() callback.
+    void OnSoundFinished();
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
 

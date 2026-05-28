@@ -66,5 +66,55 @@ function Audio.SetMasterPitch(value) end
 ---@return number
 function Audio.GetMasterPitch() end
 
+---@param voice integer
+---@return number
+function Audio.GetRMS(voice) end
+
+---@param voice integer
+---@return number
+function Audio.GetLoudness(voice) end
+
+---@param voice integer
+---@return number
+function Audio.GetLoudnessDb(voice) end
+
+---@param voice integer
+---@param startHz number
+---@param endHz number
+---@return number
+function Audio.GetFrequencies(voice, startHz, endHz) end
+
+---@param voice integer
+---@param startHz number
+---@param endHz number
+---@param numBins integer
+---@return table
+function Audio.GetSpectrum(voice, startHz, endHz, numBins) end
+
+---@param streamId integer
+---@return number
+function Audio.GetStreamRMS(streamId) end
+
+---@param streamId integer
+---@return number
+function Audio.GetStreamLoudness(streamId) end
+
+---@param streamId integer
+---@return number
+function Audio.GetStreamLoudnessDb(streamId) end
+
+---@param streamId integer
+---@param startHz number
+---@param endHz number
+---@return number
+function Audio.GetStreamFrequencies(streamId, startHz, endHz) end
+
+---@param streamId integer
+---@param startHz number
+---@param endHz number
+---@param numBins integer
+---@return table
+function Audio.GetStreamSpectrum(streamId, startHz, endHz, numBins) end
+
 ---@param soundWave SoundWave
 function Audio.StopSound(soundWave) end

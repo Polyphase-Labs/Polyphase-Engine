@@ -173,3 +173,64 @@ Reset the play position back to the beginning of the sound wave. This works whet
 Sig: `Audio3D:ResetAudio()`
 
 ---
+
+## Signals
+
+`Audio3D` emits the following signal that scripts can connect to:
+
+| Signal | Emitted When |
+|--------|--------------|
+| `OnFinished` | The current SoundWave plays to its natural end (non-looping only). User-initiated `StopAudio()` does **not** fire it. |
+
+Scripts can also define a callback function with the same name (`OnFinished()`) which will be called automatically:
+
+```lua
+function MyAudioScript:OnFinished()
+    -- the sound finished playing on this Audio3D node
+end
+```
+
+For a global "any sound finished" notification (including 2D `Audio.PlaySound2D` voices and other `Audio3D` nodes), subscribe to `SignalBus.Subscribe("SoundFinished", ...)` instead — see [Audio Signals](../../Systems/Audio.md#signals).
+
+---
+
+## Audio analysis
+
+Real-time analysis helpers for building visualizers. Each returns `0` (or a zero-filled table) when the node isn't currently audible — visualizer code doesn't have to gate on `IsPlaying()`. See [Audio.md](../../Systems/Audio.md) for the equivalent free-function API and a longer explanation.
+
+---
+### GetRMS
+Root-mean-square amplitude of the most recent playback window.
+
+Sig: `rms = Audio3D:GetRMS()`
+ - Ret: `number rms` RMS amplitude in `[0, 1]`
+---
+### GetLoudness
+Perceptual loudness in `[0, 1]`, computed from RMS with a -60 dB floor. Drop-in for bar heights.
+
+Sig: `loudness = Audio3D:GetLoudness()`
+ - Ret: `number loudness` Normalized loudness
+---
+### GetLoudnessDb
+Raw dBFS loudness clamped to `[-60, 0]`.
+
+Sig: `dB = Audio3D:GetLoudnessDb()`
+ - Ret: `number dB` Loudness in dBFS
+---
+### GetFrequencies
+Average FFT magnitude in the band `[startHz, endHz]`. Use for 3-bar bass/mid/treble visualizers.
+
+Sig: `magnitude = Audio3D:GetFrequencies(startHz, endHz)`
+ - Arg: `number startHz` Lower edge of the band (Hz)
+ - Arg: `number endHz` Upper edge of the band (Hz)
+ - Ret: `number magnitude` Average band magnitude
+---
+### GetSpectrum
+FFT magnitudes binned across `[startHz, endHz]`. Returns a Lua array of `numBins` floats.
+
+Sig: `bins = Audio3D:GetSpectrum(startHz, endHz, numBins)`
+ - Arg: `number startHz` Lower edge of the range (Hz)
+ - Arg: `number endHz` Upper edge of the range (Hz)
+ - Arg: `integer numBins` Number of output bins (1..1024)
+ - Ret: `{ number, ... } bins` Array of magnitudes, length `numBins`
+---

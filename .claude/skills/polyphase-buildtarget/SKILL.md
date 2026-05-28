@@ -690,6 +690,82 @@ descriptor work:
   PSP plan template). Stub everything not in the current phase to a no-op
   so you can compile-link-boot incrementally.
 
+### Audio analysis hook (mandatory for streaming voices)
+
+The engine ships a platform-independent audio analysis layer
+(`Engine/Source/Audio/AudioAnalysis.h`) that powers `AUD_GetRMS`,
+`AUD_GetLoudness`, `AUD_GetFrequencies`, `AUD_GetSpectrum` and the
+`Audio.*` / `audio3d:*` Lua bindings. Static-SoundWave voices (anything
+played through `AudioManager`) work automatically on every platform —
+the analysis pulls PCM directly from the asset, no backend changes
+needed.
+
+**Streaming voices are different.** If your `Audio_<Plat>.cpp`
+implements `AUD_OpenStream` / `AUD_CloseStream` /
+`AUD_SubmitStreamBuffer` (push-PCM, used by the VideoPlayer addon and
+similar), you MUST add three one-line hooks or every
+`AUD_GetStream*` / `Audio.GetStream*` call will return 0 on your
+platform — visualizers will look "dead" while audio plays correctly.
+
+The required hook sites (no math, no logic — feed the analysis layer
+the bytes that are already being submitted):
+
+```cpp
+#include "Audio/AudioAnalysis.h"
+
+uint32_t AUD_OpenStream(uint32_t sampleRate, uint32_t numChannels, uint32_t bitsPerSample)
+{
+    /* existing backend code … */
+    AudioAnalysis::OnStreamOpened(streamId, sampleRate, numChannels, bitsPerSample); // ← add
+    return streamId;
+}
+
+void AUD_CloseStream(uint32_t streamId)
+{
+    AudioAnalysis::OnStreamClosed(streamId);                                         // ← add
+    /* existing backend code … */
+}
+
+int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t byteSize)
+{
+    int32_t accepted = /* existing backend code … */;
+    if (accepted > 0)
+        AudioAnalysis::OnStreamSubmitted(streamId, data, (uint32_t)accepted);        // ← add
+    return accepted;
+}
+```
+
+No `#if PLATFORM_*` guards required — `AudioAnalysis::*` is
+platform-independent and stubbed out at the call site when
+`AUDIO_ANALYSIS_ENABLED` or `AUDIO_ANALYSIS_STREAMS_ENABLED` is 0.
+
+**Memory cost.** Each open stream allocates a ring buffer sized by
+`AUDIO_ANALYSIS_STREAM_SECONDS * sampleRate * channels *
+(bitsPerSample/8)`. At defaults (1 s, 48 kHz, stereo, 16-bit) that's
+~192 KB per active stream. The full memory budget is in the engine
+plan (`Engine/Source/Engine/Constants.h`):
+
+| Slot                              | Default size            |
+| --------------------------------- | ----------------------- |
+| Hann window LUT                   | ~2 KB                   |
+| Per-voice/stream cache            | ~36 KB                  |
+| FFT scratch (on stack)            | ~4 KB (no persistent)   |
+| Streaming ring (per stream)       | ~192 KB / stream        |
+
+**Suggested per-platform overrides** in your `Constants_<Plat>.h`:
+
+- PSP (32 MB):  `AUDIO_FFT_SIZE 256`, `AUDIO_ANALYSIS_STREAM_SECONDS 0.25f`,
+  or `AUDIO_ANALYSIS_STREAMS_ENABLED 0` if you don't ship streaming visualizers.
+- 3DS (64–128 MB): `AUDIO_FFT_SIZE 256`; defaults otherwise.
+- GameCube (24 MB + 16 ARAM): `AUDIO_FFT_SIZE 256`, streams at `0.25f`.
+- Dreamcast (16 MB): `AUDIO_ANALYSIS_ENABLED 0` is the safe default until budget audit.
+- Modern desktop / Android: defaults.
+
+**If your backend has no streaming at all** (legacy hardware, `AUD_OpenStream`
+returns 0 unconditionally), nothing extra is required — `AUD_Get*`
+static-voice analysis still works because it doesn't touch the backend.
+The `AUD_GetStream*` calls naturally return 0 for unknown stream ids.
+
 ## Reference addons
 
 | Addon                                                                                                    | Coverage                                                                |
@@ -722,6 +798,8 @@ chasing a similar symptom on your own platform:
 - `project_psp_make_j_oom` — -j4 default for psp-gcc
 - `project_addon_validate_must_be_cached` — never per-frame, especially WSL-shellouts
 - `project_psp_addon_active_location` — addon-copy-drift warning
+- audio-analysis stream ring (~192 KB/stream at default 48 kHz stereo 16-bit, 1 s window) —
+  flip `AUDIO_ANALYSIS_STREAMS_ENABLED 0` on consoles ≤ 32 MB if not using streaming visualizers
 
 ## Checklist for a one-shot
 
@@ -750,6 +828,7 @@ chasing a similar symptom on your own platform:
 - ☐ `OctPostInitialize` re-sets `GetEngineState()->mWindowWidth/Height` to defeat `Config.ini`'s desktop-resolution clobber.
 - ☐ `PostPackage` rewrites the packaged `Config.ini`'s `WindowWidth`/`Height` to the platform's native size (both root + `<projectName>/` copies).
 - ☐ Pulled only `EmbeddedScripts.cpp` (NOT `EmbeddedAssets.cpp`) from `Generated/` if console RAM is tight (<= 32 MB).
+- ☐ If shipping `AUD_OpenStream`/`AUD_SubmitStreamBuffer`: wired `AudioAnalysis::OnStreamOpened/Closed/Submitted` (3 lines). Otherwise: set `AUDIO_ANALYSIS_STREAMS_ENABLED 0` in your `Constants_<Plat>.h` to skip ring-buffer allocation.
 
 **Runtime / graphics**
 - ☐ Per-draw vertex transforms use a frame-scoped ring buffer, not a shared scratch (otherwise GE-async aliasing).
