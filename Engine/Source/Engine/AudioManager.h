@@ -66,4 +66,13 @@ public:
     // Linear scan for the voice currently driving this Audio3D node. Returns the voice index, or
     // AUDIO_MAX_VOICES if the node isn't bound to a voice right now.
     static uint32_t FindVoiceIndex(Audio3D* component);
+
+    // Duration of the SoundWave bound to a voice slot, in seconds. Returns 0 if the slot is idle
+    // or has no wave. Pitch-independent (reports the wave's natural length).
+    static float GetVoiceDuration(uint32_t voiceIndex);
+
+    // Current playback cursor on a voice slot expressed as [0, 1] of its SoundWave's duration.
+    // Looping voices wrap via fmod; non-looping voices clamp to [0, 1]. Returns 0 for idle slots
+    // or zero-duration waves.
+    static float GetVoicePlayTimeNormalized(uint32_t voiceIndex);
 };

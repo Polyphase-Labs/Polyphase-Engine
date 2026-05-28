@@ -38,12 +38,16 @@ struct Audio3D_Lua
     static int SetAutoPlay(lua_State* L);
     static int GetAutoPlay(lua_State* L);
     static int GetPlayTime(lua_State* L);
+    static int GetDuration(lua_State* L);
+    static int GetPlayTimeNormalized(lua_State* L);
     static int IsPlaying(lua_State* L);
     static int IsAudible(lua_State* L);
     static int PlayAudio(lua_State* L);
     static int PauseAudio(lua_State* L);
     static int StopAudio(lua_State* L);
     static int ResetAudio(lua_State* L);
+    static int Seek(lua_State* L);
+    static int SeekNormalized(lua_State* L);
 
     // Audio analysis. Return 0 / zero-filled when the node isn't currently audible.
     static int GetRMS(lua_State* L);

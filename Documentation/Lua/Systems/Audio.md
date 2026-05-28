@@ -138,11 +138,11 @@ For one-shot sounds that don't need a node, prefer `Audio.PlaySound2D` / `Audio.
 
 ## Signals
 
-The audio system broadcasts the following signal through the global [SignalBus](SignalBus.md). Subscribe to it from any node — looping sounds do **not** emit (they never naturally end); only sounds that play to completion fire it. User-initiated stops (`StopSound`, `StopSounds`, `StopAllSounds`, `audio3d:StopAudio`) do **not** fire it either.
+The audio system broadcasts the following signal through the global [SignalBus](SignalBus.md). Subscribe to it from any node — it fires each time a wave reaches the end of one play, **including each wrap of a looping voice** (so playlist scripts can auto-advance even from looped tracks). User-initiated stops (`StopSound`, `StopSounds`, `StopAllSounds`, `audio3d:StopAudio`) do **not** fire it.
 
 | Signal | Emitted When | Args |
 |--------|--------------|------|
-| `SoundFinished` | A non-looping voice plays to its natural end. Fires for both `Audio.PlaySound2D` / `PlaySound3D` voices and `Audio3D`-driven voices. | `SoundWave soundWave` — the asset that just finished. |
+| `SoundFinished` | A wave reaches the end of one play — non-looping voices fire once on natural end; looping voices fire every wrap. Fires for both `Audio.PlaySound2D` / `PlaySound3D` voices and `Audio3D`-driven voices. | `SoundWave soundWave` — the asset that just finished. |
 
 Example:
 
@@ -166,6 +166,20 @@ Real-time analysis helpers used to build visualizers (bass/mid/treble bars, spec
 
 **Voice index vs. streamId.** A "voice index" is a slot in the engine's audio mixer pool — voices spawned through `Audio.PlaySound2D`/`PlaySound3D` and `Audio3D` nodes consume one. If your script already holds an `Audio3D` reference, prefer `audio3d:GetRMS()` etc. — they look up the voice index for you. A "streamId" is the value returned by `AUD_OpenStream`, used by push-PCM sources like the VideoPlayer addon.
 
+---
+### GetDuration
+Duration of the SoundWave bound to a voice slot, in seconds. Returns `0.0` for idle voices or voices with no wave assigned.
+
+Sig: `seconds = Audio.GetDuration(voiceIndex)`
+ - Arg: `integer voiceIndex` Voice slot
+ - Ret: `number seconds` Wave duration
+---
+### GetPlayTimeNormalized
+Current playback cursor on a voice slot expressed as `[0, 1]` of its SoundWave's duration. Looping voices wrap (`fmod`); non-looping voices clamp at `1.0`. Returns `0.0` for idle voices or zero-duration waves. Drop-in for progress sliders and seek bars.
+
+Sig: `t = Audio.GetPlayTimeNormalized(voiceIndex)`
+ - Arg: `integer voiceIndex` Voice slot
+ - Ret: `number t` Normalized cursor in `[0, 1]`
 ---
 ### GetRMS
 Root-mean-square amplitude of the voice's most recent playback window. Returns `0.0` when the voice is idle.

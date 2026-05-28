@@ -192,6 +192,22 @@ int Audio_Lua::GetMasterPitch(lua_State* L)
     return 1;
 }
 
+// ---- Voice transport bindings --------------------------------------------------------------------
+
+int Audio_Lua::GetDuration(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AudioManager::GetVoiceDuration(voice));
+    return 1;
+}
+
+int Audio_Lua::GetPlayTimeNormalized(lua_State* L)
+{
+    uint32_t voice = (uint32_t)CHECK_INTEGER(L, 1);
+    lua_pushnumber(L, AudioManager::GetVoicePlayTimeNormalized(voice));
+    return 1;
+}
+
 // ---- Audio analysis bindings ---------------------------------------------------------------------
 
 int Audio_Lua::GetRMS(lua_State* L)
@@ -331,6 +347,9 @@ void Audio_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, SetMasterPitch);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetMasterPitch);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetDuration);
+    REGISTER_TABLE_FUNC(L, tableIdx, GetPlayTimeNormalized);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetRMS);
     REGISTER_TABLE_FUNC(L, tableIdx, GetLoudness);

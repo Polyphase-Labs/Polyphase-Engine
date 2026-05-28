@@ -26,6 +26,10 @@ struct Audio_Lua
     static int SetMasterPitch(lua_State* L);
     static int GetMasterPitch(lua_State* L);
 
+    // Voice transport (voice index from AudioManager's pool).
+    static int GetDuration(lua_State* L);
+    static int GetPlayTimeNormalized(lua_State* L);
+
     // Audio analysis (voice index from AudioManager's pool — see Audio.GetMaxVoices()).
     static int GetRMS(lua_State* L);
     static int GetLoudness(lua_State* L);

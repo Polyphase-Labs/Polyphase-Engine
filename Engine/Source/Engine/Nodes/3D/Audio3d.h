@@ -57,6 +57,11 @@ public:
     bool GetAutoPlay() const;
 
     float GetPlayTime() const;
+    // Duration of the assigned SoundWave in seconds (0 if no wave).
+    float GetDuration() const;
+    // Current play position as [0, 1] of the assigned wave's duration. Looping wraps via fmod,
+    // non-looping clamps at 1.0. Returns 0 when there's no wave or duration is 0.
+    float GetPlayTimeNormalized() const;
     bool IsPlaying() const;
     bool IsAudible() const;
 
@@ -64,6 +69,13 @@ public:
     void PauseAudio();
     void StopAudio();
     void ResetAudio();
+
+    // Seek playback to an absolute time in seconds. If a voice is currently bound it is
+    // released; the next AudioManager tick re-spawns it at the new cursor (or stays silent
+    // until PlayAudio() if the node is paused). Cursor wraps via mod against duration.
+    void Seek(float seconds);
+    // Seek to a [0, 1] fraction of the assigned wave's duration. Drop-in for slider scrubbing.
+    void SeekNormalized(float t);
 
     // Audio analysis — wraps AUD_Get* on this node's currently-bound voice.
     // All return 0 / zero-fill when the node isn't currently audible.

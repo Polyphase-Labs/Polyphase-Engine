@@ -222,6 +222,20 @@ int Audio3D_Lua::GetPlayTime(lua_State* L)
     return 1;
 }
 
+int Audio3D_Lua::GetDuration(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    lua_pushnumber(L, comp->GetDuration());
+    return 1;
+}
+
+int Audio3D_Lua::GetPlayTimeNormalized(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    lua_pushnumber(L, comp->GetPlayTimeNormalized());
+    return 1;
+}
+
 int Audio3D_Lua::IsPlaying(lua_State* L)
 {
     Audio3D* comp = CHECK_AUDIO_3D(L, 1);
@@ -275,6 +289,22 @@ int Audio3D_Lua::ResetAudio(lua_State* L)
 
     comp->ResetAudio();
 
+    return 0;
+}
+
+int Audio3D_Lua::Seek(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    float seconds = CHECK_NUMBER(L, 2);
+    comp->Seek(seconds);
+    return 0;
+}
+
+int Audio3D_Lua::SeekNormalized(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    float t = CHECK_NUMBER(L, 2);
+    comp->SeekNormalized(t);
     return 0;
 }
 
@@ -381,6 +411,10 @@ void Audio3D_Lua::Bind()
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetPlayTime);
 
+    REGISTER_TABLE_FUNC(L, mtIndex, GetDuration);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetPlayTimeNormalized);
+
     REGISTER_TABLE_FUNC(L, mtIndex, IsPlaying);
 
     REGISTER_TABLE_FUNC(L, mtIndex, IsAudible);
@@ -392,6 +426,10 @@ void Audio3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, StopAudio);
 
     REGISTER_TABLE_FUNC(L, mtIndex, ResetAudio);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, Seek);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SeekNormalized);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetRMS);
     REGISTER_TABLE_FUNC(L, mtIndex, GetLoudness);

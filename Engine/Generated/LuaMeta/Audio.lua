@@ -68,6 +68,14 @@ function Audio.GetMasterPitch() end
 
 ---@param voice integer
 ---@return number
+function Audio.GetDuration(voice) end
+
+---@param voice integer
+---@return number
+function Audio.GetPlayTimeNormalized(voice) end
+
+---@param voice integer
+---@return number
 function Audio.GetRMS(voice) end
 
 ---@param voice integer

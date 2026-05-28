@@ -313,6 +313,33 @@ float Audio3D::GetPlayTime() const
     return mPlayTime;
 }
 
+float Audio3D::GetDuration() const
+{
+    SoundWave* wave = mSoundWave.Get<SoundWave>();
+    return wave ? wave->GetDuration() : 0.0f;
+}
+
+float Audio3D::GetPlayTimeNormalized() const
+{
+    SoundWave* wave = mSoundWave.Get<SoundWave>();
+    if (wave == nullptr) return 0.0f;
+
+    const float duration = wave->GetDuration();
+    if (duration <= 0.0f) return 0.0f;
+
+    float t = mPlayTime;
+    if (mLoop)
+    {
+        t = fmodf(t, duration);
+        if (t < 0.0f) t += duration;
+    }
+    else
+    {
+        t = glm::clamp(t, 0.0f, duration);
+    }
+    return t / duration;
+}
+
 bool Audio3D::IsPlaying() const
 {
     return mPlaying;
@@ -338,6 +365,20 @@ void Audio3D::ResetAudio()
     // Forcibly remove the audio
     AudioManager::StopComponent(this);
     mPlayTime = 0.0f;
+}
+
+void Audio3D::Seek(float seconds)
+{
+    // Release the bound voice so AudioManager::Update Section (2) re-spawns it at the new
+    // cursor. The spawn path mods (mStartOffset + mPlayTime) against the wave duration, so
+    // values past the end wrap to the start and negative values pre-roll into the back.
+    AudioManager::StopComponent(this);
+    mPlayTime = seconds - mStartOffset;
+}
+
+void Audio3D::SeekNormalized(float t)
+{
+    Seek(t * GetDuration());
 }
 
 void Audio3D::StopAudio()

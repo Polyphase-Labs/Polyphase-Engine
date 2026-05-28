@@ -2,7 +2,9 @@
 
 `SignalBus` is a global event bus for communication across scenes/world transitions.
 
-Unlike `Signal` objects (which are instance-owned), this bus is process-global and identified by string channel names.
+Unlike `Signal` objects (which are instance-owned) or node signals (`Node:EmitSignal` / `Node:ConnectSignal`, scoped to one node), this bus is process-global and identified by string channel names.
+
+> ℹ️ `SignalBus` is one of **three signal systems** in Polyphase, and they don't interoperate — `SignalBus.Emit("X", ...)` is only seen by `SignalBus.Subscribe("X", ...)` listeners. A `Node:ConnectSignal("X", ...)` or `Signal:Create()` on a node table is a separate channel. See [Signal — choosing the right signal type](../Misc/Signal.md#the-three-signal-flavors--pick-one-and-stick-with-it) for the decision tree before picking this one.
 
 ---
 ### Subscribe

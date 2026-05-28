@@ -66,6 +66,12 @@ function Audio3D:GetAutoPlay() end
 ---@return number
 function Audio3D:GetPlayTime() end
 
+---@return number
+function Audio3D:GetDuration() end
+
+---@return number
+function Audio3D:GetPlayTimeNormalized() end
+
 ---@return boolean
 function Audio3D:IsPlaying() end
 
@@ -79,6 +85,12 @@ function Audio3D:PauseAudio() end
 function Audio3D:StopAudio() end
 
 function Audio3D:ResetAudio() end
+
+---@param seconds number
+function Audio3D:Seek(seconds) end
+
+---@param t number
+function Audio3D:SeekNormalized(t) end
 
 ---@return number
 function Audio3D:GetRMS() end

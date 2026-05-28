@@ -137,6 +137,18 @@ Return the amount of time in seconds that this node has been playing audio.
 Sig: `playTime = Audio3D:GetPlayTime()`
  - Ret: `number playTime` Time in seconds that audio has been playing.
 ---
+### GetDuration
+Duration of the currently assigned SoundWave in seconds. Returns `0.0` if no wave is assigned.
+
+Sig: `seconds = Audio3D:GetDuration()`
+ - Ret: `number seconds` Wave duration
+---
+### GetPlayTimeNormalized
+Current play position as `[0, 1]` of the assigned wave's duration. Looping nodes wrap (`fmod`); non-looping nodes clamp at `1.0`. Returns `0.0` when no wave is assigned or duration is `0`. Drop-in for progress sliders and seek bars.
+
+Sig: `t = Audio3D:GetPlayTimeNormalized()`
+ - Ret: `number t` Normalized cursor in `[0, 1]`
+---
 ### IsPlaying
 Check if this node is currently playing a sound wave.
 
@@ -173,6 +185,18 @@ Reset the play position back to the beginning of the sound wave. This works whet
 Sig: `Audio3D:ResetAudio()`
 
 ---
+### Seek
+Move playback to an absolute time in seconds. If the node is currently audible, the live voice is released and the next `AudioManager` tick re-spawns it at the new cursor — works seamlessly while the song is playing. If the node is paused, the new position takes effect on the next `PlayAudio()`. Values past the end wrap (mod against duration).
+
+Sig: `Audio3D:Seek(seconds)`
+ - Arg: `number seconds` Absolute play time in seconds
+---
+### SeekNormalized
+Move playback to a `[0, 1]` fraction of the assigned wave's duration. Drop-in for slider scrubbing — pair with `GetPlayTimeNormalized()` for round-trip slider sync.
+
+Sig: `Audio3D:SeekNormalized(t)`
+ - Arg: `number t` Position as fraction of duration in `[0, 1]`
+---
 
 ## Signals
 
@@ -180,7 +204,7 @@ Sig: `Audio3D:ResetAudio()`
 
 | Signal | Emitted When |
 |--------|--------------|
-| `OnFinished` | The current SoundWave plays to its natural end (non-looping only). User-initiated `StopAudio()` does **not** fire it. |
+| `OnFinished` | The current SoundWave reaches the end of one play. Non-looping voices fire it once on natural end; **looping voices fire it every wrap**, which lets playlists auto-advance even from looped tracks. User-initiated `StopAudio()` does **not** fire it. |
 
 Scripts can also define a callback function with the same name (`OnFinished()`) which will be called automatically:
 

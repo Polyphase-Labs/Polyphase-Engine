@@ -288,6 +288,8 @@ Sig: `id = Node:GetNodeId()`
 ### EmitSignal
 Broadcast a signal by name so that any nodes that are connected to the signal can react. There is no need to create a signal first, you can simple emit any signal by name.
 
+> ℹ️ This is the **node-level** signal system — paired with `Node:ConnectSignal`. It's separate from `Signal:Create()` (standalone Lua Signal objects) and `SignalBus` (global bus). They don't cross-talk; emitting via one and listening via another silently does nothing. See [Signal — choosing the right signal type](../Misc/Signal.md#the-three-signal-flavors--pick-one-and-stick-with-it) for the decision tree.
+
 Sig: `Node:EmitSignal(signalName, args...)`
  - Arg: `string signalName` Name of the signal to emit
  - Arg: `args...` Any number of arguments that you wish to pass

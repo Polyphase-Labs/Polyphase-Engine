@@ -315,7 +315,43 @@ void AudioManager::Update(float deltaTime)
             bool stopped = false;
 
             // Advance the audio-analysis playback cursor (pitch-scaled, drives AUD_Get* read offset).
+            const float prevPlaybackTime = sAudioSources[i].mPlaybackTime;
             sAudioSources[i].mPlaybackTime += deltaTime * sAudioSources[i].mPitchMult;
+
+            // Looping voices: emit OnFinished + SoundFinished each time the wave wraps so
+            // playlists can auto-advance from looped tracks too. Skip when the component is
+            // about to be stopped this tick or the platform voice already ended — those go
+            // through the natural-stop / natural-end paths below. The 'fired' flag prevents
+            // the natural-end branch from double-emitting if a script handler calls
+            // SetSoundWave (which auto-releases the slot and would otherwise re-trigger it).
+            bool fired = false;
+            if (sAudioSources[i].mLoop &&
+                AUD_IsPlaying(i) &&
+                (sAudioSources[i].mComponent == nullptr || sAudioSources[i].mComponent->IsPlaying()))
+            {
+                const float duration = soundWave->GetDuration();
+                if (duration > 0.0f)
+                {
+                    const float prevCursor = sAudioSources[i].mStartTime + prevPlaybackTime;
+                    const float currCursor = sAudioSources[i].mStartTime + sAudioSources[i].mPlaybackTime;
+                    const int32_t prevLoops = (int32_t)glm::floor(prevCursor / duration);
+                    const int32_t currLoops = (int32_t)glm::floor(currCursor / duration);
+                    if (currLoops > prevLoops)
+                    {
+                        Audio3D* loopComp = sAudioSources[i].mComponent;
+                        SoundWave* loopWave = soundWave;
+                        if (loopComp != nullptr)
+                        {
+                            loopComp->OnSoundFinished();
+                        }
+                        if (loopWave != nullptr)
+                        {
+                            GetSignalBus()->Emit("SoundFinished", { Datum(loopWave) });
+                        }
+                        fired = true;
+                    }
+                }
+            }
 
             if (sAudioSources[i].mComponent != nullptr &&
                 !sAudioSources[i].mComponent->IsPlaying())
@@ -327,9 +363,9 @@ void AudioManager::Update(float deltaTime)
             else if (!AUD_IsPlaying(i))
             {
                 // Sound wave reached its natural end. Snapshot the component + soundwave BEFORE we
-                // clear the source so signal handlers can inspect them. Loop mode shouldn't take
-                // this branch (AUD_IsPlaying stays true) — but if it ever does we treat it as a
-                // finish event anyway.
+                // clear the source so signal handlers can inspect them. Loop mode normally stays in
+                // AUD_IsPlaying=true and is handled by the loop-wrap path above — this branch only
+                // catches the non-looping natural-end case (and any defensive fall-through).
                 Audio3D*   finishedComp = sAudioSources[i].mComponent;
                 SoundWave* finishedWave = soundWave;
 
@@ -342,14 +378,19 @@ void AudioManager::Update(float deltaTime)
                 stopped = true;
 
                 // Per-node OnFinished signal (Audio3D scripts) + global SoundFinished SignalBus
-                // emit (any subscriber — covers PlaySound2D-spawned voices that have no component).
-                if (finishedComp != nullptr)
+                // emit. Skipped if the loop-wrap path above already fired this tick — e.g. a
+                // script handler called SetSoundWave, which auto-released this slot and made
+                // AUD_IsPlaying return false here.
+                if (!fired)
                 {
-                    finishedComp->OnSoundFinished();
-                }
-                if (finishedWave != nullptr)
-                {
-                    GetSignalBus()->Emit("SoundFinished", { Datum(finishedWave) });
+                    if (finishedComp != nullptr)
+                    {
+                        finishedComp->OnSoundFinished();
+                    }
+                    if (finishedWave != nullptr)
+                    {
+                        GetSignalBus()->Emit("SoundFinished", { Datum(finishedWave) });
+                    }
                 }
             }
             else if (sAudioSources[i].IsSpatial())
@@ -796,5 +837,34 @@ uint32_t AudioManager::FindVoiceIndex(Audio3D* component)
         if (sAudioSources[i].mComponent == component) return i;
     }
     return MAX_AUDIO_SOURCES;
+}
+
+float AudioManager::GetVoiceDuration(uint32_t voiceIndex)
+{
+    if (voiceIndex >= MAX_AUDIO_SOURCES) return 0.0f;
+    SoundWave* wave = sAudioSources[voiceIndex].mSoundWave.Get<SoundWave>();
+    return wave ? wave->GetDuration() : 0.0f;
+}
+
+float AudioManager::GetVoicePlayTimeNormalized(uint32_t voiceIndex)
+{
+    if (voiceIndex >= MAX_AUDIO_SOURCES) return 0.0f;
+    SoundWave* wave = sAudioSources[voiceIndex].mSoundWave.Get<SoundWave>();
+    if (wave == nullptr) return 0.0f;
+
+    const float duration = wave->GetDuration();
+    if (duration <= 0.0f) return 0.0f;
+
+    float cursor = sAudioSources[voiceIndex].mStartTime + sAudioSources[voiceIndex].mPlaybackTime;
+    if (sAudioSources[voiceIndex].mLoop)
+    {
+        cursor = fmodf(cursor, duration);
+        if (cursor < 0.0f) cursor += duration;
+    }
+    else
+    {
+        cursor = glm::clamp(cursor, 0.0f, duration);
+    }
+    return cursor / duration;
 }
 
