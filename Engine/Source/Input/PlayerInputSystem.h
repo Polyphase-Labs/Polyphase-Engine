@@ -114,6 +114,10 @@ public:
     void SaveProjectActions();
     void LoadProjectActions();
 
+    // Replace the in-memory action set wholesale (used by the editor when
+    // opening a specific InputActionsAsset). Rebuilds the lookup table.
+    void SetActions(const std::vector<InputAction>& actions);
+
     // Enable/disable
     void SetEnabled(bool enabled);
     bool IsEnabled() const;

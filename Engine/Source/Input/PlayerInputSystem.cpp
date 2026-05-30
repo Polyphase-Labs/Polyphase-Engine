@@ -627,6 +627,12 @@ static void DumpLoadedActions(const std::vector<InputAction>& actions)
     LogDebug("PlayerInput: ========== END ACTION DUMP ==========");
 }
 
+void PlayerInputSystem::SetActions(const std::vector<InputAction>& actions)
+{
+    mActions = actions;
+    RebuildLookup();
+}
+
 void PlayerInputSystem::SaveProjectActions()
 {
     const std::string& projectDir = GetEngineState()->mProjectDirectory;

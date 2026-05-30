@@ -114,6 +114,12 @@
 
 ActionManager* ActionManager::sInstance = nullptr;
 
+static bool IsMeshImportExtension(const std::string& ext)
+{
+    return ext == ".glb" || ext == ".gltf" || ext == ".fbx"
+        || ext == ".dae" || ext == ".obj";
+}
+
 static void GatherMeshImportTypes(const char* path, std::vector<TypeId>& outImportTypes, std::vector<int32_t>& meshIndices)
 {
     Assimp::Importer importer;
@@ -5154,15 +5160,28 @@ void ActionManager::RunScript()
 
 static void HandleImportCallback(const std::vector<std::string>& filePaths)
 {
+    // Split mesh files (which prompt the user for Scene/Multiple/Single mode)
+    // from everything else (textures, fonts, sounds — silent dispatch as before).
     for (uint32_t i = 0; i < filePaths.size(); ++i)
     {
-        if (filePaths[i] != "")
+        if (filePaths[i] == "")
         {
-            ActionManager::Get()->ImportAsset(filePaths[i].c_str());
+            LogError("Bad file for ImportAsset.");
+            continue;
+        }
+
+        const std::string& path = filePaths[i];
+        size_t dotIdx = path.find_last_of('.');
+        std::string ext = (dotIdx != std::string::npos) ? path.substr(dotIdx) : "";
+        for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+        if (IsMeshImportExtension(ext))
+        {
+            GetEditorState()->mPendingMeshImportPaths.push_back(path);
         }
         else
         {
-            LogError("Bad file for ImportAsset.");
+            ActionManager::Get()->ImportAsset(path.c_str());
         }
     }
 }
@@ -5365,6 +5384,143 @@ Asset* ActionManager::ImportAsset(const std::string& path)
             delete newAsset;
             newAsset = nullptr;
         }
+    }
+
+    return retAsset;
+}
+
+Asset* ActionManager::ImportAssetCombined(const std::string& path)
+{
+    // "As Single Object" import: collapse every non-collision primitive in the
+    // file into ONE mesh asset. Skinned if any primitive has bones.
+    Asset* retAsset = nullptr;
+
+    std::string filename = path;
+    size_t lastSlashIdx = filename.find_last_of("/\\");
+    if (lastSlashIdx != std::string::npos)
+    {
+        filename = filename.substr(lastSlashIdx + 1);
+    }
+
+    int32_t dotIndex = int32_t(filename.find_last_of('.'));
+    if (dotIndex < 0)
+    {
+        LogError("Failed to import asset. Path has no extension.");
+        return nullptr;
+    }
+
+    std::string extension = filename.substr(dotIndex, filename.size() - dotIndex);
+    for (char& c : extension) c = (char)tolower((unsigned char)c);
+
+    if (!IsMeshImportExtension(extension))
+    {
+        LogError("ImportAssetCombined called with non-mesh file: %s", path.c_str());
+        return nullptr;
+    }
+
+    // Peek the scene once to decide skeletal-vs-static for the combined output.
+    Assimp::Importer probe;
+    const aiScene* scene = probe.ReadFile(path.c_str(), aiProcess_FlipUVs);
+    if (scene == nullptr || scene->mNumMeshes == 0)
+    {
+        LogError("Failed to import asset. Empty or unreadable mesh file: %s", path.c_str());
+        return nullptr;
+    }
+
+    bool anySkinned = false;
+    bool anyRenderable = false;
+    for (uint32_t m = 0; m < scene->mNumMeshes; ++m)
+    {
+        if (IsAiCollisionMesh(scene->mMeshes[m]))
+            continue;
+        anyRenderable = true;
+        if (scene->mMeshes[m]->HasBones())
+        {
+            anySkinned = true;
+        }
+    }
+    if (!anyRenderable)
+    {
+        LogError("Failed to import asset. No renderable meshes in file: %s", path.c_str());
+        return nullptr;
+    }
+
+    TypeId typeId = anySkinned ? SkeletalMesh::GetStaticType() : StaticMesh::GetStaticType();
+
+    ImportOptions options;
+    options.SetOptionValue("combineMeshes", true);
+
+    Asset* newAsset = Asset::CreateInstance(typeId);
+
+    std::string assetName = filename.substr(0, dotIndex);
+    newAsset->SetName(assetName);
+
+    bool success = newAsset->Import(path, &options);
+
+    if (success)
+    {
+        assetName = newAsset->GetName();
+
+        AssetDir* assetDir = GetEditorState()->GetAssetDirectory();
+        std::string outFilename = assetName + ".oct";
+
+        Asset* oldAsset = FetchAsset(assetName.c_str());
+        if (oldAsset != nullptr)
+        {
+            if (GetEditorState()->GetInspectedObject() == oldAsset)
+            {
+                GetEditorState()->InspectObject(nullptr, true);
+            }
+        }
+
+#if ASSET_LIVE_REF_TRACKING
+        if (oldAsset != nullptr)
+        {
+            AssetRef::ReplaceReferencesToAsset(oldAsset, newAsset);
+        }
+#endif
+
+        bool purged = AssetManager::Get()->PurgeAsset(assetName.c_str());
+        if (purged)
+        {
+            LogWarning("Reimporting asset");
+        }
+
+        AssetStub* stub = AssetManager::Get()->RegisterAsset(outFilename, newAsset->GetType(), assetDir, nullptr, false);
+        stub->mAsset = newAsset;
+        newAsset->SetName(stub->mName);
+
+        if (newAsset != nullptr &&
+            (newAsset->Is(StaticMesh::ClassRuntimeId()) || newAsset->Is(SkeletalMesh::ClassRuntimeId())) &&
+            GetEditorState()->GetSelectedAsset() != nullptr &&
+            GetEditorState()->GetSelectedAsset()->Is(Material::ClassRuntimeId()))
+        {
+            Material* material = GetEditorState()->GetSelectedAsset()->As<Material>();
+
+            if (newAsset->Is(StaticMesh::ClassRuntimeId()))
+            {
+                StaticMesh* mesh = newAsset->As<StaticMesh>();
+                mesh->SetMaterial(material);
+            }
+            else if (newAsset->Is(SkeletalMesh::ClassRuntimeId()))
+            {
+                SkeletalMesh* mesh = newAsset->As<SkeletalMesh>();
+                mesh->SetMaterial(material);
+            }
+        }
+
+        AssetManager::Get()->SaveAsset(*stub);
+
+        retAsset = newAsset;
+
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->FireOnAssetImported(stub->mName.c_str());
+    }
+    else
+    {
+        LogError("Failed to import combined asset.");
+        delete newAsset;
+        newAsset = nullptr;
     }
 
     return retAsset;

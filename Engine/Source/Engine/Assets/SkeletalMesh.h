@@ -183,5 +183,8 @@ public:
     void SetupResource(const aiMesh& meshData,
         const std::vector<float>& boneWeights,
         const std::vector<uint8_t>& boneIndices);
+
+    void CreateCombined(const aiScene& scene,
+        const std::vector<const aiMesh*>& renderMeshes);
 #endif // EDITOR
 };

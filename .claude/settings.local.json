@@ -182,7 +182,28 @@
       "WebFetch(domain:pcsx2.net)",
       "Bash(gh release *)",
       "Read(//m/Projects/Octave/TestProjects/octo-bombers/4/Bomber/Scripts/**)",
-      "Read(//m/Projects/Octave/TestProjects/octo-bombers/4/Bomber/Source/**)"
+      "Read(//m/Projects/Octave/TestProjects/octo-bombers/4/Bomber/Source/**)",
+      "Bash(curl -sv -m 5 http://localhost:7890/api/scene)",
+      "Bash(curl -s -m 30 http://localhost:7890/api/scene)",
+      "Bash(echo \" exit=$?\")",
+      "Bash(curl -s -m 60 http://localhost:7890/api/scene)",
+      "Bash(curl -s -m 10 http://localhost:7891/api/scene)",
+      "Bash(curl -s -m 10 http://localhost:7891/api/scene/hierarchy)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 _devscene_build.py)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(c['name']\\) for c in d['children']]\")",
+      "Bash(python3 _devscene_continue.py)",
+      "Bash(curl -s -m 10 'http://localhost:7891/api/assets?type=StaticMesh')",
+      "Bash(curl -s -m 10 'http://localhost:7891/api/assets')",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('count',0\\)\\); [print\\(a\\) for a in \\(d.get\\('assets'\\) or []\\)[:30]]\")",
+      "Bash(curl -s -m 10 http://localhost:7891/api/scene/open -H 'Content-Type: application/json' -d '{\"name\":\"SC_Default\"}')",
+      "Bash(curl -s -m 10 http://localhost:7891/api/scene/open -H 'Content-Type: application/json' -d '{\"name\":\"SC_DevTest\"}')",
+      "Bash(curl -s -m 10 http://localhost:7891/api/nodes/Player/script-properties)",
+      "Bash(curl -s -m 10 http://localhost:7891/api/nodes/EnemyA/script-properties)",
+      "Bash(curl -s -m 10 http://localhost:7891/api/nodes/EnemyA/properties)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(p['name'],'=',p.get\\('value'\\)\\) for p in d['properties'] if p['name'] in \\('Script','Tags'\\)]\")",
+      "Bash(lua -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')",
+      "Bash(luac -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')"
     ]
   }
 }

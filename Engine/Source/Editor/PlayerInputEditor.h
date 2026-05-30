@@ -8,16 +8,24 @@
 #include <string>
 #include <vector>
 
+class InputActionsAsset;
+
 class PlayerInputEditor
 {
 public:
-    void Open();
+    // Open the editor. If `asset` is non-null, its actions are loaded into
+    // PlayerInputSystem and Save/Reload buttons target THAT asset instead of
+    // the canonical Assets/InputActions.oct project file.
+    void Open(InputActionsAsset* asset = nullptr);
     void Draw();
     bool IsOpen() const;
 
 private:
 
     bool mIsOpen = false;
+    // Empty = project-canonical mode (Save/Reload hit Assets/InputActions.oct).
+    // Non-empty = asset-specific mode (Save/Reload hit the named asset).
+    std::string mSourceAssetName;
     int mSelectedActionIndex = -1;
     char mNewCategory[64] = {};
     char mNewActionName[64] = {};
@@ -50,5 +58,8 @@ private:
 };
 
 PlayerInputEditor* GetPlayerInputEditor();
+
+// Convenience entry point used by the Asset Panel double-click dispatch.
+void OpenInputActionsForEditing(InputActionsAsset* asset);
 
 #endif

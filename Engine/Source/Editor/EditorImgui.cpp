@@ -96,6 +96,7 @@
 #include "Git/Dialogs/GitSyncBranchDialog.h"
 #include "PlayerInputEditor.h"
 #include "PlayerInputDebugger.h"
+#include "Input/InputActionsAsset.h"
 #include "DebugLog/DebugLogWindow.h"
 #include "CliTerminal/TerminalPanel.h"
 #include "LuaDebugger/LuaDebuggerPanel.h"
@@ -7022,6 +7023,14 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                         OpenNodeGraphForEditing(nodeGraph);
                     }
                 }
+                else if (stub->mType == InputActionsAsset::GetStaticType())
+                {
+                    InputActionsAsset* ia = stub->mAsset ? stub->mAsset->As<InputActionsAsset>() : nullptr;
+                    if (ia)
+                    {
+                        OpenInputActionsForEditing(ia);
+                    }
+                }
                 else if (stub->mType == UIDocument::GetStaticType())
                 {
                     if (stub->mAsset)
@@ -9742,6 +9751,82 @@ static void DrawMainMenuBar()
     }
 
 
+    // Mesh-import mode dialog: fires after the user picks .glb/.gltf/.fbx/.dae/.obj
+    // via File > Import > Asset (or the asset browser context menu). Lets the user
+    // pick Scene / Multiple Objects / Single Object, applied to the whole batch.
+    static MeshImportOptions sMeshImportOptions;
+    if (!ImGui::IsPopupOpen("Import Mesh Asset") && !GetEditorState()->mPendingMeshImportPaths.empty())
+    {
+        sMeshImportOptions = MeshImportOptions();
+        ImGui::OpenPopup("Import Mesh Asset");
+    }
+
+    if (ImGui::IsPopupOpen("Import Mesh Asset"))
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
+
+    if (ImGui::BeginPopupModal("Import Mesh Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+    {
+        std::vector<std::string>& paths = GetEditorState()->mPendingMeshImportPaths;
+
+        ImGui::Text("Importing %zu mesh file%s:", paths.size(), paths.size() == 1 ? "" : "s");
+        for (const std::string& p : paths)
+        {
+            ImGui::BulletText("%s", GetFileNameFromPath(p).c_str());
+        }
+        ImGui::Separator();
+
+        // RadioButton writes a full int — alias through a temp to avoid stomping
+        // adjacent bytes (mMode is uint8_t).
+        int modeInt = (int)sMeshImportOptions.mMode;
+        ImGui::RadioButton("As Scene", &modeInt, (int)MeshImportMode::AsScene);
+        ImGui::Indent(); ImGui::TextDisabled("Build one Scene asset containing the full hierarchy."); ImGui::Unindent();
+
+        ImGui::RadioButton("As Multiple Objects", &modeInt, (int)MeshImportMode::AsMultipleObjects);
+        ImGui::Indent(); ImGui::TextDisabled("Create one mesh asset per primitive (default)."); ImGui::Unindent();
+
+        ImGui::RadioButton("As Single Object", &modeInt, (int)MeshImportMode::AsSingleObject);
+        ImGui::Indent(); ImGui::TextDisabled("Merge all primitives into one mesh. Skeletal if any primitive has bones."); ImGui::Unindent();
+        sMeshImportOptions.mMode = (MeshImportMode)modeInt;
+
+        if (ImGui::Button("Import"))
+        {
+            if (sMeshImportOptions.mMode == MeshImportMode::AsScene)
+            {
+                // Drain the first file into the Scene-import modal; queue the rest.
+                GetEditorState()->mPendingSceneImportPath = paths.front();
+                GetEditorState()->mPendingSceneImportQueue.assign(paths.begin() + 1, paths.end());
+            }
+            else if (sMeshImportOptions.mMode == MeshImportMode::AsMultipleObjects)
+            {
+                for (const std::string& p : paths)
+                {
+                    am->ImportAsset(p);
+                }
+            }
+            else // AsSingleObject
+            {
+                for (const std::string& p : paths)
+                {
+                    am->ImportAssetCombined(p);
+                }
+            }
+            paths.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            paths.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+
     if (!ImGui::IsPopupOpen("Import Scene") && GetEditorState()->mPendingSceneImportPath != "")
     {
         std::string sceneName = GetFileNameFromPath(GetEditorState()->mPendingSceneImportPath);
@@ -9779,6 +9864,9 @@ static void DrawMainMenuBar()
         {
             am->ImportScene(sSceneImportOptions);
             GetEditorState()->mPendingSceneImportPath = "";
+            // Advance the "As Scene" batch queue if any files remain.
+            std::vector<std::string>& q = GetEditorState()->mPendingSceneImportQueue;
+            if (!q.empty()) { GetEditorState()->mPendingSceneImportPath = q.front(); q.erase(q.begin()); }
             ImGui::CloseCurrentPopup();
         }
 
@@ -9786,6 +9874,10 @@ static void DrawMainMenuBar()
         if (ImGui::Button("Cancel"))
         {
             GetEditorState()->mPendingSceneImportPath = "";
+            // Advance the "As Scene" batch queue if any files remain — let the
+            // user step through each Scene options dialog independently.
+            std::vector<std::string>& q = GetEditorState()->mPendingSceneImportQueue;
+            if (!q.empty()) { GetEditorState()->mPendingSceneImportPath = q.front(); q.erase(q.begin()); }
             ImGui::CloseCurrentPopup();
         }
 

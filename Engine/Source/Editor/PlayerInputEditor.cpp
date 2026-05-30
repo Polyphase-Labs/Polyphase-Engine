@@ -2,7 +2,9 @@
 
 #include "PlayerInputEditor.h"
 #include "EditorWidgets.h"
+#include "AssetManager.h"
 #include "Input/PlayerInputSystem.h"
+#include "Input/InputActionsAsset.h"
 #include "Input/InputMap.h"
 #include "Input/Input.h"
 
@@ -15,9 +17,29 @@ PlayerInputEditor* GetPlayerInputEditor()
     return &sPlayerInputEditor;
 }
 
-void PlayerInputEditor::Open()
+void OpenInputActionsForEditing(InputActionsAsset* asset)
+{
+    GetPlayerInputEditor()->Open(asset);
+}
+
+void PlayerInputEditor::Open(InputActionsAsset* asset)
 {
     mIsOpen = true;
+    mSelectedActionIndex = -1;
+
+    if (asset != nullptr)
+    {
+        mSourceAssetName = asset->GetName();
+        PlayerInputSystem* sys = PlayerInputSystem::Get();
+        if (sys != nullptr)
+        {
+            sys->SetActions(asset->mActions);
+        }
+    }
+    else
+    {
+        mSourceAssetName.clear();
+    }
 }
 
 bool PlayerInputEditor::IsOpen() const
@@ -151,15 +173,57 @@ void PlayerInputEditor::Draw()
         ImGui::Separator();
         ImGui::Spacing();
 
-        if (ImGui::Button("Save to Project"))
+        if (!mSourceAssetName.empty())
         {
-            sys->SaveProjectActions();
+            // Asset-specific mode: Save/Reload target the asset opened via
+            // double-click in the Asset Panel, not the canonical project file.
+            std::string saveLabel = "Save to " + mSourceAssetName;
+            if (ImGui::Button(saveLabel.c_str()))
+            {
+                AssetStub* stub = FetchAssetStub(mSourceAssetName);
+                if (stub != nullptr && stub->mAsset != nullptr &&
+                    stub->mAsset->GetType() == InputActionsAsset::GetStaticType())
+                {
+                    InputActionsAsset* ia = static_cast<InputActionsAsset*>(stub->mAsset);
+                    ia->mActions = sys->GetActions();
+                    ia->SetDirtyFlag();
+                    AssetManager::Get()->SaveAsset(*stub);
+                }
+                else
+                {
+                    LogWarning("Could not save: InputActionsAsset '%s' no longer in registry.", mSourceAssetName.c_str());
+                }
+            }
+            ImGui::SameLine();
+            std::string reloadLabel = "Reload from " + mSourceAssetName;
+            if (ImGui::Button(reloadLabel.c_str()))
+            {
+                AssetStub* stub = FetchAssetStub(mSourceAssetName);
+                if (stub != nullptr)
+                {
+                    if (stub->mAsset == nullptr) AssetManager::Get()->LoadAsset(*stub);
+                    if (stub->mAsset != nullptr &&
+                        stub->mAsset->GetType() == InputActionsAsset::GetStaticType())
+                    {
+                        InputActionsAsset* ia = static_cast<InputActionsAsset*>(stub->mAsset);
+                        sys->SetActions(ia->mActions);
+                        mSelectedActionIndex = -1;
+                    }
+                }
+            }
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Reload from Project"))
+        else
         {
-            sys->LoadProjectActions();
-            mSelectedActionIndex = -1;
+            if (ImGui::Button("Save to Project"))
+            {
+                sys->SaveProjectActions();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reload from Project"))
+            {
+                sys->LoadProjectActions();
+                mSelectedActionIndex = -1;
+            }
         }
     }
     ImGui::End();

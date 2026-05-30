@@ -112,6 +112,11 @@ public:
         const aiMesh& meshData,
         uint32_t numCollisionMeshes,
         const aiMesh** collisionMeshes);
+    void CreateCombined(
+        const aiScene* scene,
+        const std::vector<const aiMesh*>& renderMeshes,
+        uint32_t numCollisionMeshes,
+        const aiMesh** collisionMeshes);
 protected:
     std::vector<uint32_t> mPureVertexColors;
 #endif

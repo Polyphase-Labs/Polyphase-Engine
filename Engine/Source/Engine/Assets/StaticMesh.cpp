@@ -464,12 +464,17 @@ bool StaticMesh::Import(const std::string& path, ImportOptions* options)
         Assimp::Importer importer;
 
         int32_t meshIndex = -1;
+        bool combineMeshes = false;
 
         if (options)
         {
             if (options->HasOption("meshIndex"))
             {
                 meshIndex = options->GetOptionValue("meshIndex").GetInteger();
+            }
+            if (options->HasOption("combineMeshes"))
+            {
+                combineMeshes = options->GetOptionValue("combineMeshes").GetBool();
             }
         }
 
@@ -498,7 +503,39 @@ bool StaticMesh::Import(const std::string& path, ImportOptions* options)
 
         const bool singleMeshImport = (meshIndex == -1);
 
-        if (success)
+        if (success && combineMeshes)
+        {
+            // "As Single Object" path: concatenate every non-collision primitive
+            // in the file into one mesh. Collision meshes still aggregate as today.
+            std::vector<const aiMesh*> renderMeshes;
+            std::vector<const aiMesh*> collisionMeshes;
+            for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            {
+                const aiMesh* mesh = scene->mMeshes[i];
+                const char* meshName = mesh->mName.C_Str();
+                if (strncmp(meshName, "UCX", 3) == 0 ||
+                    strncmp(meshName, "UBX", 3) == 0 ||
+                    strncmp(meshName, "USP", 3) == 0)
+                {
+                    collisionMeshes.push_back(mesh);
+                }
+                else
+                {
+                    renderMeshes.push_back(mesh);
+                }
+            }
+
+            if (renderMeshes.empty())
+            {
+                LogError("No renderable meshes to combine.");
+                success = false;
+            }
+            else
+            {
+                CreateCombined(scene, renderMeshes, (uint32_t)collisionMeshes.size(), collisionMeshes.data());
+            }
+        }
+        else if (success)
         {
             std::vector<const aiMesh*> collisionMeshes;
 
@@ -988,6 +1025,172 @@ void StaticMesh::Create(
     // explicitly set up during editor initialization.
     // Note: Even when a mesh has only one collision shape, we still need to use a compound shape parent
     // so that it can receive there correct transform. Otherwise it will always be positioned at the origin.
+    SetCollisionShapes(numCollisionShapes, collisionShapes.data(), collisionTransforms.data(), true);
+
+    mMaterial = Renderer::Get()->GetDefaultMaterial();
+
+    Create();
+}
+
+void StaticMesh::CreateCombined(
+    const aiScene* scene,
+    const std::vector<const aiMesh*>& renderMeshes,
+    uint32_t numCollisionMeshes,
+    const aiMesh** collisionMeshes)
+{
+    if (renderMeshes.empty())
+    {
+        return;
+    }
+
+    // Totals
+    uint32_t totalVerts = 0;
+    uint32_t totalIndices = 0;
+    bool anyColors = false;
+    for (const aiMesh* m : renderMeshes)
+    {
+        if (m->mNumVertices == 0 || m->mNumFaces == 0)
+            continue;
+        totalVerts += m->mNumVertices;
+        totalIndices += m->mNumFaces * 3;
+        if (m->GetNumColorChannels() > 0)
+            anyColors = true;
+    }
+
+    if (totalVerts == 0)
+    {
+        return;
+    }
+
+    mNumVertices = totalVerts;
+    mNumIndices = totalIndices;
+    mNumUvMaps = 2;
+    mHasVertexColor = anyColors;
+
+    ResizeVertexArray(mNumVertices);
+    ResizeIndexArray(mNumIndices);
+    mPureVertexColors.clear();
+
+    // Engine-config-aware "white" for primitives that lack vertex colors when
+    // the combined mesh has been promoted to VertexColor. See .llm/Spec.md note.
+    uint32_t whiteColor = 0xFFFFFFFFu;
+    if (GetEngineConfig()->mColorScale == 2) whiteColor = 0x7F7F7F7Fu;
+    if (GetEngineConfig()->mColorScale == 4) whiteColor = 0x3F3F3F3Fu;
+
+    uint32_t vOffset = 0;
+    uint32_t iOffset = 0;
+
+    for (const aiMesh* mesh : renderMeshes)
+    {
+        if (mesh->mNumVertices == 0 || mesh->mNumFaces == 0)
+            continue;
+
+        glm::vec3* positions = reinterpret_cast<glm::vec3*>(mesh->mVertices);
+        glm::vec3* texcoords0 = mesh->HasTextureCoords(0) ? reinterpret_cast<glm::vec3*>(mesh->mTextureCoords[0]) : nullptr;
+        glm::vec3* texcoords1 = mesh->HasTextureCoords(1) ? reinterpret_cast<glm::vec3*>(mesh->mTextureCoords[1]) : texcoords0;
+        glm::vec3* normals = reinterpret_cast<glm::vec3*>(mesh->mNormals);
+        glm::vec4* colors = (mesh->GetNumColorChannels() > 0) ? reinterpret_cast<glm::vec4*>(mesh->mColors[0]) : nullptr;
+
+        if (mHasVertexColor)
+        {
+            VertexColor* vertices = GetColorVertices();
+            for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
+            {
+                VertexColor& v = vertices[vOffset + i];
+                v.mPosition = glm::vec3(positions[i].x, positions[i].y, positions[i].z);
+                v.mTexcoord0 = texcoords0 ? glm::vec2(texcoords0[i].x, texcoords0[i].y) : glm::vec2(0.0f, 0.0f);
+                v.mTexcoord1 = texcoords1 ? glm::vec2(texcoords1[i].x, texcoords1[i].y) : glm::vec2(0.0f, 0.0f);
+                v.mNormal = normals ? glm::vec3(normals[i].x, normals[i].y, normals[i].z) : glm::vec3(0.0f, 0.0f, 1.0f);
+
+                if (colors)
+                {
+                    glm::vec4 color4f = glm::vec4(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+                    v.mColor = ColorFloat4ToUint32(color4f);
+                }
+                else
+                {
+                    v.mColor = whiteColor;
+                }
+                mPureVertexColors.push_back(v.mColor);
+            }
+        }
+        else
+        {
+            Vertex* vertices = GetVertices();
+            for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
+            {
+                Vertex& v = vertices[vOffset + i];
+                v.mPosition = glm::vec3(positions[i].x, positions[i].y, positions[i].z);
+                v.mTexcoord0 = texcoords0 ? glm::vec2(texcoords0[i].x, texcoords0[i].y) : glm::vec2(0.0f, 0.0f);
+                v.mTexcoord1 = texcoords1 ? glm::vec2(texcoords1[i].x, texcoords1[i].y) : glm::vec2(0.0f, 0.0f);
+                v.mNormal = normals ? glm::vec3(normals[i].x, normals[i].y, normals[i].z) : glm::vec3(0.0f, 0.0f, 1.0f);
+            }
+        }
+
+        aiFace* faces = mesh->mFaces;
+        for (uint32_t f = 0; f < mesh->mNumFaces; ++f)
+        {
+            OCT_ASSERT(faces[f].mNumIndices == 3);
+            mIndices[iOffset + f * 3 + 0] = (IndexType)(faces[f].mIndices[0] + vOffset);
+            mIndices[iOffset + f * 3 + 1] = (IndexType)(faces[f].mIndices[1] + vOffset);
+            mIndices[iOffset + f * 3 + 2] = (IndexType)(faces[f].mIndices[2] + vOffset);
+        }
+
+        vOffset += mesh->mNumVertices;
+        iOffset += mesh->mNumFaces * 3;
+    }
+
+    // Aggregate collision meshes — same pattern as single-mesh path.
+    uint32_t numCollisionShapes = 0;
+    std::vector<btCollisionShape*> collisionShapes;
+    std::vector<btTransform> collisionTransforms;
+
+    for (uint32_t i = 0; i < numCollisionMeshes; ++i)
+    {
+        const aiMesh* colMesh = collisionMeshes[i];
+        const aiNode* node = FindMeshNode(scene, scene->mRootNode, colMesh);
+
+        btVector3 bScale = { 1.0f, 1.0f, 1.0f };
+        btQuaternion bRotation = btQuaternion(0.0f, 0.0f, 0.0f, 1.0f);
+        btVector3 bPosition = { 0.0f, 0.0f, 0.0f };
+        btTransform bTransform = btTransform::getIdentity();
+
+        if (node != nullptr)
+        {
+            aiVector3D scale;
+            aiQuaternion rotation;
+            aiVector3D position;
+            node->mTransformation.Decompose(scale, rotation, position);
+
+            bScale = { scale.x, scale.y, scale.z };
+            bRotation = btQuaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+            bPosition = { position.x, position.y, position.z };
+            bTransform = btTransform(bRotation, bPosition);
+        }
+
+        if (strncmp(colMesh->mName.C_Str(), "UBX", 3) == 0)
+        {
+            collisionShapes.push_back(new btBoxShape(bScale));
+            collisionTransforms.push_back(bTransform);
+            ++numCollisionShapes;
+        }
+        else if (strncmp(colMesh->mName.C_Str(), "USP", 3) == 0)
+        {
+            collisionShapes.push_back(new btSphereShape(bScale.x()));
+            collisionTransforms.push_back(bTransform);
+            ++numCollisionShapes;
+        }
+        else if (strncmp(colMesh->mName.C_Str(), "UCX", 3) == 0)
+        {
+            collisionShapes.push_back(new btConvexHullShape(
+                reinterpret_cast<float*>(colMesh->mVertices),
+                colMesh->mNumVertices,
+                sizeof(aiVector3D)));
+            collisionTransforms.push_back(btTransform(bRotation, bPosition));
+            ++numCollisionShapes;
+        }
+    }
+
     SetCollisionShapes(numCollisionShapes, collisionShapes.data(), collisionTransforms.data(), true);
 
     mMaterial = Renderer::Get()->GetDefaultMaterial();

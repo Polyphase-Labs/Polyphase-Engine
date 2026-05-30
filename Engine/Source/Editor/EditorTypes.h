@@ -38,6 +38,19 @@ struct SceneImportOptions
     AssetStub* mReimportSceneStub = nullptr;  // Non-null = reimport mode
 };
 
+enum class MeshImportMode : uint8_t
+{
+    AsScene = 0,
+    AsMultipleObjects = 1,
+    AsSingleObject = 2,
+    Count
+};
+
+struct MeshImportOptions
+{
+    MeshImportMode mMode = MeshImportMode::AsMultipleObjects;
+};
+
 struct CameraImportOptions
 {
     std::string mFilePath;

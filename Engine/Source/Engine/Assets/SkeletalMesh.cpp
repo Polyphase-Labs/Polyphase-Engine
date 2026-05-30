@@ -310,12 +310,17 @@ bool SkeletalMesh::Import(const std::string& path, ImportOptions* options)
     if (mResource.mVertexBuffer == VK_NULL_HANDLE)
     {
         int32_t meshIndex = 0;
+        bool combineMeshes = false;
 
         if (options)
         {
             if (options->HasOption("meshIndex"))
             {
                 meshIndex = options->GetOptionValue("meshIndex");
+            }
+            if (options->HasOption("combineMeshes"))
+            {
+                combineMeshes = options->GetOptionValue("combineMeshes").GetBool();
             }
         }
 
@@ -337,19 +342,50 @@ bool SkeletalMesh::Import(const std::string& path, ImportOptions* options)
             OCT_ASSERT(0);
         }
 
-        if (!scene->mMeshes[meshIndex]->HasBones())
+        if (combineMeshes)
         {
-            LogError("Skeletal mesh has no bones");
-            OCT_ASSERT(0);
+            // "As Single Object" path for skinned: gather every non-collision mesh,
+            // collapse into one SkeletalMesh under the first skinned primitive's
+            // skeleton. Unskinned primitives attach to the root bone.
+            std::vector<const aiMesh*> renderMeshes;
+            for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            {
+                const aiMesh* mesh = scene->mMeshes[i];
+                const char* meshName = mesh->mName.C_Str();
+                if (strncmp(meshName, "UCX", 3) == 0 ||
+                    strncmp(meshName, "UBX", 3) == 0 ||
+                    strncmp(meshName, "USP", 3) == 0)
+                {
+                    continue;
+                }
+                renderMeshes.push_back(mesh);
+            }
+
+            if (renderMeshes.empty())
+            {
+                LogError("No renderable meshes to combine.");
+            }
+            else
+            {
+                CreateCombined(*scene, renderMeshes);
+            }
         }
-
-        Create(*scene, *scene->mMeshes[meshIndex]);
-
-        if (!singleMeshImport)
+        else
         {
-            // Make the name unique
-            std::string newName = GenerateUniqueMeshName(GetName(), scene, meshIndex);
-            SetName(newName);
+            if (!scene->mMeshes[meshIndex]->HasBones())
+            {
+                LogError("Skeletal mesh has no bones");
+                OCT_ASSERT(0);
+            }
+
+            Create(*scene, *scene->mMeshes[meshIndex]);
+
+            if (!singleMeshImport)
+            {
+                // Make the name unique
+                std::string newName = GenerateUniqueMeshName(GetName(), scene, meshIndex);
+                SetName(newName);
+            }
         }
     }
 #endif
@@ -992,5 +1028,199 @@ void SkeletalMesh::SetupResource(const aiMesh& meshData,
     }
 
     Create();
+}
+
+void SkeletalMesh::CreateCombined(const aiScene& scene,
+    const std::vector<const aiMesh*>& renderMeshes)
+{
+    if (renderMeshes.empty())
+        return;
+
+    // Pick canonical skinned mesh (first one with bones). If none are skinned,
+    // fall back to the first primitive (we'll still get a skeletal mesh with
+    // one identity bone — caller already chose SkeletalMesh by intent).
+    const aiMesh* canonical = nullptr;
+    for (const aiMesh* m : renderMeshes)
+    {
+        if (m->HasBones())
+        {
+            canonical = m;
+            break;
+        }
+    }
+    if (canonical == nullptr)
+    {
+        LogWarning("CreateCombined called on file with no skinned primitives; output will have no bone deformation.");
+        canonical = renderMeshes[0];
+    }
+
+    mInvRootTransform = glm::transpose(glm::make_mat4(&scene.mRootNode->mTransformation.a1));
+    mInvRootTransform = glm::inverse(mInvRootTransform);
+
+    // Build the canonical skeleton. SetupBoneHierarchy fills mBones based on
+    // names found in canonical->mBones, and also populates the canonical's
+    // per-vertex bone-influence arrays. We discard those arrays — we'll rebuild
+    // per-primitive in the loop below.
+    mBones.clear();
+    std::vector<uint8_t> canonBoneIndices(MAX_BONE_INFLUENCES * canonical->mNumVertices, 0);
+    std::vector<float>   canonBoneWeights(MAX_BONE_INFLUENCES * canonical->mNumVertices, 0.0f);
+    if (canonical->HasBones())
+    {
+        SetupBoneHierarchy(*scene.mRootNode, *canonical, canonBoneIndices, canonBoneWeights, -1);
+    }
+
+    // Register Event_* bones too (animations may target them).
+    if (canonical->HasBones())
+    {
+        for (uint32_t i = 0; i < canonical->mNumBones; ++i)
+        {
+            aiBone* bone = canonical->mBones[i];
+            if (strncmp(bone->mName.C_Str(), "Event_", 6) == 0)
+            {
+                Bone boneData;
+                boneData.mName = bone->mName.C_Str();
+                boneData.mOffsetMatrix = glm::transpose(glm::make_mat4(&bone->mOffsetMatrix.a1));
+                boneData.mInvOffsetMatrix = glm::inverse(boneData.mOffsetMatrix);
+                boneData.mIndex = (int32_t)mBones.size();
+                mBones.push_back(boneData);
+            }
+        }
+    }
+
+    SetupAnimations(scene);
+
+    // Accumulate vertices/indices across all primitives.
+    uint32_t totalVerts = 0;
+    uint32_t totalIndices = 0;
+    for (const aiMesh* m : renderMeshes)
+    {
+        if (m->mNumVertices == 0 || m->mNumFaces == 0) continue;
+        totalVerts += m->mNumVertices;
+        totalIndices += m->mNumFaces * 3;
+    }
+
+    mNumVertices = totalVerts;
+    mNumIndices = totalIndices;
+    mNumUvMaps = 2;
+    mVertices.clear();
+    mVertices.resize(mNumVertices);
+    mIndices.clear();
+    mIndices.resize(mNumIndices);
+
+    uint32_t vOffset = 0;
+    uint32_t iOffset = 0;
+
+    for (const aiMesh* mesh : renderMeshes)
+    {
+        if (mesh->mNumVertices == 0 || mesh->mNumFaces == 0) continue;
+
+        // Build this primitive's bone-influence arrays, mapping its local bone
+        // names back into the canonical skeleton.
+        std::vector<uint8_t> bIdx(MAX_BONE_INFLUENCES * mesh->mNumVertices, 0);
+        std::vector<float>   bWgt(MAX_BONE_INFLUENCES * mesh->mNumVertices, 0.0f);
+
+        if (mesh->HasBones())
+        {
+            if (mesh == canonical)
+            {
+                // Reuse what SetupBoneHierarchy already produced.
+                bIdx = canonBoneIndices;
+                bWgt = canonBoneWeights;
+            }
+            else
+            {
+                for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+                {
+                    aiBone* aibone = mesh->mBones[b];
+                    int32_t canonIdx = FindBoneIndex(aibone->mName.C_Str());
+                    if (canonIdx < 0)
+                    {
+                        // Bone not present in canonical skeleton — skip; affected
+                        // vertices will fall back to root-bone rigid attachment.
+                        continue;
+                    }
+                    for (uint32_t w = 0; w < aibone->mNumWeights; ++w)
+                    {
+                        aiVertexWeight weight = aibone->mWeights[w];
+                        uint8_t* vIdx = &bIdx[weight.mVertexId * MAX_BONE_INFLUENCES];
+                        float*   vWgt = &bWgt[weight.mVertexId * MAX_BONE_INFLUENCES];
+
+                        // Insert weight in descending order, same as SetupBoneHierarchy.
+                        int32_t insert = 0;
+                        for (insert = 0; insert < MAX_BONE_INFLUENCES; ++insert)
+                        {
+                            if (vWgt[insert] == 0.0f || vWgt[insert] < weight.mWeight)
+                                break;
+                        }
+                        if (insert < MAX_BONE_INFLUENCES)
+                        {
+                            for (int32_t i = MAX_BONE_INFLUENCES - 1; i > insert; --i)
+                            {
+                                vIdx[i] = vIdx[i - 1];
+                                vWgt[i] = vWgt[i - 1];
+                            }
+                            vIdx[insert] = (uint8_t)canonIdx;
+                            vWgt[insert] = weight.mWeight;
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Unskinned primitive — rigidly attach every vertex to root bone (index 0).
+            for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
+            {
+                bIdx[i * MAX_BONE_INFLUENCES + 0] = 0;
+                bWgt[i * MAX_BONE_INFLUENCES + 0] = 1.0f;
+            }
+        }
+
+        glm::vec3* positions = reinterpret_cast<glm::vec3*>(mesh->mVertices);
+        glm::vec3* texcoords0 = mesh->HasTextureCoords(0) ? reinterpret_cast<glm::vec3*>(mesh->mTextureCoords[0]) : nullptr;
+        glm::vec3* texcoords1 = mesh->HasTextureCoords(1) ? reinterpret_cast<glm::vec3*>(mesh->mTextureCoords[1]) : texcoords0;
+        glm::vec3* normals = reinterpret_cast<glm::vec3*>(mesh->mNormals);
+
+        for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
+        {
+            VertexSkinned& v = mVertices[vOffset + i];
+            v.mPosition = glm::vec3(positions[i].x, positions[i].y, positions[i].z);
+            v.mTexcoord0 = texcoords0 ? glm::vec2(texcoords0[i].x, texcoords0[i].y) : glm::vec2(0.0f, 0.0f);
+            v.mTexcoord1 = texcoords1 ? glm::vec2(texcoords1[i].x, texcoords1[i].y) : glm::vec2(0.0f, 0.0f);
+            v.mNormal = normals ? glm::vec3(normals[i].x, normals[i].y, normals[i].z) : glm::vec3(0.0f, 0.0f, 1.0f);
+
+            for (int b = 0; b < MAX_BONE_INFLUENCES; ++b)
+            {
+                v.mBoneIndices[b] = bIdx[i * MAX_BONE_INFLUENCES + b];
+                v.mBoneWeights[b] = bWgt[i * MAX_BONE_INFLUENCES + b];
+            }
+        }
+
+        aiFace* faces = mesh->mFaces;
+        for (uint32_t f = 0; f < mesh->mNumFaces; ++f)
+        {
+            OCT_ASSERT(faces[f].mNumIndices == 3);
+            mIndices[iOffset + f * 3 + 0] = (IndexType)(faces[f].mIndices[0] + vOffset);
+            mIndices[iOffset + f * 3 + 1] = (IndexType)(faces[f].mIndices[1] + vOffset);
+            mIndices[iOffset + f * 3 + 2] = (IndexType)(faces[f].mIndices[2] + vOffset);
+        }
+
+        vOffset += mesh->mNumVertices;
+        iOffset += mesh->mNumFaces * 3;
+    }
+
+    // Strip Event_* bones the same way Create(scene, mesh) does, after animation parsing.
+    for (int32_t i = int32_t(mBones.size()) - 1; i >= 0; --i)
+    {
+        if (mBones[i].mName.substr(0, 6) == "Event_")
+        {
+            mBones.erase(mBones.begin() + i);
+        }
+    }
+
+    mMaterial = Renderer::Get()->GetDefaultMaterial();
+
+    Create();
+    ComputeBounds();
 }
 #endif // EDITOR
