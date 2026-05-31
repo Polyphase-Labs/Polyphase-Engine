@@ -10,7 +10,7 @@
 
 #include <cstring>
 
-std::unordered_set<std::string> ScriptUtils::sLoadedLuaFiles;
+std::unordered_map<std::string, std::string> ScriptUtils::sLoadedLuaFiles;
 std::unordered_set<std::string> ScriptUtils::sLoadingLuaFiles;
 EmbeddedFile* ScriptUtils::sEmbeddedScripts = nullptr;
 uint32_t ScriptUtils::sNumEmbeddedScripts = 0;
@@ -119,7 +119,6 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
 
             lua_pop(L, 1);
 
-            sLoadedLuaFiles.insert(className);
             successful = true;
         }
         else
@@ -131,18 +130,111 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
     }
 
     sLoadingLuaFiles.erase(fileName);
+
+    if (successful)
+    {
+        sLoadedLuaFiles[className] = fileName;
+    }
 #endif
 
     return successful;
+}
+
+// Scan <projectDir>/Packages/*/Scripts/<dir>/ recursively and append every
+// .lua to outFileNames as "Packages/<addonName>/<relpathFromScriptsRoot>"
+// (no .lua suffix — matches the fileName format Script components serialize
+// and the one RunScript's Packages/ branch expects).
+static void GatherAddonScriptFilesRecursive(
+    const std::string& addonName,
+    const std::string& addonScriptsRoot,
+    const std::string& subDir,
+    std::vector<std::string>& outFileNames)
+{
+    std::string fullDir = addonScriptsRoot + subDir;
+    std::vector<std::string> subDirs;
+
+    DirEntry dirEntry = {};
+    SYS_OpenDirectory(fullDir, dirEntry);
+
+    while (dirEntry.mValid)
+    {
+        if (dirEntry.mDirectory)
+        {
+            if (dirEntry.mFilename[0] != '.')
+            {
+                subDirs.push_back(dirEntry.mFilename);
+            }
+        }
+        else
+        {
+            const char* ext = strrchr(dirEntry.mFilename, '.');
+            if (ext != nullptr && strcmp(ext, ".lua") == 0)
+            {
+                std::string baseName(dirEntry.mFilename, ext - dirEntry.mFilename);
+                outFileNames.push_back("Packages/" + addonName + "/" + subDir + baseName);
+            }
+        }
+
+        SYS_IterateDirectory(dirEntry);
+    }
+
+    SYS_CloseDirectory(dirEntry);
+
+    for (const std::string& s : subDirs)
+    {
+        GatherAddonScriptFilesRecursive(addonName, addonScriptsRoot, subDir + s + "/", outFileNames);
+    }
 }
 
 void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
 {
     std::vector<std::string> fileNames;
 
-    for (const std::string& fileName : sLoadedLuaFiles)
+    // Snapshot the existing loaded set (preserving each entry's full fileName so
+    // addon-scoped scripts re-route through RunScript's Packages/ branch on reload).
+    for (const auto& kv : sLoadedLuaFiles)
     {
-        fileNames.push_back(fileName);
+        fileNames.push_back(kv.second);
+    }
+
+    // Also pick up any addon Lua files that haven't been loaded yet this session.
+    // Without this, a new .lua dropped into Packages/<Addon>/Scripts/ never shows
+    // up in the editor's "Reload All Scripts" sweep and the user has to restart
+    // to see it — which was the whole point of the manual reload action.
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (!projectDir.empty())
+    {
+        std::string packagesDir = projectDir + "Packages/";
+        DirEntry pkgEntry = {};
+        SYS_OpenDirectory(packagesDir, pkgEntry);
+
+        std::unordered_set<std::string> alreadyQueued(fileNames.begin(), fileNames.end());
+
+        while (pkgEntry.mValid)
+        {
+            if (pkgEntry.mDirectory &&
+                pkgEntry.mFilename[0] != '.')
+            {
+                std::string addonName = pkgEntry.mFilename;
+                std::string addonScriptsRoot = packagesDir + addonName + "/Scripts/";
+                if (DoesDirExist(addonScriptsRoot.c_str()))
+                {
+                    std::vector<std::string> addonFiles;
+                    GatherAddonScriptFilesRecursive(addonName, addonScriptsRoot, "", addonFiles);
+                    for (const std::string& f : addonFiles)
+                    {
+                        if (alreadyQueued.insert(f).second)
+                        {
+                            fileNames.push_back(f);
+                        }
+                    }
+                }
+            }
+
+            SYS_IterateDirectory(pkgEntry);
+        }
+
+        SYS_CloseDirectory(pkgEntry);
     }
 
     sLoadedLuaFiles.clear();
@@ -163,6 +255,11 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
     }
 
     // This doesn't re-gather the NetFuncs for this script file.
+}
+
+void ScriptUtils::ClearLoadedScripts()
+{
+    sLoadedLuaFiles.clear();
 }
 
 void ScriptUtils::LoadAllScripts()

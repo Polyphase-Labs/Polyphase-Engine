@@ -12,10 +12,12 @@ Register a listener node + function for a channel.
 
 Sig: `SignalBus.Subscribe(name, listener, func)`
 - Arg: `string name` Channel/event name.
-- Arg: `Node listener` Node used as `self` when invoking `func`.
-- Arg: `function func` Listener callback (`function MyNode:OnEvent(...)`).
+- Arg: `Node listener` Node passed as the **first argument** to `func` on every emit.
+- Arg: `function func` Listener callback. Signature is `function(listener, ...emittedArgs)` — the listener node is always prepended before the args passed to `Emit`.
 
-Example:
+> ⚠️ The listener node is **always prepended** as the first argument to the callback. A `SignalBus.Emit("X", 5)` invokes the listener as `func(listener, 5)`. Inline closures that forget the leading param will see the listener node where they expect their first emitted arg.
+
+Example — colon-method form (`self` automatically binds to `listener`):
 ```lua
 function HUD:OnScoreChanged(score)
     self.scoreText:SetText("Score: " .. tostring(score))
@@ -25,6 +27,24 @@ end
 function HUD:Start()
     SignalBus.Subscribe("ScoreChanged", self, HUD.OnScoreChanged)
 end
+```
+
+Example — inline closure (must accept the listener as the first param):
+```lua
+function HUD:Start()
+    -- Discard the listener with `_`; the closure already captures `self`.
+    SignalBus.Subscribe("ScoreChanged", self, function(_, score)
+        self.scoreText:SetText("Score: " .. tostring(score))
+    end)
+end
+```
+
+Pitfall — this is the most common bug:
+```lua
+-- WRONG: `score` binds to the listener node (a NodeWrapper userdata), not the emitted int.
+SignalBus.Subscribe("ScoreChanged", self, function(score)
+    self.scoreText:SetText("Score: " .. tostring(score))  -- prints "NodeWrapper: 0x…"
+end)
 ```
 
 ---

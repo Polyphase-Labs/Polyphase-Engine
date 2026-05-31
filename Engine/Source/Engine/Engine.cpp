@@ -117,70 +117,108 @@ void SetDefaultSceneNames(const std::vector<std::string>& names)
 // File watcher callback for script hot-reloading
 void OnScriptFileChanged(const FileChangeEvent& event)
 {
-    if (event.action == FileAction::Modified || event.action == FileAction::Added)
+    if (event.action != FileAction::Modified && event.action != FileAction::Added)
     {
-        // Get relative path from project directory
-        std::string projectDir = GetEngineState()->mProjectDirectory;
-        std::string scriptDir = projectDir + "Scripts/";
+        return;
+    }
 
-        if (event.filePath.find(scriptDir) == 0)
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty())
+    {
+        return;
+    }
+
+    // Normalize incoming path to forward slashes once. Windows ReadDirectoryChangesW
+    // hands us backslashes; the script bookkeeping is forward-slash only.
+    std::string evPath = event.filePath;
+    for (size_t i = 0; i < evPath.length(); ++i)
+    {
+        if (evPath[i] == '\\') evPath[i] = '/';
+    }
+
+    std::string projectDirFwd = projectDir;
+    for (size_t i = 0; i < projectDirFwd.length(); ++i)
+    {
+        if (projectDirFwd[i] == '\\') projectDirFwd[i] = '/';
+    }
+
+    // Resolve the watched path to the "Packages/<addonName>/<sub>/Foo.lua" /
+    // "<sub>/Foo.lua" form Script components serialize, so we can both reload
+    // the right entry in ScriptUtils and match it against live Script nodes.
+    std::string scriptDir = projectDirFwd + "Scripts/";
+    std::string packagesDir = projectDirFwd + "Packages/";
+    std::string relativePath;
+
+    if (evPath.find(scriptDir) == 0)
+    {
+        relativePath = evPath.substr(scriptDir.length());
+    }
+    else if (evPath.find(packagesDir) == 0)
+    {
+        // <projectDir>/Packages/<addonName>/Scripts/<sub>/Foo.lua →
+        // Packages/<addonName>/<sub>/Foo.lua
+        std::string afterPackages = evPath.substr(packagesDir.length());
+        size_t firstSlash = afterPackages.find('/');
+        if (firstSlash == std::string::npos)
         {
-            // Extract relative script path
-            std::string relativePath = event.filePath.substr(scriptDir.length());
-            
-            // Replace backslashes with forward slashes for consistency
-            for (size_t i = 0; i < relativePath.length(); ++i)
-            {
-                if (relativePath[i] == '\\')
-                {
-                    relativePath[i] = '/';
-                }
-            }
-            
-            // Find all script instances using this file and save their properties
-            std::vector<Script*> affectedScripts;
-            std::vector<std::vector<Property>> scriptProps;
-            std::vector<Node*> nodes;
+            return;
+        }
+        std::string addonName = afterPackages.substr(0, firstSlash);
+        std::string rest = afterPackages.substr(firstSlash + 1);
+        const std::string scriptsPrefix = "Scripts/";
+        if (rest.find(scriptsPrefix) != 0)
+        {
+            return; // Edit was in Assets/, Source/, etc. — not our concern.
+        }
+        relativePath = "Packages/" + addonName + "/" + rest.substr(scriptsPrefix.length());
+    }
+    else
+    {
+        return;
+    }
 
-            for (uint32_t i = 0; i < sWorlds.size(); ++i)
-            {
-                sWorlds[i]->GatherNodes(nodes);
-            }
+    // Find all script instances using this file and save their properties
+    std::vector<Script*> affectedScripts;
+    std::vector<std::vector<Property>> scriptProps;
+    std::vector<Node*> nodes;
 
-            for (uint32_t i = 0; i < nodes.size(); ++i)
+    for (uint32_t i = 0; i < sWorlds.size(); ++i)
+    {
+        sWorlds[i]->GatherNodes(nodes);
+    }
+
+    for (uint32_t i = 0; i < nodes.size(); ++i)
+    {
+        Script* script = nodes[i]->GetScript();
+        if (script != nullptr)
+        {
+            // if string doesnt end with .lua, add it for comparison
+            std::string scriptFileName = script->GetFile();
+            if (scriptFileName.length() > 4
+                && scriptFileName.substr(scriptFileName.length() - 4) != ".lua")
             {
-                Script* script = nodes[i]->GetScript();
-                if (script != nullptr)
-                {
-                    // if string doesnt end with .lua, add it for comparison
-                    std::string scriptFileName = script->GetFile();
-                    if (scriptFileName.length() > 4
-                        && scriptFileName.substr(scriptFileName.length() - 4) != ".lua")
-                    {
-                        scriptFileName += ".lua";
-                    }
-                    if (scriptFileName == relativePath)
-                    {
-                        affectedScripts.push_back(script);
-                        scriptProps.push_back(script->GetScriptProperties());
-                    }
-                }
+                scriptFileName += ".lua";
             }
-            // Reload the specific script file
-            if (ScriptUtils::ReloadScriptFile(relativePath))
+            if (scriptFileName == relativePath)
             {
-                // Restart affected script instances from any nodes running in play mode
-                for (uint32_t i = 0; i < affectedScripts.size(); ++i)
-                {
-                    affectedScripts[i]->RestartScript();
-                    affectedScripts[i]->SetScriptProperties(scriptProps[i]);
-                }
-            }
-            else
-            {
-                LogWarning("Failed to hot-reload script: %s", relativePath.c_str());
+                affectedScripts.push_back(script);
+                scriptProps.push_back(script->GetScriptProperties());
             }
         }
+    }
+    // Reload the specific script file
+    if (ScriptUtils::ReloadScriptFile(relativePath))
+    {
+        // Restart affected script instances from any nodes running in play mode
+        for (uint32_t i = 0; i < affectedScripts.size(); ++i)
+        {
+            affectedScripts[i]->RestartScript();
+            affectedScripts[i]->SetScriptProperties(scriptProps[i]);
+        }
+    }
+    else
+    {
+        LogWarning("Failed to hot-reload script: %s", relativePath.c_str());
     }
 }
 
@@ -1066,6 +1104,14 @@ void LoadProject(const std::string& path, bool discoverAssets)
             EditorProgress::SetStatus("Unloading previous project directory...");
             AssetManager::Get()->UnloadProjectDirectory();
 
+            // Wipe the loaded-script registry. Lua state itself persists across
+            // project switches (lua_close only runs at engine shutdown), so the
+            // IsScriptLoaded fast-path in Script::LoadScript would otherwise
+            // skip re-reading files — meaning addon Lua edits made between
+            // sessions stay invisible until the user touches the file in the
+            // current session. Clear so the next Script attach reloads from disk.
+            ScriptUtils::ClearLoadedScripts();
+
             sEngineState.mProjectName = "";
             sEngineState.mProjectPath = "";
             sEngineState.mProjectDirectory = "";
@@ -1194,7 +1240,7 @@ void LoadProject(const std::string& path, bool discoverAssets)
     if (GetFileWatcher() && sEngineState.mProjectDirectory != "")
     {
         std::string scriptsDir = sEngineState.mProjectDirectory + "Scripts";
-        
+
         // Check if Scripts directory exists by trying to open it as a directory
         DirEntry dirEntry = {};
         SYS_OpenDirectory(scriptsDir, dirEntry);
@@ -1203,11 +1249,32 @@ void LoadProject(const std::string& path, bool discoverAssets)
         {
             SYS_CloseDirectory(dirEntry);
         }
-        
+
         if (scriptsExists)
         {
             GetFileWatcher()->WatchDirectory(scriptsDir, true);
         }
+
+        // Also watch each addon's Scripts/ tree. Without this, edits to
+        // Packages/<Addon>/Scripts/*.lua never trigger OnScriptFileChanged
+        // and the dev has to "Reload All Scripts" by hand for every save —
+        // the same papercut that the manual reload was originally added for.
+        std::string packagesDir = sEngineState.mProjectDirectory + "Packages/";
+        DirEntry pkgEntry = {};
+        SYS_OpenDirectory(packagesDir, pkgEntry);
+        while (pkgEntry.mValid)
+        {
+            if (pkgEntry.mDirectory && pkgEntry.mFilename[0] != '.')
+            {
+                std::string addonScriptsDir = packagesDir + pkgEntry.mFilename + "/Scripts";
+                if (DoesDirExist(addonScriptsDir.c_str()))
+                {
+                    GetFileWatcher()->WatchDirectory(addonScriptsDir, true);
+                }
+            }
+            SYS_IterateDirectory(pkgEntry);
+        }
+        SYS_CloseDirectory(pkgEntry);
     }
 #endif
 

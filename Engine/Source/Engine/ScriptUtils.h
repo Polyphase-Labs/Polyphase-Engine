@@ -2,6 +2,7 @@
 
 #include "ScriptMacros.h"
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 class Script;
@@ -21,6 +22,12 @@ public:
     static void ReloadAllScriptFiles(const ReloadProgressFn& onProgress = nullptr);
     static void LoadAllScripts();
     static void LoadScriptDirectory(const std::string& dirName, bool recurse = true);
+    // Wipe the loaded-script registry. The Lua globals themselves are left in
+    // place (re-running a class chunk overwrites its table), but subsequent
+    // Script attaches will re-read the .lua from disk instead of seeing the
+    // IsScriptLoaded fast-path and reusing the stale prototype. Called on
+    // project switch so addon Lua edits made between sessions take effect.
+    static void ClearLoadedScripts();
 
     static std::string GetClassNameFromFileName(const std::string& fileName);
     static void SetEmbeddedScripts(EmbeddedFile* embeddedScripts, uint32_t numEmbeddedScripts);
@@ -48,7 +55,12 @@ public:
 
 private:
 
-    static std::unordered_set<std::string> sLoadedLuaFiles;
+    // className -> last fileName used to load it. The fileName is preserved so
+    // ReloadAllScriptFiles can re-route addon paths (e.g. "Packages/Foo/Bar")
+    // through RunScript's Packages/ branch on the next pass; a className-only
+    // entry like "Bar" would fall through to the legacy Scripts/ probe and
+    // silently fail to reload.
+    static std::unordered_map<std::string, std::string> sLoadedLuaFiles;
     static std::unordered_set<std::string> sLoadingLuaFiles;
     static EmbeddedFile* sEmbeddedScripts;
     static uint32_t sNumEmbeddedScripts;
