@@ -71,6 +71,20 @@ DEFINE_FACTORY_MANAGER(Node);
 DEFINE_FACTORY(Node, Node);
 DEFINE_OBJECT(Node);
 
+Factory* Node::FindFactory(const char* className)
+{
+    if (className == nullptr || *className == '\0') return nullptr;
+    std::vector<Factory*>& factoryList = GetFactoryList();
+    for (Factory* f : factoryList)
+    {
+        if (f != nullptr && strncmp(f->GetClassName(), className, MAX_PATH_SIZE) == 0)
+        {
+            return f;
+        }
+    }
+    return nullptr;
+}
+
 bool Node::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 {
     Property* prop = static_cast<Property*>(datum);

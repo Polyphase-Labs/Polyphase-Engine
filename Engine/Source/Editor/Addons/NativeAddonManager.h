@@ -56,7 +56,22 @@ struct NativeAddonState
     std::string mSourcePath;      // Path to addon source (local Packages/ or cache)
     std::string mLoadedPath;      // Path to loaded DLL/SO
     void* mModuleHandle = nullptr;
+    // Cached module image range, computed once after a successful module load.
+    // Used by FindAddonIdForFactory to reverse-map a Factory* (which lives at a
+    // global static address inside the addon's image) back to its owning addon
+    // so the editor can plant addon-registered nodes under "Addons / <addonId>".
+    // mModuleEnd is only meaningful on Windows (image-extent known from
+    // GetModuleInformation); on Linux only mModuleBase is populated, and the
+    // forward lookup uses dladdr().dli_fbase == mModuleBase.
+    uintptr_t mModuleBase = 0;
+    uintptr_t mModuleEnd  = 0;
     std::string mFingerprint;     // Hash for rebuild detection
+    // Shadow-copy directory created at load time so the engine never holds an
+    // OS-level LoadLibrary lock on the build-output tree (Intermediate/Plugins).
+    // Cleared on successful UnloadNativeAddon; if delete fails (mspdbsrv lag),
+    // the path is pushed to NativeAddonManager::mPendingShadowDeletes and
+    // retried later / swept on next editor launch.
+    std::string mShadowDir;
 
     // Build state
     bool mBuildInProgress = false;
@@ -431,6 +446,20 @@ public:
      */
     PolyphaseEngineAPI* GetEngineAPI() { return &mEngineAPI; }
 
+    /**
+     * @brief Reverse-map a Factory* to the addon DLL that registered it.
+     *
+     * Factory subclasses are static globals embedded in their DLL's image, so
+     * the factory's object address falls within the DLL's mapped [base, end)
+     * range. We iterate the loaded addons and return the first whose cached
+     * module range contains the pointer.
+     *
+     * @param factoryPtr A registered Factory* (e.g. from Node::GetFactoryList()).
+     * @return The owning addon ID, or nullptr if no loaded addon owns the
+     *         pointer (i.e. it belongs to the engine itself).
+     */
+    const char* FindAddonIdForFactory(const void* factoryPtr) const;
+
     // ===== Creation and Packaging =====
 
     /**
@@ -558,6 +587,25 @@ private:
 
     std::unordered_map<std::string, NativeAddonState> mStates;
     PolyphaseEngineAPI mEngineAPI;
+
+    // ----- Shadow-copy load cache -----
+    //
+    // The editor LoadLibrary's an addon DLL from a per-launch cache dir rather
+    // than from Intermediate/Plugins/<addon>/<fp>/ directly. That keeps the
+    // build-output tree free of OS file locks so the user can wipe / rebuild
+    // intermediates while the editor is running. See NativeAddonManager.cpp
+    // GetShadowCopyPath / SweepStaleShadowCopies for the layout.
+    std::string              mShadowSessionId;       // PID-derived, set in ctor
+    std::vector<std::string> mPendingShadowDeletes;  // shadow dirs to retry on Tick
+
+    std::string GetShadowCopyDir(const std::string& addonId,
+                                 const std::string& fingerprint);
+    bool        StageShadowCopy(const std::string& sourceModulePath,
+                                const std::string& shadowDir,
+                                std::string& outShadowModulePath,
+                                std::string& outError);
+    void        TryDeleteShadowDir(const std::string& dir);
+    void        SweepStaleShadowCopies();
 
     // ----- Async build queue -----
     //

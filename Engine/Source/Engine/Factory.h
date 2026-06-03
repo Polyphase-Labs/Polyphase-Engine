@@ -81,8 +81,17 @@ public:
         return "Class";
     }
 
+    // Editor-only categorization for the Scene Hierarchy "Add Node" submenu.
+    // Empty by default; the editor falls back to class-hierarchy inference
+    // (Light3D -> "Lighting", Skybox3D -> "Environment", etc.) when this is
+    // unset. Addons opt in via PolyphaseEngineAPI::SetNodeCategory("Foo", "Bar")
+    // from their OnLoad, which threads through to Node::FindFactory + this.
+    void SetCategory(const char* category) { mEditorCategory = category ? category : ""; }
+    const std::string& GetCategory() const { return mEditorCategory; }
+
 protected:
     TypeId mType = 0;
+    std::string mEditorCategory;
 };
 
 // In the future, DECLARE_FACTORY might do more, but right now it just creates a GetType() func

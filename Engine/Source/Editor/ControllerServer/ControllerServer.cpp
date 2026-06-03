@@ -114,6 +114,33 @@ void ControllerServer::Stop()
 
     mRunning.store(false);
 
+    // Wake any worker parked in accept() on our listening socket BEFORE asking
+    // Crow to stop. A loopback connect bypasses LSPs/AV that may have hooked
+    // WSAAccept (the failure mode the leak-fallback below was added for), so
+    // the worker returns from accept(), Crow's stop signal propagates cleanly,
+    // and the future actually completes within the 4s window in the common case.
+#ifdef _WIN32
+    if (mPort > 0)
+    {
+        SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (s != INVALID_SOCKET)
+        {
+            // Short send/recv timeouts so this can never block shutdown itself.
+            DWORD tmo = 200;
+            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tmo, sizeof(tmo));
+            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+
+            sockaddr_in addr = {};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons((u_short)mPort);
+            inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+            connect(s, (sockaddr*)&addr, sizeof(addr));
+            closesocket(s);
+        }
+    }
+#endif
+
     if (mImpl->mApp)
     {
         mImpl->mApp->stop();

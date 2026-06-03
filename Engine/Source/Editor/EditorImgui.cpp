@@ -281,8 +281,20 @@ static bool showTheming = false;
 // CLI Terminal panel only. May remain null if F_RobotoMono16.ttf isn't
 // shipped — callers must check.
 static ImFont* sTerminalFont = nullptr;
-static std::vector<std::string> sNode3dNames;
-static std::vector<std::string> sNodeWidgetNames;
+// Add-Node submenu categorization. The 3D / Widget submenus group their
+// children into named sub-buckets ("Lighting", "Environment", "Input", ...)
+// driven by `DiscoverNodeClasses`. Built-ins are classified by name; addons
+// land under `Addons/<addonId>` by default but can opt into a built-in bucket
+// (or invent their own) via PolyphaseEngineAPI::SetNodeCategory.
+//   *Categorized — keyed by bucket name, value is the list of class names
+//                  that belong in that bucket.
+//   *AddonGrouped — keyed by addon id, value is the addon's uncategorized
+//                  nodes (rendered under "Addons / <id>" in the menu).
+//   Other         — unchanged flat list; not recategorized in this pass.
+static std::map<std::string, std::vector<std::string>> sNode3dCategorized;
+static std::map<std::string, std::vector<std::string>> sNode3dAddonGrouped;
+static std::map<std::string, std::vector<std::string>> sNodeWidgetCategorized;
+static std::map<std::string, std::vector<std::string>> sNodeWidgetAddonGrouped;
 static std::vector<std::string> sNodeOtherNames;
 
 static ImTextureID sInspectTexId = 0;
@@ -1809,45 +1821,146 @@ static void DrawProjectUpgradeModal()
     }
 }
 
+void InvalidateAddNodeMenuCache()
+{
+    // DiscoverNodeClasses repopulates the per-bucket maps; flipping this flag
+    // back to false is the cheapest way to schedule that for next menu open
+    // (avoids re-scanning every frame when nothing changed).
+    sNodesDiscovered = false;
+}
+
+// Classify a Node3D-derived class into one of the four built-in 3D buckets
+// purely by class name. Returns the catch-all "Generic" when no rule fires —
+// caller decides whether that's a real Generic placement or an addon node
+// that should be re-routed to "Addons / <addonId>".
+static const char* ClassifyNode3D(const char* className)
+{
+    if (strcmp(className, "Skybox3D") == 0) return "Environment";
+    if (strcmp(className, "DirectionalLight3D") == 0 ||
+        strcmp(className, "PointLight3D") == 0 ||
+        strcmp(className, "SpotLight3D") == 0)
+    {
+        return "Lighting";
+    }
+    if (strcmp(className, "Particle3D") == 0) return "VFX";
+    return "Generic";
+}
+
+// Classify a Widget-derived class into one of the four built-in Widget
+// buckets by class name. Widget has no useful intermediate base classes —
+// everything inherits Widget directly — so the split is by explicit lists.
+// Returns the catch-all "Display" when no rule fires.
+static const char* ClassifyWidget(const char* className)
+{
+    static const char* kContainers[] = {
+        "Canvas", "Window", "DialogWindow", "ScrollContainer",
+        "ListViewWidget", "ListViewItemWidget", "ArrayWidget",
+    };
+    static const char* kInput[] = {
+        "Button", "CheckBox", "Slider", "InputField", "LineEdit",
+        "ComboBox", "SpinBox",
+    };
+    // "Layout" intentionally has no built-in members — HBox/VBox/Grid don't
+    // exist in the engine yet. The bucket appears only if an addon explicitly
+    // calls SetNodeCategory(..., "Layout").
+
+    for (const char* c : kContainers)
+        if (strcmp(className, c) == 0) return "Containers";
+    for (const char* c : kInput)
+        if (strcmp(className, c) == 0) return "Input";
+    return "Display";
+}
+
 static void DiscoverNodeClasses()
 {
-    sNode3dNames.clear();
-    sNodeWidgetNames.clear();
+    sNode3dCategorized.clear();
+    sNode3dAddonGrouped.clear();
+    sNodeWidgetCategorized.clear();
+    sNodeWidgetAddonGrouped.clear();
+    sNodeOtherNames.clear();
+
+    NativeAddonManager* addonMgr = NativeAddonManager::Get();
 
     const std::vector<Factory*>& nodeFactories = Node::GetFactoryList();
     for (uint32_t i = 0; i < nodeFactories.size(); ++i)
     {
-        Node* node = Node::CreateInstance(nodeFactories[i]->GetType());
-        if (node->As<Node3D>())
+        Factory* fac = nodeFactories[i];
+        if (fac == nullptr) continue;
+
+        const char* className = fac->GetClassName();
+        Node* probe = Node::CreateInstance(fac->GetType());
+        if (probe == nullptr) continue;
+
+        if (probe->As<Node3D>())
         {
-            if (strcmp(node->GetClassName(), "Node3D") == 0)
+            // Bucket selection priority:
+            //   (1) explicit category set by addon via SetNodeCategory
+            //   (2) name-driven classification
+            //   (3) if (2) resolved to the "Generic" catch-all AND the factory
+            //       lives inside an addon DLL -> route to Addons/<id> instead,
+            //       so addon-registered "miscellaneous" nodes don't pile up
+            //       alongside built-in Generic entries.
+            std::string bucket = fac->GetCategory();
+            const bool hasExplicit = !bucket.empty();
+            if (!hasExplicit) bucket = ClassifyNode3D(className);
+
+            if (!hasExplicit && bucket == "Generic" && addonMgr != nullptr)
             {
-                sNode3dNames.insert(sNode3dNames.begin(), node->GetClassName());
+                const char* addonId = addonMgr->FindAddonIdForFactory(fac);
+                if (addonId != nullptr && *addonId != '\0')
+                {
+                    sNode3dAddonGrouped[addonId].push_back(className);
+                    delete probe;
+                    continue;
+                }
+            }
+
+            // Surface the abstract Node3D base at the top of Generic so it
+            // remains user-instantiable (matches the legacy menu, which put
+            // it at the head of the flat 3D list).
+            if (strcmp(className, "Node3D") == 0)
+            {
+                sNode3dCategorized["Generic"].insert(
+                    sNode3dCategorized["Generic"].begin(), className);
             }
             else
             {
-                sNode3dNames.push_back(nodeFactories[i]->GetClassName());
+                sNode3dCategorized[bucket].push_back(className);
             }
         }
-        else if (node->As<Widget>())
+        else if (probe->As<Widget>())
         {
-			auto className = node->GetClassName();
-			auto factoryClassName = nodeFactories[i]->GetClassName();
-            if (strcmp(node->GetClassName(), "Widget") == 0)
+            std::string bucket = fac->GetCategory();
+            const bool hasExplicit = !bucket.empty();
+            if (!hasExplicit) bucket = ClassifyWidget(className);
+
+            if (!hasExplicit && bucket == "Display" && addonMgr != nullptr)
             {
-                sNodeWidgetNames.insert(sNodeWidgetNames.begin(), node->GetClassName());
+                const char* addonId = addonMgr->FindAddonIdForFactory(fac);
+                if (addonId != nullptr && *addonId != '\0')
+                {
+                    sNodeWidgetAddonGrouped[addonId].push_back(className);
+                    delete probe;
+                    continue;
+                }
+            }
+
+            if (strcmp(className, "Widget") == 0)
+            {
+                sNodeWidgetCategorized["Display"].insert(
+                    sNodeWidgetCategorized["Display"].begin(), className);
             }
             else
             {
-                sNodeWidgetNames.push_back(nodeFactories[i]->GetClassName());
+                sNodeWidgetCategorized[bucket].push_back(className);
             }
         }
-        else if (strcmp(node->GetClassName(), "Node") != 0)
+        else if (strcmp(className, "Node") != 0)
         {
-            sNodeOtherNames.push_back(nodeFactories[i]->GetClassName());
+            sNodeOtherNames.push_back(className);
         }
 
-        delete node;
+        delete probe;
     }
 }
 
@@ -3946,36 +4059,101 @@ void DrawAddNodeMenu(Node* node)
         BuildSceneCategoryMap();
     }
 
-    if (ImGui::BeginMenu("3D"))
+    // Spawn-and-parent helper shared by every leaf MenuItem below. Mirrors the
+    // legacy inline pattern (EXE_SpawnNode -> AddChild or PlaceNewlySpawnedNode
+    // -> SetSelectedNode) so behavior at the leaves is byte-identical.
+    auto spawnAndAttach = [&](const std::string& nodeName)
     {
-        for (uint32_t i = 0; i < sNode3dNames.size(); ++i)
+        // Terrain3D needs its companion file scaffolding via SpawnBasicNode —
+        // EXE_SpawnNode alone would leave the terrain without its heightmap.
+        if (nodeName == "Terrain3D" || nodeName == "Terrain")
         {
-            // Terrain3D gets special handling to create companion files
-            if (sNode3dNames[i] == "Terrain3D" || sNode3dNames[i] == "Terrain")
+            Node* newNode = am->SpawnBasicNode(BASIC_TERRAIN, node, nullptr, false, {});
+            if (newNode) GetEditorState()->SetSelectedNode(newNode);
+            return;
+        }
+
+        Node* newNode = am->EXE_SpawnNode(nodeName.c_str());
+        if (node) node->AddChild(newNode);
+        else      GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
+        GetEditorState()->SetSelectedNode(newNode);
+    };
+
+    // Render one categorized bucket. Hidden when its name list is empty so we
+    // never open an empty submenu (matters for the unused "Layout" Widget
+    // bucket and any built-in bucket that gets emptied by a future refactor).
+    auto drawBucket = [&](const std::string& bucketLabel,
+                          const std::vector<std::string>& names)
+    {
+        if (names.empty()) return;
+        if (ImGui::BeginMenu(bucketLabel.c_str()))
+        {
+            for (const std::string& nm : names)
             {
-                if (ImGui::MenuItem(sNode3dNames[i].c_str()))
-                {
-                    Node* newNode = am->SpawnBasicNode(BASIC_TERRAIN, node, nullptr, false, {});
-                    if (newNode)
-                        GetEditorState()->SetSelectedNode(newNode);
-                }
-                continue;
+                if (ImGui::MenuItem(nm.c_str())) spawnAndAttach(nm);
             }
+            ImGui::EndMenu();
+        }
+    };
 
-            if (ImGui::MenuItem(sNode3dNames[i].c_str()))
+    // Iterate `categorized` in a fixed preferred order first, then any
+    // unrecognised buckets (addon-explicit categories that don't match a
+    // preferred label). This keeps the most-used buckets at consistent menu
+    // positions instead of alphabetising "Addons" above "Environment".
+    auto drawCategorizedInOrder = [&](
+        const std::map<std::string, std::vector<std::string>>& categorized,
+        const char* const* preferredOrder, size_t preferredCount)
+    {
+        std::set<std::string> drawn;
+        for (size_t i = 0; i < preferredCount; ++i)
+        {
+            auto it = categorized.find(preferredOrder[i]);
+            if (it != categorized.end())
             {
-                const char* nodeName = sNode3dNames[i].c_str();
-
-                Node* newNode = am->EXE_SpawnNode(nodeName);
-
-                if (node)
-                    node->AddChild(newNode);
-                else
-                    GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
-
-                GetEditorState()->SetSelectedNode(newNode);
+                drawBucket(it->first, it->second);
+                drawn.insert(it->first);
             }
         }
+        for (const auto& pair : categorized)
+        {
+            if (drawn.count(pair.first) == 0)
+            {
+                drawBucket(pair.first, pair.second);
+            }
+        }
+    };
+
+    // Render the addon-grouped sub-submenu (Addons / <addonId> / <nodes>).
+    // Only shown when at least one addon contributed uncategorized nodes —
+    // an addon that opted every node into a built-in bucket via
+    // SetNodeCategory leaves this empty and the "Addons" menu disappears.
+    auto drawAddonGrouped = [&](
+        const std::map<std::string, std::vector<std::string>>& grouped)
+    {
+        if (grouped.empty()) return;
+        if (ImGui::BeginMenu("Addons"))
+        {
+            for (const auto& pair : grouped)
+            {
+                if (ImGui::BeginMenu(pair.first.c_str()))
+                {
+                    for (const std::string& nm : pair.second)
+                    {
+                        if (ImGui::MenuItem(nm.c_str())) spawnAndAttach(nm);
+                    }
+                    ImGui::EndMenu();
+                }
+            }
+            ImGui::EndMenu();
+        }
+    };
+
+    if (ImGui::BeginMenu("3D"))
+    {
+        static const char* k3DOrder[] = { "Environment", "Generic", "Lighting", "VFX" };
+        drawCategorizedInOrder(sNode3dCategorized, k3DOrder,
+                               sizeof(k3DOrder) / sizeof(k3DOrder[0]));
+        drawAddonGrouped(sNode3dAddonGrouped);
 
         ImGui::Separator();
         if (ImGui::BeginMenu("Skybox"))
@@ -4011,22 +4189,10 @@ void DrawAddNodeMenu(Node* node)
 
     if (ImGui::BeginMenu("Widget"))
     {
-        for (uint32_t i = 0; i < sNodeWidgetNames.size(); ++i)
-        {
-            if (ImGui::MenuItem(sNodeWidgetNames[i].c_str()))
-            {
-                const char* nodeName = sNodeWidgetNames[i].c_str();
-
-                Node* newNode = am->EXE_SpawnNode(nodeName);
-
-                if (node)
-                    node->AddChild(newNode);
-                else
-                    GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
-
-                GetEditorState()->SetSelectedNode(newNode);
-            }
-        }
+        static const char* kWidgetOrder[] = { "Containers", "Input", "Display", "Layout" };
+        drawCategorizedInOrder(sNodeWidgetCategorized, kWidgetOrder,
+                               sizeof(kWidgetOrder) / sizeof(kWidgetOrder[0]));
+        drawAddonGrouped(sNodeWidgetAddonGrouped);
 
         // Draw scenes with "Widget" menu override
         if (sScenesByCategory.count("Widget") > 0)
@@ -13322,6 +13488,15 @@ void EditorImguiPreShutdown()
     if (IsHeadless())
     {
         return;
+    }
+
+    // Stop the REST Controller FIRST so any in-flight request handler that
+    // touches asset / addon state can't race the AddonsWindow + addon-manager
+    // teardown below. ControllerServer::Destroy() at the end of this function
+    // still runs (idempotent second Stop()).
+    if (ControllerServer::Get() != nullptr)
+    {
+        ControllerServer::Get()->Stop();
     }
 
     // Save INI before clearing dock data, then disable auto-save so DestroyContext

@@ -38,6 +38,17 @@ void EditorShowUnsavedAssetsModal(const std::vector<AssetStub*>& unsavedStubs);
 
 void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOwnerType ownerType);
 
+/**
+ * Forget the cached "Add Node" submenu categorization so the next time the
+ * Scene Hierarchy right-click menu opens, DiscoverNodeClasses re-scans the
+ * Node factory list. Call this after any event that adds or removes
+ * factories — most commonly NativeAddonManager::LoadNativeAddon /
+ * UnloadNativeAddon, which strip + re-register Factory* objects mid-session.
+ * Without this call, addon nodes loaded after the editor's first menu open
+ * silently never appear in the menu until the next editor launch.
+ */
+void InvalidateAddNodeMenuCache();
+
 // Animated progress modal for long-running editor operations (scene save,
 // asset save, enter/exit PIE, reload scripts). Long synchronous work in
 // these paths would otherwise freeze the UI; calling Pump() at safe

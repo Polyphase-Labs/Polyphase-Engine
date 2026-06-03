@@ -482,4 +482,30 @@ struct PolyphaseEngineAPI
      * @param outCtx Pointer to ImGuiPluginContext to fill
      */
     void (*GetImGuiContext)(ImGuiPluginContext* outCtx);
+
+    // ===== Editor — Scene Hierarchy "Add Node" categorization =====
+
+    /**
+     * @brief Pin a node type to a specific bucket in the editor's "Add Node"
+     * submenu.
+     *
+     * Without this, addon-registered nodes appear under
+     *   3D     / Addons / <addonName> / <NodeName>      (Node3D-derived)
+     *   Widget / Addons / <addonName> / <NodeName>      (Widget-derived)
+     *
+     * With this, the node moves into the named bucket:
+     *   - Recognized 3D buckets: "Environment", "Lighting", "VFX", "Generic"
+     *   - Recognized Widget buckets: "Containers", "Input", "Display", "Layout"
+     *   - Any other string creates a new sub-submenu with that name.
+     *
+     * Call from OnLoad AFTER your DEFINE_NODE statics have registered the type.
+     * A null/empty category clears any prior override (reverts to auto-bucket).
+     *
+     * No-op in non-editor builds, and no-op if no factory matches `className`
+     * (e.g. the type wasn't yet registered when the call ran).
+     *
+     * @param className Class name as registered by DEFINE_NODE (e.g. "MyLight3D")
+     * @param category Bucket label, or null/empty to revert to auto
+     */
+    void (*SetNodeCategory)(const char* className, const char* category);
 };

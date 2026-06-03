@@ -72,6 +72,11 @@ public:
     DECLARE_OBJECT(Node, Object);
     DECLARE_SCRIPT_LINK_BASE(Node);
 
+    // Linear-scan lookup for a registered node factory by class name. Returns
+    // nullptr if no factory matches. Used by the editor's "Add Node" menu
+    // categorization (PolyphaseEngineAPI::SetNodeCategory threads through here).
+    static Factory* FindFactory(const char* className);
+
     static NodePtr Construct(const std::string& name);
     static NodePtr Construct(TypeId typeId);
     static void Destruct(Node* node);

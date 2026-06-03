@@ -4,6 +4,7 @@
 #include "AddonManager.h"
 #include "AddonDependencyResolver.h"
 #include "ActionManager.h"
+#include "EditorImgui.h"      // EditorProgress::Step for per-addon status during load
 #include "EditorState.h"
 #include "Engine/Assets/Scene.h"
 #include "System/System.h"
@@ -58,6 +59,8 @@ extern "C" {
 #include <cstdlib>  // std::getenv (POLYPHASE_CALL_ADDON_ONUNLOAD opt-in)
 #include <cstring>
 #include <functional>
+#include <chrono>
+#include <thread>
 #include <algorithm>
 #include <sstream>
 #include <fstream>
@@ -630,10 +633,49 @@ NativeAddonManager* NativeAddonManager::Get()
 NativeAddonManager::NativeAddonManager()
 {
     InitializeEngineAPI();
+
+    // Per-launch session id used by the shadow-copy cache. PID is unique per
+    // running editor instance, so concurrent editors don't clobber each other
+    // and the SweepStaleShadowCopies pass on startup can safely delete any
+    // sessionId dir that isn't ours.
+#if PLATFORM_WINDOWS
+    mShadowSessionId = std::to_string((unsigned long)GetCurrentProcessId());
+#else
+    mShadowSessionId = std::to_string((unsigned long)getpid());
+#endif
+
+    SweepStaleShadowCopies();
 }
 
 NativeAddonManager::~NativeAddonManager()
 {
+    // Drain the async build worker BEFORE destroying state. Without this, the
+    // detached compile thread keeps writing into mActiveBuild->output (now
+    // freed) and holds _popen pipe handles to cl.exe / link.exe / mspdbsrv —
+    // the editor process won't exit cleanly. AsyncAddonBuild::thread is a
+    // std::thread; we let it run to completion (build threads finish quickly
+    // once they observe TerminateProcess from the Phase 2 Job Object closing).
+    // 10s cap stops a wedged thread from blocking shutdown indefinitely.
+    if (mActiveBuild && mActiveBuild->thread.joinable())
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!mActiveBuild->complete.load() &&
+               std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        if (mActiveBuild->complete.load())
+        {
+            mActiveBuild->thread.join();
+        }
+        else
+        {
+            LogWarning("NativeAddonManager: async build did not complete in 10s; detaching. "
+                       "Job Object will reap the child on process exit.");
+            mActiveBuild->thread.detach();
+        }
+    }
+
     // Unload all native addons
     for (auto& pair : mStates)
     {
@@ -774,6 +816,25 @@ void NativeAddonManager::InitializeEngineAPI()
     // ImGui context for plugins
     mEngineAPI.GetImGuiContext = [](ImGuiPluginContext* outCtx) {
         GetImGuiPluginContext(outCtx);
+    };
+
+    // Scene-Hierarchy "Add Node" submenu categorization opt-in.
+    // Addons call this in OnLoad after their DEFINE_NODE statics have run; the
+    // bucket label flows to Factory::mEditorCategory, which DiscoverNodeClasses
+    // reads to slot the node into the chosen submenu instead of the default
+    // "Addons / <addonName>" sub-bucket.
+    mEngineAPI.SetNodeCategory = [](const char* className, const char* category) {
+        Factory* fac = Node::FindFactory(className);
+        if (fac != nullptr)
+        {
+            fac->SetCategory(category);
+        }
+        else
+        {
+            LogWarning("SetNodeCategory: no factory registered for '%s' yet — "
+                       "call this from OnLoad AFTER the DEFINE_NODE statics have run.",
+                       className ? className : "(null)");
+        }
     };
 }
 
@@ -1847,6 +1908,126 @@ std::string NativeAddonManager::GetIntermediateDir(const std::string& addonId)
     return projectDir + "Intermediate/Plugins/" + addonId + "/";
 }
 
+// Shadow-copy cache: addon DLLs are LoadLibrary'd from here, not from
+// Intermediate/Plugins/, so the build-output tree stays unlocked.
+//   <projectDir>/Intermediate/PluginsCache/<addonId>/<fingerprint>-<pid>/
+std::string NativeAddonManager::GetShadowCopyDir(const std::string& addonId,
+                                                 const std::string& fingerprint)
+{
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    return projectDir + "Intermediate/PluginsCache/" + addonId + "/" +
+           fingerprint + "-" + mShadowSessionId + "/";
+}
+
+// Copy the addon DLL (and its .pdb if present on Windows) into the shadow dir
+// and produce the path the loader should call MOD_Load on. Best-effort: if the
+// .pdb is locked we still attempt the load (debugger symbols will be missing
+// but the addon runs).
+bool NativeAddonManager::StageShadowCopy(const std::string& sourceModulePath,
+                                         const std::string& shadowDir,
+                                         std::string& outShadowModulePath,
+                                         std::string& outError)
+{
+    // Make sure the destination tree exists. SYS_CreateDirectory only creates
+    // a single level; walk and create intermediate components.
+    {
+        std::string path;
+        for (size_t i = 0; i < shadowDir.size(); ++i)
+        {
+            char c = shadowDir[i];
+            path.push_back(c);
+            if ((c == '/' || c == '\\') && path.size() > 1)
+            {
+                SYS_CreateDirectory(path.c_str());
+            }
+        }
+    }
+
+    // Destination DLL path (same basename inside shadow dir).
+    std::string baseName;
+    size_t slashIdx = sourceModulePath.find_last_of("/\\");
+    baseName = (slashIdx == std::string::npos) ? sourceModulePath
+                                               : sourceModulePath.substr(slashIdx + 1);
+    outShadowModulePath = shadowDir + baseName;
+
+    SYS_CopyFile(sourceModulePath.c_str(), outShadowModulePath.c_str());
+    if (!SYS_DoesFileExist(outShadowModulePath.c_str(), false))
+    {
+        outError = "Shadow-copy failed: could not write " + outShadowModulePath;
+        return false;
+    }
+
+    // PDB sidecar (Windows debug symbols). Best-effort — locked PDBs from
+    // mspdbsrv shouldn't block the load.
+    size_t dotIdx = sourceModulePath.find_last_of('.');
+    if (dotIdx != std::string::npos)
+    {
+        std::string pdbSrc = sourceModulePath.substr(0, dotIdx) + ".pdb";
+        if (SYS_DoesFileExist(pdbSrc.c_str(), false))
+        {
+            std::string pdbDst = outShadowModulePath.substr(0, outShadowModulePath.find_last_of('.')) + ".pdb";
+            SYS_CopyFile(pdbSrc.c_str(), pdbDst.c_str());
+        }
+    }
+    return true;
+}
+
+void NativeAddonManager::TryDeleteShadowDir(const std::string& dir)
+{
+    if (dir.empty()) return;
+    SYS_RemoveDirectory(dir.c_str());
+    if (DoesDirExist(dir.c_str()))
+    {
+        // mspdbsrv or AV may still hold the .pdb briefly. Queue for retry on
+        // next Tick / next launch's sweep.
+        mPendingShadowDeletes.push_back(dir);
+    }
+}
+
+void NativeAddonManager::SweepStaleShadowCopies()
+{
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty()) return;
+
+    std::string cacheRoot = projectDir + "Intermediate/PluginsCache/";
+    if (!DoesDirExist(cacheRoot.c_str())) return;
+
+    // Walk <cacheRoot>/<addonId>/<fingerprint-pid>/ and remove every leaf dir
+    // whose suffix is not our session id. Any survivor of a prior editor
+    // crash is now unlocked (its owning process is gone), so this is safe.
+    const std::string ourSuffix = "-" + mShadowSessionId;
+
+    DirEntry addonEntry;
+    SYS_OpenDirectory(cacheRoot, addonEntry);
+    while (addonEntry.mValid)
+    {
+        if (addonEntry.mFilename[0] != '.' && addonEntry.mDirectory)
+        {
+            std::string addonDir = cacheRoot + addonEntry.mFilename + "/";
+
+            DirEntry sessEntry;
+            SYS_OpenDirectory(addonDir, sessEntry);
+            while (sessEntry.mValid)
+            {
+                if (sessEntry.mFilename[0] != '.' && sessEntry.mDirectory)
+                {
+                    std::string name = sessEntry.mFilename;
+                    if (name.size() < ourSuffix.size() ||
+                        name.compare(name.size() - ourSuffix.size(), ourSuffix.size(), ourSuffix) != 0)
+                    {
+                        std::string sessPath = addonDir + name + "/";
+                        SYS_RemoveDirectory(sessPath.c_str());
+                    }
+                }
+                SYS_IterateDirectory(sessEntry);
+            }
+            SYS_CloseDirectory(sessEntry);
+        }
+        SYS_IterateDirectory(addonEntry);
+    }
+    SYS_CloseDirectory(addonEntry);
+}
+
 std::string NativeAddonManager::GetOutputPath(const std::string& addonId, const std::string& fingerprint)
 {
     auto it = mStates.find(addonId);
@@ -2720,21 +2901,76 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         return false;
     }
 
-    // Load the module
-    LogDebug("Loading native addon: %s from %s", addonId.c_str(), modulePath.c_str());
+    // Stage a per-session shadow copy so the editor's LoadLibrary lock never
+    // pins Intermediate/Plugins/. The user can wipe / rebuild that tree while
+    // the editor is running. If staging fails, fall back to direct load (old
+    // behavior) — log a warning so the regression is visible.
+    //
+    // Escape hatch: set POLYPHASE_DISABLE_ADDON_SHADOW_COPY=1 to revert to the
+    // legacy direct-load path. Use this if a poorly-cleaned-up addon hot-reload
+    // crashes due to stale Lua / callback pointers from the prior load (the
+    // shadow copy gives each load a fresh DLL base address, exposing latent
+    // dangling-pointer bugs that previously "worked by luck" when reloads
+    // landed at the same address).
+    std::string loadPath = modulePath;
+    const char* shadowEnv = std::getenv("POLYPHASE_DISABLE_ADDON_SHADOW_COPY");
+    bool shadowDisabled = (shadowEnv != nullptr && shadowEnv[0] != '\0' && shadowEnv[0] != '0');
+    if (shadowDisabled)
+    {
+        LogWarning("Addon shadow-copy disabled via POLYPHASE_DISABLE_ADDON_SHADOW_COPY; "
+                   "Intermediate/Plugins/ will be locked while the addon is loaded.");
+        state.mShadowDir.clear();
+    }
+    else
+    {
+        std::string shadowDir = GetShadowCopyDir(addonId, fingerprint);
+        std::string shadowModulePath;
+        std::string shadowErr;
+        if (StageShadowCopy(modulePath, shadowDir, shadowModulePath, shadowErr))
+        {
+            loadPath = shadowModulePath;
+            state.mShadowDir = shadowDir;
+        }
+        else
+        {
+            LogWarning("Addon shadow-copy failed (%s); loading directly. Intermediate/Plugins/ will stay locked.", shadowErr.c_str());
+            state.mShadowDir.clear();
+        }
+    }
 
-    void* handle = MOD_Load(modulePath.c_str());
+    // Load the module
+    LogDebug("Loading native addon: %s from %s", addonId.c_str(), loadPath.c_str());
+
+    void* handle = MOD_Load(loadPath.c_str());
     if (handle == nullptr)
     {
         outError = "Failed to load module: " + std::string(MOD_GetError());
+        // The shadow copy is dead weight if we couldn't load — clean it up
+        // immediately rather than leaving it for the next sweep.
+        if (!state.mShadowDir.empty())
+        {
+            TryDeleteShadowDir(state.mShadowDir);
+            state.mShadowDir.clear();
+        }
         return false;
     }
+
+    // Helper: unwind a partial load — Unload the module AND clean up the
+    // shadow-copy dir so we don't leak cache entries on early failure.
+    auto unwindLoad = [this, &state](void* h) {
+        MOD_Unload(h);
+        if (!state.mShadowDir.empty())
+        {
+            TryDeleteShadowDir(state.mShadowDir);
+            state.mShadowDir.clear();
+        }
+    };
 
     // Get entry point
     PolyphasePlugin_GetDescFunc getDesc = (PolyphasePlugin_GetDescFunc)MOD_Symbol(handle, state.mNativeMetadata.mEntrySymbol.c_str());
     if (getDesc == nullptr)
     {
-        MOD_Unload(handle);
+        unwindLoad(handle);
         outError = "Entry symbol not found: " + state.mNativeMetadata.mEntrySymbol;
         return false;
     }
@@ -2743,7 +2979,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     PolyphasePluginDesc desc = {};
     if (getDesc(&desc) != 0)
     {
-        MOD_Unload(handle);
+        unwindLoad(handle);
         outError = "Failed to get plugin descriptor";
         return false;
     }
@@ -2751,7 +2987,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     // Verify API version (accept version 1 or 2 for backward compatibility)
     if (desc.apiVersion < 1 || desc.apiVersion > OCTAVE_PLUGIN_API_VERSION)
     {
-        MOD_Unload(handle);
+        unwindLoad(handle);
         outError = "API version mismatch: plugin=" + std::to_string(desc.apiVersion) +
                    ", max supported=" + std::to_string(OCTAVE_PLUGIN_API_VERSION);
         return false;
@@ -2770,7 +3006,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         int result = desc.OnLoad(&mEngineAPI);
         if (result != 0)
         {
-            MOD_Unload(handle);
+            unwindLoad(handle);
             outError = "Plugin OnLoad failed with code " + std::to_string(result);
             return false;
         }
@@ -2808,6 +3044,33 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     state.mDescValid = true;
     state.mFingerprint = fingerprint;
 
+    // Cache module image range for FindAddonIdForFactory's reverse lookup.
+    // Mirrors StripFactoriesFromModule's GetModuleInformation / dlinfo path —
+    // we precompute it once here so per-Factory lookups in the editor's
+    // "Add Node" categorization are O(1) per module instead of O(syscall).
+    state.mModuleBase = 0;
+    state.mModuleEnd  = 0;
+#if PLATFORM_WINDOWS
+    {
+        MODULEINFO info = {};
+        if (GetModuleInformation(GetCurrentProcess(), (HMODULE)handle, &info, sizeof(info)))
+        {
+            state.mModuleBase = (uintptr_t)info.lpBaseOfDll;
+            state.mModuleEnd  = state.mModuleBase + info.SizeOfImage;
+        }
+    }
+#elif PLATFORM_LINUX
+    {
+        struct link_map* lm = nullptr;
+        if (dlinfo(handle, RTLD_DI_LINKMAP, &lm) == 0 && lm != nullptr)
+        {
+            state.mModuleBase = (uintptr_t)lm->l_addr;
+            // mModuleEnd left as 0 — Linux lookup uses dladdr().dli_fbase
+            // equality against mModuleBase rather than a range check.
+        }
+    }
+#endif
+
     LogDebug("Successfully loaded native addon: %s (v%s)", desc.pluginName, desc.pluginVersion);
 
     // Rehydrate any assets PurgeAssetsFromModule unloaded in the matching
@@ -2836,6 +3099,11 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         }
         state.mPurgedAssetUuids.clear();
     }
+
+    // Force the Scene Hierarchy "Add Node" submenu to re-discover its bucket
+    // contents next time it opens. New addon factories (and their hierarchy
+    // ownership for the "Addons / <id>" routing) won't show up otherwise.
+    InvalidateAddNodeMenuCache();
 
     return true;
 }
@@ -3250,9 +3518,25 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     MOD_Unload(state.mModuleHandle);
 
     state.mModuleHandle = nullptr;
+    state.mModuleBase = 0;
+    state.mModuleEnd  = 0;
     state.mLoadedPath.clear();
     state.mDescValid = false;
     state.mDesc = {};
+
+    // Force re-discovery of the Add-Node submenu — the addon's factories
+    // were just stripped from Node::GetFactoryList() and the addon's bucket
+    // ("Addons / <id>") needs to disappear from the menu.
+    InvalidateAddNodeMenuCache();
+
+    // Reclaim the shadow-copy now that the OS loader has released its lock.
+    // Best-effort: mspdbsrv.exe may still hold the .pdb briefly, in which case
+    // TryDeleteShadowDir queues the path for retry / next-launch sweep.
+    if (!state.mShadowDir.empty())
+    {
+        TryDeleteShadowDir(state.mShadowDir);
+        state.mShadowDir.clear();
+    }
 
     return true;
 }
@@ -4116,8 +4400,25 @@ void NativeAddonManager::ReloadAllNativeAddons()
     // BuildNativeAddon, which itself runs a thorough pre-build sweep
     // (TryClearAddonIntermediates) that surfaces any locked files via the
     // build-blocked modal — handles the LNK1201 / mspdbsrv-locked-pdb case.
-    for (const std::string& addonId : toLoad)
+    //
+    // Per-addon EditorProgress::Step calls below surface each addon's name +
+    // i/N progress in the existing "Opening Project" / "Loading native addons"
+    // modal. Only fires when a progress modal is already active (EditorProgress
+    // checks IsActive() internally); a no-progress caller is unaffected.
+    const int total = (int)toLoad.size();
+    for (int i = 0; i < total; ++i)
     {
+        const std::string& addonId = toLoad[i];
+
+        if (EditorProgress::IsActive())
+        {
+            std::string label = "Loading addon: " + addonId;
+            // Step uses (done, total) so the bar moves from 0 to 1 across N
+            // addons. Pass i (work completed so far) so the first addon shows
+            // 0/N and the bar fills as each finishes.
+            EditorProgress::Step(label.c_str(), i, total);
+        }
+
         bool needsBuild = NeedsBuild(addonId);
 
         if (needsBuild)
@@ -4149,6 +4450,13 @@ void NativeAddonManager::ReloadAllNativeAddons()
         }
     }
 
+    // Final tick of the progress bar so the modal shows N/N before the caller's
+    // next status update overwrites it.
+    if (EditorProgress::IsActive() && total > 0)
+    {
+        EditorProgress::Step("Finishing addon load...", total, total);
+    }
+
     // Call OnEditorPreInit on newly loaded plugins
     CallOnEditorPreInit();
 
@@ -4157,6 +4465,23 @@ void NativeAddonManager::ReloadAllNativeAddons()
 
 void NativeAddonManager::TickAllPlugins(float deltaTime)
 {
+    // Drain any shadow-copy directories that were locked at unload time
+    // (typically mspdbsrv.exe holding the .pdb for a moment after FreeLibrary).
+    // Survivors get re-queued; the next sweep on launch sees them as stale.
+    if (!mPendingShadowDeletes.empty())
+    {
+        std::vector<std::string> stillStuck;
+        for (const std::string& dir : mPendingShadowDeletes)
+        {
+            SYS_RemoveDirectory(dir.c_str());
+            if (DoesDirExist(dir.c_str()))
+            {
+                stillStuck.push_back(dir);
+            }
+        }
+        mPendingShadowDeletes.swap(stillStuck);
+    }
+
     for (auto& pair : mStates)
     {
         NativeAddonState& state = pair.second;
@@ -4227,6 +4552,45 @@ bool NativeAddonManager::IsLoaded(const std::string& addonId) const
 {
     auto it = mStates.find(addonId);
     return (it != mStates.end()) && (it->second.mModuleHandle != nullptr);
+}
+
+const char* NativeAddonManager::FindAddonIdForFactory(const void* factoryPtr) const
+{
+    if (factoryPtr == nullptr) return nullptr;
+
+#if PLATFORM_LINUX
+    // Resolve the factory's owning .so base via dladdr once, then match by
+    // base-address equality (cheaper + correct against multi-segment images).
+    Dl_info info = {};
+    if (dladdr(const_cast<void*>(factoryPtr), &info) == 0 || info.dli_fbase == nullptr)
+    {
+        return nullptr;
+    }
+    const uintptr_t fbase = (uintptr_t)info.dli_fbase;
+    for (const auto& pair : mStates)
+    {
+        if (pair.second.mModuleHandle != nullptr && pair.second.mModuleBase == fbase)
+        {
+            return pair.first.c_str();
+        }
+    }
+    return nullptr;
+#else
+    // Windows: simple [base, end) range check against each loaded addon's
+    // cached image range. Mirrors StripFactoriesFromModule's matching rule.
+    const uintptr_t p = (uintptr_t)factoryPtr;
+    for (const auto& pair : mStates)
+    {
+        const NativeAddonState& state = pair.second;
+        if (state.mModuleHandle != nullptr &&
+            state.mModuleBase != 0 && state.mModuleEnd != 0 &&
+            p >= state.mModuleBase && p < state.mModuleEnd)
+        {
+            return pair.first.c_str();
+        }
+    }
+    return nullptr;
+#endif
 }
 
 std::string NativeAddonManager::GetAddonSourcePath(const std::string& addonId) const

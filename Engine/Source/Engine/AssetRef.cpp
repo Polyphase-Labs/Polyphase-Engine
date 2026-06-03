@@ -52,8 +52,11 @@ static MutexObject* GetLiveRefMutex()
 
 static std::unordered_set<AssetRef*>& GetLiveRefMap()
 {
-    static std::unordered_set<AssetRef*> sLiveAssetRefs;
-    return sLiveAssetRefs;
+    // Leaked-on-purpose: avoids an atexit destructor that races other shutdown
+    // paths (addon FreeLibrary, EditorState teardown) and crashed in operator
+    // delete while freeing the set's internal nodes.
+    static std::unordered_set<AssetRef*>* sLiveAssetRefs = new std::unordered_set<AssetRef*>();
+    return *sLiveAssetRefs;
 }
 
 void AssetRef::ReplaceReferencesToAsset(Asset* oldAsset, Asset* newAsset)

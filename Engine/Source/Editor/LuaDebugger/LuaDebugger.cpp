@@ -810,7 +810,6 @@ void LuaDebugger::OnHook(lua_State* L, lua_Debug* ar)
     if (!mFirstHookLogged)
     {
         mFirstHookLogged = true;
-        LogDebug("LuaDebugger: First line-hook fire (hook is live).");
     }
 
     // Fast path: nothing armed -> bail without touching getinfo.

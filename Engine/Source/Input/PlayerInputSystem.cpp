@@ -588,43 +588,23 @@ static const char* GetBindingCodeName(InputSourceType type, int32_t code)
 
 static void DumpLoadedActions(const std::vector<InputAction>& actions)
 {
-    LogDebug("PlayerInput: ========== ACTION DUMP (%d actions) ==========", (int)actions.size());
 
     for (size_t i = 0; i < actions.size(); ++i)
     {
         const InputAction& action = actions[i];
-        LogDebug("PlayerInput: [%d] Category=\"%s\" Name=\"%s\" Trigger=%s (hold=%.2fs, multiCount=%d, multiWindow=%.2fs)",
-            (int)i,
-            action.category.c_str(),
-            action.name.c_str(),
-            TriggerModeToString(action.trigger.mode),
-            action.trigger.holdDuration,
-            action.trigger.multiPressCount,
-            action.trigger.multiPressWindow);
+
 
         if (action.bindings.empty())
         {
-            LogDebug("PlayerInput:   (no bindings)");
         }
 
         for (size_t b = 0; b < action.bindings.size(); ++b)
         {
             const InputActionBinding& binding = action.bindings[b];
-            LogDebug("PlayerInput:   Binding[%d]: %s code=%d(%s) dir=%s thresh=%.2f pad=%d%s%s%s",
-                (int)b,
-                SourceTypeToString(binding.sourceType),
-                binding.code,
-                GetBindingCodeName(binding.sourceType, binding.code),
-                AxisDirToString(binding.axisDirection),
-                binding.axisThreshold,
-                binding.gamepadIndex,
-                binding.requireCtrl ? " +Ctrl" : "",
-                binding.requireShift ? " +Shift" : "",
-                binding.requireAlt ? " +Alt" : "");
+            
         }
     }
 
-    LogDebug("PlayerInput: ========== END ACTION DUMP ==========");
 }
 
 void PlayerInputSystem::SetActions(const std::vector<InputAction>& actions)
@@ -656,7 +636,6 @@ void PlayerInputSystem::SaveProjectActions()
         static_cast<InputActionsAsset*>(cached)->mActions = mActions;
     }
 
-    LogDebug("PlayerInput: Saved %d actions to %s", (int)mActions.size(), path.c_str());
 }
 
 void PlayerInputSystem::LoadProjectActions()
@@ -668,7 +647,6 @@ void PlayerInputSystem::LoadProjectActions()
         return;
     }
 
-    LogDebug("PlayerInput: Loading actions from project dir: %s", projectDir.c_str());
 
     std::string octPath = projectDir + "Assets/InputActions.oct";
 
@@ -695,7 +673,6 @@ void PlayerInputSystem::LoadProjectActions()
             asset.LoadStream(stream, GetPlatform());
             mActions = asset.mActions;
             RebuildLookup();
-            LogDebug("PlayerInput: Loaded %d actions from %s", (int)mActions.size(), octPath.c_str());
             DumpLoadedActions(mActions);
             return;
         }
@@ -713,13 +690,11 @@ void PlayerInputSystem::LoadProjectActions()
 
     if (jsonExists && LoadFromJsonFile(jsonPath))
     {
-        LogDebug("PlayerInput: Migrated %d actions from JSON to .oct", (int)mActions.size());
         DumpLoadedActions(mActions);
         SaveProjectActions();
         return;
     }
 
-    LogDebug("PlayerInput: No InputActions defined for project");
 }
 
 bool PlayerInputSystem::LoadFromJsonFile(const std::string& filePath)
@@ -819,6 +794,6 @@ bool PlayerInputSystem::LoadFromJsonFile(const std::string& filePath)
     }
 
     RebuildLookup();
-    LogDebug("Loaded %d input actions from JSON %s", (int)mActions.size(), filePath.c_str());
+    //LogDebug("Loaded %d input actions from JSON %s", (int)mActions.size(), filePath.c_str());
     return true;
 }
