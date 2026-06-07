@@ -164,11 +164,15 @@ Sig: `audible = Audio3D:IsAudible()`
 ### PlayAudio
 Play this node's assigned sound wave. If this node is already playing a sound wave, this function won't do anything. You can use ResetAudio() if you want to replay from the beginning of the sound wave. An Audio3D node can only play one sound wave at a time.
 
+Alias: `Play`
+
 Sig: `Audio3D:PlayAudio()`
 
 ---
 ### PauseAudio
 Pause the sound wave that is being played. Calling PlayAudio() later will pick up where it left off.
+
+Alias: `Pause`
 
 Sig: `Audio3D:PauseAudio()`
 
@@ -176,7 +180,27 @@ Sig: `Audio3D:PauseAudio()`
 ### StopAudio
 Stop the sound wave that is being played. This will also reset the current play time back to the beginning of the sound wave. Use PauseAudio() if you want to pick up where it left off.
 
+Alias: `Stop`
+
 Sig: `Audio3D:StopAudio()`
+
+---
+### Play
+Alias for `PlayAudio()` — shorter spelling for the transport play call.
+
+Sig: `Audio3D:Play()`
+
+---
+### Pause
+Alias for `PauseAudio()` — shorter spelling for the transport pause call.
+
+Sig: `Audio3D:Pause()`
+
+---
+### Stop
+Alias for `StopAudio()` — shorter spelling for the transport stop call.
+
+Sig: `Audio3D:Stop()`
 
 ---
 ### ResetAudio

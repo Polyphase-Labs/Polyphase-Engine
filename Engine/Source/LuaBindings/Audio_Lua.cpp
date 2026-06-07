@@ -16,6 +16,26 @@
 
 #if LUA_ENABLED
 
+int Audio_Lua::Play(lua_State* L)
+{
+	return PlaySound2D(L);
+}
+
+int Audio_Lua::Pause(lua_State* L)
+{
+    SoundWave* soundWave = CHECK_SOUND_WAVE(L, 1);
+    if (soundWave != nullptr)
+    {
+        AudioManager::UpdateSound(soundWave, 0.0f, 1.0f, true);
+    }
+    return 0;
+}
+
+int Audio_Lua::Stop(lua_State* L)
+{
+	return StopSounds(L);
+}
+
 int Audio_Lua::PlaySound2D(lua_State* L)
 {
     SoundWave* soundWave = CHECK_SOUND_WAVE(L, 1);
@@ -318,6 +338,10 @@ void Audio_Lua::Bind()
 
     lua_newtable(L);
     int tableIdx = lua_gettop(L);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, Play);
+    REGISTER_TABLE_FUNC(L, tableIdx, Pause);
+    REGISTER_TABLE_FUNC(L, tableIdx, Stop);
 
     REGISTER_TABLE_FUNC(L, tableIdx, PlaySound2D);
 

@@ -355,6 +355,23 @@ void Audio3D::PlayAudio()
     mPlaying = true;
 }
 
+
+void Audio3D::Play()
+{
+    PlayAudio();
+}
+
+void Audio3D::Pause()
+{
+    PauseAudio();
+}
+
+void Audio3D::Stop()
+{
+    PauseAudio();
+	ResetAudio();
+}
+
 void Audio3D::PauseAudio()
 {
     mPlaying = false;

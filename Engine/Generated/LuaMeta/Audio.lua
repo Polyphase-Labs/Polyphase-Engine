@@ -3,6 +3,13 @@
 ---@class AudioModule
 Audio = {}
 
+function Audio.Play() end
+
+---@param soundWave SoundWave
+function Audio.Pause(soundWave) end
+
+function Audio.Stop() end
+
 ---@param soundWave SoundWave
 ---@param volume? number
 ---@param pitch? number

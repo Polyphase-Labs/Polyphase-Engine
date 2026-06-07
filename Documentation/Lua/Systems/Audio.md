@@ -3,6 +3,29 @@
 System to play and manage sounds.
 
 ---
+### Play
+Convenience alias for `PlaySound2D` — plays a sound with no positional data. Accepts the same arguments as `PlaySound2D`.
+
+Sig: `Audio.Play(sound, volume=1, pitch=1, startTime=0, loop=false, priority=0)`
+ - Arg: `SoundWave sound` Sound wave to play
+ - Arg: `number volume` Volume multiplier
+ - Arg: `number pitch` Pitch multiplier
+ - Arg: `number startTime` Start time offset
+ - Arg: `boolean loop` Loop sound
+ - Arg: `integer priority` Sound priority
+---
+### Pause
+Mute every currently-playing voice of `sound` by driving its volume to `0` (pitch is held at `1`, priority is bumped to `1`). The voices keep ticking — this is a volume duck, not a transport pause. To resume audibility, call `Audio.UpdateSound(sound, volume, pitch, priority)` with the desired volume. For a true transport pause that preserves cursor position, use an `Audio3D` node and call `Audio3D:PauseAudio()` instead.
+
+Sig: `Audio.Pause(sound)`
+ - Arg: `SoundWave sound` Sound wave to mute
+---
+### Stop
+Alias for `StopSounds` — stops every currently-playing voice of `sound`.
+
+Sig: `Audio.Stop(sound)`
+ - Arg: `SoundWave sound` Sound wave to stop
+---
 ### PlaySound2D
 Play a sound with no positional data.
 TODO: Rename to PlaySound() if we add 2D support.

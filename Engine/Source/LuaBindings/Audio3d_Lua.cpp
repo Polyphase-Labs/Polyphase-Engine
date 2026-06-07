@@ -256,6 +256,34 @@ int Audio3D_Lua::IsAudible(lua_State* L)
     return 1;
 }
 
+int Audio3D_Lua::Play(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+
+    comp->PlayAudio();
+
+    return 0;
+}
+
+int Audio3D_Lua::Pause(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+
+    comp->PauseAudio();
+
+    return 0;
+}
+
+int Audio3D_Lua::Stop(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+
+    comp->StopAudio();
+
+    return 0;
+}
+
+
 int Audio3D_Lua::PlayAudio(lua_State* L)
 {
     Audio3D* comp = CHECK_AUDIO_3D(L, 1);
@@ -424,6 +452,12 @@ void Audio3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, PauseAudio);
 
     REGISTER_TABLE_FUNC(L, mtIndex, StopAudio);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, Play);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, Pause);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, Stop);
 
     REGISTER_TABLE_FUNC(L, mtIndex, ResetAudio);
 

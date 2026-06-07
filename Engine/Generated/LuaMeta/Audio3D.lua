@@ -84,6 +84,12 @@ function Audio3D:PauseAudio() end
 
 function Audio3D:StopAudio() end
 
+function Audio3D:Play() end
+
+function Audio3D:Pause() end
+
+function Audio3D:Stop() end
+
 function Audio3D:ResetAudio() end
 
 ---@param seconds number

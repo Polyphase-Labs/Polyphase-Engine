@@ -42,6 +42,9 @@ struct Audio3D_Lua
     static int GetPlayTimeNormalized(lua_State* L);
     static int IsPlaying(lua_State* L);
     static int IsAudible(lua_State* L);
+    static int Play(lua_State* L);
+    static int Pause(lua_State* L);
+    static int Stop(lua_State* L);
     static int PlayAudio(lua_State* L);
     static int PauseAudio(lua_State* L);
     static int StopAudio(lua_State* L);

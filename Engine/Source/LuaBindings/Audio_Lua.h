@@ -9,6 +9,13 @@
 
 struct Audio_Lua
 {
+
+    // Uses 2D for playback. 
+    static int Play(lua_State* L);
+    static int Pause(lua_State* L);
+    static int Stop(lua_State* L);
+
+
     static int PlaySound2D(lua_State* L);
     static int PlaySound3D(lua_State* L);
     static int StopSounds(lua_State* L);

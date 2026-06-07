@@ -65,6 +65,11 @@ public:
     bool IsPlaying() const;
     bool IsAudible() const;
 
+    void Play();
+    void Stop();
+    void Pause();
+
+	// Old methods kept for script compatibility; these do the same thing as the above Play/Pause/Stop.
     void PlayAudio();
     void PauseAudio();
     void StopAudio();
