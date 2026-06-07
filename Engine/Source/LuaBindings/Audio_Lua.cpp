@@ -95,6 +95,43 @@ int Audio_Lua::PlaySound3D(lua_State* L)
     return 0;
 }
 
+int Audio_Lua::PlaySoundAtPosition(lua_State* L)
+{
+    SoundWave* soundWave = CHECK_SOUND_WAVE(L, 1);
+    glm::vec3 pos = CHECK_VECTOR(L, 2);
+    float innerRadius = CHECK_NUMBER(L, 3);
+    float outerRadius = CHECK_NUMBER(L, 4);
+    AttenuationFunc attenFunc = AttenuationFunc::Linear;
+    float volume = 1.0f;
+    float pitch = 1.0f;
+    float startTime = 0.0f;
+    bool loop = false;
+    int32_t priority = 0;
+    if (!lua_isnone(L, 5)) { attenFunc = (AttenuationFunc) CHECK_INTEGER(L, 5); }
+    if (!lua_isnone(L, 6)) { volume = CHECK_NUMBER(L, 6); }
+    if (!lua_isnone(L, 7)) { pitch = CHECK_NUMBER(L, 7); }
+    if (!lua_isnone(L, 8)) { startTime = CHECK_NUMBER(L, 8); }
+    if (!lua_isnone(L, 9)) { loop = CHECK_BOOLEAN(L, 9); }
+    if (!lua_isnone(L, 10)) { priority = (int32_t)CHECK_INTEGER(L, 10); }
+
+    if (soundWave != nullptr)
+    {
+        AudioManager::PlaySoundAtPosition(
+            soundWave,
+            pos,
+            innerRadius,
+            outerRadius,
+            attenFunc,
+            volume,
+            pitch,
+            startTime,
+            loop,
+            priority);
+    }
+
+    return 0;
+}
+
 int Audio_Lua::StopSounds(lua_State* L)
 {
     SoundWave* soundWave = CHECK_SOUND_WAVE(L, 1);
@@ -346,6 +383,7 @@ void Audio_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, PlaySound2D);
 
     REGISTER_TABLE_FUNC(L, tableIdx, PlaySound3D);
+    REGISTER_TABLE_FUNC(L, tableIdx, PlaySoundAtPosition);
 
     REGISTER_TABLE_FUNC(L, tableIdx, StopSounds);
     REGISTER_TABLE_FUNC_EX(L, tableIdx, StopSounds, "StopSound");

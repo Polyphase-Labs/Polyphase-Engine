@@ -75,6 +75,14 @@ public:
     void StopAudio();
     void ResetAudio();
 
+
+    void PlayAudio(SoundWave* soundWave, bool loop);
+
+    // One-shot 3D voice at this node's world position, using its inner/outer radius
+    // and attenuation curve. Pass volume < 0 / pitch < 0 to inherit this node's
+    // current values (default). Does not loop.
+    void PlayOneShot(SoundWave* soundWave, float volume = -1.0f, float pitch = -1.0f, int priority = 0);
+
     // Seek playback to an absolute time in seconds. If a voice is currently bound it is
     // released; the next AudioManager tick re-spawns it at the new cursor (or stays silent
     // until PlayAudio() if the node is paused). Cursor wraps via mod against duration.

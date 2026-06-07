@@ -35,6 +35,18 @@ public:
         bool loop = false,
         int32_t priority = 0);
 
+    static void PlaySoundAtPosition(
+        SoundWave* soundWave,
+        glm::vec3 worldPosition,
+        float innerRadius,
+        float outerRadius,
+        AttenuationFunc attenFunc = AttenuationFunc::Linear,
+        float volumeMult = 1.0f,
+        float pitchMult = 1.0f,
+        float startTime = 0.0f,
+        bool loop = false,
+        int32_t priority = 0);
+
     static void UpdateSound(
         SoundWave* soundWave,
         float volume,

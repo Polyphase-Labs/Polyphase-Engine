@@ -78,7 +78,9 @@ function Audio3D:IsPlaying() end
 ---@return boolean
 function Audio3D:IsAudible() end
 
-function Audio3D:PlayAudio() end
+---@param wave SoundWave
+---@param loop? boolean
+function Audio3D:PlayAudio(wave, loop) end
 
 function Audio3D:PauseAudio() end
 
@@ -91,6 +93,12 @@ function Audio3D:Pause() end
 function Audio3D:Stop() end
 
 function Audio3D:ResetAudio() end
+
+---@param wave SoundWave
+---@param volume number
+---@param pitch number
+---@param priority integer
+function Audio3D:PlayOneShot(wave, volume, pitch, priority) end
 
 ---@param seconds number
 function Audio3D:Seek(seconds) end

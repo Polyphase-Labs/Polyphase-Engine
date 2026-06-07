@@ -352,12 +352,18 @@ bool Audio3D::IsAudible() const
 
 void Audio3D::PlayAudio()
 {
+    SoundWave* wave = GetSoundWave();
+    if (wave != nullptr && mPlayTime >= wave->GetDuration())
+    {
+        mPlayTime = 0.0f;
+    }
     mPlaying = true;
 }
 
 
 void Audio3D::Play()
 {
+
     PlayAudio();
 }
 
@@ -369,7 +375,7 @@ void Audio3D::Pause()
 void Audio3D::Stop()
 {
     PauseAudio();
-	ResetAudio();
+    ResetAudio();
 }
 
 void Audio3D::PauseAudio()
@@ -383,6 +389,37 @@ void Audio3D::ResetAudio()
     AudioManager::StopComponent(this);
     mPlayTime = 0.0f;
 }
+
+void Audio3D::PlayAudio(SoundWave* soundWave, bool loop)
+{
+    SetSoundWave(soundWave);
+    SetLoop(loop);
+    Play();
+}
+
+void Audio3D::PlayOneShot(SoundWave* soundWave, float volume, float pitch, int priority)
+{
+    if (volume < 0.0f)
+    {
+        volume = mVolume;
+    }
+    if (pitch < 0.0f)
+    {
+        pitch = mPitch;
+    }
+    AudioManager::PlaySound3D(
+        soundWave,
+        GetWorldPosition(),
+        GetInnerRadius(),
+        GetOuterRadius(),
+        GetAttenuationFunc(),
+        volume,
+        pitch,
+        0.0f,   // startTime
+        false,  // loop — one-shots never loop
+        priority);
+}
+
 
 void Audio3D::Seek(float seconds)
 {

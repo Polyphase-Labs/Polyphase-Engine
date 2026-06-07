@@ -885,9 +885,9 @@ bool AddonCreator::WritePackageJson(const std::string& path, const PackageJsonDa
 void AddonCreator::OpenInExternalEditor(const std::string& path)
 {
 #if PLATFORM_WINDOWS
-    SYS_Exec(("start \"\" \"" + path + "\"").c_str());
+    SYS_ExecDetached(("start \"\" \"" + path + "\"").c_str());
 #elif PLATFORM_LINUX
-    SYS_Exec(("xdg-open \"" + path + "\" &").c_str());
+    SYS_ExecDetached(("xdg-open \"" + path + "\"").c_str());
 #endif
 }
 

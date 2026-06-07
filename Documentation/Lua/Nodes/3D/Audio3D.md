@@ -162,11 +162,18 @@ Sig: `audible = Audio3D:IsAudible()`
  - Ret: `boolean audible` True if receiver can hear the audio
 ---
 ### PlayAudio
-Play this node's assigned sound wave. If this node is already playing a sound wave, this function won't do anything. You can use ResetAudio() if you want to replay from the beginning of the sound wave. An Audio3D node can only play one sound wave at a time.
+Play this node's assigned sound wave. An `Audio3D` node can only play one sound wave at a time. If the cursor is already past the end of the wave (e.g. after a natural finish), it rewinds to the beginning automatically.
 
-Alias: `Play`
+Two forms:
+- `Audio3D:PlayAudio()` — resume / start playback on the currently-assigned wave.
+- `Audio3D:PlayAudio(wave, loop)` — assign `wave`, set the loop flag, then play. Equivalent to `SetSoundWave(wave)` → `SetLoop(loop)` → `Play()` in one call.
+
+Alias: `Play` (no-arg form only).
 
 Sig: `Audio3D:PlayAudio()`
+Sig: `Audio3D:PlayAudio(soundWave, loop)`
+ - Arg: `SoundWave soundWave` Wave to assign
+ - Arg: `boolean loop` Whether the assigned wave should loop
 
 ---
 ### PauseAudio
@@ -207,6 +214,18 @@ Sig: `Audio3D:Stop()`
 Reset the play position back to the beginning of the sound wave. This works whether the sound wave is playing or not.
 
 Sig: `Audio3D:ResetAudio()`
+
+---
+### PlayOneShot
+Fire a transient 3D voice at this node's world position using its inner radius, outer radius, and attenuation curve. The node's own playback (if any) is untouched — this allocates a fresh voice that does not loop and decays on its own. Use it for footstep/impact sounds emitted from a positional node without disturbing its main loop.
+
+Volume and pitch default to this node's current values (`GetVolume()` / `GetPitch()`). Pass an explicit number to override; pass a negative value to force-inherit.
+
+Sig: `Audio3D:PlayOneShot(soundWave, volume=current, pitch=current, priority=0)`
+ - Arg: `SoundWave soundWave` Wave to play
+ - Arg: `number volume` Volume multiplier (omit or pass `< 0` to inherit the node's `GetVolume()`)
+ - Arg: `number pitch` Pitch multiplier (omit or pass `< 0` to inherit the node's `GetPitch()`)
+ - Arg: `integer priority` Sound priority
 
 ---
 ### Seek

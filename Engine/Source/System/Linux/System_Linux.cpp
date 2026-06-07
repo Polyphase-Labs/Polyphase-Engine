@@ -992,6 +992,11 @@ void SYS_Exec(const char* cmd, std::string* output)
     ExecCommon(cmd, output);
 }
 
+void SYS_ExecDetached(const char* cmd)
+{
+    ExecCommonDetached(cmd);
+}
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment)
 {

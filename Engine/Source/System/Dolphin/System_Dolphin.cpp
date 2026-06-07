@@ -434,6 +434,11 @@ void SYS_Exec(const char* cmd, std::string* output)
 
 }
 
+void SYS_ExecDetached(const char* cmd)
+{
+    (void)cmd;
+}
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment)
 {

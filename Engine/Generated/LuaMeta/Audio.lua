@@ -31,6 +31,18 @@ function Audio.PlaySound2D(soundWave, volume, pitch, startTime, loop, priority) 
 function Audio.PlaySound3D(soundWave, pos, innerRadius, outerRadius, attenFunc, volume, pitch, startTime, loop, priority) end
 
 ---@param soundWave SoundWave
+---@param pos Vector
+---@param innerRadius number
+---@param outerRadius number
+---@param attenFunc? integer
+---@param volume? number
+---@param pitch? number
+---@param startTime? number
+---@param loop? boolean
+---@param priority? integer
+function Audio.PlaySoundAtPosition(soundWave, pos, innerRadius, outerRadius, attenFunc, volume, pitch, startTime, loop, priority) end
+
+---@param soundWave SoundWave
 function Audio.StopSounds(soundWave) end
 
 ---@param soundWave SoundWave

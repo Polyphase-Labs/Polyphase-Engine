@@ -65,9 +65,9 @@ static int32_t sDevModeClicks = 0;
 static void OpenUrl(const std::string& url)
 {
 #if PLATFORM_WINDOWS
-    SYS_Exec(("start " + url).c_str());
+    SYS_ExecDetached(("start \"\" " + url).c_str());
 #else
-    SYS_Exec(("xdg-open " + url + " &").c_str());
+    SYS_ExecDetached(("xdg-open " + url).c_str());
 #endif
 }
 
@@ -789,9 +789,9 @@ static void DrawToolsMenu()
                 while (!absPath.empty() && (absPath.back() == '/' || absPath.back() == '\\'))
                     absPath.pop_back();
 #if PLATFORM_WINDOWS
-                SYS_Exec(("code \"" + absPath + "\"").c_str());
+                SYS_ExecDetached(("code \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
-                SYS_Exec(("code \"" + absPath + "\" &").c_str());
+                SYS_ExecDetached(("code \"" + absPath + "\"").c_str());
 #endif
             };
 
@@ -822,7 +822,7 @@ static void DrawToolsMenu()
                     while (!absPath.empty() && (absPath.back() == '/' || absPath.back() == '\\'))
                         absPath.pop_back();
                     std::string cmd = editors->BuildLuaOpenCommand(absPath);
-                    SYS_Exec(cmd.c_str());
+                    SYS_ExecDetached(cmd.c_str());
                 }
             };
 
@@ -851,9 +851,9 @@ static void DrawToolsMenu()
                 absPath.pop_back();
 #if PLATFORM_WINDOWS
             for (char& c : absPath) { if (c == '/') c = '\\'; }
-            SYS_Exec(("explorer \"" + absPath + "\"").c_str());
+            SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
-            SYS_Exec(("xdg-open \"" + absPath + "\" &").c_str());
+            SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
 #endif
         };
 

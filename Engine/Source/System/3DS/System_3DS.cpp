@@ -421,6 +421,12 @@ void SYS_Exec(const char* cmd, std::string* output)
 {
 
 }
+
+void SYS_ExecDetached(const char* cmd)
+{
+    (void)cmd;
+}
+
 void SYS_CopyDirectory(const char* sourceDir, const char* destDir)
 {
 

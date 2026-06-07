@@ -288,7 +288,19 @@ int Audio3D_Lua::PlayAudio(lua_State* L)
 {
     Audio3D* comp = CHECK_AUDIO_3D(L, 1);
 
-    comp->PlayAudio();
+    // Polymorphic: Audio3D:PlayAudio()  -> resume / start currently-bound wave.
+    //              Audio3D:PlayAudio(wave, loop) -> set wave, set loop, play.
+    if (!lua_isnoneornil(L, 2))
+    {
+        SoundWave* wave = CHECK_SOUND_WAVE(L, 2);
+        bool loop = false;
+        if (!lua_isnone(L, 3)) { loop = CHECK_BOOLEAN(L, 3); }
+        comp->PlayAudio(wave, loop);
+    }
+    else
+    {
+        comp->PlayAudio();
+    }
 
     return 0;
 }
@@ -316,6 +328,29 @@ int Audio3D_Lua::ResetAudio(lua_State* L)
     Audio3D* comp = CHECK_AUDIO_3D(L, 1);
 
     comp->ResetAudio();
+
+    return 0;
+}
+
+int Audio3D_Lua::PlayOneShot(lua_State* L)
+{
+    Audio3D* comp = CHECK_AUDIO_3D(L, 1);
+    SoundWave* wave = CHECK_SOUND_WAVE(L, 2);
+
+    // Sentinel < 0 means "inherit this node's current volume/pitch" — matches
+    // the cpp default. Lua callers can also pass an explicit negative if they
+    // really want that, but the natural way to inherit is to omit the arg.
+    float volume = -1.0f;
+    float pitch = -1.0f;
+    int32_t priority = 0;
+    if (!lua_isnoneornil(L, 3)) { volume = CHECK_NUMBER(L, 3); }
+    if (!lua_isnoneornil(L, 4)) { pitch = CHECK_NUMBER(L, 4); }
+    if (!lua_isnoneornil(L, 5)) { priority = (int32_t)CHECK_INTEGER(L, 5); }
+
+    if (wave != nullptr)
+    {
+        comp->PlayOneShot(wave, volume, pitch, (int)priority);
+    }
 
     return 0;
 }
@@ -460,6 +495,8 @@ void Audio3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, Stop);
 
     REGISTER_TABLE_FUNC(L, mtIndex, ResetAudio);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, PlayOneShot);
 
     REGISTER_TABLE_FUNC(L, mtIndex, Seek);
 

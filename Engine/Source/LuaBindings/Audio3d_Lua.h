@@ -49,6 +49,7 @@ struct Audio3D_Lua
     static int PauseAudio(lua_State* L);
     static int StopAudio(lua_State* L);
     static int ResetAudio(lua_State* L);
+    static int PlayOneShot(lua_State* L);
     static int Seek(lua_State* L);
     static int SeekNormalized(lua_State* L);
 

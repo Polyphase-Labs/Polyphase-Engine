@@ -1034,6 +1034,7 @@
     <ClCompile Include="Source\Editor\TerrainSculpt\TerrainSculptManager.cpp" />
     <ClCompile Include="Source\Editor\TilePaint\TilePaintManager.cpp" />
     <ClCompile Include="Source\Editor\TilePaint\TilePicker.cpp" />
+    <ClCompile Include="Source\Editor\ImagePlane\ImagePlaneBuilder.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\ThemeEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\CssGenerator.cpp" />
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp" />
@@ -1564,6 +1565,7 @@
     <ClInclude Include="Source\Editor\TerrainSculpt\TerrainSculptManager.h" />
     <ClInclude Include="Source\Editor\TilePaint\TilePaintManager.h" />
     <ClInclude Include="Source\Editor\TilePaint\TilePicker.h" />
+    <ClInclude Include="Source\Editor\ImagePlane\ImagePlaneBuilder.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\ThemeEditorWindow.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />

@@ -40,11 +40,27 @@ Sig: `Audio.PlaySound2D(sound, volume=1, pitch=1, startTime=0, loop=false, prior
 ---
 ### PlaySound3D
 Play a sound at a position in 3D space.
-TODO: Rename to PlaySoundAtPosition() to handle both 2D and 3D.
+
+Alias: `PlaySoundAtPosition`
 
 Sig: `Audio.PlaySound3D(sound, position, innerRadius, outerRadius, attenuationFunc=AttenuationFunc.Linear, volume=1, pitch=1, startTime=0, loop=false, priority=0)`
  - Arg: `SoundWave sound` Sound wave to play
  - Arg: `Vector position` Position of sound
+ - Arg: `number innerRadius` Inner radius
+ - Arg: `number outerRadius` Outer radius
+ - Arg: `AttenuationFunc(integer) attenuationFunc` Attenuation function
+ - Arg: `number volume` Volume multiplier
+ - Arg: `number pitch` Pitch multiplier
+ - Arg: `number startTime` Start time offset
+ - Arg: `boolean loop` Loop sound
+ - Arg: `integer priority` Sound priority
+---
+### PlaySoundAtPosition
+Play a sound at a world-space position. Identical to `PlaySound3D` — preferred name going forward; `PlaySound3D` stays for compatibility.
+
+Sig: `Audio.PlaySoundAtPosition(sound, position, innerRadius, outerRadius, attenuationFunc=AttenuationFunc.Linear, volume=1, pitch=1, startTime=0, loop=false, priority=0)`
+ - Arg: `SoundWave sound` Sound wave to play
+ - Arg: `Vector position` World-space position of sound
  - Arg: `number innerRadius` Inner radius
  - Arg: `number outerRadius` Outer radius
  - Arg: `AttenuationFunc(integer) attenuationFunc` Attenuation function

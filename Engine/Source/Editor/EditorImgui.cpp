@@ -112,6 +112,7 @@
 #include "TerrainSculpt/TerrainSculptManager.h"
 #include "TilePaint/TilePaintManager.h"
 #include "TilePaint/TilePicker.h"
+#include "ImagePlane/ImagePlaneBuilder.h"
 #include "Preferences/General/GeneralModule.h"
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/External/LaunchersModule.h"
@@ -2196,6 +2197,251 @@ static void ExportWidgetTreeToXML(Widget* widget, std::string& outXml, int inden
 
         outXml += "</" + std::string(element) + ">\n";
     }
+}
+
+// Image Plane Mesh modal state. Shared between the asset-browser context
+// menu (Create + Edit paths) and the inspector panel button, so it lives at
+// file scope. The modal is drawn once per frame from EditorImguiDraw() so
+// any entry point can open it.
+static ImagePlaneParams sImagePlaneParams;
+static AssetStub* sImagePlaneSourceTextureStub = nullptr;      // Create mode source
+static AssetStub* sImagePlaneEditTargetMeshStub = nullptr;     // non-null = Edit mode
+static AssetStub* sImagePlaneEditTargetMatStub = nullptr;
+static AssetDir* sImagePlaneTargetDir = nullptr;
+static char sImagePlaneMeshNameBuf[kPopupInputBufferSize] = {};
+static char sImagePlaneMatNameBuf[kPopupInputBufferSize] = {};
+static bool sImagePlaneOpenRequested = false;
+
+static std::string MakeImagePlaneDefaultName(const std::string& texName, const char* prefix)
+{
+    std::string base = texName;
+    if (base.length() >= 2 && base[0] == 'T' && base[1] == '_')
+    {
+        base = base.substr(2);
+    }
+    return std::string(prefix) + base;
+}
+
+static void OpenImagePlaneModalForCreate(AssetStub* textureStub, AssetDir* targetDir)
+{
+    if (textureStub == nullptr || textureStub->mAsset == nullptr)
+    {
+        if (textureStub != nullptr)
+            AssetManager::Get()->LoadAsset(*textureStub);
+    }
+    if (textureStub == nullptr || textureStub->mAsset == nullptr)
+        return;
+
+    Texture* tex = textureStub->mAsset->As<Texture>();
+    if (tex == nullptr)
+        return;
+
+    sImagePlaneSourceTextureStub = textureStub;
+    sImagePlaneEditTargetMeshStub = nullptr;
+    sImagePlaneEditTargetMatStub = nullptr;
+    sImagePlaneTargetDir = targetDir;
+
+    sImagePlaneParams = ImagePlaneParams{};
+    sImagePlaneParams.mSourceTexture = tex;
+
+    std::string meshDefault = MakeImagePlaneDefaultName(tex->GetName(), "SM_");
+    std::string matDefault = MakeImagePlaneDefaultName(tex->GetName(), "M_");
+
+    strncpy(sImagePlaneMeshNameBuf, meshDefault.c_str(), kPopupInputBufferSize - 1);
+    sImagePlaneMeshNameBuf[kPopupInputBufferSize - 1] = '\0';
+    strncpy(sImagePlaneMatNameBuf, matDefault.c_str(), kPopupInputBufferSize - 1);
+    sImagePlaneMatNameBuf[kPopupInputBufferSize - 1] = '\0';
+
+    sImagePlaneOpenRequested = true;
+}
+
+static void OpenImagePlaneModalForEdit(AssetStub* meshStub)
+{
+    if (meshStub == nullptr)
+        return;
+    if (meshStub->mAsset == nullptr)
+        AssetManager::Get()->LoadAsset(*meshStub);
+    if (meshStub->mAsset == nullptr)
+        return;
+
+    StaticMesh* mesh = meshStub->mAsset->As<StaticMesh>();
+    if (!IsImagePlaneCandidate(mesh))
+        return;
+
+    ImagePlaneParams params{};
+    if (!ExtractImagePlaneParams(mesh, params))
+        return;
+
+    Material* mat = mesh->GetMaterial();
+    AssetStub* matStub = (mat != nullptr) ? AssetManager::Get()->GetAssetStub(mat->GetName()) : nullptr;
+    if (matStub == nullptr)
+        return;
+
+    sImagePlaneSourceTextureStub = nullptr;
+    sImagePlaneEditTargetMeshStub = meshStub;
+    sImagePlaneEditTargetMatStub = matStub;
+    sImagePlaneTargetDir = meshStub->mDirectory;
+    sImagePlaneParams = params;
+
+    strncpy(sImagePlaneMeshNameBuf, meshStub->mName.c_str(), kPopupInputBufferSize - 1);
+    sImagePlaneMeshNameBuf[kPopupInputBufferSize - 1] = '\0';
+    strncpy(sImagePlaneMatNameBuf, matStub->mName.c_str(), kPopupInputBufferSize - 1);
+    sImagePlaneMatNameBuf[kPopupInputBufferSize - 1] = '\0';
+
+    sImagePlaneOpenRequested = true;
+}
+
+static void DrawImagePlaneModal()
+{
+    if (sImagePlaneOpenRequested)
+    {
+        ImGui::OpenPopup("Image Plane Mesh");
+        sImagePlaneOpenRequested = false;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+                            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (!ImGui::BeginPopupModal("Image Plane Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const bool editMode = (sImagePlaneEditTargetMeshStub != nullptr);
+    Texture* tex = sImagePlaneParams.mSourceTexture;
+
+    if (tex != nullptr)
+    {
+        ImGui::Text("Source: %s   (%u x %u)", tex->GetName().c_str(), tex->GetWidth(), tex->GetHeight());
+    }
+    else
+    {
+        ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "No source texture.");
+    }
+    ImGui::Separator();
+
+    if (editMode)
+    {
+        ImGui::Text("Editing: %s", sImagePlaneEditTargetMeshStub->mName.c_str());
+        ImGui::Text("Material: %s", sImagePlaneEditTargetMatStub ? sImagePlaneEditTargetMatStub->mName.c_str() : "(none)");
+    }
+    else
+    {
+        ImGui::InputText("Mesh Name", sImagePlaneMeshNameBuf, kPopupInputBufferSize);
+        ImGui::InputText("Material Name", sImagePlaneMatNameBuf, kPopupInputBufferSize);
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Size");
+    int sizeMode = (int)sImagePlaneParams.mSizeMode;
+    ImGui::RadioButton("Aspect (Width=1)", &sizeMode, (int)ImagePlaneSizeMode::AspectWidth1); ImGui::SameLine();
+    ImGui::RadioButton("Aspect (Height=1)", &sizeMode, (int)ImagePlaneSizeMode::AspectHeight1); ImGui::SameLine();
+    ImGui::RadioButton("Pixels/Unit", &sizeMode, (int)ImagePlaneSizeMode::PixelsPerUnit);
+    sImagePlaneParams.mSizeMode = (ImagePlaneSizeMode)sizeMode;
+    if (sImagePlaneParams.mSizeMode == ImagePlaneSizeMode::PixelsPerUnit)
+    {
+        ImGui::DragFloat("Pixels per Unit", &sImagePlaneParams.mPixelsPerUnit, 1.0f, 1.0f, 4096.0f, "%.1f");
+    }
+
+    if (ImGui::CollapsingHeader("UV Crop"))
+    {
+        ImGui::DragFloat("U Min", &sImagePlaneParams.mUvMin.x, 0.005f, 0.0f, 1.0f, "%.4f");
+        ImGui::DragFloat("V Min", &sImagePlaneParams.mUvMin.y, 0.005f, 0.0f, 1.0f, "%.4f");
+        ImGui::DragFloat("U Max", &sImagePlaneParams.mUvMax.x, 0.005f, 0.0f, 1.0f, "%.4f");
+        ImGui::DragFloat("V Max", &sImagePlaneParams.mUvMax.y, 0.005f, 0.0f, 1.0f, "%.4f");
+        if (ImGui::Button("Reset to Full Image"))
+        {
+            sImagePlaneParams.mUvMin = glm::vec2(0.0f, 0.0f);
+            sImagePlaneParams.mUvMax = glm::vec2(1.0f, 1.0f);
+        }
+        if (tex != nullptr)
+        {
+            float cropWpx = (sImagePlaneParams.mUvMax.x - sImagePlaneParams.mUvMin.x) * float(tex->GetWidth());
+            float cropHpx = (sImagePlaneParams.mUvMax.y - sImagePlaneParams.mUvMin.y) * float(tex->GetHeight());
+            ImGui::Text("Cropped: %.0f x %.0f px", cropWpx, cropHpx);
+        }
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Pivot");
+    int pivot = (int)sImagePlaneParams.mPivot;
+    ImGui::RadioButton("Center", &pivot, (int)ImagePlanePivot::Center); ImGui::SameLine();
+    ImGui::RadioButton("Bottom Center", &pivot, (int)ImagePlanePivot::BottomCenter); ImGui::SameLine();
+    ImGui::RadioButton("Top Left", &pivot, (int)ImagePlanePivot::TopLeft);
+    sImagePlaneParams.mPivot = (ImagePlanePivot)pivot;
+
+    ImGui::Text("Shading");
+    int shading = (sImagePlaneParams.mShadingModel == ShadingModel::Lit) ? 1 : 0;
+    ImGui::RadioButton("Unlit", &shading, 0); ImGui::SameLine();
+    ImGui::RadioButton("Lit", &shading, 1);
+    sImagePlaneParams.mShadingModel = (shading == 1) ? ShadingModel::Lit : ShadingModel::Unlit;
+
+    ImGui::Text("Blend");
+    int blend = (int)sImagePlaneParams.mBlendMode;
+    ImGui::RadioButton("Opaque", &blend, (int)BlendMode::Opaque); ImGui::SameLine();
+    ImGui::RadioButton("Masked", &blend, (int)BlendMode::Masked); ImGui::SameLine();
+    ImGui::RadioButton("Translucent", &blend, (int)BlendMode::Translucent);
+    sImagePlaneParams.mBlendMode = (BlendMode)blend;
+
+    ImGui::Checkbox("Two-Sided", &sImagePlaneParams.mTwoSided);
+
+    ImGui::Separator();
+
+    const char* confirmLabel = editMode ? "Update" : "Create";
+    bool confirmDisabled = (tex == nullptr);
+    if (confirmDisabled) ImGui::BeginDisabled();
+    if (ImGui::Button(confirmLabel))
+    {
+        if (editMode)
+        {
+            StaticMesh* mesh = sImagePlaneEditTargetMeshStub->mAsset ? sImagePlaneEditTargetMeshStub->mAsset->As<StaticMesh>() : nullptr;
+            MaterialLite* matLite = sImagePlaneEditTargetMatStub->mAsset ? sImagePlaneEditTargetMatStub->mAsset->As<MaterialLite>() : nullptr;
+            if (mesh != nullptr && matLite != nullptr)
+            {
+                ApplyImagePlaneToAssets(sImagePlaneParams, mesh, matLite);
+                mesh->SetDirtyFlag();
+                matLite->SetDirtyFlag();
+                AssetManager::Get()->SaveAsset(*sImagePlaneEditTargetMatStub);
+                AssetManager::Get()->SaveAsset(*sImagePlaneEditTargetMeshStub);
+            }
+        }
+        else
+        {
+            AssetDir* dir = sImagePlaneTargetDir ? sImagePlaneTargetDir : GetEditorState()->GetAssetDirectory();
+            if (dir != nullptr && tex != nullptr)
+            {
+                const char* matName = (sImagePlaneMatNameBuf[0] != '\0') ? sImagePlaneMatNameBuf : "M_ImagePlane";
+                const char* meshName = (sImagePlaneMeshNameBuf[0] != '\0') ? sImagePlaneMeshNameBuf : "SM_ImagePlane";
+
+                AssetStub* matStub = EditorAddUniqueAsset(matName, dir, MaterialLite::GetStaticType(), true);
+                AssetStub* meshStub = EditorAddUniqueAsset(meshName, dir, StaticMesh::GetStaticType(), true);
+
+                MaterialLite* matLite = (matStub && matStub->mAsset) ? matStub->mAsset->As<MaterialLite>() : nullptr;
+                StaticMesh* mesh = (meshStub && meshStub->mAsset) ? meshStub->mAsset->As<StaticMesh>() : nullptr;
+
+                if (matLite != nullptr && mesh != nullptr)
+                {
+                    ApplyImagePlaneToAssets(sImagePlaneParams, mesh, matLite);
+                    AssetManager::Get()->SaveAsset(*matStub);
+                    AssetManager::Get()->SaveAsset(*meshStub);
+                }
+            }
+        }
+        sImagePlaneSourceTextureStub = nullptr;
+        sImagePlaneEditTargetMeshStub = nullptr;
+        sImagePlaneEditTargetMatStub = nullptr;
+        ImGui::CloseCurrentPopup();
+    }
+    if (confirmDisabled) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel"))
+    {
+        sImagePlaneSourceTextureStub = nullptr;
+        sImagePlaneEditTargetMeshStub = nullptr;
+        sImagePlaneEditTargetMatStub = nullptr;
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybox = false, bool userProvidedName = false)
@@ -6203,6 +6449,38 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
     }
 
+    // Create Image Plane Mesh — available when a single Texture is right-clicked.
+    // Generates a StaticMesh quad sized to the (optionally cropped) image and a
+    // MaterialLite wired to that texture, then assigns the material to the mesh.
+    if (stub != nullptr && stub->mType == Texture::GetStaticType())
+    {
+        if (ImGui::Selectable("Create Image Plane Mesh...", false, ImGuiSelectableFlags_DontClosePopups))
+        {
+            AssetDir* targetDir = (curDir && !curDir->mEngineDir && !curDir->mAddonDir) ? curDir : GetEditorState()->GetAssetDirectory();
+            OpenImagePlaneModalForCreate(stub, targetDir);
+            closeContextPopup = true;
+        }
+    }
+
+    // Edit Image Plane — available when a single already-loaded StaticMesh
+    // that looks like an image plane (4 verts + 6 indices + MaterialLite
+    // with texture in slot 0) is right-clicked. Skipped when the mesh isn't
+    // loaded yet to avoid forcing a load just to test the heuristic — the
+    // inspector panel's "Edit Image Plane" button covers that path after
+    // the user opens the asset.
+    if (stub != nullptr && stub->mType == StaticMesh::GetStaticType() && stub->mAsset != nullptr)
+    {
+        StaticMesh* mesh = stub->mAsset->As<StaticMesh>();
+        if (IsImagePlaneCandidate(mesh))
+        {
+            if (ImGui::Selectable("Edit Image Plane...", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                OpenImagePlaneModalForEdit(stub);
+                closeContextPopup = true;
+            }
+        }
+    }
+
     if (!readOnly && (stub || dir))
     {
         if (stub && ImGui::Selectable("Save"))
@@ -6267,11 +6545,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 #if PLATFORM_WINDOWS
                 // Replace forward slashes with backslashes for Windows explorer
                 for (char& c : absPath) { if (c == '/') c = '\\'; }
-                SYS_Exec(("explorer /select,\"" + absPath + "\"").c_str());
+                SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
                 // Open the containing directory
                 std::string dirPath = absPath.substr(0, absPath.find_last_of('/'));
-                SYS_Exec(("xdg-open \"" + dirPath + "\" &").c_str());
+                SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
 #endif
             }
             else if (dir)
@@ -6279,9 +6557,9 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 std::string absPath = SYS_GetAbsolutePath(dir->mPath);
 #if PLATFORM_WINDOWS
                 for (char& c : absPath) { if (c == '/') c = '\\'; }
-                SYS_Exec(("explorer \"" + absPath + "\"").c_str());
+                SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
-                SYS_Exec(("xdg-open \"" + absPath + "\" &").c_str());
+                SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
 #endif
             }
         }
@@ -8229,6 +8507,20 @@ static void DrawPropertiesPanel()
                         }
                     }
 
+                    if (StaticMesh* meshAsset = asset->As<StaticMesh>())
+                    {
+                        if (IsImagePlaneCandidate(meshAsset))
+                        {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Edit Image Plane"))
+                            {
+                                AssetStub* meshStub = AssetManager::Get()->GetAssetStub(meshAsset->GetName());
+                                if (meshStub != nullptr)
+                                    OpenImagePlaneModalForEdit(meshStub);
+                            }
+                        }
+                    }
+
                     if (asset->GetDirtyFlag())
                     {
                         ImGui::SameLine();
@@ -8624,9 +8916,9 @@ static void DrawScriptsPanel()
                         std::string scriptsDir = GetEngineState()->mProjectDirectory + "Scripts/";
                         SYS_CreateDirectory(scriptsDir.c_str());
 #if PLATFORM_WINDOWS
-                        SYS_Exec(("start \"\" \"" + scriptsDir + "\"").c_str());
+                        SYS_ExecDetached(("start \"\" \"" + scriptsDir + "\"").c_str());
 #elif PLATFORM_LINUX
-                        SYS_Exec(("xdg-open \"" + scriptsDir + "\" &").c_str());
+                        SYS_ExecDetached(("xdg-open \"" + scriptsDir + "\"").c_str());
 #endif
                     }
                 }
@@ -8843,9 +9135,9 @@ static void DrawScriptsPanel()
                                 std::string absPath = SYS_GetAbsolutePath(dirPath);
 #if PLATFORM_WINDOWS
                                 for (char& c : absPath) { if (c == '/') c = '\\'; }
-                                SYS_Exec(("explorer \"" + absPath + "\"").c_str());
+                                SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
-                                SYS_Exec(("xdg-open \"" + absPath + "\" &").c_str());
+                                SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
 #endif
                             }
                         }
@@ -8933,10 +9225,10 @@ static void DrawScriptsPanel()
                             std::string absPath = SYS_GetAbsolutePath(entry->mFullPath);
 #if PLATFORM_WINDOWS
                             for (char& c : absPath) { if (c == '/') c = '\\'; }
-                            SYS_Exec(("explorer /select,\"" + absPath + "\"").c_str());
+                            SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
                             std::string dirPath = absPath.substr(0, absPath.find_last_of('/'));
-                            SYS_Exec(("xdg-open \"" + dirPath + "\" &").c_str());
+                            SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
 #endif
                         }
                         if (ImGui::Selectable("Copy Path"))
@@ -9050,9 +9342,9 @@ static void DrawScriptsPanel()
                     {
                         std::string packagesDir = GetEngineState()->mProjectDirectory + "Packages/";
 #if PLATFORM_WINDOWS
-                        SYS_Exec(("start \"\" \"" + packagesDir + "\"").c_str());
+                        SYS_ExecDetached(("start \"\" \"" + packagesDir + "\"").c_str());
 #elif PLATFORM_LINUX
-                        SYS_Exec(("xdg-open \"" + packagesDir + "\" &").c_str());
+                        SYS_ExecDetached(("xdg-open \"" + packagesDir + "\"").c_str());
 #endif
                     }
                 }
@@ -11201,12 +11493,12 @@ static void RevealPathInOSFileManager(const std::string& path)
 
 #if PLATFORM_WINDOWS
     for (char& c : absPath) { if (c == '/') c = '\\'; }
-    SYS_Exec(("explorer /select,\"" + absPath + "\"").c_str());
+    SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
     std::string dirPath = absPath;
     size_t lastSlash = absPath.find_last_of('/');
     if (lastSlash != std::string::npos) dirPath = absPath.substr(0, lastSlash);
-    SYS_Exec(("xdg-open \"" + dirPath + "\" &").c_str());
+    SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
 #endif
 }
 
@@ -11799,6 +12091,11 @@ void EditorImguiDraw()
         // Surface compile/link failures (the actual source errors) so users
         // don't have to scan the console to discover which addon broke.
         DrawNativeAddonBuildFailureModal();
+
+        // Image-plane create/edit modal. Drawn here (not from the asset
+        // context popup) so the inspector panel "Edit Image Plane" button
+        // can open it after the context popup has closed.
+        DrawImagePlaneModal();
 
         if (GetEditorState()->mShowTimelinePanel)
         {

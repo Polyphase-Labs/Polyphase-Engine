@@ -73,6 +73,25 @@ void SYS_Exec(const char* cmd, std::string* output = nullptr);
  */
 bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStderr, int* outExitCode);
 
+/**
+ * @brief Fire-and-forget process spawn that NEVER blocks the caller.
+ *
+ * Unlike SYS_Exec / SYS_ExecFull, this:
+ *  - Does not pipe stdin/stdout/stderr (avoids the inherited-pipe-handle trap
+ *    where a long-lived child like Code.exe keeps the parent blocked on EOF).
+ *  - Does not wait on the child to exit.
+ *  - On Windows, breaks the child away from the editor's Job Object so killing
+ *    the editor does not kill the spawned external program (a user opening a
+ *    script in VS Code shouldn't lose their VS Code session if Polyphase
+ *    crashes).
+ *
+ * Use this for "open in external app" flows: code editors, file explorers,
+ * web browsers, anything where we don't care about exit code or output.
+ *
+ * @param cmd Command to execute (shell command; same syntax as SYS_Exec).
+ */
+void SYS_ExecDetached(const char* cmd);
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment);
 void SYS_AlignedFree(void* pointer);

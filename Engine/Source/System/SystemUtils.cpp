@@ -7,6 +7,14 @@
 #include <cstdlib>
 #include <cstring>
 
+#if !PLATFORM_WINDOWS && !defined(POLYPHASE_PLATFORM_ADDON)
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
+#endif
+
 #if PLATFORM_WINDOWS
 #include <Windows.h>
 #include <mutex>
@@ -141,6 +149,70 @@ static int WindowsExecInJob(const char* cmd, std::string* outCombined)
 
     return (int)exitCode;
 }
+
+// Fire-and-forget spawn. Unlike WindowsExecInJob, this:
+//  - Does NOT inherit handles (bInheritHandles=FALSE). This is the critical
+//    fix for the "editor freezes when launching VS Code fresh" bug — the old
+//    path leaked the stdout/stderr pipe write end through cmd.exe into the
+//    spawned editor, so ReadFile() on the parent blocked until VS Code (the
+//    inheritor of last resort) exited. With FALSE, no handle leak.
+//  - Does NOT wait on the child or pipe stdout/stderr.
+//  - Uses CREATE_BREAKAWAY_FROM_JOB so killing Polyphase does NOT also kill
+//    the user's VS Code session (the editor Job has KILL_ON_JOB_CLOSE).
+//  - Routes through cmd.exe /c so shell builtins like `start ""` keep working
+//    (matches ExecCommon's behavior).
+static void WindowsExecDetached(const char* cmd)
+{
+    if (cmd == nullptr || *cmd == 0) return;
+
+    STARTUPINFOA si = {};
+    si.cb = sizeof(si);
+
+    PROCESS_INFORMATION pi = {};
+
+    std::string cmdBuf = std::string("cmd.exe /c ") + cmd;
+
+    DWORD flags = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB;
+
+    BOOL ok = CreateProcessA(
+        nullptr,
+        &cmdBuf[0],
+        nullptr, nullptr,
+        FALSE,        // bInheritHandles — must be FALSE; no pipe inheritance.
+        flags,
+        nullptr, nullptr,
+        &si, &pi);
+
+    if (!ok)
+    {
+        // CREATE_BREAKAWAY_FROM_JOB fails (ERROR_ACCESS_DENIED) if our Job
+        // forbids breakaway. Retry without it — the child still runs detached,
+        // it just dies with the editor. Better than not launching at all.
+        DWORD gle = GetLastError();
+        if (gle == ERROR_ACCESS_DENIED)
+        {
+            flags &= ~CREATE_BREAKAWAY_FROM_JOB;
+            ok = CreateProcessA(
+                nullptr,
+                &cmdBuf[0],
+                nullptr, nullptr,
+                FALSE,
+                flags,
+                nullptr, nullptr,
+                &si, &pi);
+        }
+    }
+
+    if (!ok)
+    {
+        LogError("CreateProcess (detached) failed (gle=%lu) for: %s", GetLastError(), cmd);
+        return;
+    }
+
+    // Don't wait, don't keep handles around.
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+}
 #endif // PLATFORM_WINDOWS
 
 void ExecCommon(const char* cmd, std::string* output)
@@ -212,6 +284,57 @@ void ExecCommon(const char* cmd, std::string* output)
         system(cmd);
     }
 #endif // POLYPHASE_PLATFORM_ADDON / PLATFORM_WINDOWS
+}
+
+void ExecCommonDetached(const char* cmd)
+{
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    (void)cmd;
+    LogDebug("[ExecDetached] (no subprocess support on this platform): %s", cmd ? cmd : "");
+#elif PLATFORM_WINDOWS
+    LogDebug("[ExecDetached] %s", cmd);
+    WindowsExecDetached(cmd);
+#else
+    LogDebug("[ExecDetached] %s", cmd);
+    if (cmd == nullptr || *cmd == 0) return;
+
+    // POSIX double-fork so the grandchild reparents to init and we don't have
+    // to wait or reap. Redirect all std fds to /dev/null so the grandchild
+    // can't inherit anything that would keep the editor's tty open.
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        LogError("fork() failed for detached exec: %s", cmd);
+        return;
+    }
+
+    if (pid == 0)
+    {
+        // First child: detach and spawn the grandchild, then exit.
+        setsid();
+
+        pid_t grand = fork();
+        if (grand == 0)
+        {
+            int devnull = open("/dev/null", O_RDWR);
+            if (devnull >= 0)
+            {
+                dup2(devnull, 0);
+                dup2(devnull, 1);
+                dup2(devnull, 2);
+                if (devnull > 2) close(devnull);
+            }
+            execlp("/bin/sh", "sh", "-c", cmd, (char*)nullptr);
+            _exit(127);
+        }
+
+        _exit(0);
+    }
+
+    // Parent: reap the first child immediately so it doesn't zombie.
+    int status = 0;
+    waitpid(pid, &status, 0);
+#endif
 }
 
 bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStderr, int* outExitCode)

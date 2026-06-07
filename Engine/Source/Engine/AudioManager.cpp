@@ -546,6 +546,7 @@ void AudioManager::PlaySound2D(
     }
 }
 
+
 void AudioManager::PlaySound3D(
     SoundWave* soundWave,
     glm::vec3 worldPosition,
@@ -578,6 +579,32 @@ void AudioManager::PlaySound3D(
             loop,
             startTime);
     }
+}
+
+
+void AudioManager::PlaySoundAtPosition(
+    SoundWave* soundWave,
+    glm::vec3 worldPosition,
+    float innerRadius,
+    float outerRadius,
+    AttenuationFunc attenFunc,
+    float volumeMult,
+    float pitchMult,
+    float startTime,
+    bool loop,
+    int32_t priority)
+{
+    return PlaySound3D(
+        soundWave,
+        worldPosition,
+        innerRadius,
+        outerRadius,
+        attenFunc,
+        volumeMult,
+        pitchMult,
+        startTime,
+        loop,
+        priority);
 }
 
 void AudioManager::UpdateSound(

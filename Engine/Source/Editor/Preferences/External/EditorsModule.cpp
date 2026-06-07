@@ -197,7 +197,13 @@ void EditorsModule::OpenLuaScript(const std::string& filePath)
 
     std::string cmd = BuildLuaOpenCommand(filePath);
     LogDebug("Opening Lua script: %s", cmd.c_str());
-    SYS_Exec(cmd.c_str());
+    // Detached: the old SYS_Exec path leaked stdout/stderr pipe handles into
+    // the spawned editor (e.g. VS Code) so the parent blocked on ReadFile until
+    // the editor closed. First-launch of Code.exe would freeze Polyphase until
+    // the user closed VS Code; already-running instances worked because the
+    // helper relay exited fast. SYS_ExecDetached doesn't inherit handles, so
+    // there's no rope to keep us tied.
+    SYS_ExecDetached(cmd.c_str());
 }
 
 void EditorsModule::OpenCppFile(const std::string& filePath, const std::string& vcxprojPath)
@@ -210,7 +216,7 @@ void EditorsModule::OpenCppFile(const std::string& filePath, const std::string& 
 
     std::string cmd = BuildCppOpenCommand(filePath, vcxprojPath);
     LogDebug("Opening C++ file: %s", cmd.c_str());
-    SYS_Exec(cmd.c_str());
+    SYS_ExecDetached(cmd.c_str());
 }
 
 bool EditorsModule::DrawPathInput(const char* label, std::string& path, const char* dialogTitle)

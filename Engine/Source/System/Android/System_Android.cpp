@@ -835,6 +835,14 @@ void SYS_Exec(const char* cmd, std::string* output)
     system(cmd);
 }
 
+void SYS_ExecDetached(const char* cmd)
+{
+    // Android editor is not a thing; if a port ever needs this, route through
+    // a forked sh -c with /dev/null redirects (see SystemUtils.cpp).
+    LogDebug("[ExecDetached] %s", cmd);
+    system(cmd);
+}
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment)
 {

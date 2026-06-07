@@ -256,9 +256,9 @@ void EditorHotkeysWindow::DrawPresetBar()
             std::string dir = EditorHotkeyMap::GetPresetsDirectory();
 #if PLATFORM_WINDOWS
             for (char& c : dir) { if (c == '/') c = '\\'; }
-            SYS_Exec(("explorer \"" + dir + "\"").c_str());
+            SYS_ExecDetached(("explorer \"" + dir + "\"").c_str());
 #elif PLATFORM_LINUX
-            SYS_Exec(("xdg-open \"" + dir + "\" &").c_str());
+            SYS_ExecDetached(("xdg-open \"" + dir + "\"").c_str());
 #endif
         }
         ImGui::SameLine();
