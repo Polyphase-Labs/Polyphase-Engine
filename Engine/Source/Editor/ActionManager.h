@@ -341,8 +341,8 @@ public:
     void DeleteNode(Node* node);
     void RunScript();
     void ImportAsset();
-    Asset* ImportAsset(const std::string& path);
-    Asset* ImportAssetCombined(const std::string& path);
+    Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "");
+    Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "");
     void ImportTinyLLMModel();
     void ImportTinyLLMTokenizer();
     void ImportCamera(const CameraImportOptions& options);

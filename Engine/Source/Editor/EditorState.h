@@ -234,6 +234,22 @@ struct EditorState
     std::string mPendingSceneImportPath = "";
     std::vector<std::string> mPendingMeshImportPaths;
     std::vector<std::string> mPendingSceneImportQueue;
+
+    // Import-time name-clash queue. Filled by ActionManager::ImportAsset when
+    // the source file's basename collides with an existing asset of a different
+    // type (e.g. importing `tent.glb` as StaticMesh while `tent.oct` is already
+    // a Texture). Drained by the "Asset Name Clash" modal in EditorImgui, which
+    // lets the user rename or cancel before any pointers get rebound.
+    struct PendingImportClash
+    {
+        std::string mSourcePath;       // file the user dropped / picked
+        std::string mOriginalBaseName; // basename derived from the source file (what would have been used)
+        std::string mProposedName;     // user-editable; pre-filled with first free `name_N`
+        std::string mExistingTypeName;
+        std::string mImportTypeName;
+        bool mCombined = false;        // true if it came in via ImportAssetCombined
+    };
+    std::vector<PendingImportClash> mPendingImportClashes;
     AssetStub* mPendingReimportSceneStub = nullptr;
     std::string mPendingReimportScenePath = "";
     bool mShutdownUnsavedCheck = false;

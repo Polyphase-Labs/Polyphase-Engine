@@ -5,6 +5,7 @@
 #include "Log.h"
 #include "Script.h"
 #include "NodePath.h"
+#include "Timeline/TimelineTypes.h"
 
 Property::Property()
 {
@@ -293,6 +294,13 @@ void Property::PushBackVector(void* value)
             OCT_ASSERT(0);
             break;
         }
+        case DatumType::TransformKeyframe:
+        {
+            std::vector<TransformKeyframe>& vect = *((std::vector<TransformKeyframe>*) mVector);
+            vect.push_back(value ? *((TransformKeyframe*)value) : TransformKeyframe());
+            mData.tk = vect.data();
+            break;
+        }
 
         default: break;
         }
@@ -387,6 +395,12 @@ void Property::EraseVector(uint32_t index)
         {
             // Function not supported as Vector
             OCT_ASSERT(0);
+            break;
+        }
+        case DatumType::TransformKeyframe:
+        {
+            std::vector<TransformKeyframe>& vect = *((std::vector<TransformKeyframe>*) mVector);
+            vect.erase(vect.begin() + index);
             break;
         }
 
@@ -500,6 +514,13 @@ void Property::ResizeVector(uint32_t count)
         {
             // Function not supported as Vector
             OCT_ASSERT(0);
+            break;
+        }
+        case DatumType::TransformKeyframe:
+        {
+            std::vector<TransformKeyframe>& vect = *((std::vector<TransformKeyframe>*) mVector);
+            vect.resize(count);
+            mData.tk = vect.data();
             break;
         }
 
@@ -616,6 +637,13 @@ Property& Property::MakeVector(uint8_t minCount, uint8_t maxCount)
         {
             // Function not supported as vector
             OCT_ASSERT(0);
+            break;
+        }
+        case DatumType::TransformKeyframe:
+        {
+            std::vector<TransformKeyframe>& vect = *((std::vector<TransformKeyframe>*) mVector);
+            mData.tk = vect.data();
+            mCount = (uint8_t)vect.size();
             break;
         }
 

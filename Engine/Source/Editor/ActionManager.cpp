@@ -5226,7 +5226,27 @@ void ActionManager::ImportAsset()
     }
 }
 
-Asset* ActionManager::ImportAsset(const std::string& path)
+// Walk `name`, `name_1`, `name_2`... until we find a basename whose `<base>.oct`
+// has no entry in the asset map. Used by the import name-clash modal to
+// pre-fill a non-colliding suggestion.
+static std::string SuggestUnusedAssetBaseName(const std::string& baseName)
+{
+    if (AssetManager::Get()->GetAssetStub(baseName + ".oct") == nullptr)
+    {
+        return baseName;
+    }
+    for (int32_t suffix = 1; suffix < 10000; ++suffix)
+    {
+        std::string candidate = baseName + "_" + std::to_string(suffix);
+        if (AssetManager::Get()->GetAssetStub(candidate + ".oct") == nullptr)
+        {
+            return candidate;
+        }
+    }
+    return baseName;
+}
+
+Asset* ActionManager::ImportAsset(const std::string& path, const std::string& overrideBaseName)
 {
     Asset* retAsset = nullptr;
 
@@ -5284,6 +5304,33 @@ Asset* ActionManager::ImportAsset(const std::string& path)
         LogError("Failed to import Asset. Unrecognized source asset extension.");
     }
 
+    // Name-clash gate. If the source file's basename already matches an asset
+    // of a different type, surface a modal asking the user to rename before
+    // any reference-replacement (`AssetRef::ReplaceReferencesToAsset` would
+    // otherwise rebind every existing TextureRef onto a freshly-imported mesh,
+    // producing the wrong-type assertion in Quad::UpdateVertexData on next load).
+    // Skipped on multi-output mesh imports because each emitted asset gets its
+    // own derived name later; we let the per-asset path handle those.
+    if (overrideBaseName.empty() && importTypes.size() == 1)
+    {
+        std::string sourceBaseName = filename.substr(0, dotIndex);
+        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(sourceBaseName + ".oct");
+        if (existingStub != nullptr && existingStub->mType != importTypes[0])
+        {
+            EditorState::PendingImportClash clash;
+            clash.mSourcePath = path;
+            clash.mOriginalBaseName = sourceBaseName;
+            clash.mProposedName = SuggestUnusedAssetBaseName(sourceBaseName);
+            const char* existingName = Asset::GetNameFromTypeId(existingStub->mType);
+            const char* importName = Asset::GetNameFromTypeId(importTypes[0]);
+            clash.mExistingTypeName = existingName ? existingName : "Asset";
+            clash.mImportTypeName = importName ? importName : "Asset";
+            clash.mCombined = false;
+            GetEditorState()->mPendingImportClashes.push_back(clash);
+            return nullptr;
+        }
+    }
+
     for (uint32_t i = 0; i < importTypes.size(); ++i)
     {
         Asset* newAsset = nullptr;
@@ -5303,7 +5350,7 @@ Asset* ActionManager::ImportAsset(const std::string& path)
 
         newAsset = Asset::CreateInstance(typeId);
 
-        std::string assetName = filename.substr(0, dotIndex);
+        std::string assetName = overrideBaseName.empty() ? filename.substr(0, dotIndex) : overrideBaseName;
         newAsset->SetName(assetName);
 
         success = newAsset->Import(path, &options);
@@ -5389,7 +5436,7 @@ Asset* ActionManager::ImportAsset(const std::string& path)
     return retAsset;
 }
 
-Asset* ActionManager::ImportAssetCombined(const std::string& path)
+Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::string& overrideBaseName)
 {
     // "As Single Object" import: collapse every non-collision primitive in the
     // file into ONE mesh asset. Skinned if any primitive has bones.
@@ -5447,12 +5494,34 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path)
 
     TypeId typeId = anySkinned ? SkeletalMesh::GetStaticType() : StaticMesh::GetStaticType();
 
+    // Same clash gate as ImportAsset() -- block a re-import that would silently
+    // rebind references onto an asset of the wrong type.
+    if (overrideBaseName.empty())
+    {
+        std::string sourceBaseName = filename.substr(0, dotIndex);
+        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(sourceBaseName + ".oct");
+        if (existingStub != nullptr && existingStub->mType != typeId)
+        {
+            EditorState::PendingImportClash clash;
+            clash.mSourcePath = path;
+            clash.mOriginalBaseName = sourceBaseName;
+            clash.mProposedName = SuggestUnusedAssetBaseName(sourceBaseName);
+            const char* existingName = Asset::GetNameFromTypeId(existingStub->mType);
+            const char* importName = Asset::GetNameFromTypeId(typeId);
+            clash.mExistingTypeName = existingName ? existingName : "Asset";
+            clash.mImportTypeName = importName ? importName : "Asset";
+            clash.mCombined = true;
+            GetEditorState()->mPendingImportClashes.push_back(clash);
+            return nullptr;
+        }
+    }
+
     ImportOptions options;
     options.SetOptionValue("combineMeshes", true);
 
     Asset* newAsset = Asset::CreateInstance(typeId);
 
-    std::string assetName = filename.substr(0, dotIndex);
+    std::string assetName = overrideBaseName.empty() ? filename.substr(0, dotIndex) : overrideBaseName;
     newAsset->SetName(assetName);
 
     bool success = newAsset->Import(path, &options);

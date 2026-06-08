@@ -4,6 +4,7 @@
 #include "Graphics/Vulkan/VulkanUtils.h"
 #include "Graphics/Vulkan/VulkanContext.h"
 
+#include "Engine.h"
 #include "Renderer.h"
 #include "Utilities.h"
 #include <vector>
@@ -260,6 +261,22 @@ void Pipeline::Create(const PipelineState& state, VkPipelineCache cache, VkSpeci
 
 void Pipeline::Destroy()
 {
+    // NVIDIA Windows Vulkan drivers (nvoglv64.dll) intermittently crash inside
+    // vkDestroyPipelineLayout when called from DestroyQueue::FlushAll during
+    // shutdown. The Vulkan spec is clear that vkDestroyDevice implicitly
+    // destroys every object owned by the device, so skipping the explicit
+    // teardown here at shutdown is safe — the GPU-side handles are reaped a
+    // few lines later in VulkanContext::Destroy via vkDestroyDevice. We still
+    // zero the C++ members so the Pipeline destructor leaves the object in a
+    // clean state for the subsequent `delete`.
+    if (IsShuttingDown())
+    {
+        mPipeline = VK_NULL_HANDLE;
+        mPipelineLayout = VK_NULL_HANDLE;
+        mDescriptorSetLayouts.clear();
+        return;
+    }
+
     VkDevice device = GetVulkanDevice();
 
     vkDestroyPipeline(device, mPipeline, nullptr);

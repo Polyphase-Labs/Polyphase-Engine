@@ -26,6 +26,7 @@ void TransformClip::SaveStream(Stream& stream)
         stream.WriteQuat(kf.mRotation);
         stream.WriteVec3(kf.mScale);
         stream.WriteUint8((uint8_t)kf.mInterpMode);
+        stream.WriteString(kf.mSignal);
     }
 }
 
@@ -42,6 +43,11 @@ void TransformClip::LoadStream(Stream& stream, uint32_t version)
         mKeyframes[i].mRotation = stream.ReadQuat();
         mKeyframes[i].mScale = stream.ReadVec3();
         mKeyframes[i].mInterpMode = (InterpMode)stream.ReadUint8();
+
+        if (version >= ASSET_VERSION_TRANSFORM_KEYFRAME_SIGNAL)
+        {
+            stream.ReadString(mKeyframes[i].mSignal);
+        }
     }
 }
 

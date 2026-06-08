@@ -11,6 +11,7 @@
 #include "Engine.h"
 #include "Assets/Scene.h"
 #include "Assets/StaticMesh.h"
+#include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/NavMesh3d.h"
 #include "Nodes/3D/Terrain3d.h"
@@ -33,6 +34,9 @@
 
 #include <btBulletDynamicsCommon.h>
 #include <BulletCollision/CollisionDispatch/btInternalEdgeUtility.h>
+#include <BulletCollision/CollisionDispatch/btConvexConcaveCollisionAlgorithm.h>
+
+#include <unordered_set>
 #include <Bullet/BulletCollision/CollisionShapes/btTriangleShape.h>
 
 #include "Recast.h"
@@ -559,6 +563,67 @@ bool ContactAddedHandler(btManifoldPoint& cp,
 
     return true;
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Bullet reporter: log the node + mesh + scale when the convex-vs-concave
+// early-out skips a degenerate triangle. See btConvexConcaveCollisionAlgorithm
+// — Bullet calls this once per bad triangle.
+//
+// The user pointer was set in Primitive3D::CreateRigidBody to `this`, so the
+// cast back to Primitive3D* is safe for engine-owned bodies. Paint preview
+// bodies also set userPointer to a StaticMesh3D* (a Primitive3D subclass), so
+// the same cast works there.
+//
+// Dedup by (userPtr, partId, triangleIndex). One bad triangle in a static mesh
+// would otherwise log every frame it overlaps any moving body — thousands of
+// lines per second for what is in practice the same data issue.
+// ---------------------------------------------------------------------------
+static std::unordered_set<uint64_t> sLoggedDegenerateTriangles;
+static std::mutex sLoggedDegenerateTrianglesMutex;
+
+static void EngineReportDegenerateTriangle(const void* triBodyUserPointer, int partId, int triangleIndex)
+{
+    // Key: top 32 bits = low 32 of pointer xor'd with high 32, low 32 = part:tri.
+    // Collisions are harmless — at worst a few extra log lines for unrelated
+    // bodies that happen to hash together.
+    uint64_t ptrBits = reinterpret_cast<uintptr_t>(triBodyUserPointer);
+    uint32_t ptrHash = uint32_t(ptrBits ^ (ptrBits >> 32));
+    uint32_t triKey = uint32_t((partId & 0xFFFF) << 16) | uint32_t(triangleIndex & 0xFFFF);
+    uint64_t key = (uint64_t(ptrHash) << 32) | uint64_t(triKey);
+
+    {
+        std::lock_guard<std::mutex> lock(sLoggedDegenerateTrianglesMutex);
+        if (!sLoggedDegenerateTriangles.insert(key).second)
+        {
+            return; // already reported this exact triangle
+        }
+    }
+
+    Primitive3D* prim = reinterpret_cast<Primitive3D*>(const_cast<void*>(triBodyUserPointer));
+    if (prim == nullptr)
+    {
+        LogWarning("Physics: degenerate triangle on unknown body (partId=%d triIdx=%d) — skipped to avoid normalize() assert.",
+            partId, triangleIndex);
+        return;
+    }
+
+    glm::vec3 worldScale = prim->GetWorldScale();
+    LogWarning("Physics: degenerate triangle on node '%s' (partId=%d triIdx=%d, worldScale=%.3f,%.3f,%.3f) — skipped. Check the mesh asset for collinear / zero-area faces or a zero scale axis on the node or its ancestors.",
+        prim->GetName().c_str(),
+        partId, triangleIndex,
+        worldScale.x, worldScale.y, worldScale.z);
+}
+
+void InstallBulletReporters()
+{
+    btSetDegenerateTriangleReporter(&EngineReportDegenerateTriangle);
+}
+
+void ResetBulletReporterDedup()
+{
+    std::lock_guard<std::mutex> lock(sLoggedDegenerateTrianglesMutex);
+    sLoggedDegenerateTriangles.clear();
 }
 
 World::World() :

@@ -8,6 +8,7 @@
 #include "EditorConstants.h"
 #include "EditorIcons.h"
 #include "EditorImgui.h"
+#include "AssetFixup/AssetFixupModal.h"
 #include "Imgui/imgui_dock.h"
 #include "Log.h"
 #include "Timeline/TimelineInstance.h"
@@ -1640,6 +1641,15 @@ void EditorState::OpenEditScene(Scene* scene)
     OCT_ASSERT(editSceneIdx != -1);
 
     OpenEditScene(editSceneIdx);
+
+    // Scan the freshly-instantiated tree for wrong-type widget asset refs
+    // (the import-clash modal stops *new* collisions, but already-saved
+    // scenes can still carry them). Surfaces a modal to let the user
+    // rebind or clear each bad slot.
+    if (editScene->mRootNode.Get() != nullptr)
+    {
+        AssetFixupModal::Get()->ScanWidgetTree(editScene->mRootNode.Get());
+    }
 
     // Fire OnSceneOpen hook
     EditorUIHookManager* hookMgr = EditorUIHookManager::Get();

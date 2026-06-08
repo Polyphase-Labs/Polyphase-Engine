@@ -11,6 +11,30 @@
 FORCE_LINK_DEF(Quad);
 DEFINE_NODE(Quad, Widget);
 
+// AssetRef::Get<Texture>() asserts if the bound asset is non-null but isn't a
+// Texture. That can happen legitimately when a user imports a non-Texture
+// asset that collides with the name a Quad's saved scene data references --
+// AssetManager resolves the name to whatever type now owns it. Use this
+// accessor on every Quad code path that touches mTexture so a bad scene
+// doesn't take down the editor mid-load; the warning identifies the offender.
+static Texture* ResolveQuadTexture(Quad* quad, AssetRef& ref)
+{
+    Asset* asset = ref.Get();
+    if (asset == nullptr || asset->Is(Texture::ClassRuntimeId()))
+    {
+        return static_cast<Texture*>(asset);
+    }
+
+#if EDITOR
+    LogWarning("Quad '%s' has non-Texture asset '%s' bound to its Texture slot -- ignoring.",
+        quad->GetName().c_str(),
+        asset->GetName().c_str());
+#else
+    (void)quad;
+#endif
+    return nullptr;
+}
+
 static const char* sObjectFitStrings[] =
 {
     "Fill",
@@ -123,7 +147,7 @@ void Quad::SetTexture(class Texture* texture)
 
 Texture* Quad::GetTexture()
 {
-    return mTexture.Get<Texture>();
+    return ResolveQuadTexture(this, mTexture);
 }
 
 void Quad::SetColor(glm::vec4 color)
@@ -374,7 +398,7 @@ void Quad::UpdateVertexData()
     float uvX1 = 1.0f;
     float uvY1 = 1.0f;
 
-    Texture* tex = mTexture.Get<Texture>();
+    Texture* tex = ResolveQuadTexture(this, mTexture);
 
     if (mObjectFit != ObjectFit::Fill && tex != nullptr && posW > 0.0f && posH > 0.0f)
     {
@@ -443,7 +467,7 @@ void Quad::UpdateVertexData()
     // 256x256) set this so the sampler stops at the content's edge instead of
     // bleeding into the black padding strip. For normal textures it stays
     // (1,1) and is a no-op.
-    Texture* uvTex = mTexture.Get<Texture>();
+    Texture* uvTex = ResolveQuadTexture(this, mTexture);
     const glm::vec2 texUvMax = (uvTex != nullptr) ? uvTex->GetUVMax() : glm::vec2(1.0f, 1.0f);
     for (uint32_t i = 0; i < mNumVertices; ++i)
     {
@@ -507,7 +531,7 @@ uint32_t Quad::GetBorderNumVertices() const
 
 bool Quad::DrawCustomProperty(Property& prop)
 {
-    Texture* tex = mTexture.Get<Texture>();
+    Texture* tex = ResolveQuadTexture(this, mTexture);
 
     if (prop.mName == "Crop Texture")
     {

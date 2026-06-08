@@ -19,6 +19,7 @@
 #include "LuaBindings/Log_Lua.h"
 #include "LuaBindings/Debugger_Lua.h"
 #include "LuaBindings/Tween_Lua.h"
+#include "LuaBindings/TransformKeyframe_Lua.h"
 #include "LuaBindings/Easing_Lua.h"
 #include "LuaBindings/World_Lua.h"
 #include "LuaBindings/Node_Lua.h"
@@ -57,6 +58,9 @@
 #include "LuaBindings/Font_Lua.h"
 #include "LuaBindings/Timeline_Lua.h"
 #include "LuaBindings/TimelinePlayer_Lua.h"
+#include "LuaBindings/TransformAnimationAsset_Lua.h"
+#include "LuaBindings/TransformAnimationNode3d_Lua.h"
+#include "LuaBindings/TransformAnimationWidget_Lua.h"
 #include "LuaBindings/DataAsset_Lua.h"
 #include "LuaBindings/NodeGraphPlayer_Lua.h"
 #include "LuaBindings/AssetManager_Lua.h"
@@ -126,6 +130,7 @@ void BindLuaInterface()
     TimerManager_Lua::Bind();
     Easing_Lua::Bind();
     Tween_Lua::Bind();
+    TransformKeyframe_Lua::Bind();
     Property_Lua::Bind();
 
     // Components need to be bound in hierarchy order.
@@ -156,6 +161,8 @@ void BindLuaInterface()
     Sphere3D_Lua::Bind();
     TimelinePlayer_Lua::Bind();
     NodeGraphPlayer_Lua::Bind();
+    TransformAnimationNode3D_Lua::Bind();
+    TransformAnimationWidget_Lua::Bind();
 
     // Assets need to be bound in hierarchy order.
     Asset_Lua::Bind();
@@ -172,6 +179,7 @@ void BindLuaInterface()
     Texture_Lua::Bind();
     Font_Lua::Bind();
     Timeline_Lua::Bind();
+    TransformAnimationAsset_Lua::Bind();
     DataAsset_Lua::Bind();
     UIDocument_Lua::Bind();
 

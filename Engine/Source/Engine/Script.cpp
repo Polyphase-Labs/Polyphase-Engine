@@ -9,6 +9,7 @@
 
 #include "LuaBindings/LuaUtils.h"
 #include "LuaBindings/Vector_Lua.h"
+#include "LuaBindings/TransformKeyframe_Lua.h"
 #include "LuaBindings/Asset_Lua.h"
 #include "LuaBindings/Node_Lua.h"
 #include "LuaBindings/Network_Lua.h"
@@ -313,6 +314,7 @@ void Script::GatherScriptProperties()
                                         case DatumType::Color: Vector_Lua::Create(L, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)); break;
                                         case DatumType::Byte: lua_pushinteger(L, 0); break;
                                         case DatumType::Short: lua_pushinteger(L, 0); break;
+                                        case DatumType::TransformKeyframe: TransformKeyframe_Lua::Create(L, TransformKeyframe()); break;
 
 
                                         default:
@@ -381,6 +383,13 @@ void Script::GatherScriptProperties()
                                     {
                                         Vector_Lua* vecLua = CheckLuaType<Vector_Lua>(L, -1, VECTOR_LUA_NAME, false);
                                         glm::vec4 value = vecLua ? vecLua->mVector : glm::vec4();
+                                        newProp.PushBack(value);
+                                        break;
+                                    }
+                                    case DatumType::TransformKeyframe:
+                                    {
+                                        TransformKeyframe_Lua* kfLua = CheckLuaType<TransformKeyframe_Lua>(L, -1, TRANSFORM_KEYFRAME_LUA_NAME, false);
+                                        TransformKeyframe value = kfLua ? kfLua->mKeyframe : TransformKeyframe();
                                         newProp.PushBack(value);
                                         break;
                                     }
@@ -660,6 +669,9 @@ void Script::GatherAutoProperties()
                 case DatumType::Short:
                     newProp.PushBack(value.GetShort());
                     break;
+                case DatumType::TransformKeyframe:
+                    newProp.PushBack(value.GetTransformKeyframe());
+                    break;
                 default:
                     break;
                 }
@@ -740,11 +752,14 @@ void Script::GatherAutoProperties()
             case DatumType::Short:
                 newProp.PushBack(autoProp.mDefaultValue.GetShort());
                 break;
+            case DatumType::TransformKeyframe:
+                newProp.PushBack(autoProp.mDefaultValue.GetTransformKeyframe());
+                break;
             default:
                 break;
             }
         }
-        
+
         mScriptProps.push_back(newProp);
     }
 #endif
@@ -1301,6 +1316,15 @@ bool Script::DownloadDatum(lua_State* L, Datum& datum, int udIdx, const char* va
             datum.SetColor(value);
             break;
         }
+        case DatumType::TransformKeyframe:
+        {
+            TransformKeyframe_Lua* kfLua = CheckLuaType<TransformKeyframe_Lua>(L, -1, TRANSFORM_KEYFRAME_LUA_NAME, false);
+            if (kfLua != nullptr)
+            {
+                datum.SetTransformKeyframe(kfLua->mKeyframe);
+            }
+            break;
+        }
         case DatumType::Asset:
         case DatumType::Scene:
         case DatumType::Material:
@@ -1437,6 +1461,7 @@ void Script::UploadDatum(Datum& datum, const char* varName)
             case DatumType::Vector2D: Vector_Lua::Create(L, datum.GetVector2D(i)); break;
             case DatumType::Vector: Vector_Lua::Create(L, datum.GetVector(i)); break;
             case DatumType::Color: Vector_Lua::Create(L, datum.GetColor(i)); break;
+            case DatumType::TransformKeyframe: TransformKeyframe_Lua::Create(L, datum.GetTransformKeyframe(i)); break;
             case DatumType::Asset:
             case DatumType::Scene:
             case DatumType::Material:

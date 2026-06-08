@@ -49,6 +49,7 @@
 #include "Assets/MaterialInstance.h"
 #include "Assets/MaterialLite.h"
 #include "Assets/Timeline.h"
+#include "Assets/TransformAnimationAsset.h"
 #include "Assets/Font.h"
 #include "Assets/NodeGraphAsset.h"
 #include "Assets/DataAsset.h"
@@ -60,6 +61,7 @@
 #include "Viewport2d.h"
 #include "ActionManager.h"
 #include "EditorState.h"
+#include "AssetFixup/AssetFixupModal.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
@@ -104,6 +106,7 @@
 #include "ThemeEditor/ThemeEditorWindow.h"
 #include "Preferences/Appearance/Theme/CssThemeParser.h"
 #include "Timeline/TimelinePanel.h"
+#include "Timeline/TimelineTypes.h"
 #include "NodeGraph/NodeGraphPanel.h"
 #include "Profiling/ProfilingWindow.h"
 #include "InputTester/InputTesterPanel.h"
@@ -548,6 +551,15 @@ static void DrawDockspace()
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
                     {
                         AssetStub* droppedStub = *(AssetStub**)payload->Data;
+                        if (droppedStub != nullptr && droppedStub->mType == Texture::GetStaticType())
+                        {
+                            // Dragging a Texture into the scene behaves like dragging
+                            // an image-plane StaticMesh: auto-generate the SM_+M_ pair
+                            // (or reuse an existing one for the same texture) and then
+                            // fall into the regular StaticMesh drop flow.
+                            droppedStub = FindOrCreateImagePlaneStubForTexture(droppedStub);
+                        }
+
                         if (droppedStub != nullptr && droppedStub->mType == StaticMesh::GetStaticType())
                         {
                             sAssetDropStub = droppedStub;
@@ -4007,6 +4019,73 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 }
                 break;
             }
+            case DatumType::TransformKeyframe:
+            {
+                TransformKeyframe kf = prop.GetTransformKeyframe(i);
+                TransformKeyframe prevKf = kf;
+                glm::vec3 euler = glm::degrees(glm::eulerAngles(kf.mRotation));
+                glm::vec3 prevEuler = euler;
+                static const char* sInterpStrs[] = { "Linear", "Step", "Cubic" };
+
+                char headerLabel[128];
+                if (!kf.mSignal.empty())
+                {
+                    snprintf(headerLabel, sizeof(headerLabel), "Keyframe %u  (t=%.2f, sig=%s)###kf%u",
+                             i, kf.mTime, kf.mSignal.c_str(), i);
+                }
+                else
+                {
+                    snprintf(headerLabel, sizeof(headerLabel), "Keyframe %u  (t=%.2f)###kf%u",
+                             i, kf.mTime, i);
+                }
+
+                if (ImGui::CollapsingHeader(headerLabel))
+                {
+                    ImGui::Indent();
+                    ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.7f);
+
+                    ImGui::DragFloat("Time", &kf.mTime, 0.05f, 0.0f, 0.0f, "%.3f");
+                    ImGui::DragFloat3("Position", &kf.mPosition[0], 0.05f, 0.0f, 0.0f, "%.3f");
+                    ImGui::DragFloat3("Rotation", &euler[0], 0.5f, 0.0f, 0.0f, "%.2f");
+                    ImGui::DragFloat3("Scale", &kf.mScale[0], 0.05f, 0.0f, 0.0f, "%.3f");
+
+                    int interpIdx = (int)kf.mInterpMode;
+                    if (interpIdx < 0 || interpIdx >= (int)InterpMode::Count) interpIdx = 0;
+                    if (ImGui::Combo("Interp", &interpIdx, sInterpStrs, IM_ARRAYSIZE(sInterpStrs)))
+                    {
+                        kf.mInterpMode = (InterpMode)interpIdx;
+                    }
+
+                    char signalBuf[128];
+                    strncpy(signalBuf, kf.mSignal.c_str(), sizeof(signalBuf) - 1);
+                    signalBuf[sizeof(signalBuf) - 1] = '\0';
+                    if (ImGui::InputText("Signal", signalBuf, sizeof(signalBuf)))
+                    {
+                        kf.mSignal = signalBuf;
+                    }
+
+                    ImGui::PopItemWidth();
+                    ImGui::Unindent();
+                }
+
+                if (euler != prevEuler)
+                {
+                    kf.mRotation = glm::quat(glm::radians(euler));
+                }
+
+                bool changed = (kf.mTime != prevKf.mTime ||
+                                kf.mPosition != prevKf.mPosition ||
+                                kf.mRotation != prevKf.mRotation ||
+                                kf.mScale != prevKf.mScale ||
+                                kf.mInterpMode != prevKf.mInterpMode ||
+                                kf.mSignal != prevKf.mSignal);
+
+                if (changed)
+                {
+                    prop.SetTransformKeyframe(kf, i);
+                }
+                break;
+            }
             case DatumType::Node:
             case DatumType::Node3D:
             case DatumType::Audio3D:
@@ -5120,6 +5199,13 @@ static void DrawScenePanel()
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
                 {
                     AssetStub* droppedStub = *(AssetStub**)payload->Data;
+                    if (droppedStub != nullptr && droppedStub->mType == Texture::GetStaticType())
+                    {
+                        // Texture → auto-generate (or reuse) the image-plane SM_+M_
+                        // pair and fall through to the StaticMesh hierarchy path.
+                        droppedStub = FindOrCreateImagePlaneStubForTexture(droppedStub);
+                    }
+
                     if (droppedStub != nullptr && droppedStub->mType == StaticMesh::GetStaticType())
                     {
                         sAssetDropStub = droppedStub;
@@ -5955,6 +6041,13 @@ static void DrawScenePanel()
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
             {
                 AssetStub* droppedStub = *(AssetStub**)payload->Data;
+                if (droppedStub != nullptr && droppedStub->mType == Texture::GetStaticType())
+                {
+                    // Texture → auto-generate (or reuse) the image-plane SM_+M_
+                    // pair and fall through to the StaticMesh root-drop path.
+                    droppedStub = FindOrCreateImagePlaneStubForTexture(droppedStub);
+                }
+
                 if (droppedStub != nullptr && droppedStub->mType == StaticMesh::GetStaticType())
                 {
                     sAssetDropStub = droppedStub;
@@ -6677,6 +6770,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Timeline", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = Timeline::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Transform Animation", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = TransformAnimationAsset::GetStaticType();
                 showPopup = true;
             }
             if (ImGui::Selectable("Node Graph", false, ImGuiSelectableFlags_DontClosePopups))
@@ -10207,6 +10305,124 @@ static void DrawMainMenuBar()
 
         ImGui::EndPopup();
     }
+
+
+    // Import name-clash modal: ImportAsset / ImportAssetCombined push an entry
+    // when the source file's basename collides with an asset of a different
+    // type. We block the import until the user picks a name or cancels --
+    // silently renaming would either lose the existing asset (PurgeAsset) or,
+    // worse, repoint every existing TextureRef onto a fresh StaticMesh and
+    // crash the next scene load (ResolveQuadTexture catches that, but better
+    // to never get there).
+    if (!ImGui::IsPopupOpen("Asset Name Clash") && !GetEditorState()->mPendingImportClashes.empty())
+    {
+        ImGui::OpenPopup("Asset Name Clash");
+    }
+
+    if (ImGui::IsPopupOpen("Asset Name Clash"))
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
+
+    if (ImGui::BeginPopupModal("Asset Name Clash", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+    {
+        auto& clashQueue = GetEditorState()->mPendingImportClashes;
+        if (clashQueue.empty())
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        else
+        {
+            EditorState::PendingImportClash& clash = clashQueue.front();
+
+            ImGui::TextWrapped("An asset named '%s.oct' already exists as a %s.",
+                clash.mOriginalBaseName.c_str(),
+                clash.mExistingTypeName.c_str());
+            ImGui::TextWrapped("Importing '%s' would create a new %s with the same name and rebind every reference -- including refs that expect the existing %s.",
+                GetFileNameFromPath(clash.mSourcePath).c_str(),
+                clash.mImportTypeName.c_str(),
+                clash.mExistingTypeName.c_str());
+            ImGui::Separator();
+
+            ImGui::Text("Rename to:");
+            ImGui::SetNextItemWidth(280.0f);
+            ImGui::InputText("##NewAssetName", &clash.mProposedName);
+
+            // Live re-check the user-typed name so they see what would happen if
+            // they hit Import right now.
+            bool nameEmpty = clash.mProposedName.empty();
+            AssetStub* renameStub = nameEmpty
+                ? nullptr
+                : AssetManager::Get()->GetAssetStub(clash.mProposedName + ".oct");
+            bool renameStillClashes = false;
+            if (renameStub != nullptr)
+            {
+                const char* importName = clash.mImportTypeName.c_str();
+                const char* existingName = Asset::GetNameFromTypeId(renameStub->mType);
+                if (existingName == nullptr || strcmp(existingName, importName) != 0)
+                {
+                    renameStillClashes = true;
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f),
+                        "'%s.oct' is already a %s -- pick another name.",
+                        clash.mProposedName.c_str(),
+                        existingName ? existingName : "Asset");
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f),
+                        "'%s.oct' exists as a %s -- this will replace it.",
+                        clash.mProposedName.c_str(),
+                        importName);
+                }
+            }
+
+            ImGui::Spacing();
+
+            bool importDisabled = nameEmpty || renameStillClashes;
+            if (importDisabled) ImGui::BeginDisabled();
+            if (ImGui::Button("Import"))
+            {
+                std::string sourcePath = clash.mSourcePath;
+                std::string newName = clash.mProposedName;
+                bool combined = clash.mCombined;
+                clashQueue.erase(clashQueue.begin());
+                ImGui::CloseCurrentPopup();
+
+                if (combined)
+                {
+                    ActionManager::Get()->ImportAssetCombined(sourcePath, newName);
+                }
+                else
+                {
+                    ActionManager::Get()->ImportAsset(sourcePath, newName);
+                }
+            }
+            if (importDisabled) ImGui::EndDisabled();
+
+            ImGui::SameLine();
+            if (ImGui::Button("Skip"))
+            {
+                clashQueue.erase(clashQueue.begin());
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel All"))
+            {
+                clashQueue.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+
+    // Post-scene-open broken-asset-ref fixup modal -- populated by
+    // EditorState::OpenEditScene when widgets in the loaded tree have asset
+    // slots bound to wrong-type assets (typically left over from a pre-clash-
+    // gate import). Self-no-ops when there's nothing to fix.
+    AssetFixupModal::Get()->Draw();
 
 
     // Mesh-import mode dialog: fires after the user picks .glb/.gltf/.fbx/.dae/.obj

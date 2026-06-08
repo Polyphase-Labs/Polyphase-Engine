@@ -256,6 +256,8 @@ void ForceLinkage()
     FORCE_LINK_CALL(NavMesh3D);
     FORCE_LINK_CALL(SpriteAnimator);
     FORCE_LINK_CALL(AnimatedSprite3D);
+    FORCE_LINK_CALL(TransformAnimationNode3D);
+    FORCE_LINK_CALL(TransformAnimationWidget);
 
     // Asset Types
     FORCE_LINK_CALL(Scene);
@@ -291,6 +293,9 @@ void ForceLinkage()
     FORCE_LINK_CALL(ActivateClip);
     FORCE_LINK_CALL(FunctionCallTrack);
     FORCE_LINK_CALL(FunctionCallClip);
+    FORCE_LINK_CALL(TransformAnimationAsset);
+    FORCE_LINK_CALL(TransformAnimationTrack);
+    FORCE_LINK_CALL(TransformAnimationClip);
 
     // Node Graph Types
     FORCE_LINK_CALL(NodeGraphAsset);
@@ -739,6 +744,11 @@ bool Initialize()
     }
 
 #endif
+
+    // Install Bullet diagnostic reporters (degenerate-triangle logging, etc.)
+    // — see World.cpp.
+    extern void InstallBulletReporters();
+    InstallBulletReporters();
 
     sEngineState.mInitialized = true;
 
