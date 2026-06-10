@@ -295,6 +295,13 @@ void GFX_DrawLines(const std::vector<Line>& lines)
 
 }
 
+void GFX_DrawSplats(const GaussianSplatInstance* /*instances*/, uint32_t /*count*/,
+                    const glm::vec3& /*cameraRight*/, const glm::vec3& /*cameraUp*/)
+{
+    // GX backend has no instanced quad path. Splat addons fall back to the
+    // proxy-mesh workflow described in the spec.
+}
+
 void GFX_DrawFullscreen()
 {
 

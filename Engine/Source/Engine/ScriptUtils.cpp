@@ -85,6 +85,32 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
 {
     bool successful = false;
 
+    // Sanity check: Lua identifiers can't contain '.'. If the caller derived
+    // className via an old code path (or pre-fix logic that stripped the
+    // extension before the directory split), we'll get something like
+    // "com.polyphase.formats" -- which lua_getglobal can never match.
+    // Recompute from fileName so the load still has a chance of succeeding,
+    // and log the bad input so we can find the rogue caller.
+    if (className.find('.') != std::string::npos)
+    {
+        std::string fixed = GetClassNameFromFileName(fileName);
+        if (fixed != className && fixed.find('.') == std::string::npos)
+        {
+            LogWarning("LoadScriptFile: caller passed malformed className '%s' for file '%s' "
+                       "(contains '.'); recomputing to '%s'. Fix the caller -- class names "
+                       "cannot contain dots.",
+                       className.c_str(), fileName.c_str(), fixed.c_str());
+            return LoadScriptFile(fileName, fixed);
+        }
+        // Couldn't recover -- both the passed-in className and the recomputed one
+        // are malformed. Bail loudly so the bad call site can be found.
+        LogError("LoadScriptFile: malformed className '%s' for file '%s'. Lua class names "
+                 "cannot contain '.'. Most likely the fileName is wrong (e.g. the addon "
+                 "directory path was passed instead of a script path under it).",
+                 className.c_str(), fileName.c_str());
+        return false;
+    }
+
     // Check if file is already being loaded (circular Script.Require() dependency)
     if (sLoadingLuaFiles.find(fileName) != sLoadingLuaFiles.end())
     {
@@ -331,17 +357,36 @@ void ScriptUtils::LoadScriptDirectory(const std::string& dirName, bool recurse)
 
 std::string ScriptUtils::GetClassNameFromFileName(const std::string& fileName)
 {
+    // Two ABI-fragile inputs reach this function:
+    //   1. "Characters/Monster/Goblin.lua"                    -> "Goblin"
+    //   2. "Packages/com.<vendor>.<group>.<name>/Foo[.lua]"   -> "Foo"
+    //
+    // Earlier versions did find_last_of('.') BEFORE find_last_of('/'). For (2)
+    // that walked into a dotted directory name and produced
+    // "com.<vendor>.<group>" instead of the script's basename, after which
+    // lua_getglobal failed to find the class table.
+    //
+    // Defensive rules now:
+    //   - Strip directory FIRST so the dot search only ever sees the basename.
+    //   - Accept both '/' and '\\' as separators so Windows ReadDirectoryChangesW
+    //     paths normalise correctly.
+    //   - Strip the trailing extension ONLY if it is literally ".lua". Stripping
+    //     any-last-dot meant a malformed input (e.g. the bare addon directory
+    //     "Packages/com.polyphase.formats.gaussiansplat") silently sliced into
+    //     the addon name — the function would "succeed" with a corrupted class
+    //     name and the failure looked like a Lua bug instead of a path bug.
     std::string className = fileName;
-    size_t dotLoc = className.find_last_of('.');
-    if (dotLoc != std::string::npos)
-    {
-        className = className.substr(0, dotLoc);
-    }
 
-    size_t slashLoc = className.find_last_of('/');
+    size_t slashLoc = className.find_last_of("/\\");
     if (slashLoc != std::string::npos)
     {
         className = className.substr(slashLoc + 1);
+    }
+
+    if (className.size() >= 4 &&
+        className.compare(className.size() - 4, 4, ".lua") == 0)
+    {
+        className.resize(className.size() - 4);
     }
 
     return className;

@@ -1529,6 +1529,95 @@ static void DrawUnsavedCheck()
     }
 }
 
+// ----------------------------------------------------------------------------
+// EditorShowAlert -- generic modal popup that engine-side code can fire when
+// it detects a non-fatal-but-must-tell-the-user condition (corrupt memory we
+// refused to dereference, scene-load abort, etc.). State is process-static
+// because callers reach us from inside long synchronous engine work that has
+// no EditorState in scope. Single popup at a time; concurrent calls coalesce
+// into a "+N more errors" line so we don't stack dozens of modals during a
+// bad scene load.
+// ----------------------------------------------------------------------------
+static std::string sAlertTitle;
+static std::string sAlertMessage;
+static bool        sAlertPending = false;
+static int         sAlertExtraCount = 0;
+
+void EditorShowAlert(const char* title, const char* message)
+{
+    if (!sAlertPending)
+    {
+        sAlertTitle   = (title && *title) ? title : "Polyphase";
+        sAlertMessage = message ? message : "";
+        sAlertPending = true;
+        sAlertExtraCount = 0;
+    }
+    else
+    {
+        // Modal already queued; full detail is in the debug log.
+        sAlertExtraCount++;
+    }
+}
+
+static void DrawEditorAlertModal()
+{
+    const char* kPopupId = "Polyphase###EditorAlert";
+
+    if (sAlertPending && !ImGui::IsPopupOpen(kPopupId))
+    {
+        ImGui::OpenPopup(kPopupId);
+    }
+
+    if (ImGui::IsPopupOpen(kPopupId))
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(540, 0), ImGuiCond_Always);
+    }
+
+    std::string label = sAlertTitle + "###EditorAlert";
+
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize;
+
+    if (ImGui::BeginPopupModal(label.c_str(), nullptr, flags))
+    {
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+        ImGui::TextWrapped("%s", sAlertMessage.c_str());
+
+        if (sAlertExtraCount > 0)
+        {
+            ImGui::Dummy(ImVec2(0.0f, 6.0f));
+            ImGui::TextDisabled("(+%d more issue%s - see the Debug Log for details)",
+                                sAlertExtraCount, sAlertExtraCount == 1 ? "" : "s");
+        }
+
+        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0.0f, 4.0f));
+
+        const float buttonWidth = 120.0f;
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - buttonWidth) * 0.5f);
+        if (ImGui::Button("OK", ImVec2(buttonWidth, 0)) ||
+            ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape))
+        {
+            sAlertPending = false;
+            sAlertExtraCount = 0;
+            sAlertTitle.clear();
+            sAlertMessage.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 static void DrawProgressModal()
 {
     EditorState* editorState = GetEditorState();
@@ -13939,6 +14028,7 @@ void EditorImguiDraw()
         DrawUnsavedCheck();
         DrawProjectUpgradeModal();
         DrawProgressModal();
+        DrawEditorAlertModal();
         DrawAddonsDialogs();
         DrawScriptCreatorDialogs();
 

@@ -142,6 +142,60 @@ void GFX_DrawLines(const std::vector<Line>& lines)
     gVulkanContext->DrawLines(lines);
 }
 
+void GFX_DrawSplats(const GaussianSplatInstance* instances, uint32_t count,
+                    const glm::vec3& cameraRight, const glm::vec3& cameraUp)
+{
+    gVulkanContext->DrawSplats(instances, count, cameraRight, cameraUp);
+}
+
+#include "Graphics/Vulkan/GraphicsVulkanAddon.h"
+#include "Graphics/GraphicsConstants.h"
+#include "Renderer.h"
+
+bool GFX_GetVulkanAddonHandles(GfxVulkanAddonHandles& out)
+{
+    if (gVulkanContext == nullptr) return false;
+
+    out.mDevice               = gVulkanContext->GetDevice();
+    out.mPhysicalDevice       = gVulkanContext->GetPhysicalDevice();
+    out.mCurrentCommandBuffer = gVulkanContext->GetCommandBuffer();
+    out.mCurrentRenderPass    = gVulkanContext->GetCurrentRenderPass();
+    out.mGraphicsQueue        = gVulkanContext->GetGraphicsQueue();
+
+    // Scene viewport rectangle the engine has set with GFX_SetViewport right
+    // before the custom render pass fires. The actual rendering area is a
+    // sub-region of the swapchain — for editor viewport renders it's the
+    // editor panel rectangle, for game preview it's (0,0,640,480) into the
+    // game-preview render target, for PIE Full Screen it's the full window.
+    // Resolution scale is baked in.
+    //
+    // GetSceneWidth/Height returns swapchain-creation-time dimensions, which
+    // are wrong here. We hand the full (x, y, w, h) to the addon so it can
+    // re-apply the correct viewport with vkCmdSetViewport when binding its
+    // own pipeline.
+    if (Renderer* r = Renderer::Get())
+    {
+        glm::uvec4 svp = r->GetSceneViewport(-1);
+        out.mSceneViewportX      = svp.x;
+        out.mSceneViewportY      = svp.y;
+        out.mSceneViewportWidth  = svp.z;
+        out.mSceneViewportHeight = svp.w;
+        out.mViewportWidth       = svp.z;
+        out.mViewportHeight      = svp.w;
+    }
+    else
+    {
+        out.mSceneViewportWidth  = gVulkanContext->GetSceneWidth();
+        out.mSceneViewportHeight = gVulkanContext->GetSceneHeight();
+        out.mViewportWidth       = out.mSceneViewportWidth;
+        out.mViewportHeight      = out.mSceneViewportHeight;
+    }
+
+    out.mCurrentFrameIndex    = uint32_t(gVulkanContext->GetFrameIndex());
+    out.mMaxFramesInFlight    = MAX_FRAMES;
+    return true;
+}
+
 void GFX_DrawFullscreen()
 {
     gVulkanContext->DrawFullscreen();

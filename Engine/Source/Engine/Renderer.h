@@ -110,6 +110,27 @@ public:
     void RemoveDebugDrawsForNode(Node* node);
     const std::vector<DebugDraw>& GetDebugDraws() const;
 
+    // ===== Custom Render Pass (for native addons) =====
+    //
+    // Lets an addon submit GFX_* draw calls during the engine's main forward
+    // pass — i.e. inside an active BeginRenderPass/EndRenderPass and after the
+    // camera's view/projection have been bound. Without this hook addons can
+    // only submit Gizmos:: draws, which are #if EDITOR only.
+    //
+    // The callback is invoked after opaque + translucent + debug draws and
+    // immediately before the engine draws the world's debug-line buffer, so
+    // alpha-blended geometry composites correctly against the rendered scene.
+    // Invoked once per frame per world Render() call. Order across multiple
+    // registered passes is registration order.
+    //
+    // Hot-reload safe: addons should Unregister in their OnUnload.
+    typedef void (*CustomRenderPassFn)(void* userData);
+    POLYPHASE_API uint64_t RegisterCustomRenderPass(CustomRenderPassFn fn, void* userData);
+    POLYPHASE_API void     UnregisterCustomRenderPass(uint64_t id);
+
+    // Engine-internal: run all registered callbacks. Called from Renderer::Render.
+    void RunCustomRenderPasses();
+
     const std::vector<LightData>& GetLightData() const;
 
     void SetClearColor(const glm::vec4& color);
@@ -234,6 +255,16 @@ private:
 
     std::vector<DebugDraw> mDebugDraws;
     std::vector<DebugDraw> mCollisionDraws;
+
+    // Custom render passes registered by native addons. See RegisterCustomRenderPass.
+    struct CustomRenderPassEntry
+    {
+        uint64_t           mId;
+        CustomRenderPassFn mFn;
+        void*              mUserData;
+    };
+    std::vector<CustomRenderPassEntry> mCustomRenderPasses;
+    uint64_t                           mNextCustomRenderPassId = 1;
 
     World* mCurrentWorld = nullptr;
     uint32_t mFrameIndex = 0;

@@ -77,6 +77,8 @@ public:
     void EndVkRenderPass();
     void CommitPipeline();
     void DrawLines(const std::vector<Line>& lines);
+    void DrawSplats(const struct GaussianSplatInstance* instances, uint32_t count,
+                    const glm::vec3& cameraRight, const glm::vec3& cameraUp);
     void DrawFullscreen();
     void BindFullscreenVertexBuffer(VkCommandBuffer cb);
 
@@ -117,6 +119,12 @@ public:
     VkCommandBuffer GetCommandBuffer();
     VkCommandPool GetCommandPool();
     VkQueue GetGraphicsQueue();
+
+    // Used by GFX_GetVulkanAddonHandles — exposes the render pass the engine
+    // is mid-recording on so an addon can build a pipeline compatible with it.
+    // Defined out-of-line below so it can see mPipelineState (declared private,
+    // further down in this header). GetFrameIndex() already exists at line 110.
+    VkRenderPass GetCurrentRenderPass() const;
 
     void UpdateGlobalDescriptorSet();
     void UpdateGlobalUniformData();
@@ -325,6 +333,8 @@ private:
     RenderPassId mCurrentRenderPassId = RenderPassId::Count;
     int32_t mNumLinesAllocated = 0;
     Buffer* mLineVertexBuffer = nullptr;
+    int32_t mNumSplatsAllocated = 0;
+    Buffer* mSplatVertexBuffer = nullptr;
     bool mInitialized = false;
     bool mEnableMaterials = false;
     bool mSupportsRayTracing = false;

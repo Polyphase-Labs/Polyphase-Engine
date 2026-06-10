@@ -219,6 +219,24 @@ void InitPipelineConfigs()
         state.mCullMode = VK_CULL_MODE_NONE;
         state.mLineWidth = 1.0f;
     }
+
+    {
+        // Splat — camera-facing translucent quads. Reuses the Line vertex
+        // shader (position + uint32 color, projected by global ViewProj) but
+        // draws triangles with translucent alpha blending. Used by the
+        // Gaussian Splatting addon; CPU-side billboard expansion happens in
+        // VulkanContext::DrawSplats.
+        PipelineState& state = sPipelineConfigs[(uint32_t)PipelineConfig::Splat];
+        state.mVertexShader = gVulkanContext->GetGlobalShader("Line.vert");
+        state.mFragmentShader = gVulkanContext->GetGlobalShader("Line.frag");
+        state.mVertexType = VertexType::VertexLine;
+        state.mPrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        state.mDepthTestEnabled = true;
+        state.mDepthWriteEnabled = false;
+        state.mDepthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        state.mCullMode = VK_CULL_MODE_NONE;
+        state.mBlendStates[0] = GetBasicBlendState(BasicBlendState::Translucent);
+    }
 }
 
 void BindPipelineConfig(PipelineConfig config)
