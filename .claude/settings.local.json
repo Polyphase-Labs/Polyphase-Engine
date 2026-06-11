@@ -207,7 +207,12 @@
       "PowerShell(Copy-Item *)",
       "Bash(powershell *)",
       "Read(//m/Projects/Polyphase/Polyphase-Examples/FPS-Demo/FPS-Demo_Dup_2/Packages/**)",
-      "Read(//m/Projects/Polyphase/Polyphase-Examples/FPS-Demo/FPS-Demo_Dup_2/Generated/**)"
+      "Read(//m/Projects/Polyphase/Polyphase-Examples/FPS-Demo/FPS-Demo_Dup_2/Generated/**)",
+      "Bash(mkdir -p main/java/com/you/appname)",
+      "Bash(mkdir -p test/java/com/you/appname)",
+      "Bash(mkdir -p androidTest/java/com/you/appname)",
+      "Bash(mv main/java/com/solarscapegames/standalone/PolyphaseActivity.java main/java/com/you/appname/)",
+      "Bash(mv test/java/com/solarscapegames/standalone/ExampleUnitTest.java test/java/com/you/appname/)"
     ]
   }
 }

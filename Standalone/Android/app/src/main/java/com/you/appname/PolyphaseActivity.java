@@ -1,4 +1,4 @@
-package com.solarscapegames.standalone;
+package com.you.appname;
 
 import android.app.NativeActivity;
 import android.content.Context;
@@ -14,7 +14,21 @@ import android.view.inputmethod.InputMethodManager;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import com.solarscapegames.standalone.databinding.ActivityMainBinding;
+// NOTE: this Java class lives at java/com/you/appname/, so its fully-qualified
+// name is com.you.appname.PolyphaseActivity regardless of what gradle's
+// `namespace`/`applicationId` is set to. AndroidManifest references it by FQN
+// (`android:name="com.you.appname.PolyphaseActivity"`), so projects can change
+// applicationId freely without renaming the Java tree.
+//
+// The path is intentionally unbranded — `com.you.appname` makes it obvious this
+// is a template default that must be replaced before any real distribution.
+// Override gradle's namespace/applicationId via Build Profile → Target Options
+// (the packager rewrites build.gradle at package time).
+//
+// Earlier this file imported a databinding class (whose package follows gradle's
+// `namespace`). When projects override applicationId, namespace changes, the
+// databinding package moves, and the import breaks. The binding field was never
+// used — removed entirely, along with viewBinding in build.gradle.
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -25,8 +39,6 @@ public class PolyphaseActivity extends NativeActivity {
     static {
         System.loadLibrary("standalone");
     }
-
-    private ActivityMainBinding binding;
 
     private WifiManager wifiManager;
     private MulticastLock multicastLock;

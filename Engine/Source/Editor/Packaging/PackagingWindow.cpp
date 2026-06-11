@@ -604,6 +604,87 @@ void PackagingWindow::DrawProfileSettings()
         }
     }
 
+    // Built-in Android target options. Built-in targets don't ship a
+    // DrawProfileOptions callback (that's for addon-provided targets),
+    // so we render Android's customisable fields inline. Storage piggybacks
+    // on the existing mTargetOptions map — same JSON serialisation, same
+    // per-profile lifetime, no schema bump needed.
+    if (profile->mTargetPlatform == Platform::Android)
+    {
+        if (ImGui::CollapsingHeader("Android Target Options", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            auto& opts = profile->mTargetOptions;
+
+            // applicationId — what the Play Store and `adb` see. Defaults to
+            // the stock placeholder `com.you.appname` so first-time users
+            // build/install/launch without touching this field; serious
+            // projects MUST override before any real distribution.
+            {
+                std::string current = opts.count("android.applicationId")
+                    ? opts["android.applicationId"]
+                    : std::string("com.you.appname");
+                char buf[256];
+                std::snprintf(buf, sizeof(buf), "%s", current.c_str());
+                if (ImGui::InputText("Application ID##Android", buf, sizeof(buf)))
+                {
+                    opts["android.applicationId"] = buf;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Java-style package id used as the APK's applicationId\n"
+                                      "+ namespace in build.gradle. Default:\n"
+                                      "  com.you.appname  (an obvious placeholder)\n"
+                                      "Override to e.g. com.yourstudio.yourgame before\n"
+                                      "shipping. The default will install fine for testing\n"
+                                      "but Play Store rejects `com.you.*` reserved ids.");
+                }
+            }
+
+            // App label — what shows under the launcher icon on the home
+            // screen. Empty means "use EngineConfig::mProjectName" so the
+            // App Settings window's Project Name field is the single source
+            // of truth across desktop window title + Android launcher label.
+            {
+                std::string current = opts.count("android.appLabel") ? opts["android.appLabel"] : "";
+                char buf[256];
+                std::snprintf(buf, sizeof(buf), "%s", current.c_str());
+                if (ImGui::InputText("App Label##Android", buf, sizeof(buf)))
+                {
+                    opts["android.appLabel"] = buf;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Display name under the launcher icon. Leave blank\n"
+                                      "to inherit the Project Name from App Settings\n"
+                                      "(Config.ini's `Project=`).");
+                }
+            }
+
+            // Icon override — empty falls back to EngineConfig::mIconPath
+            // (the project-wide icon set via App Settings → Application Icon).
+            // Override only when shipping a separate Android-specific icon.
+            {
+                std::string current = opts.count("android.iconSource") ? opts["android.iconSource"] : "";
+                char buf[512];
+                std::snprintf(buf, sizeof(buf), "%s", current.c_str());
+                if (ImGui::InputText("Icon Source##Android", buf, sizeof(buf)))
+                {
+                    opts["android.iconSource"] = buf;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("PNG to use as the launcher icon. Project-relative or\n"
+                                      "absolute. Leave blank to inherit the project icon set\n"
+                                      "via App Settings → Application Icon → Browse.\n"
+                                      "Packager resizes to all mipmap-* densities at build time.");
+                }
+            }
+        }
+    }
+
     ImGui::Spacing();
 
     // Embedded mode
@@ -712,6 +793,7 @@ void PackagingWindow::DrawBuildButtons()
     bool supportsRun = profile && PlatformSupportsRun(profile->mTargetPlatform);
     bool is3DS = profile && profile->mTargetPlatform == Platform::N3DS;
     bool isWii = profile && profile->mTargetPlatform == Platform::Wii;
+    bool isAndroid = profile && profile->mTargetPlatform == Platform::Android;
 
     // "Set As Target" applies to every platform — keep it outside the
     // supportsRun-gated disabled block below (which exists for Build & Run,
@@ -764,6 +846,13 @@ void PackagingWindow::DrawBuildButtons()
             ImGui::EndPopup();
         }
     }
+    else if (isAndroid)
+    {
+        // Android has no integrated emulator path (BlueStacks etc. lack
+        // Vulkan), so the plain "Build & Run" is hidden — the "Build & Run
+        // On Device" button below is the only way and runs adb install +
+        // shell am start + optional logcat.
+    }
     else
     {
         // Standard Build & Run button for other platforms
@@ -779,11 +868,13 @@ void PackagingWindow::DrawBuildButtons()
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Build & Run is only available for GameCube, Wii, and 3DS");
+            ImGui::SetTooltip("Build & Run is only available for GameCube, Wii, 3DS, and Android");
         }
     }
 
-    // Show "Build & Run On Device" button only for 3DS
+    // "Build & Run On Device" — for platforms that have a real-hardware path
+    // distinct from emulator. 3DS via 3dslink, Android via adb. (Wii uses the
+    // dropdown above so its "Wii LAN" option lives there alongside Dolphin.)
     if (is3DS)
     {
         ImGui::SameLine();
@@ -795,6 +886,22 @@ void PackagingWindow::DrawBuildButtons()
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("Build and send to 3DS hardware via 3dslink");
+        }
+    }
+    else if (isAndroid)
+    {
+        ImGui::SameLine();
+
+        if (ImGui::Button("Build & Run On Device", ImVec2(deviceButtonWidth, 0)))
+        {
+            OnBuildAndRunOnDevice();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Build the APK, `adb install`, `adb shell am start`,\n"
+                              "and (if enabled in Preferences) pop a detached\n"
+                              "logcat window. Configure ADB path + device serial\n"
+                              "via the gear icon (Preferences > External > Launchers).");
         }
     }
 
@@ -1624,21 +1731,72 @@ void PackagingWindow::FinalizeBuild()
             mPendingOutputPath = mBuildState.mOutputPath;
             mShowWiiloadWarning = true;
         }
-        else if (PlatformSupportsRun(mBuildState.mTargetPlatform))
+        else if (mBuildState.mRunOnDevice && mBuildState.mTargetPlatform == Platform::Android)
         {
-            // Launch emulator
+            // adb install + launch + (optional) detached logcat. No popup —
+            // unlike 3dslink/wiiload there's nothing scary about adb install
+            // (it's idempotent with -r, and the device approved this host's
+            // RSA key at first connection). Just go.
             LaunchersModule* launchers = static_cast<LaunchersModule*>(
                 PreferencesManager::Get()->FindModule("External/Launchers"));
 
-            if (launchers != nullptr && launchers->IsEmulatorConfigured(mBuildState.mTargetPlatform))
+            if (launchers != nullptr && launchers->IsAdbConfigured())
             {
-                std::string cmd = launchers->BuildLaunchCommand(mBuildState.mTargetPlatform, mBuildState.mOutputPath);
-                LogDebug("Launching emulator: %s", cmd.c_str());
-                SYS_Exec(cmd.c_str());
+                std::string installCmd = launchers->BuildAdbInstallCommand(mBuildState.mOutputPath);
+                if (!installCmd.empty())
+                {
+                    LogDebug("adb install: %s", installCmd.c_str());
+                    std::string out;
+                    SYS_Exec(installCmd.c_str(), &out);
+                    if (!out.empty()) LogDebug("%s", out.c_str());
+                }
+                std::string launchCmd = launchers->BuildAdbLaunchCommand();
+                if (!launchCmd.empty())
+                {
+                    LogDebug("adb launch: %s", launchCmd.c_str());
+                    SYS_Exec(launchCmd.c_str());
+                }
+                if (launchers->mAutoOpenLogcat)
+                {
+                    std::string logcatCmd = launchers->BuildAdbLogcatCommand();
+                    if (!logcatCmd.empty())
+                    {
+                        LogDebug("adb logcat (detached): %s", logcatCmd.c_str());
+                        SYS_ExecDetached(logcatCmd.c_str());
+                    }
+                }
             }
             else
             {
-                LogError("Emulator not configured for %s", GetPlatformString(mBuildState.mTargetPlatform));
+                LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
+            }
+        }
+        else if (PlatformSupportsRun(mBuildState.mTargetPlatform))
+        {
+            // Launch emulator (GameCube/Wii via Dolphin, 3DS via Azahar/Citra).
+            // Android falls through here only if the user somehow set
+            // runOnDevice=false for Android — which our UI doesn't expose, but
+            // skip it explicitly to avoid the "Emulator not configured for
+            // Android" error noise.
+            if (mBuildState.mTargetPlatform == Platform::Android)
+            {
+                // No-op — Android has no integrated emulator path.
+            }
+            else
+            {
+                LaunchersModule* launchers = static_cast<LaunchersModule*>(
+                    PreferencesManager::Get()->FindModule("External/Launchers"));
+
+                if (launchers != nullptr && launchers->IsEmulatorConfigured(mBuildState.mTargetPlatform))
+                {
+                    std::string cmd = launchers->BuildLaunchCommand(mBuildState.mTargetPlatform, mBuildState.mOutputPath);
+                    LogDebug("Launching emulator: %s", cmd.c_str());
+                    SYS_Exec(cmd.c_str());
+                }
+                else
+                {
+                    LogError("Emulator not configured for %s", GetPlatformString(mBuildState.mTargetPlatform));
+                }
             }
         }
     }

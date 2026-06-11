@@ -33,6 +33,13 @@
 #include "EditorConstants.h"
 #include "Constants.h"
 #include "World.h"
+
+// stb headers — implementations live in Engine/Source/Engine/stb_implementation.cpp.
+// Here we only need the declarations to call stbi_load + stbir_resize +
+// stbi_write_png from the Android-icon generation step.
+#include <stb_image.h>
+#include <stb_image_resize2.h>
+#include <stb_image_write.h>
 #include "Engine.h"
 #include "AssetManager.h"
 #include "EditorState.h"
@@ -2748,6 +2755,125 @@ void ActionManager::BuildPhase1()
                              (projAssetDir + projectName + ".octp").c_str());
             }
 
+            // Per-profile Android branding overrides — applicationId / app
+            // label / icon source. All three default to "use the engine's
+            // stock value" so the build still works for a fresh project that
+            // never touched the Target Options panel.
+            //
+            //   appId       = mTargetOptions["android.applicationId"]
+            //                   or "com.you.appname"
+            //   appLabel    = mTargetOptions["android.appLabel"]
+            //                   or EngineConfig::mProjectName
+            //   iconSource  = mTargetOptions["android.iconSource"]
+            //                   or EngineConfig::mIconPath
+            //
+            // Rewrites land on the per-build copy of the Android tree
+            // (buildProjDir/Android/) and are scoped to this build; the
+            // engine's Standalone/Android/ template stays at its stock
+            // values so Force Rebuild → fresh CMakeLists isn't an
+            // identity-shifting event.
+            {
+                auto getOpt = [&](const char* k, const std::string& fallback) -> std::string {
+                    auto it = mBuildState.mTargetOptions.find(k);
+                    if (it == mBuildState.mTargetOptions.end() || it->second.empty()) return fallback;
+                    return it->second;
+                };
+
+                const std::string kDefaultAppId  = "com.you.appname";
+                const std::string appId          = getOpt("android.applicationId", kDefaultAppId);
+                const std::string appLabel       = getOpt("android.appLabel", GetEngineConfig()->mProjectName);
+                const std::string iconSource     = getOpt("android.iconSource", GetEngineConfig()->mIconPath);
+
+                const std::string androidRoot    = buildProjDir + "Android/";
+                const std::string stringsXml     = androidRoot + "app/src/main/res/values/strings.xml";
+                const std::string buildGradle    = androidRoot + "app/build.gradle";
+                const std::string manifestXml    = androidRoot + "app/src/main/AndroidManifest.xml";
+
+                // strings.xml — single <string name="app_name">...</string>.
+                // Use the ReplaceStringInFile helper to swap whichever value
+                // is currently there for the new appLabel. Two passes cover
+                // both the freshly-copied template state and the case where
+                // a prior build wrote a different label.
+                if (SYS_DoesFileExist(stringsXml.c_str(), false))
+                {
+                    Stream s; s.ReadFile(stringsXml.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+                    // Regex-light: locate <string name="app_name">…</string> and
+                    // replace the inner text. Anchor on the opening tag so
+                    // nothing else in the file matches.
+                    const std::string openTag = "<string name=\"app_name\">";
+                    const std::string closeTag = "</string>";
+                    size_t openIdx = content.find(openTag);
+                    if (openIdx != std::string::npos)
+                    {
+                        size_t valStart = openIdx + openTag.size();
+                        size_t closeIdx = content.find(closeTag, valStart);
+                        if (closeIdx != std::string::npos)
+                        {
+                            content.replace(valStart, closeIdx - valStart, appLabel);
+                            Stream out(content.c_str(), (uint32_t)content.size());
+                            out.WriteFile(stringsXml.c_str());
+                            LogDebug("Android: strings.xml app_name = \"%s\"", appLabel.c_str());
+                        }
+                    }
+                }
+
+                // AndroidManifest.xml — the activity carries its own
+                // android:label="Standalone" that shadows the application's
+                // @string/app_name. Drop or override it so the launcher
+                // shows the project name.
+                if (SYS_DoesFileExist(manifestXml.c_str(), false))
+                {
+                    Stream s; s.ReadFile(manifestXml.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+                    const std::string oldLabel = "android:label=\"Standalone\"";
+                    const std::string newLabel = "android:label=\"@string/app_name\"";
+                    size_t idx = content.find(oldLabel);
+                    if (idx != std::string::npos)
+                    {
+                        content.replace(idx, oldLabel.size(), newLabel);
+                        Stream out(content.c_str(), (uint32_t)content.size());
+                        out.WriteFile(manifestXml.c_str());
+                        LogDebug("Android: manifest activity label → @string/app_name");
+                    }
+                }
+
+                // build.gradle — applicationId + namespace. The stock value
+                // appears in three places (namespace, applicationId, archives
+                // baseName-ish bits via setProperty). Only the first two need
+                // touching for Play-Store-distinct identity; the rest are
+                // either ignored by AGP or read at runtime, not packaging.
+                if (SYS_DoesFileExist(buildGradle.c_str(), false))
+                {
+                    Stream s; s.ReadFile(buildGradle.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+
+                    // Replace the quoted value after `namespace` and
+                    // `applicationId` keywords with the resolved appId.
+                    auto replaceIdLine = [&](const std::string& keyword) {
+                        size_t kIdx = content.find(keyword);
+                        if (kIdx == std::string::npos) return;
+                        size_t quoteStart = content.find_first_of("'\"", kIdx + keyword.size());
+                        if (quoteStart == std::string::npos) return;
+                        char q = content[quoteStart];
+                        size_t quoteEnd = content.find(q, quoteStart + 1);
+                        if (quoteEnd == std::string::npos) return;
+                        content.replace(quoteStart + 1, quoteEnd - quoteStart - 1, appId);
+                    };
+                    replaceIdLine("namespace ");
+                    replaceIdLine("applicationId ");
+
+                    Stream out(content.c_str(), (uint32_t)content.size());
+                    out.WriteFile(buildGradle.c_str());
+                    LogDebug("Android: build.gradle applicationId/namespace = \"%s\"", appId.c_str());
+                }
+
+                // Stash iconSource for the icon-generation step below to
+                // pick up — keeps the lambda + path resolution close to
+                // where the value was derived.
+                mBuildState.mAndroidResolvedIconSource = iconSource;
+            }
+
             // Engine addons → CMake snippet. Pulled in by the Android
             // CMakeLists.txt via include() so addon Source dirs / include
             // paths / defines / libs land in libstandalone.so. Also writes
@@ -2779,6 +2905,118 @@ void ActionManager::BuildPhase1()
                              (polyphaseDirectory + "Standalone/Generated/AddonInject.cmake").c_str());
                 SYS_CopyFile((buildProjDir + "Generated/AddonPlugins.cpp").c_str(),
                              (polyphaseDirectory + "Standalone/Generated/AddonPlugins.cpp").c_str());
+            }
+
+            // Launcher icons — generate ic_launcher.png + ic_launcher_round.png
+            // at every Android density from the project icon, then delete the
+            // stock .webp variants so aapt2 doesn't choke on dual-extension
+            // entries for the same resource name. Skips silently if no icon
+            // source resolved or the file doesn't exist (build still succeeds
+            // with the stock template icons).
+            {
+                const std::string& iconSource = mBuildState.mAndroidResolvedIconSource;
+                if (!iconSource.empty())
+                {
+                    // Resolve relative paths against the project dir. Absolute
+                    // paths (drive letter or leading slash) pass through.
+                    std::string iconPath = iconSource;
+                    bool isAbsolute =
+                        (iconPath.size() >= 2 && iconPath[1] == ':') ||  // Windows drive
+                        (!iconPath.empty() && (iconPath[0] == '/' || iconPath[0] == '\\'));
+                    if (!isAbsolute)
+                    {
+                        iconPath = projectDir + iconPath;
+                    }
+
+                    if (SYS_DoesFileExist(iconPath.c_str(), false))
+                    {
+                        int srcW = 0, srcH = 0, srcChans = 0;
+                        unsigned char* srcPixels = stbi_load(iconPath.c_str(), &srcW, &srcH, &srcChans, 4);
+                        if (srcPixels != nullptr)
+                        {
+                            struct Density { const char* dir; int size; };
+                            const Density densities[] = {
+                                { "mipmap-mdpi",    48  },
+                                { "mipmap-hdpi",    72  },
+                                { "mipmap-xhdpi",   96  },
+                                { "mipmap-xxhdpi",  144 },
+                                { "mipmap-xxxhdpi", 192 },
+                            };
+
+                            const std::string resDir = buildProjDir + "Android/app/src/main/res/";
+
+                            for (const Density& d : densities)
+                            {
+                                const std::string dirPath = resDir + d.dir + "/";
+
+                                std::vector<unsigned char> dst((size_t)d.size * d.size * 4);
+                                stbir_resize_uint8_srgb(
+                                    srcPixels, srcW, srcH, 0,
+                                    dst.data(), d.size, d.size, 0,
+                                    STBIR_RGBA);
+
+                                // ic_launcher.png + ic_launcher_round.png. We
+                                // write the same pixels to both — proper
+                                // round-mask differentiation would need an
+                                // alpha pre-mask, but the legacy round icon
+                                // is rarely visible on devices Android 8+
+                                // (adaptive icons win there).
+                                const char* fileNames[] = { "ic_launcher.png", "ic_launcher_round.png" };
+                                for (const char* name : fileNames)
+                                {
+                                    const std::string out = dirPath + name;
+                                    if (!stbi_write_png(out.c_str(), d.size, d.size, 4, dst.data(), d.size * 4))
+                                    {
+                                        LogWarning("Android icon: failed to write %s", out.c_str());
+                                    }
+                                }
+
+                                // Remove the stock .webp variants so aapt2
+                                // doesn't merge resource buckets with two
+                                // different file types for the same name.
+                                SYS_RemoveFile((dirPath + "ic_launcher.webp").c_str());
+                                SYS_RemoveFile((dirPath + "ic_launcher_round.webp").c_str());
+                            }
+
+                            stbi_image_free(srcPixels);
+
+                            // Android 8+ (API 26+) consults the adaptive-icon
+                            // XMLs in mipmap-anydpi-v26/ before falling back
+                            // to the legacy mipmap-<density>/ PNGs. If we
+                            // leave them in place they composite the stock
+                            // green-robot foreground over the stock
+                            // background — our PNGs are never rendered on
+                            // any modern device. Drop the adaptive wrappers
+                            // entirely; the system then picks up the
+                            // legacy PNG at the right density.
+                            //
+                            // Also remove the foreground/background vector
+                            // drawables they referenced so resource compile
+                            // doesn't waste cycles on orphans. Harmless to
+                            // leave but cleaner without.
+                            const std::string anydpiDir   = resDir + "mipmap-anydpi-v26/";
+                            const std::string drawableDir = resDir + "drawable/";
+                            const std::string drawableV24 = resDir + "drawable-v24/";
+                            SYS_RemoveFile((anydpiDir   + "ic_launcher.xml"           ).c_str());
+                            SYS_RemoveFile((anydpiDir   + "ic_launcher_round.xml"     ).c_str());
+                            SYS_RemoveFile((drawableDir + "ic_launcher_background.xml").c_str());
+                            SYS_RemoveFile((drawableV24 + "ic_launcher_foreground.xml").c_str());
+
+                            LogDebug("Android: generated launcher icons from %s (%dx%d), removed adaptive XMLs",
+                                     iconPath.c_str(), srcW, srcH);
+                        }
+                        else
+                        {
+                            LogWarning("Android icon: stbi_load failed for %s — %s",
+                                       iconPath.c_str(), stbi_failure_reason() ? stbi_failure_reason() : "(unknown)");
+                        }
+                    }
+                    else
+                    {
+                        LogDebug("Android icon: source not found, keeping stock icons (%s)",
+                                 iconPath.c_str());
+                    }
+                }
             }
 
             // On Force Rebuild prepend `clean` to the gradle task list. Belt-

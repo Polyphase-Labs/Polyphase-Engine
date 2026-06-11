@@ -1,4 +1,4 @@
-package com.solarscapegames.standalone;
+package com.you.appname;
 
 import org.junit.Test;
 

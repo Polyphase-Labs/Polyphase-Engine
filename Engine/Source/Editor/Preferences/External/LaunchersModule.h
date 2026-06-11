@@ -115,10 +115,17 @@ public:
 
     /**
      * @brief `<package>/<activity>` for `adb shell am start -n` after install.
-     * Defaults match Standalone/Android/app/build.gradle's applicationId +
-     * PolyphaseActivity. Override if your project's gradle was customised.
+     * Defaults match Standalone/Android/app/build.gradle's stock applicationId
+     * + Java FQN. When a project overrides applicationId via Target Options
+     * (e.g. to `com.acme.bomber`), update this to either:
+     *   `com.acme.bomber/com.you.appname.PolyphaseActivity`   (FQN, robust)
+     *   or `com.acme.bomber/.PolyphaseActivity`               (requires the
+     *                                                          Java tree
+     *                                                          to also be
+     *                                                          moved to
+     *                                                          com.acme.bomber)
      */
-    std::string mAndroidLaunchComponent = "com.solarscapegames.standalone/.PolyphaseActivity";
+    std::string mAndroidLaunchComponent = "com.you.appname/.PolyphaseActivity";
 
     /** @brief One row from `adb devices -l`. */
     struct AdbDevice

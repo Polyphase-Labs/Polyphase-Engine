@@ -20,8 +20,8 @@
         android:hasCode="true"
         tools:targetApi="31">
         <activity
-            android:name="com.solarscapegames.standalone.PolyphaseActivity"
-            android:label="Standalone"
+            android:name="com.you.appname.PolyphaseActivity"
+            android:label="@string/app_name"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">

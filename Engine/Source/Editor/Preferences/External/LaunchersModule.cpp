@@ -307,7 +307,7 @@ void LaunchersModule::LoadSettings(const rapidjson::Document& doc)
     mAdbInstallArgs = JsonSettings::GetString(doc, "adbInstallArgs", "-r");
     mAndroidSerial = JsonSettings::GetString(doc, "androidSerial", "");
     mAndroidLaunchComponent = JsonSettings::GetString(doc, "androidLaunchComponent",
-                                                     "com.solarscapegames.standalone/.PolyphaseActivity");
+                                                     "com.you.appname/.PolyphaseActivity");
     mAutoOpenLogcat = JsonSettings::GetBool(doc, "autoOpenLogcat", true);
     mLogcatAutoClear = JsonSettings::GetBool(doc, "logcatAutoClear", true);
     mLogcatFilter = JsonSettings::GetString(doc, "logcatFilter", "Polyphase:V *:E");

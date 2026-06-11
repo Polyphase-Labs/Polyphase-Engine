@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.solarscapegames.standalone'
+    namespace 'com.polyphase.fpstest'
     compileSdk 33
 
     defaultConfig {
-        applicationId "com.solarscapegames.standalone"
+        applicationId "com.polyphase.fpstest"
         minSdk 24
         targetSdk 33
         versionCode 1
@@ -44,9 +44,13 @@ android {
             version '3.22.1'
         }
     }
-    buildFeatures {
-        viewBinding true
-    }
+    // viewBinding was producing
+    // `<namespace>.databinding.ActivityMainBinding` for PolyphaseActivity to
+    // import, but nothing in the activity actually uses the binding. Keeping
+    // it on made the Java source's import line couple to gradle's namespace —
+    // when projects override applicationId/namespace via Target Options, the
+    // databinding package moves and the import breaks. Removed; PolyphaseActivity
+    // now compiles regardless of the namespace value.
 }
 
 dependencies {
