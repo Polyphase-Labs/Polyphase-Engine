@@ -42,6 +42,7 @@ nav:
           - Terminal: Development/SetupEnvironment/Terminal.md
           - Compiling: Development/SetupEnvironment/Compiling.md
       - Audio Visualizer: Development/AudioVisualizer.md
+      - Loading Menu: Development/LoadingMenu.md
       - Mesh Instancing: Development/MeshInstancing.md
       - Shadows: Development/Shadows.md
       - 3D Nodes:
@@ -153,6 +154,7 @@ nav:
           - Engine: Lua/Systems/Engine.md
           - Renderer: Lua/Systems/Renderer.md
           - Input: Lua/Systems/Input.md
+          - Loading Menu: Lua/Systems/LoadingMenu.md
           - Audio: Lua/Systems/Audio.md
           - Network: Lua/Systems/Network.md
           - Timer Manager: Lua/Systems/TimerManager.md

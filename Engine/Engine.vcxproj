@@ -1035,6 +1035,7 @@
     <ClCompile Include="Source\Editor\TilePaint\TilePaintManager.cpp" />
     <ClCompile Include="Source\Editor\TilePaint\TilePicker.cpp" />
     <ClCompile Include="Source\Editor\ImagePlane\ImagePlaneBuilder.cpp" />
+    <ClCompile Include="Source\Editor\AssetFixup\AssetFixupModal.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\ThemeEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\CssGenerator.cpp" />
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp" />
@@ -1062,6 +1063,7 @@
     <ClCompile Include="Source\Engine\Assets\TinyLLMAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\TinyLLMTokenizerAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\Timeline.cpp" />
+    <ClCompile Include="Source\Engine\Assets\TransformAnimationAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\NodeGraphAsset.cpp" />
     <ClCompile Include="Source\Engine\AudioManager.cpp" />
     <ClCompile Include="Source\Engine\Clock.cpp" />
@@ -1147,9 +1149,12 @@
     <ClCompile Include="Source\Engine\Nodes\TimelinePlayer.cpp" />
     <ClCompile Include="Source\Engine\Nodes\NodeGraphPlayer.cpp" />
     <ClCompile Include="Source\Engine\Nodes\SpriteAnimator.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\TransformAnimationNode3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\Widgets\TransformAnimationWidget.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineTrack.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineClip.cpp" />
     <ClCompile Include="Source\Engine\Timeline\TimelineInstance.cpp" />
+    <ClCompile Include="Source\Engine\Timeline\TimelineTypes.cpp" />
     <ClCompile Include="Source\Engine\Timeline\Tracks\TransformTrack.cpp" />
     <ClCompile Include="Source\Engine\Timeline\Tracks\TransformClip.cpp" />
     <ClCompile Include="Source\Engine\Timeline\Tracks\AudioTrack.cpp" />
@@ -1162,6 +1167,8 @@
     <ClCompile Include="Source\Engine\Timeline\Tracks\ActivateClip.cpp" />
     <ClCompile Include="Source\Engine\Timeline\Tracks\FunctionCallTrack.cpp" />
     <ClCompile Include="Source\Engine\Timeline\Tracks\FunctionCallClip.cpp" />
+    <ClCompile Include="Source\Engine\Timeline\Tracks\TransformAnimationTrack.cpp" />
+    <ClCompile Include="Source\Engine\Timeline\Tracks\TransformAnimationClip.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\GraphTypes.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\GraphNode.cpp" />
     <ClCompile Include="Source\Engine\NodeGraph\NodeGraph.cpp" />
@@ -1200,6 +1207,7 @@
     <ClCompile Include="Source\Engine\ScriptAutoReg.cpp" />
     <ClCompile Include="Source\Engine\ScriptFunc.cpp" />
     <ClCompile Include="Source\Engine\ScriptUtils.cpp" />
+    <ClCompile Include="Source\Engine\LoadingMenu.cpp" />
     <ClCompile Include="Source\Engine\SignalBus.cpp" />
     <ClCompile Include="Source\Engine\Signals.cpp" />
     <ClCompile Include="Source\Engine\SmartPointer.cpp" />
@@ -1314,6 +1322,7 @@
     <ClCompile Include="Source\LuaBindings\DataAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Script_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ShadowMesh3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\LoadingMenu_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Signal_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh3d_Lua.cpp" />
@@ -1348,6 +1357,10 @@
     <ClCompile Include="Source\LuaBindings\NodeGraphPlayer_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\UIDocument_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Timeline_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\TransformKeyframe_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\TransformAnimationAsset_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\TransformAnimationNode3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\TransformAnimationWidget_Lua.cpp" />
     <ClCompile Include="Source\Network\3DS\Network_3DS.cpp" />
     <ClCompile Include="Source\Network\Android\Network_Android.cpp" />
     <ClCompile Include="Source\Network\Dolphin\Network_Dolphin.cpp" />
@@ -1566,6 +1579,7 @@
     <ClInclude Include="Source\Editor\TilePaint\TilePaintManager.h" />
     <ClInclude Include="Source\Editor\TilePaint\TilePicker.h" />
     <ClInclude Include="Source\Editor\ImagePlane\ImagePlaneBuilder.h" />
+    <ClInclude Include="Source\Editor\AssetFixup\AssetFixupModal.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\ThemeEditorWindow.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />
@@ -1599,6 +1613,7 @@
     <ClInclude Include="Source\Engine\Assets\TinyLLMAsset.h" />
     <ClInclude Include="Source\Engine\Assets\TinyLLMTokenizerAsset.h" />
     <ClInclude Include="Source\Engine\Assets\Timeline.h" />
+    <ClInclude Include="Source\Engine\Assets\TransformAnimationAsset.h" />
     <ClInclude Include="Source\Engine\Assets\NodeGraphAsset.h" />
     <ClInclude Include="Source\Engine\AudioManager.h" />
     <ClInclude Include="Source\Engine\CameraFrustum.h" />
@@ -1688,6 +1703,8 @@
     <ClInclude Include="Source\Engine\Nodes\TimelinePlayer.h" />
     <ClInclude Include="Source\Engine\Nodes\NodeGraphPlayer.h" />
     <ClInclude Include="Source\Engine\Nodes\SpriteAnimator.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\TransformAnimationNode3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\Widgets\TransformAnimationWidget.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineTrack.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineClip.h" />
     <ClInclude Include="Source\Engine\Timeline\TimelineInstance.h" />
@@ -1704,6 +1721,8 @@
     <ClInclude Include="Source\Engine\Timeline\Tracks\ActivateClip.h" />
     <ClInclude Include="Source\Engine\Timeline\Tracks\FunctionCallTrack.h" />
     <ClInclude Include="Source\Engine\Timeline\Tracks\FunctionCallClip.h" />
+    <ClInclude Include="Source\Engine\Timeline\Tracks\TransformAnimationTrack.h" />
+    <ClInclude Include="Source\Engine\Timeline\Tracks\TransformAnimationClip.h" />
     <ClInclude Include="Source\Engine\NodeGraph\GraphTypes.h" />
     <ClInclude Include="Source\Engine\NodeGraph\GraphPin.h" />
     <ClInclude Include="Source\Engine\NodeGraph\GraphLink.h" />
@@ -1748,6 +1767,7 @@
     <ClInclude Include="Source\Engine\ScriptFunc.h" />
     <ClInclude Include="Source\Engine\ScriptMacros.h" />
     <ClInclude Include="Source\Engine\ScriptUtils.h" />
+    <ClInclude Include="Source\Engine\LoadingMenu.h" />
     <ClInclude Include="Source\Engine\SignalBus.h" />
     <ClInclude Include="Source\Engine\Signals.h" />
     <ClInclude Include="Source\Engine\Stream.h" />
@@ -1860,6 +1880,7 @@
     <ClInclude Include="Source\LuaBindings\DataAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Script_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ShadowMesh3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\LoadingMenu_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Signal_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh3d_Lua.h" />
@@ -1894,6 +1915,10 @@
     <ClInclude Include="Source\LuaBindings\NodeGraphPlayer_Lua.h" />
     <ClInclude Include="Source\LuaBindings\UIDocument_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Timeline_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\TransformKeyframe_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\TransformAnimationAsset_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\TransformAnimationNode3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\TransformAnimationWidget_Lua.h" />
     <ClInclude Include="Source\Network\Http\Backends\HttpBackend.h" />
     <ClInclude Include="Source\Network\Http\HttpClient.h" />
     <ClInclude Include="Source\Network\Http\HttpHandle.h" />

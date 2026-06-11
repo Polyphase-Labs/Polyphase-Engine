@@ -1,6 +1,7 @@
 #include "LuaBindings/Property_Lua.h"
 #include "LuaBindings/LuaUtils.h"
 #include "LuaBindings/Vector_Lua.h"
+#include "LuaBindings/TransformKeyframe_Lua.h"
 #include "LuaBindings/Asset_Lua.h"
 #include "LuaBindings/Node_Lua.h"
 #include "Engine/Script.h"
@@ -121,6 +122,17 @@ int Property_Lua::Create(lua_State* L)
         else
         {
             defaultValue = Datum(glm::vec4(0.0f));
+        }
+        break;
+    case DatumType::TransformKeyframe:
+        if (lua_isuserdata(L, 2))
+        {
+            TransformKeyframe_Lua* kfLua = CheckLuaType<TransformKeyframe_Lua>(L, 2, TRANSFORM_KEYFRAME_LUA_NAME, false);
+            defaultValue = Datum(kfLua ? kfLua->mKeyframe : TransformKeyframe());
+        }
+        else
+        {
+            defaultValue = Datum(TransformKeyframe());
         }
         break;
     case DatumType::Asset:
@@ -300,6 +312,15 @@ int Property_Lua::CreateArray(lua_State* L)
                 }
                 else
                     datum = Datum(glm::vec4(0.0f));
+                break;
+            case DatumType::TransformKeyframe:
+                if (lua_isuserdata(L, -1))
+                {
+                    TransformKeyframe_Lua* kfLua = CheckLuaType<TransformKeyframe_Lua>(L, -1, TRANSFORM_KEYFRAME_LUA_NAME, false);
+                    datum = Datum(kfLua ? kfLua->mKeyframe : TransformKeyframe());
+                }
+                else
+                    datum = Datum(TransformKeyframe());
                 break;
             case DatumType::Asset:
                 if (lua_isuserdata(L, -1))
@@ -515,6 +536,9 @@ void Property_Lua::ProcessPendingAutoProperties(Script* script)
                         case DatumType::Color:
                             Vector_Lua::Create(L, value.GetColor());
                             break;
+                        case DatumType::TransformKeyframe:
+                            TransformKeyframe_Lua::Create(L, value.GetTransformKeyframe());
+                            break;
                         case DatumType::Asset:
                             Asset_Lua::Create(L, value.GetAsset(), true);
                             break;
@@ -559,6 +583,9 @@ void Property_Lua::ProcessPendingAutoProperties(Script* script)
                         break;
                     case DatumType::Color:
                         Vector_Lua::Create(L, tracker.mValue.GetColor());
+                        break;
+                    case DatumType::TransformKeyframe:
+                        TransformKeyframe_Lua::Create(L, tracker.mValue.GetTransformKeyframe());
                         break;
                     case DatumType::Asset:
                         Asset_Lua::Create(L, tracker.mValue.GetAsset(), true);

@@ -735,6 +735,73 @@ void VulkanContext::DrawLines(const std::vector<Line>& lines)
     }
 }
 
+void VulkanContext::DrawSplats(const GaussianSplatInstance* instances, uint32_t count,
+                               const glm::vec3& cameraRight, const glm::vec3& cameraUp)
+{
+    if (instances == nullptr || count == 0) return;
+
+    VkCommandBuffer cb = GetCommandBuffer();
+
+    // Grow the GPU buffer on demand. 6 verts per splat (two triangles, no
+    // index buffer to keep things simple). Mirrors the DrawLines pattern.
+    if (mNumSplatsAllocated < int32_t(count))
+    {
+        if (mSplatVertexBuffer != nullptr)
+        {
+            GetDestroyQueue()->Destroy(mSplatVertexBuffer);
+            mSplatVertexBuffer = nullptr;
+        }
+        mSplatVertexBuffer = new Buffer(BufferType::Vertex,
+            size_t(count) * 6 * sizeof(VertexLine), "Splat Vertex Data");
+        mNumSplatsAllocated = int32_t(count);
+    }
+
+    // CPU-side billboard expansion. Each splat becomes 6 verts forming a
+    // camera-facing quad, oriented in world space using the supplied camera
+    // basis. World-space output — the Line.vert shader projects via
+    // global.mViewProj.
+    {
+        void* mapped = mSplatVertexBuffer->Map();
+        VertexLine* verts = reinterpret_cast<VertexLine*>(mapped);
+
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const GaussianSplatInstance& s = instances[i];
+            const glm::vec3 r = cameraRight * s.mRadius;
+            const glm::vec3 u = cameraUp    * s.mRadius;
+
+            const glm::vec3 c0 = s.mPosition + (-r - u); // bottom-left
+            const glm::vec3 c1 = s.mPosition + ( r - u); // bottom-right
+            const glm::vec3 c2 = s.mPosition + ( r + u); // top-right
+            const glm::vec3 c3 = s.mPosition + (-r + u); // top-left
+
+            const uint32_t color32 = ColorFloat4ToUint32(s.mColor);
+
+            // Tri 0: c0, c1, c2
+            verts[i * 6 + 0].mPosition = c0; verts[i * 6 + 0].mColor = color32;
+            verts[i * 6 + 1].mPosition = c1; verts[i * 6 + 1].mColor = color32;
+            verts[i * 6 + 2].mPosition = c2; verts[i * 6 + 2].mColor = color32;
+            // Tri 1: c0, c2, c3
+            verts[i * 6 + 3].mPosition = c0; verts[i * 6 + 3].mColor = color32;
+            verts[i * 6 + 4].mPosition = c2; verts[i * 6 + 4].mColor = color32;
+            verts[i * 6 + 5].mPosition = c3; verts[i * 6 + 5].mColor = color32;
+        }
+
+        mSplatVertexBuffer->Unmap();
+    }
+
+    {
+        BindPipelineConfig(PipelineConfig::Splat);
+
+        VkDeviceSize offset = 0;
+        VkBuffer vb = mSplatVertexBuffer->Get();
+        vkCmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
+
+        CommitPipeline();
+        vkCmdDraw(cb, 6 * count, 1, 0, 0);
+    }
+}
+
 void VulkanContext::DrawFullscreen()
 {
     VkCommandBuffer cb = GetCommandBuffer();
@@ -2484,6 +2551,11 @@ const VkPhysicalDeviceProperties& VulkanContext::GetDeviceProperties() const
 UniformBuffer* VulkanContext::GetFrameUniformBuffer()
 {
     return mFrameUniformBuffer;
+}
+
+VkRenderPass VulkanContext::GetCurrentRenderPass() const
+{
+    return mPipelineState.mRenderPass;
 }
 
 Shader* VulkanContext::GetGlobalShader(const std::string& name)

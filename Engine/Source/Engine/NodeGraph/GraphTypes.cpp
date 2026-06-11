@@ -175,6 +175,8 @@ const char* GetDatumTypeName(DatumType type)
     case DatumType::TileMap:            return "TileMap";
     case DatumType::Timeline:           return "Timeline";
     case DatumType::NodeGraphAsset:     return "NodeGraphAsset";
+    // Animation structs
+    case DatumType::TransformKeyframe:  return "TransformKeyframe";
     default:                  return "Unknown";
     }
 }
@@ -235,6 +237,8 @@ glm::vec4 GetDatumTypeColor(DatumType type)
     case DatumType::TileMap:            return glm::vec4(0.30f, 0.35f, 0.85f, 1.0f);
     case DatumType::Timeline:           return glm::vec4(0.25f, 0.30f, 0.90f, 1.0f);
     case DatumType::NodeGraphAsset:     return glm::vec4(0.35f, 0.25f, 0.85f, 1.0f);
+    // Animation structs (orange family — distinct from Quad)
+    case DatumType::TransformKeyframe:  return glm::vec4(0.95f, 0.65f, 0.20f, 1.0f);
     default:                  return glm::vec4(0.7f, 0.7f, 0.7f, 1.0f);
     }
 }

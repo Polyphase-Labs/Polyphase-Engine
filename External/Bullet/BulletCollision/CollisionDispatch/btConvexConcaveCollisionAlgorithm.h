@@ -25,6 +25,14 @@ class btDispatcher;
 #include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
 #include "btCollisionCreateFunc.h"
 
+// Engine integration hook. When the convex-vs-concave early-out encounters a
+// degenerate (zero-area) triangle in a triangle mesh, it skips the triangle and
+// invokes this callback so engine code can log which body owned the bad mesh.
+// `triBodyUserPointer` is the void* set via btCollisionObject::setUserPointer
+// on the triangle-mesh body. Install via btSetDegenerateTriangleReporter().
+typedef void (*btDegenerateTriangleReporter)(const void* triBodyUserPointer, int partId, int triangleIndex);
+void btSetDegenerateTriangleReporter(btDegenerateTriangleReporter reporter);
+
 ///For each triangle in the concave mesh that overlaps with the AABB of a convex (m_convexProxy), processTriangle is called.
 ATTRIBUTE_ALIGNED16(class)
 btConvexTriangleCallback : public btTriangleCallback

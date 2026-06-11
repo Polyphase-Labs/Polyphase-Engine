@@ -23,6 +23,7 @@ class ScriptFunc;
 class Object;
 class Node;
 class PointCloud;
+struct TransformKeyframe;
 
 enum class DatumType : uint8_t
 {
@@ -86,6 +87,9 @@ enum class DatumType : uint8_t
     TileMap,
     Timeline,
     NodeGraphAsset,
+
+    // Animation structs
+    TransformKeyframe,
 
     Count
 };
@@ -157,6 +161,7 @@ union DatumData
     int16_t* sh;
     ScriptFunc* fn;
     PointCloud** pc;
+    TransformKeyframe* tk;
     void* vp;
 };
 
@@ -200,6 +205,7 @@ public:
     Datum(Node* value);
     Datum(int16_t value);
     Datum(const ScriptFunc& func);
+    Datum(const TransformKeyframe& value);
 
     template<typename T>
     Datum(const std::vector<T>& arr)
@@ -286,6 +292,7 @@ public:
     void SetNode(const WeakPtr<Node>& value, uint32_t index = 0);
     void SetShort(int16_t value, uint32_t index = 0);
     void SetFunction(const ScriptFunc& value, uint32_t index = 0);
+    void SetTransformKeyframe(const TransformKeyframe& value, uint32_t index = 0);
 
     void SetValue(const void* value, uint32_t index = 0, uint32_t count = 1);
     void SetValueRaw(const void* value, uint32_t index = 0);
@@ -303,6 +310,7 @@ public:
     void SetExternal(WeakPtr<Node>* data, uint32_t count = 1);
     void SetExternal(int16_t* data, uint32_t count = 1);
     void SetExternal(ScriptFunc* data, uint32_t count = 1);
+    void SetExternal(TransformKeyframe* data, uint32_t count = 1);
 
     int32_t GetInteger(uint32_t index = 0) const;
     float GetFloat(uint32_t index = 0) const;
@@ -319,6 +327,7 @@ public:
     WeakPtr<Node3D> GetNode3D(uint32_t index = 0) const;
     int16_t GetShort(uint32_t index = 0) const;
     const ScriptFunc& GetFunction(uint32_t index = 0) const;
+    const TransformKeyframe& GetTransformKeyframe(uint32_t index = 0) const;
 
     int32_t& GetIntegerRef(uint32_t index = 0);
     float& GetFloatRef(uint32_t index = 0);
@@ -332,6 +341,7 @@ public:
     WeakPtr<Node>& GetNodeRef(uint32_t index = 0);
     int16_t& GetShortRef(uint32_t index = 0);
     ScriptFunc& GetFunctionRef(uint32_t index = 0);
+    TransformKeyframe& GetTransformKeyframeRef(uint32_t index = 0);
 
     void PushBack(int32_t value);
     void PushBack(float value);
@@ -350,6 +360,7 @@ public:
     void PushBack(Node* node);
     void PushBack(int16_t value);
     void PushBack(const ScriptFunc& value);
+    void PushBack(const TransformKeyframe& value);
 
     void Erase(uint32_t index);
 

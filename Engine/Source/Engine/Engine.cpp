@@ -2,6 +2,7 @@
 
 #include "Renderer.h"
 #include "World.h"
+#include "LoadingMenu.h"
 #include "InputDevices.h"
 #include "Input/PlayerInputSystem.h"
 #include "Engine.h"
@@ -256,6 +257,8 @@ void ForceLinkage()
     FORCE_LINK_CALL(NavMesh3D);
     FORCE_LINK_CALL(SpriteAnimator);
     FORCE_LINK_CALL(AnimatedSprite3D);
+    FORCE_LINK_CALL(TransformAnimationNode3D);
+    FORCE_LINK_CALL(TransformAnimationWidget);
 
     // Asset Types
     FORCE_LINK_CALL(Scene);
@@ -291,6 +294,9 @@ void ForceLinkage()
     FORCE_LINK_CALL(ActivateClip);
     FORCE_LINK_CALL(FunctionCallTrack);
     FORCE_LINK_CALL(FunctionCallClip);
+    FORCE_LINK_CALL(TransformAnimationAsset);
+    FORCE_LINK_CALL(TransformAnimationTrack);
+    FORCE_LINK_CALL(TransformAnimationClip);
 
     // Node Graph Types
     FORCE_LINK_CALL(NodeGraphAsset);
@@ -740,6 +746,11 @@ bool Initialize()
 
 #endif
 
+    // Install Bullet diagnostic reporters (degenerate-triangle logging, etc.)
+    // — see World.cpp.
+    extern void InstallBulletReporters();
+    InstallBulletReporters();
+
     sEngineState.mInitialized = true;
 
     return true;
@@ -884,6 +895,7 @@ bool Update()
         SCOPED_FRAME_STAT("Worlds");
         for (uint32_t i = 0; i < sWorlds.size(); ++i)
         {
+            GetLoadingMenu()->Update(gameDeltaTime, (int32_t)i);
             sWorlds[i]->Update(gameDeltaTime);
         }
     }
@@ -961,6 +973,7 @@ void Shutdown()
 
     NetworkManager::Get()->Shutdown();
     SerialManager::Get()->Shutdown();
+    GetLoadingMenu()->ForceClose();
     GetSignalBus()->Clear();
 
     for (uint32_t i = 0; i < sWorlds.size(); ++i)
@@ -1664,6 +1677,9 @@ void WriteEngineConfig(std::string path)
 
         fprintf(configIni, "DefaultScene=%s\n", sEngineConfig.mDefaultScene.c_str());
         fprintf(configIni, "DefaultEditorScene=%s\n", sEngineConfig.mDefaultEditorScene.c_str());
+        fprintf(configIni, "DefaultLoadingScene=%s\n", sEngineConfig.mDefaultLoadingScene.c_str());
+        fprintf(configIni, "LoadingMinDisplaySeconds=%f\n", sEngineConfig.mLoadingMinDisplaySeconds);
+        fprintf(configIni, "LoadingTimeoutSeconds=%f\n", sEngineConfig.mLoadingTimeoutSeconds);
         fprintf(configIni, "GameCode=%u\n", sEngineConfig.mGameCode);
         fprintf(configIni, "Version=%u\n", sEngineConfig.mVersion);
         fprintf(configIni, "WindowWidth=%u\n", sEngineConfig.mWindowWidth);
@@ -1761,6 +1777,12 @@ void ReadEngineConfig(std::string path)
                 sEngineConfig.mDefaultScene = value;
             else if (keyStr == "DefaultEditorScene")
                 sEngineConfig.mDefaultEditorScene = value;
+            else if (keyStr == "DefaultLoadingScene")
+                sEngineConfig.mDefaultLoadingScene = value;
+            else if (keyStr == "LoadingMinDisplaySeconds")
+                sEngineConfig.mLoadingMinDisplaySeconds = (float)atof(value);
+            else if (keyStr == "LoadingTimeoutSeconds")
+                sEngineConfig.mLoadingTimeoutSeconds = (float)atof(value);
             else if (keyStr == "GameCode")
                 sEngineConfig.mGameCode = (uint32_t)atoi(value);
             else if (keyStr == "Version")

@@ -5,6 +5,7 @@
 #include "../PreferencesModule.h"
 #include "EngineTypes.h"
 #include <string>
+#include <vector>
 
 /**
  * @brief Preferences module for configuring external emulator and tool paths.
@@ -97,7 +98,80 @@ public:
      */
     std::string BuildWiiloadCommand(const std::string& outputPath) const;
 
+    // ── Android (adb) ────────────────────────────────────────────────────────
+
+    /** @brief Path to Android Debug Bridge executable. Typical Windows location: C:\Android\Sdk\platform-tools\adb.exe */
+    std::string mAdbPath;
+
+    /** @brief Flags passed to `adb install`. `-r` reinstalls keeping app data. */
+    std::string mAdbInstallArgs = "-r";
+
+    /**
+     * @brief Default device serial (matches `adb devices` first column).
+     * Empty = let adb pick the single connected device (errors if multiple).
+     * Set this explicitly when multiple devices/emulators are connected.
+     */
+    std::string mAndroidSerial;
+
+    /**
+     * @brief `<package>/<activity>` for `adb shell am start -n` after install.
+     * Defaults match Standalone/Android/app/build.gradle's stock applicationId
+     * + Java FQN. When a project overrides applicationId via Target Options
+     * (e.g. to `com.acme.bomber`), update this to either:
+     *   `com.acme.bomber/com.you.appname.PolyphaseActivity`   (FQN, robust)
+     *   or `com.acme.bomber/.PolyphaseActivity`               (requires the
+     *                                                          Java tree
+     *                                                          to also be
+     *                                                          moved to
+     *                                                          com.acme.bomber)
+     */
+    std::string mAndroidLaunchComponent = "com.you.appname/.PolyphaseActivity";
+
+    /** @brief One row from `adb devices -l`. */
+    struct AdbDevice
+    {
+        std::string mSerial;
+        std::string mState;   // "device" | "unauthorized" | "offline"
+        std::string mModel;   // optional, parsed from `-l` long form
+    };
+
+    /** @brief True if mAdbPath points at an existing file. */
+    bool IsAdbConfigured() const;
+
+    /** @brief `"adb" [-s serial] install <args> "<apk>"`. Empty string if not configured. */
+    std::string BuildAdbInstallCommand(const std::string& apkPath) const;
+
+    /** @brief `"adb" [-s serial] shell am start -n <component>`. Empty if not configured or component blank. */
+    std::string BuildAdbLaunchCommand() const;
+
+    /** @brief Run `adb devices -l` and parse the output. Returns empty on failure. */
+    std::vector<AdbDevice> ListAdbDevices() const;
+
+    /** @brief Open a logcat window after launching on device. */
+    bool mAutoOpenLogcat = true;
+
+    /** @brief Run `adb logcat -c` before streaming so the user sees only this session's output. */
+    bool mLogcatAutoClear = true;
+
+    /**
+     * @brief Filter expression passed to `adb logcat`.
+     * Default `Polyphase:V *:E` shows verbose for the engine tag and errors for
+     * everything else — the sweet spot for game-side debugging on a Pixel.
+     */
+    std::string mLogcatFilter = "Polyphase:V *:E";
+
+    /**
+     * @brief Build the command that spawns a NEW, DETACHED console window
+     * streaming `adb logcat`. The editor doesn't wait on it; the window
+     * persists until the user closes it. Returns empty if not configured
+     * or the platform has no terminal-emulator strategy wired.
+     */
+    std::string BuildAdbLogcatCommand() const;
+
 private:
+    // Last result of the user clicking "Refresh Devices" in the prefs UI.
+    // Not persisted; refreshed on demand.
+    std::vector<AdbDevice> mCachedDevices;
     /**
      * @brief Helper to draw a path input with browse button.
      * @param label The input label

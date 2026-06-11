@@ -5,6 +5,10 @@
 #include "Assets/StaticMesh.h"
 #include "Assets/MaterialLite.h"
 #include "Assets/Texture.h"
+#include "AssetDir.h"
+#include "AssetManager.h"
+#include "EditorState.h"
+#include "EditorUtils.h"
 #include "Vertex.h"
 #include "Constants.h"
 
@@ -214,6 +218,72 @@ bool ExtractImagePlaneParams(StaticMesh* mesh, ImagePlaneParams& outParams)
     outParams.mTwoSided = (matLite->GetCullMode() == CullMode::None);
 
     return true;
+}
+
+static std::string MakeImagePlaneBaseName(const std::string& texName, const char* prefix)
+{
+    std::string base = texName;
+    if (base.length() >= 2 && base[0] == 'T' && base[1] == '_')
+        base = base.substr(2);
+    return std::string(prefix) + base;
+}
+
+AssetStub* FindOrCreateImagePlaneStubForTexture(AssetStub* textureStub)
+{
+    if (textureStub == nullptr)
+        return nullptr;
+    if (textureStub->mAsset == nullptr)
+        AssetManager::Get()->LoadAsset(*textureStub);
+    if (textureStub->mAsset == nullptr)
+        return nullptr;
+
+    Texture* tex = textureStub->mAsset->As<Texture>();
+    if (tex == nullptr)
+        return nullptr;
+
+    AssetDir* targetDir = textureStub->mDirectory;
+    if (targetDir == nullptr || targetDir->mEngineDir || targetDir->mAddonDir)
+    {
+        targetDir = GetEditorState()->GetAssetDirectory();
+    }
+    if (targetDir == nullptr || targetDir->mEngineDir || targetDir->mAddonDir)
+        return nullptr;
+
+    const std::string meshBaseName = MakeImagePlaneBaseName(tex->GetName(), "SM_");
+    const std::string matBaseName  = MakeImagePlaneBaseName(tex->GetName(), "M_");
+
+    AssetStub* existingStub = AssetManager::Get()->GetAssetStub(meshBaseName);
+    if (existingStub != nullptr && existingStub->mType == StaticMesh::GetStaticType())
+    {
+        if (existingStub->mAsset == nullptr)
+            AssetManager::Get()->LoadAsset(*existingStub);
+        StaticMesh* existing = (existingStub->mAsset != nullptr) ? existingStub->mAsset->As<StaticMesh>() : nullptr;
+        if (IsImagePlaneCandidate(existing))
+        {
+            MaterialLite* existingMat = existing->GetMaterial()->As<MaterialLite>();
+            if (existingMat != nullptr && existingMat->GetTexture(0) == tex)
+            {
+                return existingStub;
+            }
+        }
+    }
+
+    AssetStub* matStub  = EditorAddUniqueAsset(matBaseName.c_str(),  targetDir, MaterialLite::GetStaticType(), true);
+    AssetStub* meshStub = EditorAddUniqueAsset(meshBaseName.c_str(), targetDir, StaticMesh::GetStaticType(),  true);
+
+    MaterialLite* matLite = (matStub  && matStub->mAsset)  ? matStub->mAsset->As<MaterialLite>() : nullptr;
+    StaticMesh*   mesh    = (meshStub && meshStub->mAsset) ? meshStub->mAsset->As<StaticMesh>() : nullptr;
+    if (matLite == nullptr || mesh == nullptr)
+        return nullptr;
+
+    ImagePlaneParams params{};
+    params.mSourceTexture = tex;
+
+    ApplyImagePlaneToAssets(params, mesh, matLite);
+    AssetManager::Get()->SaveAsset(*matStub);
+    AssetManager::Get()->SaveAsset(*meshStub);
+
+    return meshStub;
 }
 
 #endif // EDITOR

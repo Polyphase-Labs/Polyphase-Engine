@@ -512,6 +512,43 @@ const std::vector<DebugDraw>& Renderer::GetDebugDraws() const
     return mDebugDraws;
 }
 
+uint64_t Renderer::RegisterCustomRenderPass(CustomRenderPassFn fn, void* userData)
+{
+    if (fn == nullptr) return 0;
+    CustomRenderPassEntry e;
+    e.mId       = mNextCustomRenderPassId++;
+    e.mFn       = fn;
+    e.mUserData = userData;
+    mCustomRenderPasses.push_back(e);
+    return e.mId;
+}
+
+void Renderer::UnregisterCustomRenderPass(uint64_t id)
+{
+    if (id == 0) return;
+    for (auto it = mCustomRenderPasses.begin(); it != mCustomRenderPasses.end(); ++it)
+    {
+        if (it->mId == id)
+        {
+            mCustomRenderPasses.erase(it);
+            return;
+        }
+    }
+}
+
+void Renderer::RunCustomRenderPasses()
+{
+    // Snapshot to a local list so a callback that re-enters
+    // Register/Unregister doesn't invalidate our iterator. Common when a
+    // plugin hot-reloads mid-frame.
+    if (mCustomRenderPasses.empty()) return;
+    auto snapshot = mCustomRenderPasses;
+    for (const auto& e : snapshot)
+    {
+        if (e.mFn != nullptr) e.mFn(e.mUserData);
+    }
+}
+
 void Renderer::GatherDrawData(World* world)
 {
     bool enable3D = mEnable3dRendering;
@@ -1487,6 +1524,14 @@ void Renderer::Render(World* world, int32_t screenIndex)
                         RenderDebugDraws(mCollisionDraws, PipelineConfig::Collision);
                     }
 
+                    // Native-addon custom render passes. Runs after opaque +
+                    // translucent + debug + gizmo draws so addons (e.g. the
+                    // Gaussian Splat addon) can alpha-composite over the
+                    // rendered scene, and before the world's line buffer so
+                    // debug overlays still draw on top. See
+                    // Renderer::RegisterCustomRenderPass.
+                    RunCustomRenderPasses();
+
                     GFX_DrawLines(world->GetLines());
                     GFX_DrawLines(Gizmos::GetLines());
 
@@ -1768,6 +1813,12 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
             RenderDebugDraws(mDebugDraws, PipelineConfig::Wireframe);
             RenderDebugDraws(Gizmos::GetWireDraws(), PipelineConfig::Wireframe);
         }
+
+        // Native-addon custom render passes — same hook as in the main
+        // Render() path, so addons (the Gaussian Splat renderer in particular)
+        // appear in the Game Preview / Second Screen panel using THAT panel's
+        // camera, not just the editor viewport.
+        RunCustomRenderPasses();
 
         GFX_DrawLines(world->GetLines());
         GFX_DrawLines(Gizmos::GetLines());

@@ -11,6 +11,7 @@
 #include "NodePath.h"
 #include "Nodes/Node.h"
 #include "NodeGraph/PointCloud.h"
+#include "Timeline/TimelineTypes.h"
 
 #include "System/System.h"
 
@@ -168,6 +169,12 @@ Datum::Datum(const ScriptFunc& value)
     PushBack(value);
 }
 
+Datum::Datum(const TransformKeyframe& value)
+{
+    Reset();
+    PushBack(value);
+}
+
 DatumType Datum::GetType() const
 {
     return mType;
@@ -306,6 +313,7 @@ uint32_t Datum::GetDataTypeSize() const
         case DatumType::NodeGraphAsset: size = sizeof(AssetRef); break;
         case DatumType::PointCloud: size = sizeof(PointCloud*); break;
         case DatumType::Execution: size = 0; break;
+        case DatumType::TransformKeyframe: size = sizeof(TransformKeyframe); break;
 
         case DatumType::Count: size = 0; break;
     }
@@ -370,6 +378,16 @@ uint32_t Datum::GetDataTypeSerializationSize(bool net) const
                 retSize += sizeof(uint32_t);
                 retSize += uint32_t(nodePath.size());
             }
+        }
+    }
+    else if (mType == DatumType::TransformKeyframe)
+    {
+        // Per keyframe: time(4) + position(12) + rotation(16) + scale(12) + interp(1) + signal(4 + size)
+        for (uint32_t i = 0; i < mCount; ++i)
+        {
+            retSize += sizeof(float) + sizeof(glm::vec3) + sizeof(glm::quat) + sizeof(glm::vec3) + sizeof(uint8_t);
+            retSize += sizeof(uint32_t);
+            retSize += uint32_t(mData.tk[i].mSignal.size());
         }
     }
     else
@@ -501,6 +519,29 @@ void Datum::ReadStream(Stream& stream, uint32_t version, bool net, bool external
                 // PointCloud can't be serialized.
                 case DatumType::PointCloud: OCT_ASSERT(0); break;
 
+                case DatumType::TransformKeyframe:
+                {
+                    TransformKeyframe kf;
+                    kf.mTime = stream.ReadFloat();
+                    kf.mPosition = stream.ReadVec3();
+                    kf.mRotation = stream.ReadQuat();
+                    kf.mScale = stream.ReadVec3();
+                    kf.mInterpMode = (InterpMode)stream.ReadUint8();
+                    // mSignal was added in ASSET_VERSION_TRANSFORM_KEYFRAME_SIGNAL.
+                    // Reading unconditionally on an older stream consumes whatever
+                    // bytes follow as a length-prefixed string -- usually a giant
+                    // bogus length, which writes a corrupt std::string into kf.
+                    // The corruption stays latent until the vector reallocates
+                    // (e.g. on the next AddInlineKeyframeFromTarget push) and the
+                    // destructor reads the bad pointer -> crash inside msvcp140d.
+                    if (version >= ASSET_VERSION_TRANSFORM_KEYFRAME_SIGNAL)
+                    {
+                        stream.ReadString(kf.mSignal);
+                    }
+                    PushBack(kf);
+                    break;
+                }
+
                 case DatumType::Count: break;
             }
         }
@@ -585,6 +626,18 @@ void Datum::WriteStream(Stream& stream, bool net) const
 
             // PointCloud can't be serialized.
             case DatumType::PointCloud: OCT_ASSERT(0); break;
+
+            case DatumType::TransformKeyframe:
+            {
+                const TransformKeyframe& kf = mData.tk[i];
+                stream.WriteFloat(kf.mTime);
+                stream.WriteVec3(kf.mPosition);
+                stream.WriteQuat(kf.mRotation);
+                stream.WriteVec3(kf.mScale);
+                stream.WriteUint8((uint8_t)kf.mInterpMode);
+                stream.WriteString(kf.mSignal);
+                break;
+            }
 
             case DatumType::Count: OCT_ASSERT(0); break;
         }
@@ -694,6 +747,13 @@ void Datum::SetFunction(const ScriptFunc& value, uint32_t index)
         mData.fn[index] = value;
 }
 
+void Datum::SetTransformKeyframe(const TransformKeyframe& value, uint32_t index)
+{
+    PreSet(index, DatumType::TransformKeyframe);
+    if (mOwner == nullptr || !mChangeHandler || !mChangeHandler(this, index, &value))
+        mData.tk[index] = value;
+}
+
 void Datum::SetValue(const void* value, uint32_t index, uint32_t count)
 {
     OCT_ASSERT(mType != DatumType::Count);
@@ -760,6 +820,7 @@ void Datum::SetValue(const void* value, uint32_t index, uint32_t count)
             case DatumType::NodeGraphPlayer: SetNode(*(reinterpret_cast<const WeakPtr<Node>*>(value) + i),       index + i); break;
             case DatumType::Short: SetShort(*(reinterpret_cast<const int16_t*>(value) + i),           index + i); break;
             case DatumType::Function: SetFunction(*(reinterpret_cast<const ScriptFunc*>(value) + i),  index + i); break;
+            case DatumType::TransformKeyframe: SetTransformKeyframe(*(reinterpret_cast<const TransformKeyframe*>(value) + i), index + i); break;
             case DatumType::Count: break;
             }
         }
@@ -820,6 +881,7 @@ void Datum::SetValueRaw(const void* value, uint32_t index)
     case DatumType::NodeGraphPlayer: mData.n[index] = *reinterpret_cast<const WeakPtr<Node>*>(value); break;
     case DatumType::Short: mData.sh[index] = *reinterpret_cast<const int16_t*>(value); break;
     case DatumType::Function: mData.fn[index] = *reinterpret_cast<const ScriptFunc*>(value); break;
+    case DatumType::TransformKeyframe: mData.tk[index] = *reinterpret_cast<const TransformKeyframe*>(value); break;
 
     case DatumType::Count: break;
     }
@@ -908,6 +970,13 @@ void Datum::SetExternal(ScriptFunc* data, uint32_t count)
     PostSetExternal(DatumType::Function, count);
 }
 
+void Datum::SetExternal(TransformKeyframe* data, uint32_t count)
+{
+    PreSetExternal(DatumType::TransformKeyframe);
+    mData.tk = data;
+    PostSetExternal(DatumType::TransformKeyframe, count);
+}
+
 int32_t Datum::GetInteger(uint32_t index) const
 {
     PreGet(index, DatumType::Integer);
@@ -994,6 +1063,12 @@ const ScriptFunc& Datum::GetFunction(uint32_t index) const
     return mData.fn[index];
 }
 
+const TransformKeyframe& Datum::GetTransformKeyframe(uint32_t index) const
+{
+    PreGet(index, DatumType::TransformKeyframe);
+    return mData.tk[index];
+}
+
 int32_t& Datum::GetIntegerRef(uint32_t index)
 {
     PreGet(index, DatumType::Integer);
@@ -1066,6 +1141,12 @@ ScriptFunc& Datum::GetFunctionRef(uint32_t index)
 {
     PreGet(index, DatumType::Function);
     return mData.fn[index];
+}
+
+TransformKeyframe& Datum::GetTransformKeyframeRef(uint32_t index)
+{
+    PreGet(index, DatumType::TransformKeyframe);
+    return mData.tk[index];
 }
 
 TableDatum* Datum::FindTableDatum(const char* key)
@@ -1260,6 +1341,13 @@ void Datum::PushBack(const ScriptFunc& value)
 {
     PrePushBack(DatumType::Function);
     new (mData.fn + mCount) ScriptFunc(value);
+    mCount++;
+}
+
+void Datum::PushBack(const TransformKeyframe& value)
+{
+    PrePushBack(DatumType::TransformKeyframe);
+    new (mData.tk + mCount) TransformKeyframe(value);
     mCount++;
 }
 
@@ -1994,6 +2082,7 @@ void Datum::Reserve(uint32_t capacity)
             if (mType == DatumType::String ||
                 mType == DatumType::Table ||
                 mType == DatumType::Function ||
+                mType == DatumType::TransformKeyframe ||
                 IsAssetDatumType(mType) ||
                 IsNodeDatumType(mType))
             {
@@ -2146,6 +2235,9 @@ void Datum::DeepCopy(const Datum& src, bool forceInternalStorage)
                 mCount++;
                 break;
             }
+            case DatumType::TransformKeyframe:
+                PushBack(*(src.mData.tk + i));
+                break;
 
             case DatumType::Count:
                 break;
@@ -2359,6 +2451,9 @@ void Datum::ConstructData(DatumData& dataUnion, uint32_t index)
     case DatumType::PointCloud:
         dataUnion.pc[index] = nullptr;
         break;
+    case DatumType::TransformKeyframe:
+        new (dataUnion.tk + index) TransformKeyframe();
+        break;
 
     case DatumType::Count:
         OCT_ASSERT(0);
@@ -2433,6 +2528,9 @@ void Datum::DestructData(DatumData& dataUnion, uint32_t index)
         delete dataUnion.pc[index];
         dataUnion.pc[index] = nullptr;
         break;
+    case DatumType::TransformKeyframe:
+        dataUnion.tk[index].TransformKeyframe::~TransformKeyframe();
+        break;
 
     default: break;
     }
@@ -2497,6 +2595,9 @@ void Datum::CopyData(DatumData& dst, uint32_t dstIndex, DatumData& src, uint32_t
     case DatumType::PointCloud:
         delete dst.pc[dstIndex];
         dst.pc[dstIndex] = src.pc[srcIndex] ? src.pc[srcIndex]->Clone() : nullptr;
+        break;
+    case DatumType::TransformKeyframe:
+        dst.tk[dstIndex] = src.tk[srcIndex];
         break;
 
     default:

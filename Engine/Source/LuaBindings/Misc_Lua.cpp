@@ -346,6 +346,9 @@ void BindDatumType()
     lua_pushinteger(L, (int)DatumType::NodeGraphAsset);
     lua_setfield(L, tableIdx, "NodeGraphAsset");
 
+    lua_pushinteger(L, (int)DatumType::TransformKeyframe);
+    lua_setfield(L, tableIdx, "TransformKeyframe");
+
     lua_pushinteger(L, (int)DatumType::Count);
     lua_setfield(L, tableIdx, "Count");
 

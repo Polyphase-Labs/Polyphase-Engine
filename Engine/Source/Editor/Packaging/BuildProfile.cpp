@@ -125,6 +125,7 @@ bool PlatformSupportsRun(Platform platform)
         case Platform::GameCube:
         case Platform::Wii:
         case Platform::N3DS:
+        case Platform::Android:
             return true;
         default:
             return false;

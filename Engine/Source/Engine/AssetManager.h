@@ -149,7 +149,7 @@ public:
     void DiscoverAssetRegistry(const char* registryPath);
     void DiscoverEmbeddedAssets(struct EmbeddedFile* assets, uint32_t numAssets);
     void Purge(bool purgeEngineAssets);
-    bool PurgeAsset(const char* name);
+    POLYPHASE_API bool PurgeAsset(const char* name);
     void RefSweep();
     void LoadAll();
 
@@ -160,9 +160,9 @@ public:
 
     // Name-based lookup (backward compatible)
     AssetStub* GetAssetStub(const std::string& name);
-    Asset* GetAsset(const std::string& name);
+    POLYPHASE_API Asset* GetAsset(const std::string& name);
     AssetStub* GetSceneAsset(const std::string& name);
-    Asset* LoadAsset(const std::string& name);
+    POLYPHASE_API Asset* LoadAsset(const std::string& name);
     Asset* LoadAsset(AssetStub& stub);
     void AsyncLoadAsset(const std::string& name, AssetRef* targetRef);
 
@@ -175,8 +175,8 @@ public:
     // Path-based lookup (e.g., "Assets/Models/SM_Plane" or "Models/SM_Plane")
     AssetStub* GetAssetStubByPath(const std::string& path);
     Asset* LoadAssetByPath(const std::string& path);
-    void SaveAsset(const std::string& name);
-    void SaveAsset(AssetStub& stub);
+    POLYPHASE_API void SaveAsset(const std::string& name);
+    POLYPHASE_API void SaveAsset(AssetStub& stub);
     bool UnloadAsset(const std::string& name);
     bool UnloadAsset(AssetStub& stub);
 
@@ -187,7 +187,7 @@ public:
     void GatherScriptFilesRecursive(const std::string& dirPath, const std::string& relativePath, std::vector<std::string>& scriptFiles);
     std::vector<std::string> GetAvailableScriptFiles();
     std::vector<std::string> GetAvailableFontFiles();
-    AssetDir* FindProjectDirectory();
+    POLYPHASE_API AssetDir* FindProjectDirectory();
     AssetDir* FindProjectRootDirectory();
     AssetDir* FindEngineDirectory();
     AssetDir* FindPackagesDirectory();
@@ -199,7 +199,7 @@ public:
     AssetStub* FindDefaultScene();
     std::string FindDefaultScenePath();
     void UnloadProjectDirectory();
-    std::unordered_map<std::string, AssetStub*>& GetAssetMap();
+    POLYPHASE_API std::unordered_map<std::string, AssetStub*>& GetAssetMap();
     std::vector<Asset*>& GetTransientAssets();
     std::vector<AssetStub*> GatherDirtyAssets();
 
@@ -210,7 +210,7 @@ public:
     // the import-extension pipeline. Pair with GetCurrentAssetDir() to
     // land the asset in the user's currently-browsed folder.
     POLYPHASE_API AssetStub* CreateAndRegisterAsset(TypeId assetType, AssetDir* directory, const std::string& filename, bool engineAsset);
-    AssetDir* GetAssetDirFromPath(const std::string& dirPath);
+    POLYPHASE_API AssetDir* GetAssetDirFromPath(const std::string& dirPath);
 
     bool IsPurging() const;
 

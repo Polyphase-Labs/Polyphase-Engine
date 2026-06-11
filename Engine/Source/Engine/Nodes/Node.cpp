@@ -32,6 +32,7 @@
 
 #if EDITOR
 #include "EditorState.h"
+#include "EditorImgui.h"
 #endif
 
 #include <functional>
@@ -1619,6 +1620,35 @@ void Node::AddChild(Node* child, int32_t index)
     if (child->IsDestroyed())
     {
         LogWarning("Cannot add a destroyed node as a child");
+        return;
+    }
+
+    // Defensive: mSelf.mPointer must point back at the same node, otherwise
+    // ResolvePtr below will crash inside WeakPtr::IsValid when it dereferences
+    // the dangling mPointer. This shows up as a hard crash with the top of the
+    // stack reading Node::IsDestroyed -> WeakPtr::IsValid -> WeakPtr::Lock ->
+    // ResolvePtr -> AddChild during Scene::Instantiate. The corruption is
+    // usually a stale Node* from a previous world/addon load whose memory
+    // has been reused; we have no way to recover the intended attachment, so
+    // abort and surface a modal so the user knows the scene didn't fully load.
+    if (child->GetSelfPtr().GetPointerRaw() != child ||
+        child->GetSelfPtr().GetRefCount() == nullptr)
+    {
+        const Node* selfRaw = child->GetSelfPtr().GetPointerRaw();
+        const std::string childName = child->GetName();
+        LogError("Node::AddChild: '%s' has a corrupt self-pointer (mSelf.mPointer=%p, child=%p, refCount=%p). "
+                 "Refusing to attach; this usually means a dangling Node* survived a world/addon teardown.",
+                 childName.c_str(), (const void*)selfRaw, (const void*)child,
+                 (const void*)child->GetSelfPtr().GetRefCount());
+#if EDITOR
+        char alertBuf[512];
+        snprintf(alertBuf, sizeof(alertBuf),
+                 "Cannot attach node '%s' - its self-reference is corrupted (likely a "
+                 "dangling pointer from a prior world or addon reload). The attach has "
+                 "been aborted to avoid a crash. See the Debug Log for full details.",
+                 childName.c_str());
+        EditorShowAlert("Node Attach Aborted", alertBuf);
+#endif
         return;
     }
 

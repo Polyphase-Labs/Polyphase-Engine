@@ -50,6 +50,26 @@ void GFX_SetFog(const FogSettings& fogSettings);
 void GFX_DrawLines(const std::vector<Line>& lines);
 void GFX_DrawFullscreen();
 
+// Camera-facing translucent splat quads. Used by the Gaussian Splatting addon
+// and any other addon that wants to render point-cloud-like data in shipped
+// builds. The backend handles CPU-side billboard expansion using the camera
+// basis supplied by the caller (typically right = camera.right vector,
+// up = camera.up vector), so the addon only ships per-splat data.
+//
+// `radius` is the half-extent of the world-space quad. RGBA color is applied
+// uniformly across the quad; alpha is honored via the standard translucent
+// blend state, so back-to-front sorting is the caller's responsibility.
+//
+// GX / C3D backends are no-ops in v0.2.
+struct GaussianSplatInstance
+{
+    glm::vec3 mPosition;
+    float     mRadius;
+    glm::vec4 mColor;
+};
+void GFX_DrawSplats(const GaussianSplatInstance* instances, uint32_t count,
+                    const glm::vec3& cameraRight, const glm::vec3& cameraUp);
+
 void GFX_ResizeWindow();
 void GFX_Reset();
 Node3D* GFX_ProcessHitCheck(World* world, int32_t x, int32_t y, uint32_t* outInstance = nullptr);

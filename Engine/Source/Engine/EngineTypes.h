@@ -299,6 +299,9 @@ struct EngineConfig
 
     std::string mDefaultScene = "";
     std::string mDefaultEditorScene = "";
+    std::string mDefaultLoadingScene = "";
+    float mLoadingMinDisplaySeconds = 0.0f;
+    float mLoadingTimeoutSeconds = 0.0f;
     uint32_t mGameCode = 0;
     uint32_t mVersion = 0;
     int32_t mWindowWidth = DEFAULT_WINDOW_WIDTH;

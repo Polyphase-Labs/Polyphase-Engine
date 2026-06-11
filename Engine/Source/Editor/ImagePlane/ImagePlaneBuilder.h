@@ -7,6 +7,7 @@
 #include "Graphics/GraphicsTypes.h"
 
 struct Vertex;
+struct AssetStub;
 class StaticMesh;
 class MaterialLite;
 class Texture;
@@ -49,5 +50,14 @@ void ApplyImagePlaneToAssets(const ImagePlaneParams& params, StaticMesh* mesh, M
 bool IsImagePlaneCandidate(StaticMesh* mesh);
 
 bool ExtractImagePlaneParams(StaticMesh* mesh, ImagePlaneParams& outParams);
+
+// Returns an AssetStub for an image-plane StaticMesh that fronts the given
+// texture, creating the SM_<base> + M_<base> assets with default params
+// (Unlit / Opaque / Center / AspectWidth1 / full UV) if no matching
+// image-plane mesh already exists. Drag-and-drop entry points use this so
+// dropping a Texture into the scene behaves like dropping a StaticMesh.
+// Returns nullptr if generation isn't possible (texture not loaded, target
+// directory is read-only, etc.).
+AssetStub* FindOrCreateImagePlaneStubForTexture(AssetStub* textureStub);
 
 #endif // EDITOR

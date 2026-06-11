@@ -28,6 +28,16 @@ subject to the following restrictions:
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
 #include "BulletCollision/CollisionShapes/btSdfCollisionShape.h"
 
+// Optional engine integration hook — see btConvexConcaveCollisionAlgorithm.h.
+// Default is null; engine code calls btSetDegenerateTriangleReporter to install
+// a reporter that resolves the user pointer to a Node3D and logs its name.
+static btDegenerateTriangleReporter g_btDegenerateTriangleReporter = 0;
+
+void btSetDegenerateTriangleReporter(btDegenerateTriangleReporter reporter)
+{
+	g_btDegenerateTriangleReporter = reporter;
+}
+
 btConvexConcaveCollisionAlgorithm::btConvexConcaveCollisionAlgorithm(const btCollisionAlgorithmConstructionInfo& ci, const btCollisionObjectWrapper* body0Wrap, const btCollisionObjectWrapper* body1Wrap, bool isSwapped)
 	: btActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap),
 	  m_btConvexTriangleCallback(ci.m_dispatcher1, body0Wrap, body1Wrap, isSwapped),
@@ -112,6 +122,22 @@ void btConvexTriangleCallback::processTriangle(btVector3* triangle, int partId, 
 			const btVector3 v2 = m_triBodyWrap->getWorldTransform()*triangle[2];
 
 			btVector3 triangle_normal_world = ( v1 - v0).cross(v2 - v0);
+			// Skip degenerate (zero-area, collinear) triangles: btVector3::normalize()
+			// asserts on fuzzyZero in debug, and silently produces NaN normals in
+			// release. Either of those is worse than just dropping the triangle from
+			// the convex-vs-concave early-out — degenerate triangles can never produce
+			// a valid contact anyway. Triggers when source meshes import malformed
+			// faces or when a btScaledBvhTriangleMeshShape has a zero scale axis.
+			if (triangle_normal_world.fuzzyZero())
+			{
+				if (g_btDegenerateTriangleReporter)
+				{
+					g_btDegenerateTriangleReporter(
+						m_triBodyWrap->getCollisionObject()->getUserPointer(),
+						partId, triangleIndex);
+				}
+				return;
+			}
 			triangle_normal_world.normalize();
 
 		    btConvexShape* convex = (btConvexShape*)m_convexBodyWrap->getCollisionShape();

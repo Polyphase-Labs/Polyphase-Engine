@@ -31,6 +31,7 @@ private:
     char mProjectNameBuffer[256] = {};
     char mDefaultSceneBuffer[256] = {};
     char mDefaultEditorSceneBuffer[256] = {};
+    char mDefaultLoadingSceneBuffer[256] = {};
     char mIconPathBuffer[512] = {};
 };
 

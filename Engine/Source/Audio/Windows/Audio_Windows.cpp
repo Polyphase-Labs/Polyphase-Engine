@@ -65,15 +65,33 @@ static StreamingVoiceEntry sStreamingVoices[kMaxStreamingVoices];
 
 void AUD_Initialize()
 {
-    if (XAudio2Create(&sXAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR) < 0)
+    HRESULT hr = XAudio2Create(&sXAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    if (FAILED(hr) || sXAudio2 == nullptr)
     {
-        LogError("Failed to create XAudio2 engine");
+        LogError("AUD_Initialize: XAudio2Create failed (hr=0x%08lX). All sound playback will be silent. "
+                 "Common causes: XAudio2_9.dll missing (verify Windows SDK install or DirectX runtime), "
+                 "audio service stopped (services.msc → Windows Audio), or running headless without an audio device.",
+                 (unsigned long)hr);
+        sXAudio2 = nullptr;
+        return;
     }
 
-    if (sXAudio2->CreateMasteringVoice(&sMasterVoice) < 0)
+    hr = sXAudio2->CreateMasteringVoice(&sMasterVoice);
+    if (FAILED(hr) || sMasterVoice == nullptr)
     {
-        LogError("Failed to create mastering voice");
+        LogError("AUD_Initialize: CreateMasteringVoice failed (hr=0x%08lX). All sound playback will be silent. "
+                 "Common causes: no default audio output device, exclusive-mode app holding the device, "
+                 "or audio device in a problematic state — try unplug/replug headphones or switch default device.",
+                 (unsigned long)hr);
+        // Tear sXAudio2 back down so AUD_Play's null check trips cleanly instead of
+        // CreateSourceVoice failing inside XAudio2 with a misleading INVALID_CALL.
+        sXAudio2->Release();
+        sXAudio2 = nullptr;
+        sMasterVoice = nullptr;
+        return;
     }
+
+    LogDebug("AUD_Initialize: XAudio2 + master voice OK.");
 
     // TODO: Prime the XAudio2 internal memory pool for source voices by allocating many.
     // And then immediately destroying them I suppose?
@@ -132,6 +150,22 @@ void AUD_Play(
     float startTime,
     bool spatial)
 {
+    // Bail out cleanly if XAudio2 didn't come up at init time — see AUD_Initialize.
+    // Without this, CreateSourceVoice below would call into a null sXAudio2 and
+    // access-violate; logging the cause makes the failure obvious.
+    if (sXAudio2 == nullptr || sMasterVoice == nullptr)
+    {
+        static bool sLoggedNoEngine = false;
+        if (!sLoggedNoEngine)
+        {
+            LogError("AUD_Play: XAudio2 engine not initialised (sXAudio2=%p sMasterVoice=%p) — "
+                     "all sounds will be silent this session. See earlier AUD_Initialize log line for cause.",
+                     (void*)sXAudio2, (void*)sMasterVoice);
+            sLoggedNoEngine = true;
+        }
+        return;
+    }
+
     OCT_ASSERT(sSourceVoices[voiceIndex] == nullptr);
 
     bool monoInput = (soundWave->GetNumChannels() == 1);
@@ -188,7 +222,8 @@ void AUD_Play(
         waveFormat.nChannels = 2;
     }
 
-    if (sXAudio2->CreateSourceVoice(&sSourceVoices[voiceIndex], &waveFormat) >= 0)
+    HRESULT createHr = sXAudio2->CreateSourceVoice(&sSourceVoices[voiceIndex], &waveFormat);
+    if (SUCCEEDED(createHr))
     {
         sSourceVoices[voiceIndex]->SubmitSourceBuffer(&sSourceBuffers[voiceIndex]);
 
@@ -200,28 +235,71 @@ void AUD_Play(
     }
     else
     {
-        LogError("Error creating XAUDIO2 source voice");
-        OCT_ASSERT(0);
+        // Don't assert — the SoundWave asset is malformed (most often) or XAudio2
+        // is out of voices. Logging the actual reason + the wave format makes the
+        // bad asset trivially identifiable; asserting kills the editor and tells
+        // the user nothing.
+        const char* waveName = soundWave ? soundWave->GetName().c_str() : "<null>";
+        LogError("AUD_Play: CreateSourceVoice failed (hr=0x%08lX) for SoundWave '%s' — "
+                 "channels=%u sampleRate=%u bitsPerSample=%u blockAlign=%u avgBytesPerSec=%u waveDataSize=%u%s. "
+                 "Voice slot %u left empty.",
+                 (unsigned long)createHr,
+                 waveName,
+                 (unsigned)waveFormat.nChannels,
+                 (unsigned)waveFormat.nSamplesPerSec,
+                 (unsigned)waveFormat.wBitsPerSample,
+                 (unsigned)waveFormat.nBlockAlign,
+                 (unsigned)waveFormat.nAvgBytesPerSec,
+                 (unsigned)sSourceBuffers[voiceIndex].AudioBytes,
+                 monoInput ? " (mono→stereo upmix)" : "",
+                 (unsigned)voiceIndex);
+
+        // Drop the upmix buffer we eagerly allocated for monoInput — otherwise it
+        // leaks every time playback fails, and the OCT_ASSERT in AUD_Play's prelude
+        // (sStereoConvertedBuffers[voiceIndex] == nullptr) would fire on the next try.
+        if (monoInput && sStereoConvertedBuffers[voiceIndex] != nullptr)
+        {
+            delete[] sStereoConvertedBuffers[voiceIndex];
+            sStereoConvertedBuffers[voiceIndex] = nullptr;
+        }
+
+        sSourceVoices[voiceIndex] = nullptr;
     }
 }
 
 void AUD_Stop(uint32_t voiceIndex)
 {
-    OCT_ASSERT(sSourceVoices[voiceIndex] != nullptr);
+    // Graceful when the slot is empty — AUD_Play may have failed to allocate
+    // the source voice (XAudio2 rejected the format, master voice missing,
+    // etc.), in which case the caller still walks through StopAudio at end of
+    // play. Asserting here turns a logged play failure into an editor crash.
+    if (voiceIndex >= AUDIO_MAX_VOICES || sSourceVoices[voiceIndex] == nullptr)
+    {
+        // Still clean any orphaned upmix buffer.
+        if (voiceIndex < AUDIO_MAX_VOICES && sStereoConvertedBuffers[voiceIndex] != nullptr)
+        {
+            delete[] sStereoConvertedBuffers[voiceIndex];
+            sStereoConvertedBuffers[voiceIndex] = nullptr;
+        }
+        return;
+    }
     sSourceVoices[voiceIndex]->Stop();
     sSourceVoices[voiceIndex]->DestroyVoice();
     sSourceVoices[voiceIndex] = nullptr;
 
     if (sStereoConvertedBuffers[voiceIndex] != nullptr)
     {
-        delete sStereoConvertedBuffers[voiceIndex];
+        delete[] sStereoConvertedBuffers[voiceIndex];
         sStereoConvertedBuffers[voiceIndex] = nullptr;
     }
 }
 
 bool AUD_IsPlaying(uint32_t voiceIndex)
 {
-    OCT_ASSERT(sSourceVoices[voiceIndex] != nullptr);
+    if (voiceIndex >= AUDIO_MAX_VOICES || sSourceVoices[voiceIndex] == nullptr)
+    {
+        return false;
+    }
     XAUDIO2_VOICE_STATE state;
     sSourceVoices[voiceIndex]->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
     return (state.BuffersQueued != 0);
@@ -229,7 +307,10 @@ bool AUD_IsPlaying(uint32_t voiceIndex)
 
 void AUD_SetVolume(uint32_t voiceIndex, float leftVolume, float rightVolume)
 {
-    OCT_ASSERT(sSourceVoices[voiceIndex] != nullptr);
+    if (voiceIndex >= AUDIO_MAX_VOICES || sSourceVoices[voiceIndex] == nullptr)
+    {
+        return;
+    }
 
     // Use this version to set volume of all channels
     // sSourceVoices[voiceIndex]->SetVolume((leftVolume + rightVolume) / 2.0f);
@@ -242,7 +323,10 @@ void AUD_SetVolume(uint32_t voiceIndex, float leftVolume, float rightVolume)
 
 void AUD_SetPitch(uint32_t voiceIndex, float pitch)
 {
-    OCT_ASSERT(sSourceVoices[voiceIndex] != nullptr);
+    if (voiceIndex >= AUDIO_MAX_VOICES || sSourceVoices[voiceIndex] == nullptr)
+    {
+        return;
+    }
     sSourceVoices[voiceIndex]->SetFrequencyRatio(pitch);
 }
 

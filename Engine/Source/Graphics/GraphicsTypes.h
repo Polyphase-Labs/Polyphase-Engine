@@ -81,6 +81,7 @@ enum class PipelineConfig
     Wireframe,
     Collision,
     Line,
+    Splat,   // Camera-facing translucent quads — used by the Gaussian Splatting addon.
 
     Count
 };

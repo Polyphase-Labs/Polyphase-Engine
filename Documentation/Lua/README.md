@@ -54,6 +54,7 @@
 * [Debugger](Systems/Debugger.md)
 * [Engine](Systems/Engine.md)
 * [Input](Systems/Input.md)
+* [LoadingMenu](Systems/LoadingMenu.md)
 * [Log](Systems/Log.md)
 * [Math](Systems/Math.md)
 * [Network](Systems/Network.md)

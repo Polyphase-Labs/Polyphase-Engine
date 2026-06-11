@@ -514,15 +514,45 @@ public:
 
 // Eventually, if we move the mSelf pointer into Object, we will have to
 // move these functions also (and make them take Object* param)
+//
+// Defensive: if `node`'s mSelf has been stomped so it no longer points back
+// at `node` (most often a dangling Node* from a previous world/addon load
+// whose memory got reused), Lock() will crash inside IsValid when it
+// dereferences the dangling mPointer. Gate the Lock with a self-consistency
+// check and return null on mismatch so callers see "couldn't resolve" instead
+// of an access violation. Callers that care surface a user-visible error
+// (see Node::AddChild for the editor alert).
 template<typename T>
 SharedPtr<T> ResolvePtr(Node* node)
 {
-    NodePtr nodePtr = node ? node->GetSelfPtr().Lock() : nullptr;
+    if (node == nullptr)
+    {
+        return nullptr;
+    }
+
+    const NodePtrWeak& selfWeak = node->GetSelfPtr();
+    if (selfWeak.GetPointerRaw() != node || selfWeak.GetRefCount() == nullptr)
+    {
+        return nullptr;
+    }
+
+    NodePtr nodePtr = selfWeak.Lock();
     return PtrStaticCast<T>(nodePtr);
 }
 
 template<typename T>
 WeakPtr<T> ResolveWeakPtr(Node* node)
 {
-    return PtrStaticCast<T>(node ? node->GetSelfPtr() : nullptr);
+    if (node == nullptr)
+    {
+        return WeakPtr<T>();
+    }
+
+    const NodePtrWeak& selfWeak = node->GetSelfPtr();
+    if (selfWeak.GetPointerRaw() != node || selfWeak.GetRefCount() == nullptr)
+    {
+        return WeakPtr<T>();
+    }
+
+    return PtrStaticCast<T>(selfWeak);
 }

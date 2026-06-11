@@ -36,6 +36,18 @@ void EditorOpenFileBrowser(FileBrowserCallbackFP callback, bool folderMode);
 void EditorSetFileBrowserDir(const std::string& dir);
 void EditorShowUnsavedAssetsModal(const std::vector<AssetStub*>& unsavedStubs);
 
+/**
+ * Queue a modal alert popup from any engine-side code. Safe to call multiple
+ * times in one frame -- the first call sets the title/message, subsequent
+ * calls increment a "+N more errors" counter under the message until the user
+ * dismisses the popup (full detail goes to the debug log either way).
+ *
+ * Use for non-fatal-but-must-tell-the-user conditions: detected memory
+ * corruption that we refused to dereference, scene-load aborts, save failures
+ * inside long synchronous operations, etc.
+ */
+void EditorShowAlert(const char* title, const char* message);
+
 void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOwnerType ownerType);
 
 /**

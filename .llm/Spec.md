@@ -58,6 +58,7 @@ polyphase-engine/
 | Addons | [Addons.md](Addons.md) | `Engine/Source/Plugins/` | Runtime plugin API, editor hooks, native addon system |
 | Controller Server | [ControlServer.md](ControlServer.md) | `Engine/Source/Editor/ControllerServer/` | REST API for remote editor control, Crow HTTP server, addon route hooks |
 | Serial I/O | [Serial.md](Serial.md) | `Engine/Source/Serial/` + `Engine/Source/Engine/SerialManager.h` | Cross-platform COM / USB-CDC serial ports: enumerate, connect, send, opt-in receive, script + graph-node callbacks |
+| Loading Menu | [LoadingMenu.md](LoadingMenu.md) | `Engine/Source/Engine/LoadingMenu.{h,cpp}` | Scene-overlay loading screen orchestrator: persistent menu node, queued root swap, `Loading.*` SignalBus channels, AppSettings min-display + timeout |
 
 ## Key Entry Points
 

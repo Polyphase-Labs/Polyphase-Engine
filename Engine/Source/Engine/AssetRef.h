@@ -69,5 +69,6 @@ typedef AssetRef SoundWaveRef;
 typedef AssetRef FontRef;
 typedef AssetRef SceneRef;
 typedef AssetRef TimelineRef;
+typedef AssetRef TransformAnimationRef;
 typedef AssetRef DataAssetRef;
 typedef AssetRef SpriteAnimationRef;

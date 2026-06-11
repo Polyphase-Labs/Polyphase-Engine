@@ -45,6 +45,9 @@ void AppSettingsWindow::Open()
     strncpy(mDefaultEditorSceneBuffer, config->mDefaultEditorScene.c_str(), sizeof(mDefaultEditorSceneBuffer) - 1);
     mDefaultEditorSceneBuffer[sizeof(mDefaultEditorSceneBuffer) - 1] = '\0';
 
+    strncpy(mDefaultLoadingSceneBuffer, config->mDefaultLoadingScene.c_str(), sizeof(mDefaultLoadingSceneBuffer) - 1);
+    mDefaultLoadingSceneBuffer[sizeof(mDefaultLoadingSceneBuffer) - 1] = '\0';
+
     strncpy(mIconPathBuffer, config->mIconPath.c_str(), sizeof(mIconPathBuffer) - 1);
     mIconPathBuffer[sizeof(mIconPathBuffer) - 1] = '\0';
 }
@@ -150,6 +153,28 @@ void AppSettingsWindow::DrawGeneralSection()
     if (ImGui::InputText("Default Editor Scene", mDefaultEditorSceneBuffer, sizeof(mDefaultEditorSceneBuffer)))
     {
         config->mDefaultEditorScene = mDefaultEditorSceneBuffer;
+        changed = true;
+    }
+
+    if (ImGui::InputText("Default Loading Scene", mDefaultLoadingSceneBuffer, sizeof(mDefaultLoadingSceneBuffer)))
+    {
+        config->mDefaultLoadingScene = mDefaultLoadingSceneBuffer;
+        changed = true;
+    }
+
+    float minDisplay = config->mLoadingMinDisplaySeconds;
+    if (ImGui::InputFloat("Loading Min Display (s)", &minDisplay, 0.05f, 0.25f, "%.2f"))
+    {
+        if (minDisplay < 0.0f) minDisplay = 0.0f;
+        config->mLoadingMinDisplaySeconds = minDisplay;
+        changed = true;
+    }
+
+    float timeout = config->mLoadingTimeoutSeconds;
+    if (ImGui::InputFloat("Loading Timeout (s)", &timeout, 0.5f, 2.0f, "%.2f"))
+    {
+        if (timeout < 0.0f) timeout = 0.0f;
+        config->mLoadingTimeoutSeconds = timeout;
         changed = true;
     }
 

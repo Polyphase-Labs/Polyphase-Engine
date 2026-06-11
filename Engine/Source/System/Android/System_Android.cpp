@@ -7,6 +7,7 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Input/Input.h"
+#include "Input/InputUtils.h"
 #include "EmbeddedFile.h"
 
 #include <chrono>

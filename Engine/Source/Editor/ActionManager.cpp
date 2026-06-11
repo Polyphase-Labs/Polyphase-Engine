@@ -33,6 +33,13 @@
 #include "EditorConstants.h"
 #include "Constants.h"
 #include "World.h"
+
+// stb headers — implementations live in Engine/Source/Engine/stb_implementation.cpp.
+// Here we only need the declarations to call stbi_load + stbir_resize +
+// stbi_write_png from the Android-icon generation step.
+#include <stb_image.h>
+#include <stb_image_resize2.h>
+#include <stb_image_write.h>
 #include "Engine.h"
 #include "AssetManager.h"
 #include "EditorState.h"
@@ -895,6 +902,134 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     LogDebug("Native addon sources injected into makefile.");
 }
 
+// ── Android (CMake) addon-source injection ───────────────────────────────────
+//
+// Sibling of InjectNativeAddonSources (Makefile) and InjectNativeAddonsIntoVcxproj
+// (Windows MSBuild). Writes a CMake snippet that the Android build's
+// CMakeLists.txt include()s — Android's CMake doesn't have an `INCLUDES :=`
+// anchor we can splice into, so we emit a fresh, well-known file and consume
+// it from the consumer side.
+//
+// File written: <buildProjDir>/Generated/AddonInject.cmake
+//
+//   set(POLYPHASE_ADDON_SOURCE_DIRS  "<abs>/Source" "<abs>/Source/Nodes" ...)
+//   set(POLYPHASE_ADDON_INCLUDE_DIRS "<abs>/Source" "<abs>/Source/lib/inc" ...)
+//   set(POLYPHASE_ADDON_DEFINES      POLYPHASE_FOO=1 POLYPHASE_BAR=2)
+//   set(POLYPHASE_ADDON_LIB_DIRS     "<abs>/lib/android-arm64")
+//   set(POLYPHASE_ADDON_LIBS         foo bar)
+//   set(POLYPHASE_ADDON_REGISTRAR    "<abs>/Generated/AddonPlugins.cpp")
+//
+// Empty lists when the project has no engine addons — the consumer can
+// include() unconditionally, which keeps the CMakeLists simple.
+//
+// Why we ALWAYS overwrite AddonPlugins.cpp alongside (mirrors line 506-515 of
+// InjectNativeAddonSources): a stale AddonPlugins.cpp left behind by a
+// previous build (one that DID have addons) compiles its
+// POLYPHASE_REGISTER_PLUGIN(...) calls into the current binary, then the link
+// fails with `undefined reference to PolyphasePlugin_GetDesc_<addon>` because
+// the addon's source dir is no longer in POLYPHASE_ADDON_SOURCE_DIRS.
+static void InjectNativeAddonsIntoCmake(const std::string& cmakeIncludePath,
+                                        const std::string& buildProjDir,
+                                        const std::string& platformName)
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr)
+    {
+        return;
+    }
+
+    nam->DiscoverNativeAddons();
+    std::vector<NativeAddonState> engineAddons = nam->GetEngineAddons();
+
+    // Always regenerate AddonPlugins.cpp so its POLYPHASE_REGISTER_PLUGIN set
+    // matches POLYPHASE_ADDON_SOURCE_DIRS in this same file. Two writers
+    // (this helper + InjectNativeAddonSources) emit it on different platforms;
+    // both produce identical output for a given addon set, so cross-platform
+    // builds don't fight.
+    const std::string generatedDir = buildProjDir + "Generated/";
+    SYS_CreateDirectory(generatedDir.c_str());
+    const std::string registrarPath = generatedDir + "AddonPlugins.cpp";
+    GenerateAddonPluginsRegistrar(registrarPath, engineAddons);
+
+    // CMake-friendly absolute path. Always forward-slash; no MSYS conversion
+    // because Android Studio's CMake speaks native Windows paths.
+    auto normSlash = [](std::string s) -> std::string {
+        for (char& c : s) { if (c == '\\') c = '/'; }
+        while (!s.empty() && s.back() == '/') { s.pop_back(); }
+        return s;
+    };
+
+    std::string sourceDirsList;
+    std::string includeDirsList;
+    std::string definesList;
+    std::string libDirsList;
+    std::string libsList;
+
+    for (const NativeAddonState& addon : engineAddons)
+    {
+        const std::string srcRoot = addon.mSourcePath + addon.mNativeMetadata.mSourceDir + "/";
+        std::vector<std::string> files;
+        GatherAddonSourceFiles(srcRoot, files);
+
+        // Dedupe via std::set so an addon with many .cpp under one dir only
+        // gets that dir listed once.
+        std::set<std::string> dirs;
+        for (const std::string& f : files)
+        {
+            const auto slash = f.find_last_of('/');
+            if (slash != std::string::npos)
+            {
+                dirs.insert(normSlash(f.substr(0, slash)));
+            }
+        }
+
+        if (!dirs.empty())
+        {
+            sourceDirsList += "\n    # addon: " + addon.mAddonId
+                            + " (" + std::to_string(files.size()) + " files in "
+                            + std::to_string(dirs.size()) + " dirs)";
+        }
+        for (const std::string& d : dirs)
+        {
+            sourceDirsList += "\n    \"" + d + "\"";
+        }
+
+        // Same convention as vcxproj / Makefile injection — addon's
+        // Source/ root is on the include path so its internal
+        // `#include "Subdir/Header.h"` style resolves.
+        includeDirsList += "\n    \"" + normSlash(srcRoot) + "\"";
+
+        const auto extras = addon.mNativeMetadata.ResolveExtras(platformName);
+        for (const std::string& d : extras.mExtraDefines)
+            definesList += "\n    " + d;
+        for (const std::string& inc : extras.mExtraIncludeDirs)
+            includeDirsList += "\n    \"" + normSlash(addon.mSourcePath + inc) + "\"";
+        for (const std::string& ld : extras.mExtraLibDirs)
+            libDirsList += "\n    \"" + normSlash(addon.mSourcePath + ld) + "\"";
+        for (const std::string& lb : extras.mExtraLibs)
+            libsList += "\n    " + lb;
+    }
+
+    std::string cmake;
+    cmake += "# AUTO-GENERATED by ActionManager::InjectNativeAddonsIntoCmake.\n";
+    cmake += "# include()'d from Standalone/Android/app/src/main/cpp/CMakeLists.txt\n";
+    cmake += "# (and per-project Android/ subdirs that mirror it). Always present;\n";
+    cmake += "# lists are empty when the project has no engine addons, so the\n";
+    cmake += "# consumer can include() unconditionally.\n\n";
+    cmake += "set(POLYPHASE_ADDON_SOURCE_DIRS"  + sourceDirsList  + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_INCLUDE_DIRS" + includeDirsList + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_DEFINES"      + definesList     + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_LIB_DIRS"     + libDirsList     + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_LIBS"         + libsList        + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_REGISTRAR \"" + normSlash(registrarPath) + "\")\n";
+
+    Stream s(cmake.c_str(), (uint32_t)cmake.size());
+    s.WriteFile(cmakeIncludePath.c_str());
+
+    LogDebug("InjectNativeAddonsIntoCmake: %zu engine addon(s), wrote %s",
+             engineAddons.size(), cmakeIncludePath.c_str());
+}
+
 void ReplaceStringInFile(const std::string& file, const std::string& srcString, const std::string& dstString)
 {
     Stream fileStream;
@@ -1109,6 +1244,42 @@ void ActionManager::BuildData(Platform platform, bool embedded)
                                 LogDebug("Launching wiiload: %s", cmd.c_str());
                                 SYS_Exec(cmd.c_str());
                             }
+                        }
+                    }
+                    else if (runOnDevice && platform == Platform::Android)
+                    {
+                        LaunchersModule* launchers = static_cast<LaunchersModule*>(
+                            PreferencesManager::Get()->FindModule("External/Launchers"));
+                        if (launchers != nullptr && launchers->IsAdbConfigured())
+                        {
+                            std::string installCmd = launchers->BuildAdbInstallCommand(outputPath);
+                            if (!installCmd.empty())
+                            {
+                                LogDebug("adb install: %s", installCmd.c_str());
+                                std::string out;
+                                SYS_Exec(installCmd.c_str(), &out);
+                                if (!out.empty()) LogDebug("%s", out.c_str());
+                            }
+                            std::string launchCmd = launchers->BuildAdbLaunchCommand();
+                            if (!launchCmd.empty())
+                            {
+                                LogDebug("adb launch: %s", launchCmd.c_str());
+                                SYS_Exec(launchCmd.c_str());
+                            }
+                            // Detached logcat window — doesn't block the editor.
+                            if (launchers->mAutoOpenLogcat)
+                            {
+                                std::string logcatCmd = launchers->BuildAdbLogcatCommand();
+                                if (!logcatCmd.empty())
+                                {
+                                    LogDebug("adb logcat (detached): %s", logcatCmd.c_str());
+                                    SYS_ExecDetached(logcatCmd.c_str());
+                                }
+                            }
+                        }
+                        else
+                        {
+                            LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
                         }
                     }
                     else
@@ -2511,18 +2682,357 @@ void ActionManager::BuildPhase1()
         }
         else if (platform == Platform::Android)
         {
-            std::string androidAssetsDir = buildProjDir + "Android/app/src/main/assets/";
+            std::string androidAppDir = buildProjDir + "Android/app/";
+            std::string androidAssetsDir = androidAppDir + "src/main/assets/";
+
+            // Force Rebuild: wipe Gradle's incremental caches before staging
+            // assets and invoking gradlew. Without this:
+            //   - app/.cxx/         CMake + ninja cache. Edits to CMakeLists
+            //                       (new include paths, source globs, JOB_POOLS,
+            //                       EmbeddedScripts.cpp wiring) can be ignored
+            //                       because the cached configure step thinks
+            //                       nothing relevant changed.
+            //   - app/build/        Gradle outputs. `mergeReleaseAssets`'s
+            //                       incremental cache occasionally skips
+            //                       re-staging when only file contents (not
+            //                       names) changed, leaving a stale APK with
+            //                       last build's assets/.
+            //   - app/src/main/assets/  Last build's staged copy. We recreate
+            //                       it below from packagedDir, but blowing it
+            //                       away first guarantees no stragglers from a
+            //                       prior build with a different layout (e.g.
+            //                       before the Bomber/Config.ini staging fix).
+            //   - .gradle/          Per-project Gradle task-graph cache. Holds
+            //                       "task X was UP-TO-DATE last run, its
+            //                       outputs are valid" decisions independent
+            //                       of app/build/. Skipping this is what caused
+            //                       the `dataBindingGenBaseClassesRelease`
+            //                       failure ("R-def.txt which doesn't exist")
+            //                       — Gradle marked packageReleaseResources
+            //                       UP-TO-DATE based on cached state, then the
+            //                       downstream task looked for the deleted
+            //                       output. Wiping .gradle/ forces a fresh
+            //                       task-graph evaluation.
+            if (mBuildState.mForceCompile)
+            {
+                LogDebug("[BUILD] Force Rebuild (Android): wiping %s.cxx, %sbuild, %s, .gradle",
+                         androidAppDir.c_str(), androidAppDir.c_str(),
+                         androidAssetsDir.c_str());
+                AppendBuildOutput("Force Rebuild: clearing Android CMake + Gradle caches\n");
+
+                std::string cxxDir      = androidAppDir + ".cxx";
+                std::string buildDir    = androidAppDir + "build";
+                std::string gradleCache = buildProjDir + "Android/.gradle";
+                if (DoesDirExist(cxxDir.c_str()))           { RemoveDir(cxxDir.c_str()); }
+                if (DoesDirExist(buildDir.c_str()))         { RemoveDir(buildDir.c_str()); }
+                if (DoesDirExist(gradleCache.c_str()))      { RemoveDir(gradleCache.c_str()); }
+                if (DoesDirExist(androidAssetsDir.c_str())) { RemoveDir(androidAssetsDir.c_str()); }
+            }
+
             if (!DoesDirExist(androidAssetsDir.c_str()))
             {
                 CreateDir(androidAssetsDir.c_str());
             }
             SYS_CopyDirectory(packagedDir.c_str(), androidAssetsDir.c_str());
 
+            // The packager places Config.ini and <project>.octp at the package
+            // root for desktop runtimes (working dir == package root), but the
+            // engine constructs project paths as "<projectName>/<file>". On
+            // desktop that prefix happens to resolve at boot anyway; on Android
+            // AAssetManager only sees what's literally on disk, so the prefixed
+            // paths fail. Stage a second copy under <projectName>/ so the
+            // runtime's "Bomber/Config.ini" / "Bomber/Bomber.octp" lookups
+            // succeed.
+            {
+                std::string projAssetDir = androidAssetsDir + projectName + "/";
+                if (!DoesDirExist(projAssetDir.c_str()))
+                {
+                    CreateDir(projAssetDir.c_str());
+                }
+                SYS_CopyFile((androidAssetsDir + "Config.ini").c_str(),
+                             (projAssetDir + "Config.ini").c_str());
+                SYS_CopyFile((androidAssetsDir + projectName + ".octp").c_str(),
+                             (projAssetDir + projectName + ".octp").c_str());
+            }
+
+            // Per-profile Android branding overrides — applicationId / app
+            // label / icon source. All three default to "use the engine's
+            // stock value" so the build still works for a fresh project that
+            // never touched the Target Options panel.
+            //
+            //   appId       = mTargetOptions["android.applicationId"]
+            //                   or "com.you.appname"
+            //   appLabel    = mTargetOptions["android.appLabel"]
+            //                   or EngineConfig::mProjectName
+            //   iconSource  = mTargetOptions["android.iconSource"]
+            //                   or EngineConfig::mIconPath
+            //
+            // Rewrites land on the per-build copy of the Android tree
+            // (buildProjDir/Android/) and are scoped to this build; the
+            // engine's Standalone/Android/ template stays at its stock
+            // values so Force Rebuild → fresh CMakeLists isn't an
+            // identity-shifting event.
+            {
+                auto getOpt = [&](const char* k, const std::string& fallback) -> std::string {
+                    auto it = mBuildState.mTargetOptions.find(k);
+                    if (it == mBuildState.mTargetOptions.end() || it->second.empty()) return fallback;
+                    return it->second;
+                };
+
+                const std::string kDefaultAppId  = "com.you.appname";
+                const std::string appId          = getOpt("android.applicationId", kDefaultAppId);
+                const std::string appLabel       = getOpt("android.appLabel", GetEngineConfig()->mProjectName);
+                const std::string iconSource     = getOpt("android.iconSource", GetEngineConfig()->mIconPath);
+
+                const std::string androidRoot    = buildProjDir + "Android/";
+                const std::string stringsXml     = androidRoot + "app/src/main/res/values/strings.xml";
+                const std::string buildGradle    = androidRoot + "app/build.gradle";
+                const std::string manifestXml    = androidRoot + "app/src/main/AndroidManifest.xml";
+
+                // strings.xml — single <string name="app_name">...</string>.
+                // Use the ReplaceStringInFile helper to swap whichever value
+                // is currently there for the new appLabel. Two passes cover
+                // both the freshly-copied template state and the case where
+                // a prior build wrote a different label.
+                if (SYS_DoesFileExist(stringsXml.c_str(), false))
+                {
+                    Stream s; s.ReadFile(stringsXml.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+                    // Regex-light: locate <string name="app_name">…</string> and
+                    // replace the inner text. Anchor on the opening tag so
+                    // nothing else in the file matches.
+                    const std::string openTag = "<string name=\"app_name\">";
+                    const std::string closeTag = "</string>";
+                    size_t openIdx = content.find(openTag);
+                    if (openIdx != std::string::npos)
+                    {
+                        size_t valStart = openIdx + openTag.size();
+                        size_t closeIdx = content.find(closeTag, valStart);
+                        if (closeIdx != std::string::npos)
+                        {
+                            content.replace(valStart, closeIdx - valStart, appLabel);
+                            Stream out(content.c_str(), (uint32_t)content.size());
+                            out.WriteFile(stringsXml.c_str());
+                            LogDebug("Android: strings.xml app_name = \"%s\"", appLabel.c_str());
+                        }
+                    }
+                }
+
+                // AndroidManifest.xml — the activity carries its own
+                // android:label="Standalone" that shadows the application's
+                // @string/app_name. Drop or override it so the launcher
+                // shows the project name.
+                if (SYS_DoesFileExist(manifestXml.c_str(), false))
+                {
+                    Stream s; s.ReadFile(manifestXml.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+                    const std::string oldLabel = "android:label=\"Standalone\"";
+                    const std::string newLabel = "android:label=\"@string/app_name\"";
+                    size_t idx = content.find(oldLabel);
+                    if (idx != std::string::npos)
+                    {
+                        content.replace(idx, oldLabel.size(), newLabel);
+                        Stream out(content.c_str(), (uint32_t)content.size());
+                        out.WriteFile(manifestXml.c_str());
+                        LogDebug("Android: manifest activity label → @string/app_name");
+                    }
+                }
+
+                // build.gradle — applicationId + namespace. The stock value
+                // appears in three places (namespace, applicationId, archives
+                // baseName-ish bits via setProperty). Only the first two need
+                // touching for Play-Store-distinct identity; the rest are
+                // either ignored by AGP or read at runtime, not packaging.
+                if (SYS_DoesFileExist(buildGradle.c_str(), false))
+                {
+                    Stream s; s.ReadFile(buildGradle.c_str(), false);
+                    std::string content(s.GetData(), s.GetSize());
+
+                    // Replace the quoted value after `namespace` and
+                    // `applicationId` keywords with the resolved appId.
+                    auto replaceIdLine = [&](const std::string& keyword) {
+                        size_t kIdx = content.find(keyword);
+                        if (kIdx == std::string::npos) return;
+                        size_t quoteStart = content.find_first_of("'\"", kIdx + keyword.size());
+                        if (quoteStart == std::string::npos) return;
+                        char q = content[quoteStart];
+                        size_t quoteEnd = content.find(q, quoteStart + 1);
+                        if (quoteEnd == std::string::npos) return;
+                        content.replace(quoteStart + 1, quoteEnd - quoteStart - 1, appId);
+                    };
+                    replaceIdLine("namespace ");
+                    replaceIdLine("applicationId ");
+
+                    Stream out(content.c_str(), (uint32_t)content.size());
+                    out.WriteFile(buildGradle.c_str());
+                    LogDebug("Android: build.gradle applicationId/namespace = \"%s\"", appId.c_str());
+                }
+
+                // Stash iconSource for the icon-generation step below to
+                // pick up — keeps the lambda + path resolution close to
+                // where the value was derived.
+                mBuildState.mAndroidResolvedIconSource = iconSource;
+            }
+
+            // Engine addons → CMake snippet. Pulled in by the Android
+            // CMakeLists.txt via include() so addon Source dirs / include
+            // paths / defines / libs land in libstandalone.so. Also writes
+            // AddonPlugins.cpp (the registrar) into the same Generated/.
+            //
+            // Without this, libstandalone.so links cleanly but at runtime
+            // the project's Lua scripts that depend on plugin-provided
+            // tables (Combat, Mission, Loot, ...) silently degrade — no
+            // Lua errors, just `nil`s where addon-registered globals
+            // should be. That's exactly the FPS-Demo Android failure mode
+            // before this hook was added.
+            InjectNativeAddonsIntoCmake(buildProjDir + "Generated/AddonInject.cmake",
+                                        buildProjDir,
+                                        "android");
+
+            // Standalone-mode builds drive gradlew from the engine's
+            // Standalone/Android/ tree (buildProjDir = polyphaseDir +
+            // "Standalone/"), so the CMakeLists.txt looks for AddonInject
+            // files in Standalone/Generated/. They're already there if
+            // buildProjDir == polyphaseDir/Standalone. For project-mode
+            // builds where buildProjDir == projectDir, the existing
+            // standalone-Generated copy at line ~1792 ran earlier with
+            // pre-inject state — re-sync now so the just-emitted files
+            // reach the engine's Standalone/Generated/ before gradle reads
+            // them.
+            if (standalone == false)
+            {
+                SYS_CopyFile((buildProjDir + "Generated/AddonInject.cmake").c_str(),
+                             (polyphaseDirectory + "Standalone/Generated/AddonInject.cmake").c_str());
+                SYS_CopyFile((buildProjDir + "Generated/AddonPlugins.cpp").c_str(),
+                             (polyphaseDirectory + "Standalone/Generated/AddonPlugins.cpp").c_str());
+            }
+
+            // Launcher icons — generate ic_launcher.png + ic_launcher_round.png
+            // at every Android density from the project icon, then delete the
+            // stock .webp variants so aapt2 doesn't choke on dual-extension
+            // entries for the same resource name. Skips silently if no icon
+            // source resolved or the file doesn't exist (build still succeeds
+            // with the stock template icons).
+            {
+                const std::string& iconSource = mBuildState.mAndroidResolvedIconSource;
+                if (!iconSource.empty())
+                {
+                    // Resolve relative paths against the project dir. Absolute
+                    // paths (drive letter or leading slash) pass through.
+                    std::string iconPath = iconSource;
+                    bool isAbsolute =
+                        (iconPath.size() >= 2 && iconPath[1] == ':') ||  // Windows drive
+                        (!iconPath.empty() && (iconPath[0] == '/' || iconPath[0] == '\\'));
+                    if (!isAbsolute)
+                    {
+                        iconPath = projectDir + iconPath;
+                    }
+
+                    if (SYS_DoesFileExist(iconPath.c_str(), false))
+                    {
+                        int srcW = 0, srcH = 0, srcChans = 0;
+                        unsigned char* srcPixels = stbi_load(iconPath.c_str(), &srcW, &srcH, &srcChans, 4);
+                        if (srcPixels != nullptr)
+                        {
+                            struct Density { const char* dir; int size; };
+                            const Density densities[] = {
+                                { "mipmap-mdpi",    48  },
+                                { "mipmap-hdpi",    72  },
+                                { "mipmap-xhdpi",   96  },
+                                { "mipmap-xxhdpi",  144 },
+                                { "mipmap-xxxhdpi", 192 },
+                            };
+
+                            const std::string resDir = buildProjDir + "Android/app/src/main/res/";
+
+                            for (const Density& d : densities)
+                            {
+                                const std::string dirPath = resDir + d.dir + "/";
+
+                                std::vector<unsigned char> dst((size_t)d.size * d.size * 4);
+                                stbir_resize_uint8_srgb(
+                                    srcPixels, srcW, srcH, 0,
+                                    dst.data(), d.size, d.size, 0,
+                                    STBIR_RGBA);
+
+                                // ic_launcher.png + ic_launcher_round.png. We
+                                // write the same pixels to both — proper
+                                // round-mask differentiation would need an
+                                // alpha pre-mask, but the legacy round icon
+                                // is rarely visible on devices Android 8+
+                                // (adaptive icons win there).
+                                const char* fileNames[] = { "ic_launcher.png", "ic_launcher_round.png" };
+                                for (const char* name : fileNames)
+                                {
+                                    const std::string out = dirPath + name;
+                                    if (!stbi_write_png(out.c_str(), d.size, d.size, 4, dst.data(), d.size * 4))
+                                    {
+                                        LogWarning("Android icon: failed to write %s", out.c_str());
+                                    }
+                                }
+
+                                // Remove the stock .webp variants so aapt2
+                                // doesn't merge resource buckets with two
+                                // different file types for the same name.
+                                SYS_RemoveFile((dirPath + "ic_launcher.webp").c_str());
+                                SYS_RemoveFile((dirPath + "ic_launcher_round.webp").c_str());
+                            }
+
+                            stbi_image_free(srcPixels);
+
+                            // Android 8+ (API 26+) consults the adaptive-icon
+                            // XMLs in mipmap-anydpi-v26/ before falling back
+                            // to the legacy mipmap-<density>/ PNGs. If we
+                            // leave them in place they composite the stock
+                            // green-robot foreground over the stock
+                            // background — our PNGs are never rendered on
+                            // any modern device. Drop the adaptive wrappers
+                            // entirely; the system then picks up the
+                            // legacy PNG at the right density.
+                            //
+                            // Also remove the foreground/background vector
+                            // drawables they referenced so resource compile
+                            // doesn't waste cycles on orphans. Harmless to
+                            // leave but cleaner without.
+                            const std::string anydpiDir   = resDir + "mipmap-anydpi-v26/";
+                            const std::string drawableDir = resDir + "drawable/";
+                            const std::string drawableV24 = resDir + "drawable-v24/";
+                            SYS_RemoveFile((anydpiDir   + "ic_launcher.xml"           ).c_str());
+                            SYS_RemoveFile((anydpiDir   + "ic_launcher_round.xml"     ).c_str());
+                            SYS_RemoveFile((drawableDir + "ic_launcher_background.xml").c_str());
+                            SYS_RemoveFile((drawableV24 + "ic_launcher_foreground.xml").c_str());
+
+                            LogDebug("Android: generated launcher icons from %s (%dx%d), removed adaptive XMLs",
+                                     iconPath.c_str(), srcW, srcH);
+                        }
+                        else
+                        {
+                            LogWarning("Android icon: stbi_load failed for %s — %s",
+                                       iconPath.c_str(), stbi_failure_reason() ? stbi_failure_reason() : "(unknown)");
+                        }
+                    }
+                    else
+                    {
+                        LogDebug("Android icon: source not found, keeping stock icons (%s)",
+                                 iconPath.c_str());
+                    }
+                }
+            }
+
+            // On Force Rebuild prepend `clean` to the gradle task list. Belt-
+            // and-braces alongside the .gradle/ rmdir above: if AV scan held
+            // a file lock or the user's host has an unusual umask that left
+            // stale state, gradle's `clean` re-evaluates the project model and
+            // removes its own task outputs cleanly before the build starts.
+            // Normal Build (non-force) skips this to keep iteration fast.
             std::string gradleDir = buildProjDir + "Android/";
+            std::string gradleTasks = mBuildState.mForceCompile
+                ? std::string("clean assembleRelease")
+                : std::string("assembleRelease");
 #if PLATFORM_WINDOWS
-            std::string gradleCmd = "cd " + gradleDir + " && gradlew.bat assembleRelease";
+            std::string gradleCmd = "cd " + gradleDir + " && gradlew.bat " + gradleTasks;
 #else
-            std::string gradleCmd = "cd " + gradleDir + " && \"./gradlew assembleRelease\"";
+            std::string gradleCmd = "cd " + gradleDir + " && \"./gradlew " + gradleTasks + "\"";
 #endif
             mBuildState.mCompileCommand = gradleCmd;
         }
@@ -3269,6 +3779,60 @@ void ActionManager::FinalizeLocalBuild()
             else
             {
                 LogError("wiiload not configured. Set Wii IP in Preferences > External > Launchers.");
+            }
+        }
+        else if (mBuildState.mRunOnDevice && platform == Platform::Android)
+        {
+            // Install + launch via adb. Captures install output so the build
+            // modal shows "Success" or any failure ("INSTALL_PARSE_FAILED_*",
+            // "more than one device/emulator", etc.) without the user having
+            // to shell out manually.
+            LaunchersModule* launchers = static_cast<LaunchersModule*>(
+                PreferencesManager::Get()->FindModule("External/Launchers"));
+
+            if (launchers != nullptr && launchers->IsAdbConfigured())
+            {
+                std::string installCmd = launchers->BuildAdbInstallCommand(outputPath);
+                if (!installCmd.empty())
+                {
+                    LogDebug("adb install: %s", installCmd.c_str());
+                    AppendBuildOutput("Installing via adb...\n");
+                    std::string out;
+                    SYS_Exec(installCmd.c_str(), &out);
+                    if (!out.empty())
+                    {
+                        AppendBuildOutput(out);
+                        if (out.back() != '\n') AppendBuildOutput("\n");
+                    }
+                }
+                std::string launchCmd = launchers->BuildAdbLaunchCommand();
+                if (!launchCmd.empty())
+                {
+                    LogDebug("adb launch: %s", launchCmd.c_str());
+                    AppendBuildOutput("Launching on device...\n");
+                    SYS_Exec(launchCmd.c_str());
+                }
+                // Detached logcat window — independent of the editor's
+                // lifetime; closing the editor does NOT close the logcat
+                // window, and vice-versa.
+                if (launchers->mAutoOpenLogcat)
+                {
+                    std::string logcatCmd = launchers->BuildAdbLogcatCommand();
+                    if (!logcatCmd.empty())
+                    {
+                        LogDebug("adb logcat (detached): %s", logcatCmd.c_str());
+                        AppendBuildOutput("Opening logcat window...\n");
+                        SYS_ExecDetached(logcatCmd.c_str());
+                    }
+                }
+            }
+            else
+            {
+                LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
+                AppendBuildOutput(
+                    "ERROR: adb not configured.\n"
+                    "  Open Preferences > External > Launchers and set the ADB path.\n"
+                    "  Typical Windows location: C:\\Android\\Sdk\\platform-tools\\adb.exe\n");
             }
         }
         else
@@ -5226,7 +5790,27 @@ void ActionManager::ImportAsset()
     }
 }
 
-Asset* ActionManager::ImportAsset(const std::string& path)
+// Walk `name`, `name_1`, `name_2`... until we find a basename whose `<base>.oct`
+// has no entry in the asset map. Used by the import name-clash modal to
+// pre-fill a non-colliding suggestion.
+static std::string SuggestUnusedAssetBaseName(const std::string& baseName)
+{
+    if (AssetManager::Get()->GetAssetStub(baseName + ".oct") == nullptr)
+    {
+        return baseName;
+    }
+    for (int32_t suffix = 1; suffix < 10000; ++suffix)
+    {
+        std::string candidate = baseName + "_" + std::to_string(suffix);
+        if (AssetManager::Get()->GetAssetStub(candidate + ".oct") == nullptr)
+        {
+            return candidate;
+        }
+    }
+    return baseName;
+}
+
+Asset* ActionManager::ImportAsset(const std::string& path, const std::string& overrideBaseName)
 {
     Asset* retAsset = nullptr;
 
@@ -5284,6 +5868,33 @@ Asset* ActionManager::ImportAsset(const std::string& path)
         LogError("Failed to import Asset. Unrecognized source asset extension.");
     }
 
+    // Name-clash gate. If the source file's basename already matches an asset
+    // of a different type, surface a modal asking the user to rename before
+    // any reference-replacement (`AssetRef::ReplaceReferencesToAsset` would
+    // otherwise rebind every existing TextureRef onto a freshly-imported mesh,
+    // producing the wrong-type assertion in Quad::UpdateVertexData on next load).
+    // Skipped on multi-output mesh imports because each emitted asset gets its
+    // own derived name later; we let the per-asset path handle those.
+    if (overrideBaseName.empty() && importTypes.size() == 1)
+    {
+        std::string sourceBaseName = filename.substr(0, dotIndex);
+        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(sourceBaseName + ".oct");
+        if (existingStub != nullptr && existingStub->mType != importTypes[0])
+        {
+            EditorState::PendingImportClash clash;
+            clash.mSourcePath = path;
+            clash.mOriginalBaseName = sourceBaseName;
+            clash.mProposedName = SuggestUnusedAssetBaseName(sourceBaseName);
+            const char* existingName = Asset::GetNameFromTypeId(existingStub->mType);
+            const char* importName = Asset::GetNameFromTypeId(importTypes[0]);
+            clash.mExistingTypeName = existingName ? existingName : "Asset";
+            clash.mImportTypeName = importName ? importName : "Asset";
+            clash.mCombined = false;
+            GetEditorState()->mPendingImportClashes.push_back(clash);
+            return nullptr;
+        }
+    }
+
     for (uint32_t i = 0; i < importTypes.size(); ++i)
     {
         Asset* newAsset = nullptr;
@@ -5303,7 +5914,7 @@ Asset* ActionManager::ImportAsset(const std::string& path)
 
         newAsset = Asset::CreateInstance(typeId);
 
-        std::string assetName = filename.substr(0, dotIndex);
+        std::string assetName = overrideBaseName.empty() ? filename.substr(0, dotIndex) : overrideBaseName;
         newAsset->SetName(assetName);
 
         success = newAsset->Import(path, &options);
@@ -5389,7 +6000,7 @@ Asset* ActionManager::ImportAsset(const std::string& path)
     return retAsset;
 }
 
-Asset* ActionManager::ImportAssetCombined(const std::string& path)
+Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::string& overrideBaseName)
 {
     // "As Single Object" import: collapse every non-collision primitive in the
     // file into ONE mesh asset. Skinned if any primitive has bones.
@@ -5447,12 +6058,34 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path)
 
     TypeId typeId = anySkinned ? SkeletalMesh::GetStaticType() : StaticMesh::GetStaticType();
 
+    // Same clash gate as ImportAsset() -- block a re-import that would silently
+    // rebind references onto an asset of the wrong type.
+    if (overrideBaseName.empty())
+    {
+        std::string sourceBaseName = filename.substr(0, dotIndex);
+        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(sourceBaseName + ".oct");
+        if (existingStub != nullptr && existingStub->mType != typeId)
+        {
+            EditorState::PendingImportClash clash;
+            clash.mSourcePath = path;
+            clash.mOriginalBaseName = sourceBaseName;
+            clash.mProposedName = SuggestUnusedAssetBaseName(sourceBaseName);
+            const char* existingName = Asset::GetNameFromTypeId(existingStub->mType);
+            const char* importName = Asset::GetNameFromTypeId(typeId);
+            clash.mExistingTypeName = existingName ? existingName : "Asset";
+            clash.mImportTypeName = importName ? importName : "Asset";
+            clash.mCombined = true;
+            GetEditorState()->mPendingImportClashes.push_back(clash);
+            return nullptr;
+        }
+    }
+
     ImportOptions options;
     options.SetOptionValue("combineMeshes", true);
 
     Asset* newAsset = Asset::CreateInstance(typeId);
 
-    std::string assetName = filename.substr(0, dotIndex);
+    std::string assetName = overrideBaseName.empty() ? filename.substr(0, dotIndex) : overrideBaseName;
     newAsset->SetName(assetName);
 
     bool success = newAsset->Import(path, &options);

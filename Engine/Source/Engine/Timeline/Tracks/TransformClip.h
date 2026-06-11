@@ -1,18 +1,10 @@
 #pragma once
 
 #include "Timeline/TimelineClip.h"
+#include "Timeline/TimelineTypes.h"
 #include "Maths.h"
 
 #include <vector>
-
-struct TransformKeyframe
-{
-    float mTime = 0.0f;
-    glm::vec3 mPosition = glm::vec3(0.0f);
-    glm::quat mRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    glm::vec3 mScale = glm::vec3(1.0f);
-    InterpMode mInterpMode = InterpMode::Linear;
-};
 
 class TransformClip : public TimelineClip
 {

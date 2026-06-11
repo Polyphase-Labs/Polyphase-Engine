@@ -97,6 +97,11 @@ struct LocalBuildState
     // to reuse the prebuilt Polyphase.exe.
     bool mForceCompile{false};
 
+    // Stashed by the Android branch: the icon source path resolved from
+    // mTargetOptions["android.iconSource"] (fallback EngineConfig::mIconPath).
+    // Read by the icon-generation step further down the same branch.
+    std::string mAndroidResolvedIconSource;
+
     void Reset()
     {
         // Thread must be joined before calling Reset
@@ -134,6 +139,7 @@ struct LocalBuildState
         mRunOnDevice = false;
         mForceRebuild = false;
         mForceCompile = false;
+        mAndroidResolvedIconSource.clear();
         mOpenDirectoryOnFinish = true;
 #if PLATFORM_LINUX
         mProcessId = 0;
@@ -341,8 +347,8 @@ public:
     void DeleteNode(Node* node);
     void RunScript();
     void ImportAsset();
-    Asset* ImportAsset(const std::string& path);
-    Asset* ImportAssetCombined(const std::string& path);
+    Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "");
+    Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "");
     void ImportTinyLLMModel();
     void ImportTinyLLMTokenizer();
     void ImportCamera(const CameraImportOptions& options);
