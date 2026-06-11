@@ -1184,11 +1184,17 @@
     <ClCompile Include="Source\LuaBindings\InstancedMesh3d_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\LoadingMenu.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\SignalBus.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Signals.cpp">
       <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\LoadingMenu_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
@@ -2688,11 +2694,17 @@
     <ClInclude Include="Source\LuaBindings\InstancedMesh3d_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\LoadingMenu.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\SignalBus.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Signals.h">
       <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\LoadingMenu_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>

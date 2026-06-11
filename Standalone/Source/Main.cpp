@@ -22,12 +22,15 @@
 #include <string>
 #endif
 
-#define EMBEDDED_ENABLED (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS)
+#define EMBEDDED_ENABLED         (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS)
+#define EMBEDDED_SCRIPTS_ONLY    (PLATFORM_ANDROID)
 
 #if EMBEDDED_ENABLED
 #include "../Generated/EmbeddedAssets.h"
 #include "../Generated/EmbeddedScripts.h"
 extern uint32_t gNumEmbeddedAssets;
+#elif EMBEDDED_SCRIPTS_ONLY
+#include "../Generated/EmbeddedScripts.h"
 #endif
 
 void OctPreInitialize(EngineConfig& config)
@@ -49,6 +52,11 @@ void OctPreInitialize(EngineConfig& config)
     config.mEmbeddedScripts = gEmbeddedScripts;
     config.mEmbeddedConfig = gEmbeddedConfig_Data;
     config.mEmbeddedConfigSize = gEmbeddedConfig_Size;
+#elif EMBEDDED_SCRIPTS_ONLY
+    // Android: bundle scripts into the .so (16 MB embedded-asset blob stays
+    // out — assets are served via AAssetManager from the APK's assets/ dir).
+    config.mEmbeddedScriptCount = gNumEmbeddedScripts;
+    config.mEmbeddedScripts = gEmbeddedScripts;
 #endif
 
 #endif

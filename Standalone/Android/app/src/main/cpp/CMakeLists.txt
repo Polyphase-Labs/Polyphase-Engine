@@ -9,6 +9,19 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("standalone")
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Cap parallel compile/link jobs so ninja doesn't OOM the host. spirv_cross
+# and a handful of engine TUs peak around 1.5-2 GB per clang invocation; at
+# default (CPU-count) parallelism on a 16-thread host that's 30 GB+ of working
+# set and the host page-thrashes or clang dies on SIGSEGV. Mirrors the PSP
+# build's -j4 cap (see project_psp_make_j_oom memory). JOB_POOLS works only
+# with the Ninja generator, which is what Android Gradle uses.
+set_property(GLOBAL PROPERTY JOB_POOLS compile_pool=4 link_pool=2)
+set(CMAKE_JOB_POOL_COMPILE compile_pool)
+set(CMAKE_JOB_POOL_LINK link_pool)
+
 # Creates and names a library, sets it as either STATIC
 # or SHARED, and provides the relative paths to its source code.
 # You can define multiple libraries, and CMake builds them for you.
@@ -17,7 +30,7 @@ project("standalone")
 include(AndroidNdkModules)
 android_ndk_import_module_native_app_glue()
 
-add_definitions(-DPLATFORM_ANDROID=1 -DAPI_VULKAN=1 -DVK_USE_PLATFORM_ANDROID_KHR=1)
+add_definitions(-DPLATFORM_ANDROID=1 -DAPI_VULKAN=1 -DVK_USE_PLATFORM_ANDROID_KHR=1 -DEDITOR=0)
 
 file(GLOB SrcLua "../../../../../../External/Lua/*.c")
 file(GLOB SrcVorbis "../../../../../../External/Vorbis/*.c")
@@ -35,12 +48,28 @@ file(GLOB SrcBullet
         "../../../../../../External/Bullet/BulletDynamics/MLCPSolvers/*.cpp"
         "../../../../../../External/Bullet/BulletDynamics/Vehicle/*.cpp"
         "../../../../../../External/Bullet/LinearMath/*.cpp")
+file(GLOB SrcRecast "../../../../../../External/recastnavigation/Recast/Source/*.cpp")
+file(GLOB SrcDetour "../../../../../../External/recastnavigation/Detour/Source/*.cpp")
+file(GLOB SrcIrrXML "../../../../../../External/IrrXML/*.cpp")
 file(GLOB_RECURSE SrcEngine "../../../../../../Engine/Source/*.cpp")
+list(FILTER SrcEngine EXCLUDE REGEX ".*/Engine/Source/Editor/.*")
 file(GLOB_RECURSE SrcStandalone "../../../../../../Standalone/Source/*.cpp")
+
+# Pull in the per-project generated EmbeddedScripts.cpp if the project has been
+# packaged at least once. Scripts compile into libstandalone.so; assets are
+# left out of EmbeddedAssets.cpp on Android (served from AAssetManager instead)
+# so the .so doesn't balloon by ~16 MB.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../Standalone/Generated/EmbeddedScripts.cpp")
+    list(APPEND SrcStandalone "../../../../../../Standalone/Generated/EmbeddedScripts.cpp")
+endif()
 
 include_directories("../../../../../../External/Lua/")
 include_directories("../../../../../../External/Vorbis/")
 include_directories("../../../../../../External/Bullet/")
+include_directories("../../../../../../External/Assimp/contrib/rapidjson/")
+include_directories("../../../../../../External/recastnavigation/Recast/Include/")
+include_directories("../../../../../../External/recastnavigation/Detour/Include/")
+include_directories("../../../../../../Engine/External/PolyVox/include/")
 include_directories("../../../../../../Engine/Source/"
         "../../../../../../Engine/Source/Engine/"
         "../../../../../../External/"
@@ -55,7 +84,9 @@ add_library( # Sets the name of the library.
         SHARED
 
         # Provides a relative path to your source file(s).
-        ${SrcLua} ${SrcVorbis} ${SrcSpirvCross} ${SrcBullet} ${SrcEngine} ${SrcStandalone})
+        ${SrcLua} ${SrcVorbis} ${SrcSpirvCross} ${SrcBullet}
+        ${SrcRecast} ${SrcDetour} ${SrcIrrXML}
+        ${SrcEngine} ${SrcStandalone})
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by

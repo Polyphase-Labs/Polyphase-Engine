@@ -1207,6 +1207,7 @@
     <ClCompile Include="Source\Engine\ScriptAutoReg.cpp" />
     <ClCompile Include="Source\Engine\ScriptFunc.cpp" />
     <ClCompile Include="Source\Engine\ScriptUtils.cpp" />
+    <ClCompile Include="Source\Engine\LoadingMenu.cpp" />
     <ClCompile Include="Source\Engine\SignalBus.cpp" />
     <ClCompile Include="Source\Engine\Signals.cpp" />
     <ClCompile Include="Source\Engine\SmartPointer.cpp" />
@@ -1321,6 +1322,7 @@
     <ClCompile Include="Source\LuaBindings\DataAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Script_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ShadowMesh3d_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\LoadingMenu_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Signal_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh3d_Lua.cpp" />
@@ -1765,6 +1767,7 @@
     <ClInclude Include="Source\Engine\ScriptFunc.h" />
     <ClInclude Include="Source\Engine\ScriptMacros.h" />
     <ClInclude Include="Source\Engine\ScriptUtils.h" />
+    <ClInclude Include="Source\Engine\LoadingMenu.h" />
     <ClInclude Include="Source\Engine\SignalBus.h" />
     <ClInclude Include="Source\Engine\Signals.h" />
     <ClInclude Include="Source\Engine\Stream.h" />
@@ -1877,6 +1880,7 @@
     <ClInclude Include="Source\LuaBindings\DataAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Script_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ShadowMesh3d_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\LoadingMenu_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Signal_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh3d_Lua.h" />

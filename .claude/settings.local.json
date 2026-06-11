@@ -204,7 +204,8 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(p['name'],'=',p.get\\('value'\\)\\) for p in d['properties'] if p['name'] in \\('Script','Tags'\\)]\")",
       "Bash(lua -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')",
       "Bash(luac -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')",
-      "PowerShell(Copy-Item *)"
+      "PowerShell(Copy-Item *)",
+      "Bash(powershell *)"
     ]
   }
 }

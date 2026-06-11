@@ -100,6 +100,7 @@
 #include "LuaBindings/SaveData_Lua.h"
 #include "LuaBindings/Misc_Lua.h"
 #include "LuaBindings/TinyLLM_Lua.h"
+#include "LuaBindings/LoadingMenu_Lua.h"
 
 static std::string sOriginalPath;
 
@@ -127,6 +128,7 @@ void BindLuaInterface()
     Stream_Lua::Bind();
     Signal_Lua::Bind();
     SignalBus_Lua::Bind();
+    LoadingMenu_Lua::Bind();
     TimerManager_Lua::Bind();
     Easing_Lua::Bind();
     Tween_Lua::Bind();

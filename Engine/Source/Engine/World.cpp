@@ -1,4 +1,5 @@
 #include "World.h"
+#include "LoadingMenu.h"
 #include "Nodes/3D/Camera3d.h"
 #include "Constants.h"
 #include "Renderer.h"
@@ -1917,6 +1918,15 @@ Particle3D* World::SpawnParticle(ParticleSystem* sys, glm::vec3 position, glm::v
 
 void World::LoadScene(const char* name, bool instant)
 {
+    if (!instant
+        && GetIndex() == 0
+        && !GetEngineConfig()->mHeadless
+        && GetLoadingMenu()->ShouldInterceptLoadScene())
+    {
+        GetLoadingMenu()->Open(name ? name : "", GetIndex());
+        return;
+    }
+
     if (instant)
     {
         Scene* scene = LoadAsset<Scene>(name);

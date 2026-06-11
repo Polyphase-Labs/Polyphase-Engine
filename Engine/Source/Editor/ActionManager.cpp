@@ -2511,12 +2511,65 @@ void ActionManager::BuildPhase1()
         }
         else if (platform == Platform::Android)
         {
-            std::string androidAssetsDir = buildProjDir + "Android/app/src/main/assets/";
+            std::string androidAppDir = buildProjDir + "Android/app/";
+            std::string androidAssetsDir = androidAppDir + "src/main/assets/";
+
+            // Force Rebuild: wipe Gradle's incremental caches before staging
+            // assets and invoking gradlew. Without this:
+            //   - app/.cxx/         CMake + ninja cache. Edits to CMakeLists
+            //                       (new include paths, source globs, JOB_POOLS,
+            //                       EmbeddedScripts.cpp wiring) can be ignored
+            //                       because the cached configure step thinks
+            //                       nothing relevant changed.
+            //   - app/build/        Gradle outputs. `mergeReleaseAssets`'s
+            //                       incremental cache occasionally skips
+            //                       re-staging when only file contents (not
+            //                       names) changed, leaving a stale APK with
+            //                       last build's assets/.
+            //   - app/src/main/assets/  Last build's staged copy. We recreate
+            //                       it below from packagedDir, but blowing it
+            //                       away first guarantees no stragglers from a
+            //                       prior build with a different layout (e.g.
+            //                       before the Bomber/Config.ini staging fix).
+            if (mBuildState.mForceCompile)
+            {
+                LogDebug("[BUILD] Force Rebuild (Android): wiping %s.cxx, %sbuild, %s",
+                         androidAppDir.c_str(), androidAppDir.c_str(),
+                         androidAssetsDir.c_str());
+                AppendBuildOutput("Force Rebuild: clearing Android CMake + Gradle caches\n");
+
+                std::string cxxDir   = androidAppDir + ".cxx";
+                std::string buildDir = androidAppDir + "build";
+                if (DoesDirExist(cxxDir.c_str()))           { RemoveDir(cxxDir.c_str()); }
+                if (DoesDirExist(buildDir.c_str()))         { RemoveDir(buildDir.c_str()); }
+                if (DoesDirExist(androidAssetsDir.c_str())) { RemoveDir(androidAssetsDir.c_str()); }
+            }
+
             if (!DoesDirExist(androidAssetsDir.c_str()))
             {
                 CreateDir(androidAssetsDir.c_str());
             }
             SYS_CopyDirectory(packagedDir.c_str(), androidAssetsDir.c_str());
+
+            // The packager places Config.ini and <project>.octp at the package
+            // root for desktop runtimes (working dir == package root), but the
+            // engine constructs project paths as "<projectName>/<file>". On
+            // desktop that prefix happens to resolve at boot anyway; on Android
+            // AAssetManager only sees what's literally on disk, so the prefixed
+            // paths fail. Stage a second copy under <projectName>/ so the
+            // runtime's "Bomber/Config.ini" / "Bomber/Bomber.octp" lookups
+            // succeed.
+            {
+                std::string projAssetDir = androidAssetsDir + projectName + "/";
+                if (!DoesDirExist(projAssetDir.c_str()))
+                {
+                    CreateDir(projAssetDir.c_str());
+                }
+                SYS_CopyFile((androidAssetsDir + "Config.ini").c_str(),
+                             (projAssetDir + "Config.ini").c_str());
+                SYS_CopyFile((androidAssetsDir + projectName + ".octp").c_str(),
+                             (projAssetDir + projectName + ".octp").c_str());
+            }
 
             std::string gradleDir = buildProjDir + "Android/";
 #if PLATFORM_WINDOWS
