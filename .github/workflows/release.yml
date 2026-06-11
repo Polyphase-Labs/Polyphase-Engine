@@ -71,11 +71,18 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      # CMake generator is intentionally NOT pinned to a specific VS version.
+      # windows-latest jumped from VS 17 2022 (windows-2022) to VS 18 2026
+      # (windows-2025-vs2026), so a hardcoded `-G "Visual Studio 17 2022"`
+      # bails with "could not find any instance of Visual Studio." Letting
+      # cmake auto-detect picks whichever VS the current runner image ships
+      # — setup-msbuild@v2 above guarantees one is on PATH. -A x64 still
+      # works since both VS generators are multi-config.
       - name: Prebuild libgit2
         shell: cmd
         run: |
           cd Engine\External\libgit2
-          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DBUILD_EXAMPLES=OFF -DUSE_SSH=OFF -DUSE_BUNDLED_ZLIB=ON -DREGEX_BACKEND=builtin
+          cmake -B build -S . -A x64 -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_CLI=OFF -DBUILD_EXAMPLES=OFF -DUSE_SSH=OFF -DUSE_BUNDLED_ZLIB=ON -DREGEX_BACKEND=builtin
           cmake --build build --config Release
           cmake --build build --config Debug
           if not exist "..\..\External\lib\Lib" mkdir "..\..\External\lib\Lib"
