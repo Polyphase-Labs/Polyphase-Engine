@@ -127,6 +127,164 @@ void LaunchersModule::Render()
     ImGui::Spacing();
     ImGui::Spacing();
 
+    // ── ADB (Android Hardware) ──────────────────────────────────────────────
+    ImGui::Text("ADB (Android Hardware)");
+    ImGui::Separator();
+
+    if (DrawPathInput("Path##Adb", mAdbPath, "Select adb executable"))
+    {
+        changed = true;
+    }
+    ImGui::TextDisabled("  Typical Windows: C:\\Android\\Sdk\\platform-tools\\adb.exe");
+
+    {
+        ImGui::SetNextItemWidth(-1);
+        char buf[256];
+        strncpy(buf, mAdbInstallArgs.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        if (ImGui::InputText("Install Args##Adb", buf, sizeof(buf)))
+        {
+            mAdbInstallArgs = buf;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Flags passed to `adb install`. -r reinstalls keeping app data.");
+        }
+    }
+
+    {
+        ImGui::SetNextItemWidth(-1);
+        char buf[256];
+        strncpy(buf, mAndroidLaunchComponent.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        if (ImGui::InputText("Launch Component##Adb", buf, sizeof(buf)))
+        {
+            mAndroidLaunchComponent = buf;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("<package>/<activity> for `adb shell am start -n` after install.\n"
+                              "Defaults match Standalone/Android/app/build.gradle.\n"
+                              "Empty = skip the launch step.");
+        }
+    }
+
+    ImGui::Spacing();
+
+    // Device list with Refresh button
+    ImGui::Text("Device:");
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh##AdbDevices"))
+    {
+        mCachedDevices = ListAdbDevices();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%d detected)", (int)mCachedDevices.size());
+
+    {
+        bool autoSelected = mAndroidSerial.empty();
+        if (ImGui::RadioButton("Auto (first connected)##Adb", autoSelected))
+        {
+            if (!autoSelected) { mAndroidSerial.clear(); changed = true; }
+        }
+    }
+
+    for (const AdbDevice& dev : mCachedDevices)
+    {
+        std::string label = dev.mSerial;
+        if (!dev.mModel.empty()) label += "  [" + dev.mModel + "]";
+        label += "  (" + dev.mState + ")";
+        label += "##AdbDev_" + dev.mSerial;
+
+        bool sel = (mAndroidSerial == dev.mSerial);
+        if (ImGui::RadioButton(label.c_str(), sel))
+        {
+            if (!sel) { mAndroidSerial = dev.mSerial; changed = true; }
+        }
+    }
+
+    // Manual serial override — useful for hosts where `adb devices` is gated
+    // (sudo udev rules, headless CI, scripted runs against a named emulator).
+    {
+        ImGui::SetNextItemWidth(-1);
+        char buf[128];
+        strncpy(buf, mAndroidSerial.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        if (ImGui::InputText("Selected Serial##Adb", buf, sizeof(buf)))
+        {
+            mAndroidSerial = buf;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Empty = first connected device (fails if multiple).\n"
+                              "Set explicitly when multiple devices/emulators are attached.");
+        }
+    }
+
+    ImGui::Spacing();
+
+    // Logcat — separate detached window so the editor doesn't freeze while
+    // streaming. The "Open Logcat" button lets the user spawn one anytime,
+    // independent of a build.
+    if (ImGui::Checkbox("Auto-open logcat after launch", &mAutoOpenLogcat))
+    {
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("After `adb shell am start`, spawn a new console window\n"
+                          "running `adb logcat` so app output streams live.\n"
+                          "The window stays open until you close it.");
+    }
+
+    if (ImGui::Checkbox("Clear logcat buffer first (-c)", &mLogcatAutoClear))
+    {
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Run `adb logcat -c` before streaming so the window\n"
+                          "shows only this run's output, not stale buffer noise.");
+    }
+
+    {
+        ImGui::SetNextItemWidth(-1);
+        char buf[256];
+        strncpy(buf, mLogcatFilter.c_str(), sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        if (ImGui::InputText("Logcat Filter##Adb", buf, sizeof(buf)))
+        {
+            mLogcatFilter = buf;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Args appended to `adb logcat`. Examples:\n"
+                              "  Polyphase:V *:E      engine verbose + everyone else errors\n"
+                              "  Polyphase:V *:S      engine only (silent for others)\n"
+                              "  *:V                  everything verbose (very noisy)");
+        }
+    }
+
+    if (ImGui::Button("Open Logcat##Adb"))
+    {
+        std::string cmd = BuildAdbLogcatCommand();
+        if (!cmd.empty())
+        {
+            SYS_ExecDetached(cmd.c_str());
+        }
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Open a logcat window right now without rebuilding.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
     // Placeholder help
     ImGui::TextDisabled("Placeholders: {emulator}, {output}, {outputdir}");
 
@@ -144,6 +302,15 @@ void LaunchersModule::LoadSettings(const rapidjson::Document& doc)
     mAzaharArgs = JsonSettings::GetString(doc, "azaharArgs", "{emulator} {output}");
     mWiiloadIP = JsonSettings::GetString(doc, "wiiloadIP", "");
     m3dsIP = JsonSettings::GetString(doc, "threeDsIP", "");
+
+    mAdbPath = JsonSettings::GetString(doc, "adbPath", "");
+    mAdbInstallArgs = JsonSettings::GetString(doc, "adbInstallArgs", "-r");
+    mAndroidSerial = JsonSettings::GetString(doc, "androidSerial", "");
+    mAndroidLaunchComponent = JsonSettings::GetString(doc, "androidLaunchComponent",
+                                                     "com.solarscapegames.standalone/.PolyphaseActivity");
+    mAutoOpenLogcat = JsonSettings::GetBool(doc, "autoOpenLogcat", true);
+    mLogcatAutoClear = JsonSettings::GetBool(doc, "logcatAutoClear", true);
+    mLogcatFilter = JsonSettings::GetString(doc, "logcatFilter", "Polyphase:V *:E");
 }
 
 void LaunchersModule::SaveSettings(rapidjson::Document& doc)
@@ -154,6 +321,14 @@ void LaunchersModule::SaveSettings(rapidjson::Document& doc)
     JsonSettings::SetString(doc, "azaharArgs", mAzaharArgs);
     JsonSettings::SetString(doc, "wiiloadIP", mWiiloadIP);
     JsonSettings::SetString(doc, "threeDsIP", m3dsIP);
+
+    JsonSettings::SetString(doc, "adbPath", mAdbPath);
+    JsonSettings::SetString(doc, "adbInstallArgs", mAdbInstallArgs);
+    JsonSettings::SetString(doc, "androidSerial", mAndroidSerial);
+    JsonSettings::SetString(doc, "androidLaunchComponent", mAndroidLaunchComponent);
+    JsonSettings::SetBool(doc, "autoOpenLogcat", mAutoOpenLogcat);
+    JsonSettings::SetBool(doc, "logcatAutoClear", mLogcatAutoClear);
+    JsonSettings::SetString(doc, "logcatFilter", mLogcatFilter);
 }
 
 bool LaunchersModule::IsEmulatorConfigured(Platform platform) const
@@ -313,6 +488,162 @@ std::string LaunchersModule::BuildWiiloadCommand(const std::string& outputPath) 
 #else
     // On Linux, export WIILOAD inline and run wiiload
     return "WIILOAD=tcp:" + mWiiloadIP + " wiiload \"" + outputPath + "\"";
+#endif
+}
+
+bool LaunchersModule::IsAdbConfigured() const
+{
+    return !mAdbPath.empty() && SYS_DoesFileExist(mAdbPath.c_str(), false);
+}
+
+std::string LaunchersModule::BuildAdbInstallCommand(const std::string& apkPath) const
+{
+    if (!IsAdbConfigured()) { return ""; }
+
+    std::string normAdb = mAdbPath;
+    std::string normApk = apkPath;
+#if PLATFORM_WINDOWS
+    ReplaceAll(normAdb, "/", "\\");
+    ReplaceAll(normApk, "/", "\\");
+#endif
+
+    std::string serialArg = mAndroidSerial.empty() ? "" : (" -s " + mAndroidSerial);
+    std::string installArgs = mAdbInstallArgs.empty() ? "" : (" " + mAdbInstallArgs);
+
+    return "\"" + normAdb + "\"" + serialArg + " install" + installArgs + " \"" + normApk + "\"";
+}
+
+std::string LaunchersModule::BuildAdbLaunchCommand() const
+{
+    if (!IsAdbConfigured()) { return ""; }
+    if (mAndroidLaunchComponent.empty()) { return ""; }
+
+    std::string normAdb = mAdbPath;
+#if PLATFORM_WINDOWS
+    ReplaceAll(normAdb, "/", "\\");
+#endif
+
+    std::string serialArg = mAndroidSerial.empty() ? "" : (" -s " + mAndroidSerial);
+    return "\"" + normAdb + "\"" + serialArg + " shell am start -n " + mAndroidLaunchComponent;
+}
+
+std::vector<LaunchersModule::AdbDevice> LaunchersModule::ListAdbDevices() const
+{
+    std::vector<AdbDevice> result;
+    if (!IsAdbConfigured()) { return result; }
+
+    std::string normAdb = mAdbPath;
+#if PLATFORM_WINDOWS
+    ReplaceAll(normAdb, "/", "\\");
+#endif
+
+    std::string output;
+    SYS_Exec(("\"" + normAdb + "\" devices -l").c_str(), &output);
+
+    // Format of `adb devices -l` (per line after "List of devices attached"):
+    //   <serial><WS>device usb:1-1.2 product:foo model:Pixel_10 device:bar transport_id:N
+    // Other states ("unauthorized", "offline", "no permissions") omit the suffix.
+    size_t pos = 0;
+    while (pos < output.size())
+    {
+        size_t lineEnd = output.find('\n', pos);
+        std::string line = (lineEnd == std::string::npos) ? output.substr(pos) : output.substr(pos, lineEnd - pos);
+        pos = (lineEnd == std::string::npos) ? output.size() : lineEnd + 1;
+
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t'))
+        {
+            line.pop_back();
+        }
+        if (line.empty()) { continue; }
+        if (line.find("List of devices") != std::string::npos) { continue; }
+        if (line.find("daemon") != std::string::npos) { continue; }
+        if (line[0] == '*') { continue; }  // "* daemon not running ..." lines
+
+        size_t firstSep = line.find_first_of(" \t");
+        if (firstSep == std::string::npos) { continue; }
+
+        AdbDevice dev;
+        dev.mSerial = line.substr(0, firstSep);
+
+        std::string rest = line.substr(firstSep);
+        size_t stateStart = rest.find_first_not_of(" \t");
+        if (stateStart == std::string::npos) { continue; }
+        rest = rest.substr(stateStart);
+
+        size_t stateEnd = rest.find_first_of(" \t");
+        dev.mState = (stateEnd == std::string::npos) ? rest : rest.substr(0, stateEnd);
+
+        size_t modelIdx = rest.find("model:");
+        if (modelIdx != std::string::npos)
+        {
+            modelIdx += 6;
+            size_t modelEnd = rest.find_first_of(" \t", modelIdx);
+            dev.mModel = (modelEnd == std::string::npos)
+                ? rest.substr(modelIdx)
+                : rest.substr(modelIdx, modelEnd - modelIdx);
+        }
+
+        result.push_back(std::move(dev));
+    }
+
+    return result;
+}
+
+std::string LaunchersModule::BuildAdbLogcatCommand() const
+{
+    if (!IsAdbConfigured()) { return ""; }
+
+    std::string normAdb = mAdbPath;
+#if PLATFORM_WINDOWS
+    ReplaceAll(normAdb, "/", "\\");
+#endif
+
+    std::string serialArg = mAndroidSerial.empty() ? "" : (" -s " + mAndroidSerial);
+    std::string filter = mLogcatFilter.empty() ? "*:V" : mLogcatFilter;
+
+#if PLATFORM_WINDOWS
+    // Open a new console window via `start "title" cmd /k "<command>"`.
+    //
+    // Quote dance:
+    //   - SystemUtils prepends `cmd.exe /c ` to whatever we hand SYS_ExecDetached.
+    //     The outer cmd /c does NOT strip quotes because our string starts with
+    //     `start` (not a quote), so passes through unchanged.
+    //   - `start "Polyphase Logcat" cmd /k "..."` then spawns a new cmd window.
+    //     The /k argument needs the ADB path quoted (it may have spaces). To
+    //     survive cmd /k's "strip first and last quote" rule, we wrap the
+    //     ENTIRE /k arg in an extra pair of quotes — outer pair gets stripped,
+    //     inner quotes around the path survive.
+    //   - Net effect inside the new window: `"<adb>" -s ... logcat -c && "<adb>" -s ... logcat <filter>`
+    //
+    // /k (not /c) keeps the window open after logcat exits — handy if the user
+    // Ctrl+C's the stream and wants the history visible.
+    std::string clearChain;
+    if (mLogcatAutoClear)
+    {
+        clearChain = "\"" + normAdb + "\"" + serialArg + " logcat -c && ";
+    }
+
+    return "start \"Polyphase Logcat\" cmd /k \""
+         + clearChain
+         + "\"" + normAdb + "\"" + serialArg + " logcat " + filter
+         + "\"";
+#elif PLATFORM_LINUX
+    // Best-effort terminal-emulator launch. x-terminal-emulator is the
+    // Debian/Ubuntu meta-symlink; we try it first then xterm as fallback.
+    // The `; exec bash` keeps the shell open after logcat exits so the user
+    // can scroll back. Backgrounded with & so the editor never waits.
+    std::string clearChain;
+    if (mLogcatAutoClear)
+    {
+        clearChain = "'" + normAdb + "'" + serialArg + " logcat -c; ";
+    }
+    std::string inner = clearChain
+                      + "'" + normAdb + "'" + serialArg + " logcat " + filter
+                      + "; exec bash";
+    return "(x-terminal-emulator -T 'Polyphase Logcat' -e bash -c \"" + inner + "\" "
+           "|| xterm -T 'Polyphase Logcat' -e bash -c \"" + inner + "\") &";
+#else
+    return "";
 #endif
 }
 

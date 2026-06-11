@@ -63,15 +63,68 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../Standalone/Generated/Em
     list(APPEND SrcStandalone "../../../../../../Standalone/Generated/EmbeddedScripts.cpp")
 endif()
 
+# ── Engine addons ────────────────────────────────────────────────────────────
+# ActionManager::InjectNativeAddonsIntoCmake writes Standalone/Generated/
+# AddonInject.cmake every time we package for Android. It sets:
+#   POLYPHASE_ADDON_SOURCE_DIRS   absolute dirs to glob .cpp/.c from
+#   POLYPHASE_ADDON_INCLUDE_DIRS  absolute dirs for include_directories()
+#   POLYPHASE_ADDON_DEFINES       -D values (FOO=1 BAR=2 ...)
+#   POLYPHASE_ADDON_LIB_DIRS      link_directories() entries
+#   POLYPHASE_ADDON_LIBS          libs to pass to target_link_libraries
+#   POLYPHASE_ADDON_REGISTRAR     absolute path to AddonPlugins.cpp
+# Lists are EMPTY when the project has no engine addons — include() is safe.
+set(SrcAddons "")
+set(POLYPHASE_ADDON_INJECT_CMAKE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../Standalone/Generated/AddonInject.cmake")
+if(EXISTS "${POLYPHASE_ADDON_INJECT_CMAKE}")
+    include("${POLYPHASE_ADDON_INJECT_CMAKE}")
+
+    foreach(addonDir IN LISTS POLYPHASE_ADDON_SOURCE_DIRS)
+        file(GLOB addonCpps "${addonDir}/*.cpp" "${addonDir}/*.c")
+        list(APPEND SrcAddons ${addonCpps})
+    endforeach()
+
+    foreach(addonInc IN LISTS POLYPHASE_ADDON_INCLUDE_DIRS)
+        include_directories("${addonInc}")
+    endforeach()
+
+    foreach(addonDef IN LISTS POLYPHASE_ADDON_DEFINES)
+        add_compile_definitions(${addonDef})
+    endforeach()
+
+    if(POLYPHASE_ADDON_LIB_DIRS)
+        link_directories(${POLYPHASE_ADDON_LIB_DIRS})
+    endif()
+
+    if(POLYPHASE_ADDON_REGISTRAR AND EXISTS "${POLYPHASE_ADDON_REGISTRAR}")
+        list(APPEND SrcStandalone "${POLYPHASE_ADDON_REGISTRAR}")
+    endif()
+endif()
+
+#
+# Include path ORDER MATTERS — Windows is case-insensitive so an addon's
+# `#include "Stream.h"` will match `External/Assimp/contrib/rapidjson/stream.h`
+# (rapidjson's forward-declaration-only stream class) instead of the engine's
+# `Engine/Source/Engine/Stream.h` if rapidjson is on -I first. Symptom:
+# clang emits `-Wnonportable-include-path` warning ("Stream.h vs stream.h"),
+# then fails downstream with `member access into incomplete type 'Stream'`
+# because the wrong file got included.
+#
+# Engine include dirs must come first so engine headers shadow same-cased
+# External ones.
+#
+include_directories(
+        "../../../../../../Engine/Source/"
+        "../../../../../../Engine/Source/Engine/"
+        "../../../../../../Engine/External/PolyVox/include/")
+
 include_directories("../../../../../../External/Lua/")
 include_directories("../../../../../../External/Vorbis/")
 include_directories("../../../../../../External/Bullet/")
 include_directories("../../../../../../External/Assimp/contrib/rapidjson/")
 include_directories("../../../../../../External/recastnavigation/Recast/Include/")
 include_directories("../../../../../../External/recastnavigation/Detour/Include/")
-include_directories("../../../../../../Engine/External/PolyVox/include/")
-include_directories("../../../../../../Engine/Source/"
-        "../../../../../../Engine/Source/Engine/"
+include_directories(
         "../../../../../../External/"
         "../../../../../../External/Android/"
         "../../../../../../External/Bullet/")
@@ -86,7 +139,8 @@ add_library( # Sets the name of the library.
         # Provides a relative path to your source file(s).
         ${SrcLua} ${SrcVorbis} ${SrcSpirvCross} ${SrcBullet}
         ${SrcRecast} ${SrcDetour} ${SrcIrrXML}
-        ${SrcEngine} ${SrcStandalone})
+        ${SrcEngine} ${SrcStandalone}
+        ${SrcAddons})
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -118,4 +172,5 @@ target_link_libraries( # Specifies the target library.
         OpenSLES
         native_app_glue
         ${vulkan-lib}
-        ${log-lib})
+        ${log-lib}
+        ${POLYPHASE_ADDON_LIBS})

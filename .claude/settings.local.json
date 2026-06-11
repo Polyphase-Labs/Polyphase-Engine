@@ -205,7 +205,9 @@
       "Bash(lua -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')",
       "Bash(luac -p 'M:\\\\Projects\\\\Polyphase\\\\Polyphase-Examples\\\\FPS-Demo\\\\FPS-Demo\\\\Scripts\\\\FPS\\\\EnemyAI.lua')",
       "PowerShell(Copy-Item *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Read(//m/Projects/Polyphase/Polyphase-Examples/FPS-Demo/FPS-Demo_Dup_2/Packages/**)",
+      "Read(//m/Projects/Polyphase/Polyphase-Examples/FPS-Demo/FPS-Demo_Dup_2/Generated/**)"
     ]
   }
 }

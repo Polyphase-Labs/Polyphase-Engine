@@ -895,6 +895,134 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     LogDebug("Native addon sources injected into makefile.");
 }
 
+// ── Android (CMake) addon-source injection ───────────────────────────────────
+//
+// Sibling of InjectNativeAddonSources (Makefile) and InjectNativeAddonsIntoVcxproj
+// (Windows MSBuild). Writes a CMake snippet that the Android build's
+// CMakeLists.txt include()s — Android's CMake doesn't have an `INCLUDES :=`
+// anchor we can splice into, so we emit a fresh, well-known file and consume
+// it from the consumer side.
+//
+// File written: <buildProjDir>/Generated/AddonInject.cmake
+//
+//   set(POLYPHASE_ADDON_SOURCE_DIRS  "<abs>/Source" "<abs>/Source/Nodes" ...)
+//   set(POLYPHASE_ADDON_INCLUDE_DIRS "<abs>/Source" "<abs>/Source/lib/inc" ...)
+//   set(POLYPHASE_ADDON_DEFINES      POLYPHASE_FOO=1 POLYPHASE_BAR=2)
+//   set(POLYPHASE_ADDON_LIB_DIRS     "<abs>/lib/android-arm64")
+//   set(POLYPHASE_ADDON_LIBS         foo bar)
+//   set(POLYPHASE_ADDON_REGISTRAR    "<abs>/Generated/AddonPlugins.cpp")
+//
+// Empty lists when the project has no engine addons — the consumer can
+// include() unconditionally, which keeps the CMakeLists simple.
+//
+// Why we ALWAYS overwrite AddonPlugins.cpp alongside (mirrors line 506-515 of
+// InjectNativeAddonSources): a stale AddonPlugins.cpp left behind by a
+// previous build (one that DID have addons) compiles its
+// POLYPHASE_REGISTER_PLUGIN(...) calls into the current binary, then the link
+// fails with `undefined reference to PolyphasePlugin_GetDesc_<addon>` because
+// the addon's source dir is no longer in POLYPHASE_ADDON_SOURCE_DIRS.
+static void InjectNativeAddonsIntoCmake(const std::string& cmakeIncludePath,
+                                        const std::string& buildProjDir,
+                                        const std::string& platformName)
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr)
+    {
+        return;
+    }
+
+    nam->DiscoverNativeAddons();
+    std::vector<NativeAddonState> engineAddons = nam->GetEngineAddons();
+
+    // Always regenerate AddonPlugins.cpp so its POLYPHASE_REGISTER_PLUGIN set
+    // matches POLYPHASE_ADDON_SOURCE_DIRS in this same file. Two writers
+    // (this helper + InjectNativeAddonSources) emit it on different platforms;
+    // both produce identical output for a given addon set, so cross-platform
+    // builds don't fight.
+    const std::string generatedDir = buildProjDir + "Generated/";
+    SYS_CreateDirectory(generatedDir.c_str());
+    const std::string registrarPath = generatedDir + "AddonPlugins.cpp";
+    GenerateAddonPluginsRegistrar(registrarPath, engineAddons);
+
+    // CMake-friendly absolute path. Always forward-slash; no MSYS conversion
+    // because Android Studio's CMake speaks native Windows paths.
+    auto normSlash = [](std::string s) -> std::string {
+        for (char& c : s) { if (c == '\\') c = '/'; }
+        while (!s.empty() && s.back() == '/') { s.pop_back(); }
+        return s;
+    };
+
+    std::string sourceDirsList;
+    std::string includeDirsList;
+    std::string definesList;
+    std::string libDirsList;
+    std::string libsList;
+
+    for (const NativeAddonState& addon : engineAddons)
+    {
+        const std::string srcRoot = addon.mSourcePath + addon.mNativeMetadata.mSourceDir + "/";
+        std::vector<std::string> files;
+        GatherAddonSourceFiles(srcRoot, files);
+
+        // Dedupe via std::set so an addon with many .cpp under one dir only
+        // gets that dir listed once.
+        std::set<std::string> dirs;
+        for (const std::string& f : files)
+        {
+            const auto slash = f.find_last_of('/');
+            if (slash != std::string::npos)
+            {
+                dirs.insert(normSlash(f.substr(0, slash)));
+            }
+        }
+
+        if (!dirs.empty())
+        {
+            sourceDirsList += "\n    # addon: " + addon.mAddonId
+                            + " (" + std::to_string(files.size()) + " files in "
+                            + std::to_string(dirs.size()) + " dirs)";
+        }
+        for (const std::string& d : dirs)
+        {
+            sourceDirsList += "\n    \"" + d + "\"";
+        }
+
+        // Same convention as vcxproj / Makefile injection — addon's
+        // Source/ root is on the include path so its internal
+        // `#include "Subdir/Header.h"` style resolves.
+        includeDirsList += "\n    \"" + normSlash(srcRoot) + "\"";
+
+        const auto extras = addon.mNativeMetadata.ResolveExtras(platformName);
+        for (const std::string& d : extras.mExtraDefines)
+            definesList += "\n    " + d;
+        for (const std::string& inc : extras.mExtraIncludeDirs)
+            includeDirsList += "\n    \"" + normSlash(addon.mSourcePath + inc) + "\"";
+        for (const std::string& ld : extras.mExtraLibDirs)
+            libDirsList += "\n    \"" + normSlash(addon.mSourcePath + ld) + "\"";
+        for (const std::string& lb : extras.mExtraLibs)
+            libsList += "\n    " + lb;
+    }
+
+    std::string cmake;
+    cmake += "# AUTO-GENERATED by ActionManager::InjectNativeAddonsIntoCmake.\n";
+    cmake += "# include()'d from Standalone/Android/app/src/main/cpp/CMakeLists.txt\n";
+    cmake += "# (and per-project Android/ subdirs that mirror it). Always present;\n";
+    cmake += "# lists are empty when the project has no engine addons, so the\n";
+    cmake += "# consumer can include() unconditionally.\n\n";
+    cmake += "set(POLYPHASE_ADDON_SOURCE_DIRS"  + sourceDirsList  + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_INCLUDE_DIRS" + includeDirsList + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_DEFINES"      + definesList     + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_LIB_DIRS"     + libDirsList     + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_LIBS"         + libsList        + "\n)\n\n";
+    cmake += "set(POLYPHASE_ADDON_REGISTRAR \"" + normSlash(registrarPath) + "\")\n";
+
+    Stream s(cmake.c_str(), (uint32_t)cmake.size());
+    s.WriteFile(cmakeIncludePath.c_str());
+
+    LogDebug("InjectNativeAddonsIntoCmake: %zu engine addon(s), wrote %s",
+             engineAddons.size(), cmakeIncludePath.c_str());
+}
+
 void ReplaceStringInFile(const std::string& file, const std::string& srcString, const std::string& dstString)
 {
     Stream fileStream;
@@ -1109,6 +1237,42 @@ void ActionManager::BuildData(Platform platform, bool embedded)
                                 LogDebug("Launching wiiload: %s", cmd.c_str());
                                 SYS_Exec(cmd.c_str());
                             }
+                        }
+                    }
+                    else if (runOnDevice && platform == Platform::Android)
+                    {
+                        LaunchersModule* launchers = static_cast<LaunchersModule*>(
+                            PreferencesManager::Get()->FindModule("External/Launchers"));
+                        if (launchers != nullptr && launchers->IsAdbConfigured())
+                        {
+                            std::string installCmd = launchers->BuildAdbInstallCommand(outputPath);
+                            if (!installCmd.empty())
+                            {
+                                LogDebug("adb install: %s", installCmd.c_str());
+                                std::string out;
+                                SYS_Exec(installCmd.c_str(), &out);
+                                if (!out.empty()) LogDebug("%s", out.c_str());
+                            }
+                            std::string launchCmd = launchers->BuildAdbLaunchCommand();
+                            if (!launchCmd.empty())
+                            {
+                                LogDebug("adb launch: %s", launchCmd.c_str());
+                                SYS_Exec(launchCmd.c_str());
+                            }
+                            // Detached logcat window — doesn't block the editor.
+                            if (launchers->mAutoOpenLogcat)
+                            {
+                                std::string logcatCmd = launchers->BuildAdbLogcatCommand();
+                                if (!logcatCmd.empty())
+                                {
+                                    LogDebug("adb logcat (detached): %s", logcatCmd.c_str());
+                                    SYS_ExecDetached(logcatCmd.c_str());
+                                }
+                            }
+                        }
+                        else
+                        {
+                            LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
                         }
                     }
                     else
@@ -2531,17 +2695,30 @@ void ActionManager::BuildPhase1()
             //                       away first guarantees no stragglers from a
             //                       prior build with a different layout (e.g.
             //                       before the Bomber/Config.ini staging fix).
+            //   - .gradle/          Per-project Gradle task-graph cache. Holds
+            //                       "task X was UP-TO-DATE last run, its
+            //                       outputs are valid" decisions independent
+            //                       of app/build/. Skipping this is what caused
+            //                       the `dataBindingGenBaseClassesRelease`
+            //                       failure ("R-def.txt which doesn't exist")
+            //                       — Gradle marked packageReleaseResources
+            //                       UP-TO-DATE based on cached state, then the
+            //                       downstream task looked for the deleted
+            //                       output. Wiping .gradle/ forces a fresh
+            //                       task-graph evaluation.
             if (mBuildState.mForceCompile)
             {
-                LogDebug("[BUILD] Force Rebuild (Android): wiping %s.cxx, %sbuild, %s",
+                LogDebug("[BUILD] Force Rebuild (Android): wiping %s.cxx, %sbuild, %s, .gradle",
                          androidAppDir.c_str(), androidAppDir.c_str(),
                          androidAssetsDir.c_str());
                 AppendBuildOutput("Force Rebuild: clearing Android CMake + Gradle caches\n");
 
-                std::string cxxDir   = androidAppDir + ".cxx";
-                std::string buildDir = androidAppDir + "build";
+                std::string cxxDir      = androidAppDir + ".cxx";
+                std::string buildDir    = androidAppDir + "build";
+                std::string gradleCache = buildProjDir + "Android/.gradle";
                 if (DoesDirExist(cxxDir.c_str()))           { RemoveDir(cxxDir.c_str()); }
                 if (DoesDirExist(buildDir.c_str()))         { RemoveDir(buildDir.c_str()); }
+                if (DoesDirExist(gradleCache.c_str()))      { RemoveDir(gradleCache.c_str()); }
                 if (DoesDirExist(androidAssetsDir.c_str())) { RemoveDir(androidAssetsDir.c_str()); }
             }
 
@@ -2571,11 +2748,53 @@ void ActionManager::BuildPhase1()
                              (projAssetDir + projectName + ".octp").c_str());
             }
 
+            // Engine addons → CMake snippet. Pulled in by the Android
+            // CMakeLists.txt via include() so addon Source dirs / include
+            // paths / defines / libs land in libstandalone.so. Also writes
+            // AddonPlugins.cpp (the registrar) into the same Generated/.
+            //
+            // Without this, libstandalone.so links cleanly but at runtime
+            // the project's Lua scripts that depend on plugin-provided
+            // tables (Combat, Mission, Loot, ...) silently degrade — no
+            // Lua errors, just `nil`s where addon-registered globals
+            // should be. That's exactly the FPS-Demo Android failure mode
+            // before this hook was added.
+            InjectNativeAddonsIntoCmake(buildProjDir + "Generated/AddonInject.cmake",
+                                        buildProjDir,
+                                        "android");
+
+            // Standalone-mode builds drive gradlew from the engine's
+            // Standalone/Android/ tree (buildProjDir = polyphaseDir +
+            // "Standalone/"), so the CMakeLists.txt looks for AddonInject
+            // files in Standalone/Generated/. They're already there if
+            // buildProjDir == polyphaseDir/Standalone. For project-mode
+            // builds where buildProjDir == projectDir, the existing
+            // standalone-Generated copy at line ~1792 ran earlier with
+            // pre-inject state — re-sync now so the just-emitted files
+            // reach the engine's Standalone/Generated/ before gradle reads
+            // them.
+            if (standalone == false)
+            {
+                SYS_CopyFile((buildProjDir + "Generated/AddonInject.cmake").c_str(),
+                             (polyphaseDirectory + "Standalone/Generated/AddonInject.cmake").c_str());
+                SYS_CopyFile((buildProjDir + "Generated/AddonPlugins.cpp").c_str(),
+                             (polyphaseDirectory + "Standalone/Generated/AddonPlugins.cpp").c_str());
+            }
+
+            // On Force Rebuild prepend `clean` to the gradle task list. Belt-
+            // and-braces alongside the .gradle/ rmdir above: if AV scan held
+            // a file lock or the user's host has an unusual umask that left
+            // stale state, gradle's `clean` re-evaluates the project model and
+            // removes its own task outputs cleanly before the build starts.
+            // Normal Build (non-force) skips this to keep iteration fast.
             std::string gradleDir = buildProjDir + "Android/";
+            std::string gradleTasks = mBuildState.mForceCompile
+                ? std::string("clean assembleRelease")
+                : std::string("assembleRelease");
 #if PLATFORM_WINDOWS
-            std::string gradleCmd = "cd " + gradleDir + " && gradlew.bat assembleRelease";
+            std::string gradleCmd = "cd " + gradleDir + " && gradlew.bat " + gradleTasks;
 #else
-            std::string gradleCmd = "cd " + gradleDir + " && \"./gradlew assembleRelease\"";
+            std::string gradleCmd = "cd " + gradleDir + " && \"./gradlew " + gradleTasks + "\"";
 #endif
             mBuildState.mCompileCommand = gradleCmd;
         }
@@ -3322,6 +3541,60 @@ void ActionManager::FinalizeLocalBuild()
             else
             {
                 LogError("wiiload not configured. Set Wii IP in Preferences > External > Launchers.");
+            }
+        }
+        else if (mBuildState.mRunOnDevice && platform == Platform::Android)
+        {
+            // Install + launch via adb. Captures install output so the build
+            // modal shows "Success" or any failure ("INSTALL_PARSE_FAILED_*",
+            // "more than one device/emulator", etc.) without the user having
+            // to shell out manually.
+            LaunchersModule* launchers = static_cast<LaunchersModule*>(
+                PreferencesManager::Get()->FindModule("External/Launchers"));
+
+            if (launchers != nullptr && launchers->IsAdbConfigured())
+            {
+                std::string installCmd = launchers->BuildAdbInstallCommand(outputPath);
+                if (!installCmd.empty())
+                {
+                    LogDebug("adb install: %s", installCmd.c_str());
+                    AppendBuildOutput("Installing via adb...\n");
+                    std::string out;
+                    SYS_Exec(installCmd.c_str(), &out);
+                    if (!out.empty())
+                    {
+                        AppendBuildOutput(out);
+                        if (out.back() != '\n') AppendBuildOutput("\n");
+                    }
+                }
+                std::string launchCmd = launchers->BuildAdbLaunchCommand();
+                if (!launchCmd.empty())
+                {
+                    LogDebug("adb launch: %s", launchCmd.c_str());
+                    AppendBuildOutput("Launching on device...\n");
+                    SYS_Exec(launchCmd.c_str());
+                }
+                // Detached logcat window — independent of the editor's
+                // lifetime; closing the editor does NOT close the logcat
+                // window, and vice-versa.
+                if (launchers->mAutoOpenLogcat)
+                {
+                    std::string logcatCmd = launchers->BuildAdbLogcatCommand();
+                    if (!logcatCmd.empty())
+                    {
+                        LogDebug("adb logcat (detached): %s", logcatCmd.c_str());
+                        AppendBuildOutput("Opening logcat window...\n");
+                        SYS_ExecDetached(logcatCmd.c_str());
+                    }
+                }
+            }
+            else
+            {
+                LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
+                AppendBuildOutput(
+                    "ERROR: adb not configured.\n"
+                    "  Open Preferences > External > Launchers and set the ADB path.\n"
+                    "  Typical Windows location: C:\\Android\\Sdk\\platform-tools\\adb.exe\n");
             }
         }
         else
