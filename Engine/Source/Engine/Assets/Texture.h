@@ -35,6 +35,13 @@ public:
     // The texture must already be Create()'d, dimensions must match, and byteSize must equal width * height * 4.
     void UpdatePixels(const uint8_t* data, size_t byteSize);
 
+#if EDITOR
+    // Install a fixed-up RGBA8 pixel buffer at new dimensions and (re)create
+    // the GPU resource. Used by TextureImportFixupModal after the user picks
+    // Pad / Resize on a non-POT import where Create() was deferred.
+    void FinalizeDeferredImport(std::vector<uint8_t>&& pixels, uint32_t width, uint32_t height);
+#endif
+
     // Decode an in-memory PNG/JPG/TGA/BMP buffer into `out` and Create() it.
     // Runtime-safe (used by HTTP responses to materialise textures from URLs).
     // Returns false on decode failure or unsupported dimensions.

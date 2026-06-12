@@ -59,6 +59,7 @@ nav:
           - Displaying Images: Development/UI/DisplayingImages.md
           - Text: Development/UI/Text.md
           - Buttons: Development/UI/Buttons.md
+          - Input Action Prompts: Development/UI/InputActionPrompt.md
           - Animation: Development/UI/Animation.md
           - Building UI: Development/UI/BuildingUI.md
       - Input:
@@ -69,6 +70,7 @@ nav:
           - Touch: Development/Input/Touch.md
           - Platform Specific: Development/Input/PlatformSpecific.md
           - Known Gaps: Development/Input/KnownGaps.md
+      - Action Prompt UI: Development/ActionPromptUI.md
       - Logging:
           - Overview: Development/Logging/Overview.md
           - Configuration: Development/Logging/Configuration.md

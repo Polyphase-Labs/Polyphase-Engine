@@ -1028,6 +1028,9 @@
     <ClCompile Include="Source\Editor\Profiling\ProfilingWindow.cpp" />
     <ClCompile Include="Source\Editor\InputTester\InputTesterPanel.cpp" />
     <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp" />
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputCaptureModal.cpp" />
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputPromptMapInspector.cpp" />
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputPromptStyleInspector.cpp" />
     <ClCompile Include="Source\Editor\TextureAtlas\TextureAtlasViewer.cpp" />
     <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp" />
     <ClCompile Include="Source\Editor\VoxelSculpt\VoxelSculptManager.cpp" />
@@ -1036,6 +1039,7 @@
     <ClCompile Include="Source\Editor\TilePaint\TilePicker.cpp" />
     <ClCompile Include="Source\Editor\ImagePlane\ImagePlaneBuilder.cpp" />
     <ClCompile Include="Source\Editor\AssetFixup\AssetFixupModal.cpp" />
+    <ClCompile Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\ThemeEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\CssGenerator.cpp" />
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp" />
@@ -1047,6 +1051,8 @@
     <ClCompile Include="Source\Engine\Assets\MaterialBase.cpp" />
     <ClCompile Include="Source\Engine\Assets\MaterialInstance.cpp" />
     <ClCompile Include="Source\Engine\Assets\Material.cpp" />
+    <ClCompile Include="Source\Engine\Assets\InputPromptMap.cpp" />
+    <ClCompile Include="Source\Engine\Assets\InputPromptStyle.cpp" />
     <ClCompile Include="Source\Engine\Assets\DataAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\MaterialLite.cpp" />
     <ClCompile Include="Source\Engine\Assets\ParticleSystem.cpp" />
@@ -1119,6 +1125,7 @@
     <ClCompile Include="Source\Engine\Nodes\NodeClipboard.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\ArrayWidget.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Button.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\Widgets\InputActionPrompt.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\Slider.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\InputField.cpp" />
     <ClCompile Include="Source\Engine\Nodes\Widgets\LineEdit.cpp" />
@@ -1256,6 +1263,8 @@
     <ClCompile Include="Source\Input\InputMap.cpp" />
     <ClCompile Include="Source\Input\InputActionsAsset.cpp" />
     <ClCompile Include="Source\Input\PlayerInputSystem.cpp" />
+    <ClCompile Include="Source\Input\InputPath.cpp" />
+    <ClCompile Include="Source\Input\InputPromptResolver.cpp" />
     <ClCompile Include="Source\Input\InputUtils.cpp" />
     <ClCompile Include="Source\Input\Linux\Input_Linux.cpp" />
     <ClCompile Include="Source\Input\Windows\Input_Windows.cpp" />
@@ -1266,6 +1275,7 @@
     <ClCompile Include="Source\LuaBindings\Gizmos_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Box3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Button_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\InputActionPrompt_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Slider_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\InputField_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\LineEdit_Lua.cpp" />
@@ -1572,6 +1582,9 @@
     <ClInclude Include="Source\Editor\Profiling\ProfilingWindow.h" />
     <ClInclude Include="Source\Editor\InputTester\InputTesterPanel.h" />
     <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h" />
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputCaptureModal.h" />
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputPromptMapInspector.h" />
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputPromptStyleInspector.h" />
     <ClInclude Include="Source\Editor\TextureAtlas\TextureAtlasViewer.h" />
     <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h" />
     <ClInclude Include="Source\Editor\VoxelSculpt\VoxelSculptManager.h" />
@@ -1580,6 +1593,7 @@
     <ClInclude Include="Source\Editor\TilePaint\TilePicker.h" />
     <ClInclude Include="Source\Editor\ImagePlane\ImagePlaneBuilder.h" />
     <ClInclude Include="Source\Editor\AssetFixup\AssetFixupModal.h" />
+    <ClInclude Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\ThemeEditorWindow.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />
@@ -1597,6 +1611,8 @@
     <ClInclude Include="Source\Engine\Assets\MaterialBase.h" />
     <ClInclude Include="Source\Engine\Assets\MaterialInstance.h" />
     <ClInclude Include="Source\Engine\Assets\Material.h" />
+    <ClInclude Include="Source\Engine\Assets\InputPromptMap.h" />
+    <ClInclude Include="Source\Engine\Assets\InputPromptStyle.h" />
     <ClInclude Include="Source\Engine\Assets\DataAsset.h" />
     <ClInclude Include="Source\Engine\Assets\MaterialLite.h" />
     <ClInclude Include="Source\Engine\Assets\ParticleSystem.h" />
@@ -1674,6 +1690,7 @@
     <ClInclude Include="Source\Engine\Nodes\NodeClipboard.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\ArrayWidget.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Button.h" />
+    <ClInclude Include="Source\Engine\Nodes\Widgets\InputActionPrompt.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\Slider.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\InputField.h" />
     <ClInclude Include="Source\Engine\Nodes\Widgets\LineEdit.h" />
@@ -1817,6 +1834,8 @@
     <ClInclude Include="Source\Input\InputMap.h" />
     <ClInclude Include="Source\Input\InputActionsAsset.h" />
     <ClInclude Include="Source\Input\PlayerInputSystem.h" />
+    <ClInclude Include="Source\Input\InputPath.h" />
+    <ClInclude Include="Source\Input\InputPromptResolver.h" />
     <ClInclude Include="Source\Input\InputUtils.h" />
     <ClInclude Include="Source\LuaBindings\AssetManager_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Asset_Lua.h" />
@@ -1825,6 +1844,7 @@
     <ClInclude Include="Source\LuaBindings\Gizmos_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Box3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Button_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\InputActionPrompt_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Slider_Lua.h" />
     <ClInclude Include="Source\LuaBindings\InputField_Lua.h" />
     <ClInclude Include="Source\LuaBindings\LineEdit_Lua.h" />

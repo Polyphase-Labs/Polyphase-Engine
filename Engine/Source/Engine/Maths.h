@@ -78,6 +78,8 @@ public:
     static glm::vec3 SafeNormalize(glm::vec3 vector);
 
     static bool IsPowerOfTwo(uint32_t number);
+    static uint32_t NextPowerOfTwo(uint32_t x);  // ceil; 0->1, 1->1, 5->8
+    static uint32_t PrevPowerOfTwo(uint32_t x);  // floor; 0->1, 1->1, 5->4
 
     // UUID Generation
     // Engine assets use reserved UUIDs: 0x0001000000000000 - 0x0001FFFFFFFFFFFF

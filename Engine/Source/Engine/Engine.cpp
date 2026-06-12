@@ -5,6 +5,7 @@
 #include "LoadingMenu.h"
 #include "InputDevices.h"
 #include "Input/PlayerInputSystem.h"
+#include "Input/InputPromptResolver.h"
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
@@ -273,6 +274,8 @@ void ForceLinkage()
     FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);
     FORCE_LINK_CALL(Texture);
+    FORCE_LINK_CALL(InputPromptMap);
+    FORCE_LINK_CALL(InputPromptStyle);
     FORCE_LINK_CALL(TileSet);
     FORCE_LINK_CALL(TileMap);
     FORCE_LINK_CALL(TinyLLMAsset);
@@ -326,6 +329,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(Text);
     FORCE_LINK_CALL(Widget);
     FORCE_LINK_CALL(Button);
+    FORCE_LINK_CALL(InputActionPrompt);
     FORCE_LINK_CALL(Slider);
     FORCE_LINK_CALL(InputField);
     FORCE_LINK_CALL(LineEdit);
@@ -572,6 +576,7 @@ bool Initialize()
 
 #if !EDITOR
         PlayerInputSystem::Create();
+        InputPromptResolver::Create();
 #endif
     }
 
@@ -1012,6 +1017,7 @@ void Shutdown()
     AssetManager::Destroy();
 
 #if !EDITOR
+    InputPromptResolver::Destroy();
     PlayerInputSystem::Destroy();
 #endif
 

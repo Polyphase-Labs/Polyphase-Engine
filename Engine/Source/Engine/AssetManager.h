@@ -243,6 +243,11 @@ public:
     // Raw (non-.oct) asset packaging registry. Populated during DiscoverDirectory.
     const std::vector<RawAssetEntry>& GetRawAssetEntries() const { return mRawAssetEntries; }
 
+    // Register a new loose-file entry at runtime (used by
+    // ActionManager::ImportLooseFile so the file ships with the next package
+    // without a full project rescan). Idempotent on mAbsolutePath.
+    void AddRawAssetEntry(const RawAssetEntry& entry);
+
     // Addon-provided source-extension dispatch (see free-function declarations
     // above for usage). Stored on the manager so the table survives addon hot-
     // reload as long as the addon re-registers in its OnLoad.

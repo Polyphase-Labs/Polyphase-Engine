@@ -1,6 +1,7 @@
 #include "PlayerInputSystem.h"
 #include "Input/InputActionsAsset.h"
 #include "Input/InputMap.h"
+#include "Input/InputPromptResolver.h"
 #include "Input.h"
 #include "Engine.h"
 #include "AssetManager.h"
@@ -8,6 +9,7 @@
 #include "Stream.h"
 #include "System/System.h"
 #include "Engine/EmbeddedFile.h"
+#include "Utilities.h"  // GetPlatform()
 
 #include "document.h"
 #include "prettywriter.h"
@@ -40,6 +42,49 @@ PlayerInputSystem* PlayerInputSystem::Get()
 
 PlayerInputSystem::PlayerInputSystem()
 {
+    // Seed mLastActiveDevice with a platform-appropriate default so prompt
+    // widgets render the right family of icons before the player touches
+    // anything. Without this, fixed-input platforms (Wii, GameCube, 3DS,
+    // Android) boot showing a keyboard prompt and only switch after the
+    // first input edge, which on console looks like the prompt is wrong on
+    // every fresh scene load.
+    switch (GetPlatform())
+    {
+    case Platform::Wii:
+        mLastActiveDevice.kind = InputDeviceKind::Gamepad;
+        mLastActiveDevice.gamepadType = GamepadType::Wiimote;
+        mLastActiveDevice.gamepadIndex = 0;
+        break;
+    case Platform::GameCube:
+        mLastActiveDevice.kind = InputDeviceKind::Gamepad;
+        mLastActiveDevice.gamepadType = GamepadType::GameCube;
+        mLastActiveDevice.gamepadIndex = 0;
+        break;
+    case Platform::N3DS:
+    case Platform::Psp:
+        // Handhelds without a clean GamepadType — Standard reads as a
+        // generic gamepad, which is what these platforms' built-in buttons
+        // map to in InputPromptMap rows.
+        mLastActiveDevice.kind = InputDeviceKind::Gamepad;
+        mLastActiveDevice.gamepadType = GamepadType::Standard;
+        mLastActiveDevice.gamepadIndex = 0;
+        break;
+    case Platform::Android:
+        // Touch-first device — Pointer source in PlayerInputSystem maps to
+        // InputDeviceKind::Mouse for prompt purposes (the prompt map's
+        // "Mouse/Left" row doubles as the tap icon, see the user's IMap
+        // row 9: Android + Mouse/Left -> touch_tap).
+        mLastActiveDevice.kind = InputDeviceKind::Mouse;
+        mLastActiveDevice.gamepadIndex = -1;
+        break;
+    case Platform::Windows:
+    case Platform::Linux:
+    default:
+        // Desktop platforms — keep the default-constructed Keyboard kind,
+        // which is the right starting assumption when there's no controller
+        // edge yet.
+        break;
+    }
 }
 
 // --- Modifier checking ---
@@ -272,32 +317,183 @@ void PlayerInputSystem::Update(float deltaTime)
     if (!mEnabled)
         return;
 
-    for (auto& action : mActions)
+    mFrameCounter++;
+    UpdateLastActiveDevice();
+
+    if (mActionEvaluationEnabled)
     {
-        InputActionState& s = action.state;
+        for (auto& action : mActions)
+        {
+            InputActionState& s = action.state;
 
-        // Sample raw input
-        s.prevRawDown = s.rawDown;
-        s.rawDown = PollActionRawDown(action);
-        s.value = PollActionRawValue(action);
+            // Sample raw input
+            s.prevRawDown = s.rawDown;
+            s.rawDown = PollActionRawDown(action);
+            s.value = PollActionRawValue(action);
 
-        // Clear per-frame flags
-        s.wasJustActivated = false;
-        s.wasJustDeactivated = false;
+            // Clear per-frame flags
+            s.wasJustActivated = false;
+            s.wasJustDeactivated = false;
 
-        bool wasActive = s.isActive;
+            bool wasActive = s.isActive;
 
-        // Evaluate trigger
-        EvaluateTrigger(action, deltaTime);
+            // Evaluate trigger
+            EvaluateTrigger(action, deltaTime);
 
-        // Zero value when not active to prevent drift
-        if (!s.isActive)
-            s.value = 0.0f;
+            // Zero value when not active to prevent drift
+            if (!s.isActive)
+                s.value = 0.0f;
 
-        // Set transition flags
-        s.wasJustActivated = (s.isActive && !wasActive);
-        s.wasJustDeactivated = (!s.isActive && wasActive);
+            // Set transition flags
+            s.wasJustActivated = (s.isActive && !wasActive);
+            s.wasJustDeactivated = (!s.isActive && wasActive);
+        }
     }
+    else
+    {
+        // Capture-modal mute: don't fire game actions while editor is listening.
+        // Keep per-action flags clean so resuming evaluation doesn't see ghost edges.
+        for (auto& action : mActions)
+        {
+            InputActionState& s = action.state;
+            s.prevRawDown = s.rawDown;
+            s.wasJustActivated = false;
+            s.wasJustDeactivated = false;
+        }
+    }
+
+    if (InputPromptResolver* resolver = InputPromptResolver::Get())
+    {
+        resolver->Tick();
+    }
+}
+
+void PlayerInputSystem::UpdateLastActiveDevice()
+{
+    InputState& input = GetEngineState()->mInput;
+    InputDeviceDescriptor newDev = mLastActiveDevice;
+    bool changed = false;
+
+    // Keyboard edge — any key just-pressed promotes Keyboard.
+    if (!input.mJustDownKeys.empty())
+    {
+        if (mLastActiveDevice.kind != InputDeviceKind::Keyboard)
+        {
+            newDev.kind = InputDeviceKind::Keyboard;
+            newDev.gamepadIndex = -1;
+            newDev.gamepadType = GamepadType::Standard;
+            changed = true;
+        }
+    }
+
+    // Mouse edge — any mouse button just-pressed promotes Mouse.
+    for (int32_t b = 0; b < MOUSE_BUTTON_COUNT && !changed; ++b)
+    {
+        if (input.mMouseButtons[b] && !input.mPrevMouseButtons[b])
+        {
+            if (mLastActiveDevice.kind != InputDeviceKind::Mouse)
+            {
+                newDev.kind = InputDeviceKind::Mouse;
+                newDev.gamepadIndex = -1;
+                newDev.gamepadType = GamepadType::Standard;
+                changed = true;
+            }
+        }
+    }
+
+    // Gamepad edge — any button just-pressed OR axis past promote threshold.
+    constexpr float kDevicePromoteThreshold = 0.5f;
+    for (int32_t gp = 0; gp < INPUT_MAX_GAMEPADS && !changed; ++gp)
+    {
+        const GamepadState& cur = input.mGamepads[gp];
+        const GamepadState& prev = input.mPrevGamepads[gp];
+        if (!cur.mConnected)
+            continue;
+
+        bool promote = false;
+        for (int32_t i = 0; i < GAMEPAD_BUTTON_COUNT && !promote; ++i)
+        {
+            if (cur.mButtons[i] && !prev.mButtons[i])
+                promote = true;
+        }
+        if (!promote)
+        {
+            for (int32_t a = 0; a < GAMEPAD_AXIS_COUNT && !promote; ++a)
+            {
+                if (std::abs(cur.mAxes[a]) >= kDevicePromoteThreshold &&
+                    std::abs(prev.mAxes[a]) < kDevicePromoteThreshold)
+                    promote = true;
+            }
+        }
+
+        if (promote)
+        {
+            if (mLastActiveDevice.kind != InputDeviceKind::Gamepad ||
+                mLastActiveDevice.gamepadIndex != gp ||
+                mLastActiveDevice.gamepadType != cur.mType)
+            {
+                newDev.kind = InputDeviceKind::Gamepad;
+                newDev.gamepadIndex = gp;
+                newDev.gamepadType = cur.mType;
+                changed = true;
+            }
+        }
+    }
+
+    if (changed)
+    {
+        mLastActiveDevice = newDev;
+        mDeviceChangeFrame = mFrameCounter;
+    }
+}
+
+const InputDeviceDescriptor& PlayerInputSystem::GetLastActiveDevice() const
+{
+    return mHasForcedDevice ? mForcedDevice : mLastActiveDevice;
+}
+
+uint32_t PlayerInputSystem::GetDeviceChangeFrame() const
+{
+    return mDeviceChangeFrame;
+}
+
+void PlayerInputSystem::SetForcedDevice(const InputDeviceDescriptor& device)
+{
+    // Bump the change-frame counter on any real change so InputPromptResolver
+    // flushes its cache and every widget re-resolves against the new device.
+    if (!mHasForcedDevice ||
+        mForcedDevice.kind != device.kind ||
+        mForcedDevice.gamepadType != device.gamepadType ||
+        mForcedDevice.gamepadIndex != device.gamepadIndex)
+    {
+        mForcedDevice = device;
+        mHasForcedDevice = true;
+        mDeviceChangeFrame = ++mFrameCounter;
+    }
+}
+
+void PlayerInputSystem::ClearForcedDevice()
+{
+    if (mHasForcedDevice)
+    {
+        mHasForcedDevice = false;
+        mDeviceChangeFrame = ++mFrameCounter;
+    }
+}
+
+bool PlayerInputSystem::HasForcedDevice() const
+{
+    return mHasForcedDevice;
+}
+
+void PlayerInputSystem::SetActionEvaluationEnabled(bool enabled)
+{
+    mActionEvaluationEnabled = enabled;
+}
+
+bool PlayerInputSystem::AreInputActionsActive() const
+{
+    return mEnabled && mActionEvaluationEnabled;
 }
 
 // --- Registration ---
@@ -654,9 +850,41 @@ void PlayerInputSystem::LoadProjectActions()
     mActions.clear();
     mActionLookup.clear();
 
-    // Gate the read on existence (disk OR embedded). SYS_DoesFileExist only
-    // checks stat(), so embedded-only packaged builds need the EmbeddedFile
-    // table check as well.
+    // Path 1 — AssetManager. Works for editor (asset on disk), for packaged
+    // builds with embedded assets (cooked .oct is in gEmbeddedAssets), and
+    // for packaged builds with loose .oct on disk. Prefer this over the
+    // direct file path because the existence check below only looks at disk
+    // + the *raw* embedded asset table (gEmbeddedRawAssets), which misses
+    // the regular embedded asset table where InputActions.oct actually ends
+    // up after cook.
+    if (Asset* cached = LoadAsset("InputActions"))
+    {
+        if (cached->GetType() == InputActionsAsset::GetStaticType())
+        {
+            InputActionsAsset* ia = static_cast<InputActionsAsset*>(cached);
+            mActions = ia->mActions;
+            RebuildLookup();
+            LogDebug("PlayerInput: Loaded %d actions via AssetManager.",
+                     (int)mActions.size());
+            return;
+        }
+        LogWarning("PlayerInput: LoadAsset('InputActions') returned an asset "
+                   "of type %u, expected InputActionsAsset (type %u). Asset "
+                   "stub may be registered under the wrong type id.",
+                   (unsigned)cached->GetType(),
+                   (unsigned)InputActionsAsset::GetStaticType());
+    }
+    else
+    {
+        LogDebug("PlayerInput: AssetManager has no 'InputActions' stub; "
+                 "falling back to direct file read paths.");
+    }
+
+    // Path 2 — direct file read. Kept for backward compatibility with
+    // earlier packaging flows that put InputActions.oct in the raw embedded
+    // asset table or on disk somewhere AssetManager doesn't index. Gate the
+    // read on existence (disk OR raw embedded) so a missing file doesn't
+    // emit a Stream::ReadFile error.
     uint32_t embeddedSize = 0;
     bool octExists =
         SYS_DoesFileExist(octPath.c_str(), false) ||
@@ -680,7 +908,7 @@ void PlayerInputSystem::LoadProjectActions()
         LogWarning("PlayerInput: Failed to read %s", octPath.c_str());
     }
 
-    // Fallback: import from legacy InputActions.json if it exists
+    // Path 3 — legacy InputActions.json fallback.
     std::string jsonPath = projectDir + "InputActions.json";
     embeddedSize = 0;
     bool jsonExists =
@@ -695,6 +923,9 @@ void PlayerInputSystem::LoadProjectActions()
         return;
     }
 
+    LogWarning("PlayerInput: InputActions.oct not found via AssetManager, "
+               "disk, or embedded raw asset table. No actions will be available; "
+               "every InputActionPrompt widget will show its fallback text.");
 }
 
 bool PlayerInputSystem::LoadFromJsonFile(const std::string& filePath)

@@ -126,9 +126,16 @@ void Font::LoadStream(Stream& stream, Platform platform)
     uint32_t ttfDataSize = stream.ReadUint32();
     if (ttfDataSize > 0)
     {
+        // Read the TTF payload out of `stream` INTO `mTtfData`. The original
+        // code did `mTtfData.ReadBytes(stream.GetData() + stream.GetPos(), ...)`
+        // which read FROM mTtfData (uninitialized memory) and overwrote the
+        // stream's buffer — leaving mTtfData garbage. Latent for the lifetime
+        // of a single editor session because Font::Import populates mTtfData
+        // directly via ReadFile (bypassing this path), but any "Rebuild Font"
+        // press after a project reload tries to bake from garbage and crashes
+        // in stbtt_InitFont's TTF header parse.
         mTtfData.Resize(ttfDataSize);
-        mTtfData.ReadBytes((uint8_t*)stream.GetData() + stream.GetPos(), ttfDataSize);
-        stream.SetPos(stream.GetPos() + ttfDataSize);
+        stream.ReadBytes((uint8_t*)mTtfData.GetData(), ttfDataSize);
     }
 #endif
 }
@@ -323,7 +330,16 @@ void Font::RebuildFont()
         int32_t texWidth = 128;
         int32_t texHeight = 128;
 
-        stbtt_bakedchar charData[96] = {};
+        // ASCII visible range + Private Use Area first block. PUA is where
+        // gamepad/keyboard prompt fonts (Kenney, Xelu, etc.) ship their
+        // glyphs — without baking it, InputActionPrompt's Glyph kind can
+        // never find a codepoint in mCharacters even when the .ttf has it.
+        constexpr int32_t kAsciiFirst = 32;
+        constexpr int32_t kAsciiCount = 95;       // 32..126 inclusive
+        constexpr int32_t kPuaFirst   = 0xE000;
+        constexpr int32_t kPuaCount   = 256;      // U+E000..U+E0FF
+        stbtt_packedchar asciiChars[kAsciiCount] = {};
+        stbtt_packedchar puaChars[kPuaCount] = {};
         float fontSize = (float)mSize;
 
         // Clamp to something reasonable
@@ -347,7 +363,29 @@ void Font::RebuildFont()
             uint8_t* tempBitmap = new uint8_t[texWidth * texHeight];
             memset(tempBitmap, 0, texWidth * texHeight);
 
-            bakeResult = stbtt_BakeFontBitmap((uint8_t*)mTtfData.GetData(), 0, emFontSize, tempBitmap, texWidth, texHeight, 32, 96, charData); // no guarantee this fits!
+            // Pack API supports multiple ranges in one bake; we use it to fit
+            // ASCII + PUA-first-block into the same atlas. Returns 1 on
+            // success, 0 if the bitmap ran out of room.
+            stbtt_pack_range ranges[2] = {};
+            ranges[0].font_size = emFontSize;
+            ranges[0].first_unicode_codepoint_in_range = kAsciiFirst;
+            ranges[0].num_chars = kAsciiCount;
+            ranges[0].chardata_for_range = asciiChars;
+
+            ranges[1].font_size = emFontSize;
+            ranges[1].first_unicode_codepoint_in_range = kPuaFirst;
+            ranges[1].num_chars = kPuaCount;
+            ranges[1].chardata_for_range = puaChars;
+
+            stbtt_pack_context spc;
+            int packBeginOk = stbtt_PackBegin(&spc, tempBitmap, texWidth, texHeight, 0, 1, nullptr);
+            int packOk = 0;
+            if (packBeginOk)
+            {
+                packOk = stbtt_PackFontRanges(&spc, (const uint8_t*)mTtfData.GetData(), 0, ranges, 2);
+                stbtt_PackEnd(&spc);
+            }
+            bakeResult = packOk ? 1 : -1;
 
             if (bakeResult >= 0)
             {
@@ -386,26 +424,47 @@ void Font::RebuildFont()
 
                 delete[] dataRgba;
 
-                // 3. Gather all of the ASCII Character data
+                // 3. Gather character data — ASCII first (always), then any
+                //    PUA codepoints the font actually has glyphs for.
                 mCharacters.clear();
 
-                // This engine really only supports ASCII right now. :skull-emoji:
-                // Visible character range is from space to ~
-                for (int32_t i = 32; i < 127; ++i)
+                // ASCII visible range — same set the engine has always shipped.
+                for (int32_t i = 0; i < kAsciiCount; ++i)
                 {
-                    int32_t arrayIdx = i - 32;
-                    stbtt_bakedchar& bc = charData[arrayIdx];
-
+                    const stbtt_packedchar& pc = asciiChars[i];
                     Character newChar;
-                    newChar.mCodePoint = i;
-                    newChar.mX = (float)bc.x0;
-                    newChar.mY = (float)bc.y0;
-                    newChar.mWidth = (float)(bc.x1 - bc.x0);
-                    newChar.mHeight = (float)(bc.y1 - bc.y0);
-                    newChar.mOriginX = -bc.xoff;
-                    newChar.mOriginY = -bc.yoff;
-                    newChar.mAdvance = bc.xadvance;
+                    newChar.mCodePoint = kAsciiFirst + i;
+                    newChar.mX = (float)pc.x0;
+                    newChar.mY = (float)pc.y0;
+                    newChar.mWidth = (float)(pc.x1 - pc.x0);
+                    newChar.mHeight = (float)(pc.y1 - pc.y0);
+                    newChar.mOriginX = -pc.xoff;
+                    newChar.mOriginY = -pc.yoff;
+                    newChar.mAdvance = pc.xadvance;
+                    mCharacters.push_back(newChar);
+                }
 
+                // PUA first block — only push codepoints that actually have
+                // glyph data. PackFontRanges leaves the packedchar zeroed for
+                // missing codepoints; a width-zero + xadvance-zero entry means
+                // "no glyph for this codepoint" and would otherwise pollute
+                // mCharacters with thousands of empty hits.
+                for (int32_t i = 0; i < kPuaCount; ++i)
+                {
+                    const stbtt_packedchar& pc = puaChars[i];
+                    const int width  = (int)pc.x1 - (int)pc.x0;
+                    const int height = (int)pc.y1 - (int)pc.y0;
+                    if (width <= 0 && height <= 0 && pc.xadvance == 0.0f)
+                        continue;
+                    Character newChar;
+                    newChar.mCodePoint = kPuaFirst + i;
+                    newChar.mX = (float)pc.x0;
+                    newChar.mY = (float)pc.y0;
+                    newChar.mWidth = (float)width;
+                    newChar.mHeight = (float)height;
+                    newChar.mOriginX = -pc.xoff;
+                    newChar.mOriginY = -pc.yoff;
+                    newChar.mAdvance = pc.xadvance;
                     mCharacters.push_back(newChar);
                 }
             }

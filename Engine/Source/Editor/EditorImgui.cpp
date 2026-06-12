@@ -54,6 +54,10 @@
 #include "Assets/NodeGraphAsset.h"
 #include "Assets/DataAsset.h"
 #include "Assets/SpriteAnimation.h"
+#include "Assets/InputPromptMap.h"
+#include "Assets/InputPromptStyle.h"
+#include "InputPromptEditor/InputPromptMapInspector.h"
+#include "InputPromptEditor/InputPromptStyleInspector.h"
 #include "UI/UIDocument.h"
 #include "UI/UITypes.h"
 
@@ -62,6 +66,7 @@
 #include "ActionManager.h"
 #include "EditorState.h"
 #include "AssetFixup/AssetFixupModal.h"
+#include "TextureImportFixup/TextureImportFixupModal.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
@@ -6785,6 +6790,19 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             actMan->ImportAsset();
         }
 
+        if (ImGui::Selectable("Import Loose File"))
+        {
+            actMan->ImportLooseFile();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Copy a file (.json, .mp4, .csv, anything) into this folder verbatim.\n"
+                "No .oct conversion. The file ships as-is with your package and is\n"
+                "readable from Lua via Stream:ReadFile or from native code via\n"
+                "SYS_AcquireFileData.");
+        }
+
         if (ImGui::Selectable("Import Scene"))
         {
             actMan->BeginImportScene();
@@ -6884,6 +6902,16 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = SpriteAnimation::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Input Prompt Map", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = InputPromptMap::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Input Prompt Style", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = InputPromptStyle::GetStaticType();
                 showPopup = true;
             }
 
@@ -7156,6 +7184,10 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     assetName = "NG_NodeGraph";
                 else if (sNewAssetType == UIDocument::GetStaticType())
                     assetName = "UI_Document";
+                else if (sNewAssetType == InputPromptMap::GetStaticType())
+                    assetName = "IPM_PromptMap";
+                else if (sNewAssetType == InputPromptStyle::GetStaticType())
+                    assetName = "IPS_PromptStyle";
             }
 
             if (assetName != "" && sNewAssetType != INVALID_TYPE_ID)
@@ -7660,6 +7692,14 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                     if (ia)
                     {
                         OpenInputActionsForEditing(ia);
+                    }
+                }
+                else if (stub->mType == InputPromptMap::GetStaticType())
+                {
+                    InputPromptMap* map = stub->mAsset ? stub->mAsset->As<InputPromptMap>() : nullptr;
+                    if (map)
+                    {
+                        OpenInputPromptMapForEditing(map);
                     }
                 }
                 else if (stub->mType == UIDocument::GetStaticType())
@@ -8803,6 +8843,14 @@ static void DrawPropertiesPanel()
                 {
                     Material* mat = obj->As<Material>();
                     DrawMaterialShaderParams(mat);
+                }
+                else if (obj->As<InputPromptMap>())
+                {
+                    InputPromptMapInspector::Get()->DrawInspectorButton(obj->As<InputPromptMap>());
+                }
+                else if (obj->As<InputPromptStyle>())
+                {
+                    InputPromptStyleInspector::Get()->Draw(obj->As<InputPromptStyle>());
                 }
                 else if (obj->As<InstancedMesh3D>())
                 {
@@ -10512,6 +10560,11 @@ static void DrawMainMenuBar()
     // slots bound to wrong-type assets (typically left over from a pre-clash-
     // gate import). Self-no-ops when there's nothing to fix.
     AssetFixupModal::Get()->Draw();
+
+    // Non-POT texture import fixup. Populated by Texture::Import when
+    // stbi_load returns dimensions that aren't power-of-two. Lets the user
+    // Pad / Resize / Cancel each affected texture.
+    TextureImportFixupModal::Get()->Draw();
 
 
     // Mesh-import mode dialog: fires after the user picks .glb/.gltf/.fbx/.dae/.obj
@@ -12388,6 +12441,9 @@ void EditorImguiDraw()
         // Native-addon build progress (only renders while a build queue
         // is active; closes itself when the queue drains).
         DrawNativeAddonBuildModal();
+
+        // Standalone Input Prompt Map editor window (no-op when not open).
+        InputPromptMapInspector::Get()->DrawWindow();
 
         // Surface locked-intermediate-file blockers (LNK1201 etc.) with a
         // Retry/Cancel prompt so the user can release the lock and resume.
