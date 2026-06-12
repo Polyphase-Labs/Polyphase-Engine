@@ -200,6 +200,43 @@ void Asset::LoadFile(const char* path, AsyncLoadRequest* request)
 void Asset::SaveFile(const char* path, Platform platform)
 {
 #if EDITOR
+    // Defense-in-depth alongside AssetManager::SaveAsset's guard: refuse
+    // any SaveFile that would write back into the shared engine source tree
+    // (Engine/Assets/). Other targets — packaged-build cook outputs under
+    // <packagedDir>/Engine/Assets/, addon-test scratch dirs, etc. — are
+    // legitimately writable even when the in-memory asset object is flagged
+    // as an engine asset.
+    //
+    // The actual rule we want to enforce is "the on-disk destination must not
+    // be inside the engine source tree", not "this asset object must never
+    // be serialized". The earlier blanket refusal blocked cooked-package
+    // writes too, leaving every engine .oct as a zero-byte file under
+    // packagedDir and then crashing the packaged exe at scene-load when it
+    // tried to deserialize 0 bytes into Font / Texture / Material.
+    if (mEngineAsset && path != nullptr)
+    {
+        AssetDir* engineRoot = AssetManager::Get()->FindEngineDirectory();
+        const std::string engineRootPath = engineRoot ? engineRoot->mPath : std::string();
+        if (!engineRootPath.empty())
+        {
+            std::string target = path;
+            // Normalize backslashes so the prefix compare works on Windows
+            // paths regardless of which separator the caller used.
+            for (char& c : target) if (c == '\\') c = '/';
+            std::string root = engineRootPath;
+            for (char& c : root) if (c == '\\') c = '/';
+
+            if (target.compare(0, root.length(), root) == 0)
+            {
+                LogWarning("Refusing to write engine asset '%s' to source-tree "
+                           "path '%s' (Engine/Assets is read-only).",
+                           mName.c_str(), path);
+                ClearDirtyFlag();
+                return;
+            }
+        }
+    }
+
     Stream stream;
     SaveStream(stream, platform);
     if (stream.WriteFile(path))

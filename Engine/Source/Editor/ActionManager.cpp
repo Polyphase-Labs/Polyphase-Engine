@@ -44,6 +44,7 @@
 #include "AssetManager.h"
 #include "EditorState.h"
 #include "EditorUtils.h"
+#include "TextureImportFixup/TextureImportFixupModal.h"
 #include "Input/PlayerInputSystem.h"
 #include "Assets/Scene.h"
 #include "Assets/Texture.h"
@@ -1526,12 +1527,43 @@ void ActionManager::BuildPhase1()
 
     // (2) Cook assets
     AppendBuildOutput("Cooking assets...\n");
+    // Compute the strip-prefix for engine asset paths. AssetDir::mPath is the
+    // full absolute filesystem path (e.g. ".../polyphase-engine/Engine/Assets/
+    // Textures/"). We want the cook to mirror that tree relative to
+    // packagedDir as "packagedDir/Engine/Assets/Textures/", so we strip
+    // everything up to (and including) the slash before the "Engine/"
+    // component in the engine asset root's mPath. Without this normalization
+    // the original code did `packagedDir + dir->mPath + "/"`, producing an
+    // invalid Windows path with two drive letters — every engine .oct cook
+    // silently failed, and the embed step's ReadFile returned 0 bytes for
+    // every engine asset (F_Roboto32, T_Default*, M_Default, …).
+    std::string engineStripPrefix;
+    {
+        AssetDir* engineRoot = AssetManager::Get()->FindEngineDirectory();
+        if (engineRoot != nullptr)
+        {
+            const std::string& engineRootPath = engineRoot->mPath;
+            size_t engineSlash = engineRootPath.rfind("/Engine/");
+            if (engineSlash != std::string::npos)
+            {
+                engineStripPrefix = engineRootPath.substr(0, engineSlash + 1);
+            }
+        }
+    }
+
     std::function<void(AssetDir*, bool)> saveDir = [&](AssetDir* dir, bool engine)
     {
         std::string packDir;
         if (engine)
         {
-            packDir = packagedDir + dir->mPath + "/";
+            std::string relPath = dir->mPath;
+            if (!engineStripPrefix.empty() &&
+                relPath.compare(0, engineStripPrefix.length(), engineStripPrefix) == 0)
+            {
+                relPath = relPath.substr(engineStripPrefix.length());
+            }
+            packDir = packagedDir + relPath;
+            if (packDir.empty() || packDir.back() != '/') packDir += "/";
         }
         else
         {
@@ -5790,6 +5822,144 @@ void ActionManager::ImportAsset()
     }
 }
 
+static std::string SuggestUnusedLooseFilename(AssetDir* dir, const std::string& filename)
+{
+    // Walk dir->mLooseFiles and the on-disk dir to find a non-colliding name.
+    // .oct collisions don't apply -- loose files live alongside .oct files
+    // without sharing a namespace.
+    if (dir == nullptr)
+        return filename;
+
+    const std::string fullPath = dir->mPath + filename;
+    if (!SYS_DoesFileExist(fullPath.c_str(), false))
+    {
+        bool inList = false;
+        for (const std::string& existing : dir->mLooseFiles)
+        {
+            if (existing == filename) { inList = true; break; }
+        }
+        if (!inList)
+            return filename;
+    }
+
+    size_t dotIdx = filename.find_last_of('.');
+    std::string base = (dotIdx == std::string::npos) ? filename : filename.substr(0, dotIdx);
+    std::string ext  = (dotIdx == std::string::npos) ? ""       : filename.substr(dotIdx);
+
+    for (int32_t suffix = 1; suffix < 10000; ++suffix)
+    {
+        std::string candidate = base + "_" + std::to_string(suffix) + ext;
+        const std::string candPath = dir->mPath + candidate;
+        if (SYS_DoesFileExist(candPath.c_str(), false))
+            continue;
+        bool inList = false;
+        for (const std::string& existing : dir->mLooseFiles)
+        {
+            if (existing == candidate) { inList = true; break; }
+        }
+        if (!inList)
+            return candidate;
+    }
+    return filename;
+}
+
+static void HandleLooseFileImportCallback(const std::vector<std::string>& filePaths, AssetDir* targetDir)
+{
+    if (targetDir == nullptr)
+    {
+        LogError("Cannot import loose file. No target asset directory.");
+        return;
+    }
+    if (targetDir->mEngineDir || targetDir->mAddonDir)
+    {
+        LogError("Cannot import loose file into engine or addon directory '%s'.",
+            targetDir->mPath.c_str());
+        return;
+    }
+
+    for (const std::string& srcPath : filePaths)
+    {
+        if (srcPath.empty())
+            continue;
+
+        if (!SYS_DoesFileExist(srcPath.c_str(), false))
+        {
+            LogError("Loose file source not found: '%s'", srcPath.c_str());
+            continue;
+        }
+
+        // Strip filename and extension.
+        size_t slashIdx = srcPath.find_last_of("/\\");
+        std::string srcFilename = (slashIdx == std::string::npos)
+            ? srcPath : srcPath.substr(slashIdx + 1);
+
+        size_t dotIdx = srcFilename.find_last_of('.');
+        std::string extLower = (dotIdx == std::string::npos) ? "" : srcFilename.substr(dotIdx);
+        for (char& c : extLower) c = (char)tolower((unsigned char)c);
+
+        // Refuse .oct -- those go through the regular import path so they
+        // get registered as proper Assets rather than opaque blobs.
+        if (extLower == ".oct")
+        {
+            LogWarning("'.oct' files cannot be imported as loose files. "
+                "Use Import Asset for engine asset files. Skipping '%s'.",
+                srcFilename.c_str());
+            continue;
+        }
+
+        const std::string destFilename = SuggestUnusedLooseFilename(targetDir, srcFilename);
+        const std::string destAbsPath  = targetDir->mPath + destFilename;
+
+        SYS_CopyFile(srcPath.c_str(), destAbsPath.c_str());
+
+        if (!SYS_DoesFileExist(destAbsPath.c_str(), false))
+        {
+            LogError("Failed to copy loose file '%s' to '%s'.",
+                srcPath.c_str(), destAbsPath.c_str());
+            continue;
+        }
+
+        targetDir->mLooseFiles.push_back(destFilename);
+
+        RawAssetEntry entry;
+        entry.mAbsolutePath = destAbsPath;
+        entry.mEngineAsset  = false;
+        entry.mPlatformMask = PlatformBit_All;
+        entry.mEmbed        = false;
+        AssetManager::Get()->AddRawAssetEntry(entry);
+
+        LogDebug("Imported loose file: %s -> %s", srcPath.c_str(), destAbsPath.c_str());
+    }
+}
+
+void ActionManager::ImportLooseFile()
+{
+    if (GetEngineState()->mProjectPath == "")
+    {
+        LogWarning("Cannot import loose file. No project loaded.");
+        return;
+    }
+
+    AssetDir* targetDir = GetEditorState()->GetAssetDirectory();
+    if (targetDir == nullptr)
+    {
+        LogWarning("Cannot import loose file. No asset directory selected.");
+        return;
+    }
+
+    std::vector<std::string> filePaths = SYS_OpenFileDialog();
+    HandleLooseFileImportCallback(filePaths, targetDir);
+}
+
+void ActionManager::ImportLooseFile(const std::string& sourcePath, AssetDir* targetDir)
+{
+    if (sourcePath.empty())
+        return;
+    if (targetDir == nullptr)
+        targetDir = GetEditorState()->GetAssetDirectory();
+    HandleLooseFileImportCallback({sourcePath}, targetDir);
+}
+
 // Walk `name`, `name_1`, `name_2`... until we find a basename whose `<base>.oct`
 // has no entry in the asset map. Used by the import name-clash modal to
 // pre-fill a non-colliding suggestion.
@@ -5980,7 +6150,15 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
                 }
             }
 
-            AssetManager::Get()->SaveAsset(*stub);
+            // Skip auto-save when a non-POT texture is parked in the fixup
+            // modal -- mPixels is empty and Texture::SaveStream would assert
+            // (srcLen mismatch). The modal calls SaveAsset itself after
+            // Pad / Resize finalizes the buffer. Cancel deletes the asset
+            // so no .oct needs to land in either branch.
+            if (!TextureImportFixupModal::Get()->IsAwaitingFixup(newAsset))
+            {
+                AssetManager::Get()->SaveAsset(*stub);
+            }
 
             retAsset = newAsset;
 
@@ -6318,6 +6496,23 @@ static void ConvertFileToByteString(
         {
             outString += "\n";
         }
+    }
+
+    // C++ rejects zero-size const arrays (error C2466). When ReadFile fails
+    // (file missing, locked, cook path wrong, …) the byte loop runs zero
+    // times and we'd emit `extern const char Foo[] = { };` — which then
+    // breaks the packaged Standalone build with C2466. Emit a single null
+    // sentinel so the array is legal. The runtime keeps the real size
+    // (outSize, still 0) in EmbeddedFile and never reads from the sentinel,
+    // so missing assets degrade gracefully to "unloadable" rather than
+    // failing the entire build. Log loudly so the bad asset is visible.
+    if (outSize == 0)
+    {
+        LogWarning("EmbeddedAssets: '%s' could not be read (path='%s'); "
+                   "emitting empty placeholder. The packaged build will "
+                   "succeed but this asset will be unavailable at runtime.",
+                   name.c_str(), filePath.c_str());
+        outString += "'\\x00'";
     }
 
     outString += "\n};\n\n";

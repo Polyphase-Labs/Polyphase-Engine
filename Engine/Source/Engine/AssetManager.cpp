@@ -167,6 +167,18 @@ TypeId AssetManager::LookupImportExtension(const std::string& ext) const
     auto it = mImportExtensionMap.find(ext);
     return (it == mImportExtensionMap.end()) ? INVALID_TYPE_ID : it->second;
 }
+
+void AssetManager::AddRawAssetEntry(const RawAssetEntry& entry)
+{
+    if (entry.mAbsolutePath.empty())
+        return;
+    for (const RawAssetEntry& existing : mRawAssetEntries)
+    {
+        if (existing.mAbsolutePath == entry.mAbsolutePath)
+            return;
+    }
+    mRawAssetEntries.push_back(entry);
+}
 #endif
 
 void AssetManager::Create()
@@ -834,11 +846,26 @@ void AssetManager::DiscoverEmbeddedAssets(EmbeddedFile* assets, uint32_t numAsse
             {
                 RegisterAsset(embeddedAsset->mName, header.mType, nullptr, embeddedAsset, embeddedAsset->mEngine, header.mUuid);
             }
+            else if (existing->mUuid == header.mUuid)
+            {
+                // Same asset, two discovery passes — AssetRegistry.txt
+                // registered the stub with a disk path, now the embedded
+                // table is offering the cooked bytes for the same UUID.
+                // Attach the embedded payload to the existing stub so the
+                // runtime can use it on platforms (Wii / 3DS / PSP) where
+                // the disk path doesn't exist. The stub keeps its path so
+                // platforms that DO have disk fall through normally.
+                if (existing->mEmbeddedData == nullptr)
+                {
+                    existing->mEmbeddedData = embeddedAsset;
+                }
+            }
             else
             {
-                // Loud — the existing stub wins by name, so this embedded
-                // entry's UUID never gets registered and any scene reference
-                // by that UUID will silently miss.
+                // Real name collision — two different assets share a name.
+                // The existing stub wins (by registration order); this
+                // embedded entry's UUID can't be reached by name lookup
+                // and any scene reference by that UUID will silently miss.
                 LogWarning("DiscoverEmbeddedAssets skip '%s' -- stub already exists (existing uuid=0x%llx path='%s'; embedded uuid=0x%llx is lost)",
                            embeddedAsset->mName,
                            (unsigned long long)existing->mUuid,
@@ -1498,6 +1525,23 @@ void AssetManager::SaveAsset(const std::string& name)
 void AssetManager::SaveAsset(AssetStub& stub)
 {
 #if EDITOR
+    // Engine assets live under Engine/Assets and are shared by every project.
+    // Writing to them (e.g. a Texture LQ-downsample on the active platform)
+    // permanently corrupts the source-of-truth for every other project, so
+    // the save is refused at the manager chokepoint regardless of caller.
+    // Clear the dirty flag so the unsaved-changes prompt on quit doesn't
+    // re-pester the user about an asset they're not allowed to write.
+    if (stub.mEngineAsset)
+    {
+        LogWarning("Refusing to save engine asset '%s' (Engine/Assets is read-only).",
+                   stub.mAsset ? stub.mAsset->GetName().c_str() : stub.mPath.c_str());
+        if (stub.mAsset != nullptr)
+        {
+            stub.mAsset->ClearDirtyFlag();
+        }
+        return;
+    }
+
     // Don't attempt to save an unloaded asset.
     if (stub.mAsset != nullptr)
     {
@@ -2132,6 +2176,11 @@ std::vector<AssetStub*> AssetManager::GatherDirtyAssets()
             it->second->mAsset != nullptr &&
             it->second->mAsset->GetDirtyFlag())
         {
+            // Engine assets can't be saved (SaveAsset refuses them), so
+            // don't list them in the unsaved-on-quit prompt either.
+            if (it->second->mEngineAsset)
+                continue;
+
             retAssets.push_back(it->second);
         }
     }

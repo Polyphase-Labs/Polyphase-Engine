@@ -53,6 +53,7 @@
 #include "BuildDependencyWindow.h"
 #include "Input/InputMap.h"
 #include "Input/PlayerInputSystem.h"
+#include "Input/InputPromptResolver.h"
 #include "Hotkeys/EditorHotkeyMap.h"
 #include "Git/GitService.h"
 #include "Utilities.h"
@@ -337,6 +338,7 @@ void EditorMain(int32_t argc, char** argv)
     EditorHotkeyMap::Create();
     GitService::Create();
     PlayerInputSystem::Create();
+    InputPromptResolver::Create();
     PreferencesManager::Create();
 
     // Auto-start controller server if enabled in preferences (must be after PreferencesManager::Create)
@@ -594,6 +596,7 @@ void EditorMain(int32_t argc, char** argv)
     TemplateManager::Destroy();
     BuildCache::Destroy();
     PreferencesManager::Destroy();
+    InputPromptResolver::Destroy();
     PlayerInputSystem::Destroy();
     EditorHotkeyMap::Destroy();
     InputMap::Destroy();

@@ -16,6 +16,22 @@ enum class InputSourceType : uint8_t
     Pointer
 };
 
+enum class InputDeviceKind : uint8_t
+{
+    Keyboard,
+    Mouse,
+    Gamepad,
+
+    Count
+};
+
+struct InputDeviceDescriptor
+{
+    InputDeviceKind kind = InputDeviceKind::Keyboard;
+    int32_t gamepadIndex = -1;                       // valid only when kind == Gamepad
+    GamepadType gamepadType = GamepadType::Standard; // valid only when kind == Gamepad
+};
+
 enum class AxisDirection : uint8_t
 {
     Positive,
@@ -122,6 +138,32 @@ public:
     void SetEnabled(bool enabled);
     bool IsEnabled() const;
 
+    // Last-active input device. Updated each Update() based on edge-triggered
+    // input. Consumers (e.g. InputPromptResolver) compare GetDeviceChangeFrame()
+    // against a cached epoch to know when to re-resolve.
+    //
+    // If a forced device is set via SetForcedDevice(), GetLastActiveDevice
+    // returns the forced descriptor instead of the auto-detected one. The
+    // change-frame counter bumps whenever the forced device is set, changed,
+    // or cleared, so InputPromptResolver flushes its cache and every widget
+    // immediately reflects the override.
+    const InputDeviceDescriptor& GetLastActiveDevice() const;
+    uint32_t GetDeviceChangeFrame() const;
+
+    // Editor-only force-device override. Used by the InputPromptMapInspector's
+    // Test Device combobox so an artist can preview "what does the Gamepad.A
+    // prompt look like on DualSense?" without unplugging real controllers.
+    // Pass nullptr (or call ClearForcedDevice) to resume real auto-detection.
+    void SetForcedDevice(const InputDeviceDescriptor& device);
+    void ClearForcedDevice();
+    bool HasForcedDevice() const;
+
+    // Editor capture modal mute gate. While disabled, Update() still tracks the
+    // last-active device and clears per-frame edge flags, but action evaluation
+    // is skipped so a captured key doesn't also fire a registered game action.
+    void SetActionEvaluationEnabled(bool enabled);
+    bool AreInputActionsActive() const;
+
 private:
 
     static PlayerInputSystem* sInstance;
@@ -139,7 +181,17 @@ private:
     bool LoadFromJsonFile(const std::string& filePath);
     void RebuildLookup();
 
+    void UpdateLastActiveDevice();
+
     std::vector<InputAction> mActions;
     std::unordered_map<std::string, size_t> mActionLookup;
     bool mEnabled = true;
+    bool mActionEvaluationEnabled = true;
+
+    InputDeviceDescriptor mLastActiveDevice;
+    uint32_t mDeviceChangeFrame = 0;
+    uint32_t mFrameCounter = 0;
+
+    InputDeviceDescriptor mForcedDevice;
+    bool mHasForcedDevice = false;
 };

@@ -349,6 +349,14 @@ public:
     void ImportAsset();
     Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "");
     Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "");
+
+    // Loose-file import: copies the user-picked file(s) into the current
+    // AssetDir verbatim (no .oct conversion) and registers them with the
+    // packager. Files survive packaging as-is; Lua/native code reads them
+    // via Stream::ReadFile / SYS_AcquireFileData. Used for .json, media,
+    // and arbitrary data files an addon or script wants to ship.
+    void ImportLooseFile();
+    void ImportLooseFile(const std::string& sourcePath, AssetDir* targetDir);
     void ImportTinyLLMModel();
     void ImportTinyLLMTokenizer();
     void ImportCamera(const CameraImportOptions& options);

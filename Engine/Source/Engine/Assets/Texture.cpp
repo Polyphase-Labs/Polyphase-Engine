@@ -12,6 +12,7 @@
 
 #if EDITOR
 #include "EditorUtils.h"
+#include "TextureImportFixup/TextureImportFixupModal.h"
 #include <stb_image_write.h>
 #include <stb_image_resize2.h>
 #endif
@@ -478,10 +479,26 @@ void Texture::SaveStream(Stream& stream, Platform platform)
         const uint8_t* srcBytes = rawOutPixels.empty() ? mPixels.data()  : rawOutPixels.data();
         const uint32_t srcLen   = rawOutPixels.empty() ? (uint32_t)mPixels.size()
                                                        : (uint32_t)rawOutPixels.size();
-        OCT_ASSERT(srcLen == (outW * outH * RGBA8_SIZE));
-        for (uint32_t i = 0; i < srcLen; ++i)
+        // mPixels can be legitimately empty while a non-POT texture is parked
+        // in TextureImportFixupModal awaiting the user's Pad/Resize/Cancel.
+        // Pad the on-disk pixel block with zeros so the file is self-consistent
+        // (header dims match the byte block) and the assert below stays as a
+        // real correctness guard for the post-resolve flow.
+        const uint32_t expectedLen = outW * outH * RGBA8_SIZE;
+        if (srcLen == 0 && expectedLen > 0)
         {
-            stream.WriteUint8(srcBytes[i]);
+            for (uint32_t i = 0; i < expectedLen; ++i)
+            {
+                stream.WriteUint8(0);
+            }
+        }
+        else
+        {
+            OCT_ASSERT(srcLen == expectedLen);
+            for (uint32_t i = 0; i < srcLen; ++i)
+            {
+                stream.WriteUint8(srcBytes[i]);
+            }
         }
     }
 #endif
@@ -533,13 +550,27 @@ bool Texture::Import(const std::string& path, ImportOptions* options)
         success = false;
     }
 
-    if (!Maths::IsPowerOfTwo(texWidth) || !Maths::IsPowerOfTwo(texHeight))
+    bool deferredForFixup = false;
+    if (success && (!Maths::IsPowerOfTwo(texWidth) || !Maths::IsPowerOfTwo(texHeight)))
     {
-        LogError("Texture dimensions must be power-of-two (e.g. 256x128, 64x64)");
-        success = false;
+        // Non-power-of-two: defer Create() and hand the decoded pixels to the
+        // fixup modal so the user can Pad / Resize / Cancel. The asset is still
+        // registered (we return true) so the modal can finalize it in-place.
+        mWidth = (uint32_t)texWidth;
+        mHeight = (uint32_t)texHeight;
+        mFormat = format;
+        mRenderTarget = false;
+        mMipmapped = true;
+
+        std::vector<uint8_t> decoded(pixels, pixels + imageSize);
+        TextureImportFixupModal::Get()->Enqueue(
+            this, path, std::move(decoded),
+            (uint32_t)texWidth, (uint32_t)texHeight);
+
+        deferredForFixup = true;
     }
 
-    if (success)
+    if (success && !deferredForFixup)
     {
         mPixels.resize(imageSize);
         memcpy(mPixels.data(), pixels, imageSize);
@@ -657,6 +688,26 @@ void Texture::Init(uint32_t width, uint32_t height, uint8_t* data)
     mPixels.resize(imageSize);
     memcpy(mPixels.data(), data, imageSize);
 }
+
+#if EDITOR
+void Texture::FinalizeDeferredImport(std::vector<uint8_t>&& pixels, uint32_t width, uint32_t height)
+{
+    OCT_ASSERT(width > 0);
+    OCT_ASSERT(height > 0);
+    OCT_ASSERT(pixels.size() == size_t(width) * size_t(height) * RGBA8_SIZE);
+
+    mWidth = width;
+    mHeight = height;
+    mPixels = std::move(pixels);
+    mFormat = PixelFormat::RGBA8;
+    mRenderTarget = false;
+    mMipLevels = mMipmapped
+        ? static_cast<int32_t>(floor(log2(std::max(mWidth, mHeight))) + 1)
+        : 1;
+
+    Create();
+}
+#endif
 
 void Texture::UpdatePixels(const uint8_t* data, size_t byteSize)
 {
