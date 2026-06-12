@@ -257,6 +257,26 @@ bool Maths::IsPowerOfTwo(uint32_t x)
     return (x != 0) && ((x & (x - 1)) == 0);
 }
 
+uint32_t Maths::NextPowerOfTwo(uint32_t x)
+{
+    if (x <= 1)
+        return 1;
+    uint32_t p = 1;
+    while (p < x)
+        p <<= 1;
+    return p;
+}
+
+uint32_t Maths::PrevPowerOfTwo(uint32_t x)
+{
+    if (x <= 1)
+        return 1;
+    uint32_t p = 1;
+    while ((p << 1) <= x)
+        p <<= 1;
+    return p;
+}
+
 glm::vec3 Maths::ExtractPosition(const glm::mat4& mat)
 {
 #if USE_GLM_MATRIX_DECOMPOSE_TRANSLATION

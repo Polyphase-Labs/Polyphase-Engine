@@ -51,6 +51,7 @@ nav:
           - Voxel3D: Development/Voxel3D.md
       - Packaging Flow: Development/PackagingFlow.md
       - Themes / CSS: Development/ThemesCss.md
+      - Editor Widgets: Development/EditorWidgets.md
       - 3DS:
           - Overview: Development/Platforms/3DS/Overview.md
           - Screens: Development/Platforms/3DS/Screens.md
@@ -59,6 +60,7 @@ nav:
           - Displaying Images: Development/UI/DisplayingImages.md
           - Text: Development/UI/Text.md
           - Buttons: Development/UI/Buttons.md
+          - Input Action Prompts: Development/UI/InputActionPrompt.md
           - Animation: Development/UI/Animation.md
           - Building UI: Development/UI/BuildingUI.md
       - Input:
@@ -69,6 +71,7 @@ nav:
           - Touch: Development/Input/Touch.md
           - Platform Specific: Development/Input/PlatformSpecific.md
           - Known Gaps: Development/Input/KnownGaps.md
+      - Action Prompt UI: Development/ActionPromptUI.md
       - Logging:
           - Overview: Development/Logging/Overview.md
           - Configuration: Development/Logging/Configuration.md

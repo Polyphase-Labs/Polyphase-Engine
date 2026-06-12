@@ -75,6 +75,14 @@ public:
     void SetText(const char* text);
     const std::string& GetText() const;
 
+    // When non-zero, UpdateVertexData renders this single Unicode codepoint
+    // instead of walking mText character-by-character. Bypasses the ASCII
+    // filter that would otherwise drop PUA-range glyphs (e.g. Kenney input
+    // prompt fonts at U+E000+). Reuses the Font asset's existing atlas
+    // binding so no GFX path changes are needed.
+    void SetGlyphCodepoint(uint32_t codepoint);
+    uint32_t GetGlyphCodepoint() const { return mGlyphCodepoint; }
+
     VertexUI* GetVertices();
     uint32_t GetNumCharactersAllocated() const;
     uint32_t GetNumVisibleCharacters() const;
@@ -117,6 +125,9 @@ protected:
     Justification mVertJust = Justification::Top;
     bool mUploadVertices[MAX_FRAMES] = {};
     bool mReconstructVertices = false;
+
+    // Non-zero -> single-codepoint glyph mode (see SetGlyphCodepoint).
+    uint32_t mGlyphCodepoint = 0;
 
     // Graphics Resource
     TextResource mResource;

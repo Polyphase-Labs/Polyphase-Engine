@@ -5,6 +5,7 @@
 #include "LoadingMenu.h"
 #include "InputDevices.h"
 #include "Input/PlayerInputSystem.h"
+#include "Input/InputPromptResolver.h"
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
@@ -85,6 +86,7 @@
 #if EDITOR
 #include "EditorState.h"
 #include "EditorImgui.h"
+#include "FileDropImport/FileDropImportModal.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
 
@@ -273,6 +275,8 @@ void ForceLinkage()
     FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);
     FORCE_LINK_CALL(Texture);
+    FORCE_LINK_CALL(InputPromptMap);
+    FORCE_LINK_CALL(InputPromptStyle);
     FORCE_LINK_CALL(TileSet);
     FORCE_LINK_CALL(TileMap);
     FORCE_LINK_CALL(TinyLLMAsset);
@@ -326,6 +330,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(Text);
     FORCE_LINK_CALL(Widget);
     FORCE_LINK_CALL(Button);
+    FORCE_LINK_CALL(InputActionPrompt);
     FORCE_LINK_CALL(Slider);
     FORCE_LINK_CALL(InputField);
     FORCE_LINK_CALL(LineEdit);
@@ -572,6 +577,7 @@ bool Initialize()
 
 #if !EDITOR
         PlayerInputSystem::Create();
+        InputPromptResolver::Create();
 #endif
     }
 
@@ -934,6 +940,17 @@ bool Update()
 #if EDITOR
     {
         SCOPED_FRAME_STAT("EditorUI");
+
+        // Drain any files the OS dropped on the editor window this frame
+        // (WM_DROPFILES on Windows) and hand them to the import-mode modal.
+        // No-op on platforms that haven't wired drag-drop yet.
+        std::vector<std::string> droppedFiles;
+        SYS_DrainDroppedFiles(droppedFiles);
+        if (!droppedFiles.empty())
+        {
+            FileDropImportModal::Get()->EnqueueDroppedPaths(droppedFiles);
+        }
+
         EditorImguiDraw();
     }
 #endif
@@ -1012,6 +1029,7 @@ void Shutdown()
     AssetManager::Destroy();
 
 #if !EDITOR
+    InputPromptResolver::Destroy();
     PlayerInputSystem::Destroy();
 #endif
 

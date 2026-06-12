@@ -235,6 +235,12 @@ struct EditorState
     std::vector<std::string> mPendingMeshImportPaths;
     std::vector<std::string> mPendingSceneImportQueue;
 
+    // AssetDir row the mouse is over in the asset browser this frame. Reset
+    // at the top of EditorImguiDraw, set whenever a dir TreeNodeEx / Selectable
+    // reports IsItemHovered. Used by the OS file-drop modal so dropping onto
+    // a specific folder lands the files there instead of the active folder.
+    AssetDir* mMouseHoveredAssetDir = nullptr;
+
     // Import-time name-clash queue. Filled by ActionManager::ImportAsset when
     // the source file's basename collides with an existing asset of a different
     // type (e.g. importing `tent.glb` as StaticMesh while `tent.oct` is already

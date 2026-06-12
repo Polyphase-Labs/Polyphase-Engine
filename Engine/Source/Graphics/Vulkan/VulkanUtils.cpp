@@ -2938,7 +2938,12 @@ void DrawTextWidget(Text* text)
 {
     TextResource* resource = text->GetResource();
 
-    if (text->GetText().size() > 0 && resource->mVertexBuffer != nullptr)
+    // Gate on visible-character count rather than mText length so the
+    // single-codepoint glyph path (Text::SetGlyphCodepoint, used by
+    // InputActionPrompt for PUA-range gamepad-prompt fonts) still draws —
+    // that path leaves mText empty by design. The 3DS backend already uses
+    // the same gate (Graphics_C3D.cpp:1971).
+    if (text->GetNumVisibleCharacters() > 0 && resource->mVertexBuffer != nullptr)
     {
         VkCommandBuffer cb = GetCommandBuffer();
         BindPipelineConfig(PipelineConfig::Text);

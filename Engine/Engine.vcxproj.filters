@@ -213,6 +213,12 @@
     <Filter Include="Source Files\Editor\AssetFixup">
       <UniqueIdentifier>{e7f8a9b0-1c2d-3e4f-5a6b-7c8d9e0f1a2b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\TextureImportFixup">
+      <UniqueIdentifier>{f8a9b0c1-2d3e-4f5a-6b7c-8d9e0f1a2b3c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\FileDropImport">
+      <UniqueIdentifier>{a9b0c1d2-3e4f-5a6b-7c8d-9e0f1a2b3c4d}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Editor\NodeEditor">
       <UniqueIdentifier>{b2c3d4e5-6f7a-8b9c-0d1e-f2a3b4c5d6e7}</UniqueIdentifier>
     </Filter>
@@ -354,6 +360,12 @@
       <Filter>Source Files\Input</Filter>
     </ClCompile>
     <ClCompile Include="Source\Input\PlayerInputSystem.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Input\InputPath.cpp">
+      <Filter>Source Files\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Input\InputPromptResolver.cpp">
       <Filter>Source Files\Input</Filter>
     </ClCompile>
     <ClCompile Include="Source\Input\InputUtils.cpp">
@@ -1043,6 +1055,12 @@
     <ClCompile Include="Source\Engine\Assets\Material.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\InputPromptMap.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\InputPromptStyle.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\MaterialLite_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
@@ -1211,6 +1229,9 @@
     <ClCompile Include="Source\Engine\Nodes\Widgets\Button.cpp">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\Widgets\InputActionPrompt.cpp">
+      <Filter>Source Files\Engine\Nodes\Widgets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\Widgets\Slider.cpp">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClCompile>
@@ -1251,6 +1272,9 @@
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Button_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\InputActionPrompt_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Slider_Lua.cpp">
@@ -1655,6 +1679,15 @@
     <ClCompile Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.cpp">
       <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputCaptureModal.cpp">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputPromptMapInspector.cpp">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\InputPromptEditor\InputPromptStyleInspector.cpp">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\TextureCrop\TextureCropEditor.cpp">
       <Filter>Source Files\Editor\TextureCrop</Filter>
     </ClCompile>
@@ -1672,6 +1705,12 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\AssetFixup\AssetFixupModal.cpp">
       <Filter>Source Files\Editor\AssetFixup</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.cpp">
+      <Filter>Source Files\Editor\TextureImportFixup</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\FileDropImport\FileDropImportModal.cpp">
+      <Filter>Source Files\Editor\FileDropImport</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\ImagePlane\ImagePlaneBuilder.cpp">
       <Filter>Source Files\Editor\ImagePlane</Filter>
@@ -2229,6 +2268,12 @@
     <ClInclude Include="Source\Input\PlayerInputSystem.h">
       <Filter>Source Files\Input</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Input\InputPath.h">
+      <Filter>Source Files\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Input\InputPromptResolver.h">
+      <Filter>Source Files\Input</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Input\InputUtils.h">
       <Filter>Source Files\Input</Filter>
     </ClInclude>
@@ -2586,6 +2631,9 @@
     <ClInclude Include="Source\Editor\EditorWidgets.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\EditorWidgetsInternal.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\EditorMainMenu.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
@@ -2611,6 +2659,12 @@
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\Material.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\InputPromptMap.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\InputPromptStyle.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\MaterialLite_Lua.h">
@@ -2721,6 +2775,9 @@
     <ClInclude Include="Source\Engine\Nodes\Widgets\Button.h">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\Widgets\InputActionPrompt.h">
+      <Filter>Source Files\Engine\Nodes\Widgets</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Widgets\Slider.h">
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
@@ -2761,6 +2818,9 @@
       <Filter>Source Files\Engine\Nodes\Widgets</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\Button_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\InputActionPrompt_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\Slider_Lua.h">
@@ -3180,6 +3240,15 @@
     <ClInclude Include="Source\Editor\SpriteAnimationEditor\SpriteAnimationAtlasEditor.h">
       <Filter>Source Files\Editor\SpriteAnimationEditor</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputCaptureModal.h">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputPromptMapInspector.h">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\InputPromptEditor\InputPromptStyleInspector.h">
+      <Filter>Source Files\Editor\InputPromptEditor</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Editor\TextureCrop\TextureCropEditor.h">
       <Filter>Source Files\Editor\TextureCrop</Filter>
     </ClInclude>
@@ -3197,6 +3266,12 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\AssetFixup\AssetFixupModal.h">
       <Filter>Source Files\Editor\AssetFixup</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.h">
+      <Filter>Source Files\Editor\TextureImportFixup</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\FileDropImport\FileDropImportModal.h">
+      <Filter>Source Files\Editor\FileDropImport</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ImagePlane\ImagePlaneBuilder.h">
       <Filter>Source Files\Editor\ImagePlane</Filter>
