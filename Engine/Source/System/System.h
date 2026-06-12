@@ -42,6 +42,12 @@ std::string SYS_SaveFileDialog();
 std::string SYS_SelectFolderDialog();
 std::string SYS_GetFileName(const std::string& path);
 
+// Pulls any files the OS has dropped on the editor window since the last call
+// and moves them into outPaths. Empty on non-editor builds (DragAcceptFiles is
+// not registered) and on platforms whose windowing layer doesn't have drop
+// support wired yet (Linux XCB, Android, consoles).
+void SYS_DrainDroppedFiles(std::vector<std::string>& outPaths);
+
 // Threading — exported so native addons can use them without relinking the engine's
 // implementation. See AsyncMediaPump in the VideoPlayer addon for a reference consumer.
 POLYPHASE_API ThreadObject* SYS_CreateThread(ThreadFuncFP func, void* arg);

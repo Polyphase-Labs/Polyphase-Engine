@@ -292,6 +292,11 @@ std::vector<std::string> SYS_OpenFileDialog()
     return {};
 }
 
+void SYS_DrainDroppedFiles(std::vector<std::string>& outPaths)
+{
+    (void)outPaths;
+}
+
 std::string SYS_SaveFileDialog()
 {
     return "";

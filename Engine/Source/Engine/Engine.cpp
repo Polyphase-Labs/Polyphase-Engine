@@ -86,6 +86,7 @@
 #if EDITOR
 #include "EditorState.h"
 #include "EditorImgui.h"
+#include "FileDropImport/FileDropImportModal.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
 
@@ -939,6 +940,17 @@ bool Update()
 #if EDITOR
     {
         SCOPED_FRAME_STAT("EditorUI");
+
+        // Drain any files the OS dropped on the editor window this frame
+        // (WM_DROPFILES on Windows) and hand them to the import-mode modal.
+        // No-op on platforms that haven't wired drag-drop yet.
+        std::vector<std::string> droppedFiles;
+        SYS_DrainDroppedFiles(droppedFiles);
+        if (!droppedFiles.empty())
+        {
+            FileDropImportModal::Get()->EnqueueDroppedPaths(droppedFiles);
+        }
+
         EditorImguiDraw();
     }
 #endif

@@ -18,6 +18,7 @@
 
 #include "imgui.h"
 #include "EditorConstants.h"   // DRAGDROP_ASSET
+#include "EditorWidgets.h"     // Polyphase::AssetRefPicker
 
 #include <cstdlib>             // strtoul
 
@@ -555,62 +556,33 @@ void InputPromptMapInspector::DrawEntryTable(InputPromptMap* map)
                 MarkDirty(map);
             }
 
-            // Asset / Glyph cell
+            // Asset / Glyph cell. Both Sprite and Glyph kinds use the unified
+            // Polyphase::AssetRefPicker — it brings consistent drag-drop, an X
+            // clear button, type filtering, and the same Material-style
+            // polymorphism as the inspector. NoAutocomplete keeps the cell
+            // compact for the table layout; NoInspect/NoReveal/NoBrowse drops
+            // the icons the row layout doesn't have room for.
             ImGui::TableNextColumn();
+            const Polyphase::AssetPickerFlags kCompactFlags =
+                Polyphase::AssetPickerFlags_NoAutocomplete |
+                Polyphase::AssetPickerFlags_NoBrowse       |
+                Polyphase::AssetPickerFlags_NoInspect      |
+                Polyphase::AssetPickerFlags_NoReveal;
+
             if (e.mKind == InputPromptKind::Sprite)
             {
-                Texture* tex = e.mSprite.Get<Texture>();
-                // Button-as-droptarget — Text is passive and drag-drop never
-                // activates on it. The button-shaped slot also makes the affordance
-                // visible to artists.
-                char btnLabel[160];
-                snprintf(btnLabel, sizeof(btnLabel), "%s##spr",
-                         tex ? tex->GetName().c_str() : "[ drop Texture here ]");
-                ImGui::Button(btnLabel, ImVec2(-32.0f, 0.0f));
-                if (ImGui::BeginDragDropTarget())
+                ImGui::SetNextItemWidth(-32.0f);
+                if (Polyphase::AssetRefPicker("##spr", e.mSprite, Texture::GetStaticType(), kCompactFlags))
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
-                    {
-                        AssetStub* stub = *(AssetStub**)payload->Data;
-                        if (stub && stub->mType == Texture::GetStaticType())
-                        {
-                            e.mSprite = LoadAsset(stub->mName);
-                            MarkDirty(map);
-                        }
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("X##clrSp"))
-                {
-                    e.mSprite = (Asset*)nullptr;
                     MarkDirty(map);
                 }
             }
             else if (e.mKind == InputPromptKind::Glyph)
             {
                 Font* font = e.mGlyphFont.Get<Font>();
-                char btnLabel[160];
-                snprintf(btnLabel, sizeof(btnLabel), "%s##fnt",
-                         font ? font->GetName().c_str() : "[ drop Font here ]");
-                ImGui::Button(btnLabel, ImVec2(-32.0f, 0.0f));
-                if (ImGui::BeginDragDropTarget())
+                ImGui::SetNextItemWidth(-32.0f);
+                if (Polyphase::AssetRefPicker("##fnt", e.mGlyphFont, Font::GetStaticType(), kCompactFlags))
                 {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
-                    {
-                        AssetStub* stub = *(AssetStub**)payload->Data;
-                        if (stub && stub->mType == Font::GetStaticType())
-                        {
-                            e.mGlyphFont = LoadAsset(stub->mName);
-                            MarkDirty(map);
-                        }
-                    }
-                    ImGui::EndDragDropTarget();
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("X##clrFn"))
-                {
-                    e.mGlyphFont = (Asset*)nullptr;
                     MarkDirty(map);
                 }
                 // Hex codepoint input. Note: ImGui::InputInt always parses

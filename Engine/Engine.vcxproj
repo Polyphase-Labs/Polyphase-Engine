@@ -1040,6 +1040,7 @@
     <ClCompile Include="Source\Editor\ImagePlane\ImagePlaneBuilder.cpp" />
     <ClCompile Include="Source\Editor\AssetFixup\AssetFixupModal.cpp" />
     <ClCompile Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.cpp" />
+    <ClCompile Include="Source\Editor\FileDropImport\FileDropImportModal.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\ThemeEditorWindow.cpp" />
     <ClCompile Include="Source\Editor\ThemeEditor\CssGenerator.cpp" />
     <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp" />
@@ -1481,6 +1482,7 @@
     <ClInclude Include="Source\Editor\EditorIconRegistry.h" />
     <ClInclude Include="Source\Editor\EditorImgui.h" />
     <ClInclude Include="Source\Editor\EditorWidgets.h" />
+    <ClInclude Include="Source\Editor\EditorWidgetsInternal.h" />
     <ClInclude Include="Source\Editor\EditorMainMenu.h" />
     <ClInclude Include="Source\Editor\EditorState.h" />
     <ClInclude Include="Source\Editor\ImGuizmo\ImGuizmo.h" />
@@ -1594,6 +1596,7 @@
     <ClInclude Include="Source\Editor\ImagePlane\ImagePlaneBuilder.h" />
     <ClInclude Include="Source\Editor\AssetFixup\AssetFixupModal.h" />
     <ClInclude Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.h" />
+    <ClInclude Include="Source\Editor\FileDropImport\FileDropImportModal.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\ThemeEditorWindow.h" />
     <ClInclude Include="Source\Editor\ThemeEditor\CssGenerator.h" />
     <ClInclude Include="Source\Plugins\EditorUIHooks.h" />

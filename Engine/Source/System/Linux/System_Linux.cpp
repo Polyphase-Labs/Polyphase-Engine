@@ -769,6 +769,11 @@ void SYS_CloseDirectory(DirEntry& dirEntry)
     dirEntry.mDir = nullptr;
 }
 
+void SYS_DrainDroppedFiles(std::vector<std::string>& outPaths)
+{
+    (void)outPaths;  // XCB drag-drop plumbing not implemented yet.
+}
+
 std::vector<std::string> SYS_OpenFileDialog()
 {
     std::vector<std::string> retFilenames;

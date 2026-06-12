@@ -259,6 +259,37 @@ LogError("Failed to initialize renderer");
 4. Call your panel's draw function from `EditorImguiDraw()` in `EditorImgui.cpp`.
 5. Add files to `Engine.vcxproj` and `Engine.vcxproj.filters`.
 
+### Asset slots in editor UI ("drop a Texture here", brush masks, etc.)
+
+**NEVER hand-roll `ImGui::BeginDragDropTarget` + `AcceptDragDropPayload(DRAGDROP_ASSET)` for an asset slot.** Every such picker in the editor must go through the unified widget so every asset slot has the same drag-drop, X clear button, Inspect, Reveal, type-filter, Material polymorphism, asset-color tint, and (optionally) undo wiring.
+
+```cpp
+#include "EditorWidgets.h"
+
+// Bare slot in a custom panel.
+Polyphase::AssetRefPicker("Brush Mask", mgr->mOptions.mBrushMask,
+                          Texture::GetStaticType());
+
+// Compact cell in a table — drag-drop + X only.
+const Polyphase::AssetPickerFlags kCompact =
+    Polyphase::AssetPickerFlags_NoAutocomplete |
+    Polyphase::AssetPickerFlags_NoBrowse       |
+    Polyphase::AssetPickerFlags_NoInspect      |
+    Polyphase::AssetPickerFlags_NoReveal;
+ImGui::SetNextItemWidth(-32.0f);
+if (Polyphase::AssetRefPicker("##spr", row.mSprite,
+                              Texture::GetStaticType(), kCompact))
+{
+    MarkDirty(map);
+}
+```
+
+- Widget lives in `Engine/Source/Editor/EditorWidgets.{h,cpp}` (`#if EDITOR`).
+- The inspector's `DrawAssetProperty` is itself a thin wrapper around this widget — don't duplicate its body.
+- For an undoable Property-backed picker, pass an `AssetPickerUndoCtx { owner, ownerType, propName, index }`; the widget routes the assignment through `ActionManager::EXE_EditPropertyOnSelection`.
+- The `Polyphase::Checkbox(label, bool*)` widget is in the same header — prefer it over `ImGui::Checkbox` so row heights line up with adjacent controls regardless of theme.
+- Full reference: `Documentation/Development/EditorWidgets.md`.
+
 ### New Editor Hotkey
 
 **NEVER add `IsKeyJustDown(POLYPHASE_KEY_*)` checks directly in editor code.**

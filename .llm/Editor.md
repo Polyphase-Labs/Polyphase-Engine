@@ -167,6 +167,31 @@ Multi-platform build system with build profiles. Supports Docker for console bui
 
 3D/2D transform gizmos: Translate, Rotate, Scale in World/Local space. Configured via `EditorState::mGizmoOperation` and `mGizmoMode`.
 
+## Editor Widget Library
+
+**Files:** `EditorWidgets.h/.cpp`, `EditorWidgetsInternal.h` (private bridge to `EditorImgui.cpp`).
+
+Canonical, theme-aware ImGui widgets shared across the editor. Everything here is `#if EDITOR`-gated. Use these instead of hand-rolling equivalents — they keep behavior, theming, drag-drop, and asset-system integration consistent everywhere.
+
+| Widget | Use for |
+|--------|---------|
+| `Polyphase::Checkbox(label, bool*)` | Any checkbox. Constrains visual box to `gCheckboxSize` so rows align with adjacent buttons regardless of theme `FramePadding`. |
+| `Polyphase::AssetRefPicker(label, AssetRef&, typeFilter, flags, undo*)` | **Every** "drop an asset here / pick / clear" affordance — inspector slots, custom panels, addon UI. Renders Browse / autocomplete / X clear / Inspect / Reveal. Accepts `DRAGDROP_ASSET`. Handles Material polymorphism + asset-color tint + (optional) `ActionManager` undo wrapping. |
+
+**Anti-pattern — do not do this:**
+
+```cpp
+ImGui::Button("Drop X Here", ...);
+if (ImGui::BeginDragDropTarget()) {
+    if (auto* p = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET)) { ... }
+    ImGui::EndDragDropTarget();
+}
+```
+
+Use `Polyphase::AssetRefPicker(label, ref, typeFilter)` instead. The inspector's `DrawAssetProperty` is now a thin Property→widget adapter on top of the same function.
+
+See `Documentation/Development/EditorWidgets.md` for flag combinations, undo wiring, and full examples.
+
 ## Key Constants
 
 ```cpp

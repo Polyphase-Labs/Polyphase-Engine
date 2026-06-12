@@ -18,6 +18,7 @@
 #include "Graphics/Vulkan/VramAllocator.h"
 #endif
 #include <Shlobj.h>
+#include <shellapi.h>
 #include <assert.h>
 #include <errno.h>
 
@@ -40,6 +41,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 // next INP_Update does an enum pass. Replaces the old 2s periodic enum.
 extern "C" void INP_NotifyDeviceChange();
 
+#if EDITOR
+// Files dropped on the editor window via WM_DROPFILES, drained once per frame
+// by SYS_DrainDroppedFiles. The Win32 message loop is single-threaded on the
+// UI thread so a plain vector is safe.
+static std::vector<std::string> gDroppedFiles;
+#endif
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 #if EDITOR
@@ -50,6 +58,25 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     EngineState* engineState = GetEngineState();
 
     switch (uMsg) {
+#if EDITOR
+    case WM_DROPFILES:
+    {
+        HDROP hDrop = reinterpret_cast<HDROP>(wParam);
+        const UINT count = DragQueryFileA(hDrop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < count; ++i)
+        {
+            const UINT need = DragQueryFileA(hDrop, i, nullptr, 0);
+            if (need == 0)
+                continue;
+            std::string path(need, '\0');
+            DragQueryFileA(hDrop, i, path.data(), need + 1);
+            for (char& c : path) if (c == '\\') c = '/';
+            gDroppedFiles.push_back(std::move(path));
+        }
+        DragFinish(hDrop);
+        return 0;
+    }
+#endif
     case WM_DEVICECHANGE:
         // Arrive / remove / generic change — just mark input as dirty. The
         // input layer does the right amount of re-enumeration on its own.
@@ -365,6 +392,9 @@ void SYS_Initialize()
 
 #if EDITOR
     ImGui_ImplWin32_Init(engineState->mSystem.mWindow);
+    // Accept files dragged from Explorer / Finder-equivalent shells. Routes
+    // through WM_DROPFILES, drained per-frame by SYS_DrainDroppedFiles.
+    DragAcceptFiles(engineState->mSystem.mWindow, TRUE);
 #endif
 }
 
@@ -640,6 +670,26 @@ void SYS_CloseDirectory(DirEntry& dirEntry)
 {
     FindClose(dirEntry.mFindHandle);
     dirEntry.mFindHandle = nullptr;
+}
+
+void SYS_DrainDroppedFiles(std::vector<std::string>& outPaths)
+{
+#if EDITOR
+    if (gDroppedFiles.empty())
+        return;
+    if (outPaths.empty())
+    {
+        outPaths = std::move(gDroppedFiles);
+    }
+    else
+    {
+        for (std::string& p : gDroppedFiles)
+            outPaths.push_back(std::move(p));
+    }
+    gDroppedFiles.clear();
+#else
+    (void)outPaths;
+#endif
 }
 
 std::vector<std::string> SYS_OpenFileDialog()

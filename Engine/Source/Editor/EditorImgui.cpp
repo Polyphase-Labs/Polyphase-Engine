@@ -2,6 +2,7 @@
 
 #include "EditorImgui.h"
 #include "EditorWidgets.h"
+#include "EditorWidgetsInternal.h"
 #include "System/System.h"
 #include "Engine.h"
 #include "EditorUtils.h"
@@ -67,6 +68,7 @@
 #include "EditorState.h"
 #include "AssetFixup/AssetFixupModal.h"
 #include "TextureImportFixup/TextureImportFixupModal.h"
+#include "FileDropImport/FileDropImportModal.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
@@ -2689,7 +2691,9 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
     ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera, createSkybox);
 }
 
-static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Property& prop, uint32_t index, Asset* newAsset)
+namespace PolyphaseEditorInternal
+{
+void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Property& prop, uint32_t index, Asset* newAsset)
 {
     if (newAsset != nullptr &&
         newAsset != prop.GetAsset())
@@ -2721,6 +2725,10 @@ static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Pr
         }
     }
 }
+} // namespace PolyphaseEditorInternal
+
+// File-local alias keeps the existing call sites below short.
+using PolyphaseEditorInternal::AssignAssetToProperty;
 
 static bool NodeMatchesProperty(const Property& prop, Node* node, Object* owner)
 {
@@ -2904,16 +2912,19 @@ static void DrawNodeProperty(Property& prop, uint32_t index, Object* owner, Prop
 }
 
 // A reusable autocomplete dropdown function that works with various input types
-// Returns true if a selection was made, and updates the input string
-template<typename FilterFuncType>
-static bool DrawAutocompleteDropdown(const char* dropdownId,
-                                     std::string& inputText,
-                                     const std::vector<std::string>& suggestions,
-                                     FilterFuncType filterFunc,
-                                     bool forceActive = false,
-                                     ImGuiID overrideInputId = 0,
-                                     ImVec2 overrideRectMin = ImVec2(0, 0),
-                                     ImVec2 overrideRectMax = ImVec2(0, 0))
+// Returns true if a selection was made, and updates the input string.
+// Declared in EditorWidgetsInternal.h — EditorWidgets.cpp links against this
+// definition for the unified asset picker, alongside the in-file callers below.
+namespace PolyphaseEditorInternal
+{
+bool DrawAutocompleteDropdown(const char* dropdownId,
+                              std::string& inputText,
+                              const std::vector<std::string>& suggestions,
+                              AutocompleteFilter filterFunc,
+                              bool forceActive,
+                              ImGuiID overrideInputId,
+                              ImVec2 overrideRectMin,
+                              ImVec2 overrideRectMax)
 {
     bool selectionMade = false;
 
@@ -3198,164 +3209,42 @@ static bool DrawAutocompleteDropdown(const char* dropdownId,
 
     return selectionMade;
 }
+} // namespace PolyphaseEditorInternal
+
+// File-local alias keeps the existing call sites below short.
+using PolyphaseEditorInternal::DrawAutocompleteDropdown;
 
 
 void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOwnerType ownerType)
 {
-    Asset* asset = prop.GetAsset(index);
-    ActionManager* am = ActionManager::Get();
- 
-    bool useAssetColor = (prop.mExtra != 0);
-    if (useAssetColor)
-    {
-        glm::vec4 assetColor = AssetManager::Get()->GetEditorAssetColor(prop.mExtra ? (TypeId)prop.mExtra->GetInteger() : 0);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(assetColor.r, assetColor.g, assetColor.b, assetColor.a));
-    }
+    // Thin Property-aware adapter — the picker UI itself lives in
+    // Polyphase::AssetRefPicker (EditorWidgets.cpp). Every hand-rolled
+    // asset picker in the editor shares the same widget now, which is how
+    // they all get the X-clear button, Inspect, Reveal, and Material
+    // polymorphism for free.
+    TypeId filter = prop.mExtra ? (TypeId)prop.mExtra->GetInteger() : 0;
 
-    if (IsControlDown())
-    {
-        if (ImGui::Button(ICON_IC_BASELINE_UPLOAD) && asset)
-        {
-            GetEditorState()->BrowseToAsset(asset->GetName());
-        }
-    }
-    else if (IsAltDown())
-    {
-        if (ImGui::Button(ICON_INFO) && asset)
-        {
-            GetEditorState()->InspectObject(asset);
-        }
-    }
-    else
-    {
-        if (ImGui::Button(ICON_IC_BASELINE_DOWNLOAD))
-        {
-            Asset* selAsset = GetEditorState()->GetSelectedAsset();
-            if (selAsset != nullptr)
-            {
-                AssignAssetToProperty(owner, ownerType, prop, index, selAsset);
-            }
-        }
+    Polyphase::AssetPickerUndoCtx undoCtx;
+    undoCtx.mOwner     = owner;
+    undoCtx.mOwnerType = ownerType;
+    undoCtx.mPropName  = prop.mName.c_str();
+    undoCtx.mIndex     = index;
 
-        if (asset != nullptr &&
-            ImGui::IsItemHovered() &&
-            EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_DeleteSelected))
-        {
-            if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
-            {
-                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, (Asset*) nullptr);
-            }
-            else
-            {
-                prop.SetAsset(nullptr, index);
-            }
-        }
-    }
+    // ownerType == Count is the synthesized-Property path (shader-param
+    // texture / paint-instance mesh / asset-fixup picker). Those callers
+    // have no real owner to undo-wrap, so the widget mutates the AssetRef
+    // directly. The historical DrawAssetProperty body matches this.
+    const Polyphase::AssetPickerUndoCtx* undoPtr =
+        (ownerType == PropertyOwnerType::Count) ? nullptr : &undoCtx;
 
-    ImGui::SameLine();
+    // The ID seed must be unique per (property, index) so vector elements
+    // get distinct ImGui IDs. Same shape as the old PushID below.
+    char idLabel[160];
+    snprintf(idLabel, sizeof(idLabel), "%s##%u", prop.mName.c_str(), index);
+    Polyphase::AssetRefPicker(idLabel, prop.GetAssetRef(index), filter, /*flags*/ 0, undoPtr);
 
-    // Each asset property gets its own string buffer keyed by a unique ID
-    static std::unordered_map<std::string, std::string> sTempStrings;
-    std::string propKey = prop.mName + "_" + std::to_string(index) + "_" + std::to_string((uintptr_t)owner);
-    std::string& sTempString = sTempStrings[propKey];
-
-    // Create a unique ID for this input
-    ImGui::PushID((prop.mName + std::to_string(index)).c_str());
-
-    // Use ImGui::InputText and get the active status for the dropdown
-    // Capture keys to prevent input field from intercepting arrow keys
-    ImGuiInputTextFlags flags = ImGuiInputTextFlags_None;
-    if (ImGui::IsItemFocused() || ImGui::IsItemActive()) {
-        // If dropdown is about to be shown, don't allow up/down keys to affect the input
-        flags |= ImGuiInputTextFlags_CharsNoBlank;
-    }
-
-    bool textActive = ImGui::InputText("##AssetNameStr", &sTempString, flags);
-    bool isInputFocused = ImGui::IsItemFocused();
-    bool isInputActivated = ImGui::IsItemActivated();
-
-    // Save InputText rect/ID for the autocomplete dropdown positioning
-    ImGuiID inputTextId = ImGui::GetItemID();
-    ImVec2 inputTextRectMin = ImGui::GetItemRectMin();
-    ImVec2 inputTextRectMax = ImGui::GetItemRectMax();
-
-    // Calculate dropdown bounds to check if mouse is hovering over it
-    ImVec2 inputSize = ImVec2(inputTextRectMax.x - inputTextRectMin.x, inputTextRectMax.y - inputTextRectMin.y);
-    const float dropdownItemHeight = ImGui::GetTextLineHeightWithSpacing();
-    const float maxDropdownHeight = dropdownItemHeight * 4 + ImGui::GetStyle().WindowPadding.y * 2;
-    ImVec2 dropdownMin = ImVec2(inputTextRectMin.x, inputTextRectMin.y + inputSize.y);
-    ImVec2 dropdownMax = ImVec2(inputTextRectMax.x, inputTextRectMin.y + inputSize.y + maxDropdownHeight);
-
-    ImVec2 mousePos = ImGui::GetIO().MousePos;
-    bool mouseOverDropdown = mousePos.x >= dropdownMin.x && mousePos.x <= dropdownMax.x &&
-                             mousePos.y >= dropdownMin.y && mousePos.y <= dropdownMax.y;
-
-    // Only reset temp string when NOT focused and NOT hovering over dropdown
-    // This preserves the filter text when clicking on dropdown items
-    if (isInputActivated)
-    {
-        // Reset when first activating the input
-        sTempString = asset ? asset->GetName() : "";
-    }
-    else if (!isInputFocused && !mouseOverDropdown)
-    {
-        // Reset when not interacting
-        sTempString = asset ? asset->GetName() : "";
-    }
-
-    // Drag-and-drop target on the input text field
-    if (ImGui::BeginDragDropTarget())
-    {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
-        {
-            AssetStub* droppedStub = *(AssetStub**)payload->Data;
-            if (droppedStub != nullptr)
-            {
-                Asset* droppedAsset = LoadAsset(droppedStub->mName);
-                AssignAssetToProperty(owner, ownerType, prop, index, droppedAsset);
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    // Clear button
-    ImGui::SameLine(0.0f, 2.0f);
-    if (ImGui::Button(ICON_DASHICONS_NO_ALT "##AssetClear"))
-    {
-        Asset* nullAsset = nullptr;
-        if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
-        {
-            am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, nullAsset);
-        }
-        else
-        {
-            prop.SetAsset(nullAsset, index);
-        }
-    }
-
-    // Inspect and Reveal buttons - only show when asset is assigned
-    if (asset != nullptr)
-    {
-        // Inspect button - view asset properties
-        ImGui::SameLine(0.0f, 2.0f);
-        if (ImGui::Button(ICON_INFO "##Inspect"))
-        {
-            GetEditorState()->InspectObject(asset);
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Inspect asset properties");
-
-        // Reveal button - navigate to asset in Asset Panel
-        ImGui::SameLine(0.0f, 2.0f);
-        if (ImGui::Button(ICON_MDI_TARGET "##Reveal"))
-        {
-            GetEditorState()->BrowseToAsset(asset->GetName());
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Reveal in Asset Panel");
-    }
-
-    // Per-element delete button for vector properties
+    // Per-element delete button for vector properties — Property/vector
+    // semantics, not part of the asset-picker contract, so it stays here.
     if (prop.IsVector() && prop.GetCount() > prop.mMinCount)
     {
         ImGui::SameLine(0.0f, 2.0f);
@@ -3382,112 +3271,6 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
         ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Remove element [%d]", index);
-    }
-
-    // If we have an extra property with type information, use it to filter assets
-    TypeId assetTypeFilter = 0;
-    if (prop.mExtra)
-    {
-        assetTypeFilter = (TypeId)prop.mExtra->GetInteger();
-    }
-
-    // Get asset suggestions based on type
-    static std::vector<std::string> assetSuggestions;
-    static TypeId lastAssetTypeFilter = 0;
-    static double lastUpdateTime = 0.0;
-    double currentTime = ImGui::GetTime();
-
-    // Only refresh the suggestions list occasionally to avoid performance issues
-    if (assetTypeFilter != lastAssetTypeFilter || currentTime - lastUpdateTime > 2.0)
-    {
-        assetSuggestions.clear();
-        const auto& assetMap = AssetManager::Get()->GetAssetMap();
-        
-        for (const auto& pair : assetMap)
-        {
-            AssetStub* stub = pair.second;
-            // If assetTypeFilter is 0 or matches the asset type, add it to suggestions
-            bool typeMatches = false;
-            
-            if (assetTypeFilter == 0)
-            {
-                typeMatches = true; // Accept all types when no filter
-            }
-            else if (stub)
-            {
-                // Check for exact type match
-                if (stub->mType == assetTypeFilter)
-                {
-                    typeMatches = true;
-                }
-                // Special handling for Material types
-                else if (assetTypeFilter == Material::GetStaticType() && 
-                         (stub->mType == MaterialBase::GetStaticType() ||
-                          stub->mType == MaterialInstance::GetStaticType() ||
-                          stub->mType == MaterialLite::GetStaticType()))
-                {
-                    typeMatches = true;
-                }
-            }
-            
-            if (stub && typeMatches)
-            {
-                assetSuggestions.push_back(stub->mName);
-            }
-        }
-        
-        lastAssetTypeFilter = assetTypeFilter;
-        lastUpdateTime = currentTime;
-    }
-
-    // Define a filter function for our assets
-    auto assetFilter = [](const std::string& suggestion, const std::string& input) {
-        if (input.empty()) return true;
-        // Case-insensitive substring search
-        std::string lowerSuggestion = suggestion;
-        std::string lowerInput = input;
-        std::transform(lowerSuggestion.begin(), lowerSuggestion.end(), lowerSuggestion.begin(), ::tolower);
-        std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(), ::tolower);
-        return lowerSuggestion.find(lowerInput) != std::string::npos;
-    };
-
-    // Draw the autocomplete dropdown for asset selection
-    // Force the dropdown to be active when the input is activated or text changes
-    // Use saved InputText rect so the dropdown positions below the input field, not the clear button
-    bool selectionMade = DrawAutocompleteDropdown("AssetAutocomplete", sTempString, assetSuggestions, assetFilter,
-                                                isInputActivated || textActive || isInputFocused,
-                                                inputTextId, inputTextRectMin, inputTextRectMax);
-    
-    // Pop the ID we pushed earlier
-    ImGui::PopID();
-
-    // If a selection was made or the input was deactivated after editing, apply the change
-    if (selectionMade || ImGui::IsItemDeactivatedAfterEdit())
-    {
-        if (sTempString == "null" ||
-            sTempString == "NULL" ||
-            sTempString == "Null")
-        {
-            Asset* nullAsset = nullptr;
-            if (ownerType != PropertyOwnerType::Count)
-            {
-                am->EXE_EditPropertyOnSelection(owner, ownerType, prop.mName, index, nullAsset);
-            }
-            else
-            {
-                prop.SetAsset(nullAsset, index);
-            }
-        }
-        else
-        {
-            Asset* newAsset = LoadAsset(sTempString);
-            AssignAssetToProperty(owner, ownerType, prop, index, newAsset);
-        }
-    }
-
-    if (useAssetColor)
-    {
-        ImGui::PopStyleColor();
     }
 }
 
@@ -7481,6 +7264,12 @@ static void DrawDirPicker()
         {
             GetEditorState()->SetAssetDirectory(currentDir->mParentDir, true);
         }
+        // OS file-drop hover tracker, see DrawAssetDirTree for the same pattern.
+        if (ImGui::IsItemHovered() &&
+            !currentDir->mParentDir->mEngineDir && !currentDir->mParentDir->mAddonDir)
+        {
+            GetEditorState()->mMouseHoveredAssetDir = currentDir->mParentDir;
+        }
     }
 
     for (uint32_t i = 0; i < currentDir->mChildDirs.size(); ++i)
@@ -7490,6 +7279,10 @@ static void DrawDirPicker()
         if (ImGui::Selectable(dirLabel.c_str(), false))
         {
             GetEditorState()->SetAssetDirectory(childDir, true);
+        }
+        if (ImGui::IsItemHovered() && !childDir->mEngineDir && !childDir->mAddonDir)
+        {
+            GetEditorState()->mMouseHoveredAssetDir = childDir;
         }
     }
 
@@ -8047,6 +7840,13 @@ static void DrawAssetDirTree(AssetDir* dir, const std::string& filterLower, bool
     bool nodeOpen = ImGui::TreeNodeEx(dirLabel.c_str(), dirFlags);
     AlternatingRowBackground();
 
+    // Record this row as the current OS file-drop target if the mouse is
+    // over it -- consumed by FileDropImportModal on the next frame's drain.
+    if (!dir->mEngineDir && !dir->mAddonDir && ImGui::IsItemHovered())
+    {
+        GetEditorState()->mMouseHoveredAssetDir = dir;
+    }
+
     // Drag source for directory (skip engine/addon dirs)
     if (!dir->mEngineDir && !dir->mAddonDir && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
     {
@@ -8474,8 +8274,7 @@ static void DrawMaterialShaderParams(Material* mat)
         }
         else if (param.mType == ShaderParameterType::Texture)
         {
-            Property prop(DatumType::Asset, param.mName, nullptr, &param.mTextureValue, 1, nullptr, (int32_t)Texture::GetStaticType());
-            DrawAssetProperty(prop, 0, nullptr, PropertyOwnerType::Count);
+            Polyphase::AssetRefPicker(param.mName.c_str(), param.mTextureValue, Texture::GetStaticType());
         }
 
         ImGui::PopID();
@@ -10566,6 +10365,10 @@ static void DrawMainMenuBar()
     // Pad / Resize / Cancel each affected texture.
     TextureImportFixupModal::Get()->Draw();
 
+    // OS drag-and-drop import. Populated by Engine.cpp draining
+    // SYS_DrainDroppedFiles at the start of each editor frame.
+    FileDropImportModal::Get()->Draw();
+
 
     // Mesh-import mode dialog: fires after the user picks .glb/.gltf/.fbx/.dae/.obj
     // via File > Import > Asset (or the asset browser context menu). Lets the user
@@ -10996,8 +10799,7 @@ static void DrawPaintInstancesPanel()
 
     PaintManager* pm = GetEditorState()->mPaintManager;
 
-    Property prop(DatumType::Asset, "Instance Mesh", nullptr, &(pm->mInstanceOptions.mMesh), 1, nullptr, (int32_t)StaticMesh::GetStaticType());
-    DrawAssetProperty(prop, 0, nullptr, PropertyOwnerType::Count);
+    Polyphase::AssetRefPicker("Instance Mesh", pm->mInstanceOptions.mMesh, StaticMesh::GetStaticType());
     ImGui::SameLine();
     ImGui::Text("Mesh");
 
@@ -12414,6 +12216,11 @@ void EditorImguiDraw()
 {
     EngineState* engState = GetEngineState();
 
+    // Reset per-frame hovered-dir tracker. The OS file-drop modal reads this
+    // BEFORE this function runs (see Engine.cpp), so resetting here clears
+    // last frame's value only after it's been consumed for this drain.
+    GetEditorState()->mMouseHoveredAssetDir = nullptr;
+
     ImGuiIO& io = ImGui::GetIO();
     float interfaceScale = GetEngineConfig()->mEditorInterfaceScale;
     if (interfaceScale == 0.0f)
@@ -12913,24 +12720,19 @@ void EditorImguiDraw()
                     ImGui::Text("(circular falloff)");
                 }
 
-                // Drop target: drag a Texture asset from the Assets panel onto this area
-                ImGui::Button("Drop Brush Mask Here##BrushMaskDrop", ImVec2(-1, 0));
-                if (ImGui::BeginDragDropTarget())
-                {
-                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
-                    {
-                        AssetStub* droppedStub = *(AssetStub**)payload->Data;
-                        if (droppedStub != nullptr && droppedStub->mType == Texture::GetStaticType())
-                        {
-                            Texture* droppedTex = static_cast<Texture*>(LoadAsset(droppedStub->mName));
-                            if (droppedTex != nullptr)
-                            {
-                                mgr->mOptions.mBrushMask = droppedTex;
-                            }
-                        }
-                    }
-                    ImGui::EndDragDropTarget();
-                }
+                // Drop target: drag a Texture asset from the Assets panel onto
+                // this area. Unified asset picker gives us drag-drop + an X
+                // clear button + the type filter for free; the inline preview
+                // above remains the domain-specific affordance.
+                ImGui::PushItemWidth(-1.0f);
+                Polyphase::AssetRefPicker(
+                    "Brush Mask##BrushMaskDrop",
+                    mgr->mOptions.mBrushMask,
+                    Texture::GetStaticType(),
+                    Polyphase::AssetPickerFlags_NoAutocomplete |
+                    Polyphase::AssetPickerFlags_NoInspect |
+                    Polyphase::AssetPickerFlags_NoReveal);
+                ImGui::PopItemWidth();
 
                 // Stamp brush mask onto entire terrain as heightmap
                 if (maskTex != nullptr)

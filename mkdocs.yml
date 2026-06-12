@@ -51,6 +51,7 @@ nav:
           - Voxel3D: Development/Voxel3D.md
       - Packaging Flow: Development/PackagingFlow.md
       - Themes / CSS: Development/ThemesCss.md
+      - Editor Widgets: Development/EditorWidgets.md
       - 3DS:
           - Overview: Development/Platforms/3DS/Overview.md
           - Screens: Development/Platforms/3DS/Screens.md
