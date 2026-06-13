@@ -80,6 +80,12 @@ private:
     void CreateTriangleCollisionShape();
     void DestroyTriangleCollisionShape();
 
+    // Tear down the GPU resource and BVH on an already-loaded mesh and clear
+    // Asset::mLoaded so CreateRaw / CreateRawColor can rebuild via Create().
+    // Does NOT call Asset::Destroy (which would erase AssetRefs and break
+    // scene references to this mesh).
+    void PrepareForRebuild();
+
     void ResizeVertexArray(uint32_t newSize);
     void ResizeIndexArray(uint32_t newSize);
 

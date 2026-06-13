@@ -2152,6 +2152,18 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     ss << "@echo off\n";
     ss << "setlocal\n";
     ss << "\n";
+    // W1: Pin cwd to the script's own directory so the linker's implicit
+    // current-directory library search can't pick up a stale Polyphase.lib
+    // sitting in whatever directory the editor happened to be launched from.
+    // (link.exe searches cwd BEFORE any /LIBPATH entry; if a 65KB engine-root
+    // Polyphase.lib survives from an older build / packaging step it wins
+    // over the real ~100MB lib next to the editor exe, and every ImGui
+    // dllimport in the addon resolves to nothing -> LNK2019 for ImGui::Spacing,
+    // TextDisabled, Combo, SliderInt, InputText, SetTooltip, IsItemHovered.)
+    // %~dp0 expands to the build script's own dir, which is the addon's
+    // fingerprinted intermediate dir -- guaranteed clean.
+    ss << "cd /d \"%~dp0\"\n";
+    ss << "\n";
     ss << ":: Find Visual Studio\n";
     ss << "set \"VSWHERE=%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe\"\n";
     ss << "for /f \"usebackq tokens=*\" %%i in (`\"%VSWHERE%\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (\n";

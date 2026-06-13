@@ -266,6 +266,14 @@ AssetStub* FindOrCreateImagePlaneStubForTexture(AssetStub* textureStub)
                 return existingStub;
             }
         }
+        // Note: if the existing stub is present but fails IsImagePlaneCandidate
+        // (e.g. a half-saved .oct left over from a prior crash), we fall
+        // through to EditorAddUniqueAsset below, which creates a freshly-
+        // named SM_<base>_1 / M_<base>_1 pair. Rebuilding the original in
+        // place would require re-calling StaticMesh::Create(), and Asset::Create
+        // asserts !mLoaded -- there's no public Reload() API yet. The stale
+        // stub stays dormant; CreateTriangleCollisionShape's guards keep it
+        // from crashing on subsequent loads.
     }
 
     AssetStub* matStub  = EditorAddUniqueAsset(matBaseName.c_str(),  targetDir, MaterialLite::GetStaticType(), true);

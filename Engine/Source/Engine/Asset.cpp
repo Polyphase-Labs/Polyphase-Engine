@@ -84,6 +84,11 @@ void Asset::Create()
 #endif
 }
 
+void Asset::ResetLoadedFlag()
+{
+    mLoaded = false;
+}
+
 void Asset::Destroy()
 {
 #if ASSET_LIVE_REF_TRACKING

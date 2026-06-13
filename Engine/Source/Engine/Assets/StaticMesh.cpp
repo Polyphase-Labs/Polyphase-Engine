@@ -63,12 +63,24 @@ StaticMesh::~StaticMesh()
 
 }
 
+void StaticMesh::PrepareForRebuild()
+{
+    if (!IsLoaded())
+        return;
+
+    GFX_DestroyStaticMeshResource(this);
+    DestroyTriangleCollisionShape();
+    ResetLoadedFlag();
+}
+
 void StaticMesh::CreateRaw(
     uint32_t numVertices,
     Vertex* vertices,
     uint32_t numIndices,
     IndexType* indices)
 {
+    PrepareForRebuild();
+
     mNumVertices = numVertices;
     mNumIndices = numIndices;
     mHasVertexColor = false;
@@ -87,6 +99,8 @@ void StaticMesh::CreateRawColor(
     uint32_t numIndices,
     IndexType* indices)
 {
+    PrepareForRebuild();
+
     mNumVertices = numVertices;
     mNumIndices = numIndices;
     mHasVertexColor = true;
@@ -749,6 +763,22 @@ void StaticMesh::CreateTriangleCollisionShape()
 {
     OCT_ASSERT(mNumIndices % 3 == 0);
 
+    // A degenerate or empty mesh can't have a BVH built -- Bullet's
+    // btQuantizedBvh::buildTree asserts on numIndices > 0 when it gets a
+    // mesh with zero leaf nodes. Skip if we don't have at least one full
+    // triangle, valid pointers, and an aligned index count. Common causes
+    // for getting here: a half-saved .oct from a prior crash loaded back
+    // with garbage counts, or a deferred-Create flow where the buffers
+    // haven't been populated yet.
+    if (mNumIndices < 3 ||
+        mNumVertices < 3 ||
+        (mNumIndices % 3) != 0 ||
+        mIndices == nullptr ||
+        mVertices == nullptr)
+    {
+        return;
+    }
+
     // Don't do anything if we already have triangle collision data generated
     // Note: In EDITOR, we always generate triangle collision data even if it's disabled.
     if (mTriangleIndexVertexArray == nullptr &&
@@ -768,7 +798,41 @@ void StaticMesh::CreateTriangleCollisionShape()
 
         bool useQuantizedAabbCompression = true;
 
-        mTriangleCollisionShape = new btBvhTriangleMeshShape(mTriangleIndexVertexArray, useQuantizedAabbCompression);
+        // Compute the mesh AABB ourselves and pad any zero-extent axis with a
+        // small epsilon. Bullet's auto-AABB path feeds btQuantizedBvh a range
+        // that gets used as a divisor during quantization -- if any axis has
+        // zero extent (perfectly flat meshes: image planes, decals, billboards
+        // at z=0) the divide produces NaN/Inf, which then crashes on the
+        // unsigned short cast in btQuantizedBvh::quantize. Using the explicit-
+        // AABB constructor overload lets us guarantee a non-degenerate range.
+        btVector3 aabbMin( BT_LARGE_FLOAT,  BT_LARGE_FLOAT,  BT_LARGE_FLOAT);
+        btVector3 aabbMax(-BT_LARGE_FLOAT, -BT_LARGE_FLOAT, -BT_LARGE_FLOAT);
+        const uint32_t vertSize = GetVertexSize();
+        const char* vertBytes = reinterpret_cast<const char*>(mVertices);
+        for (uint32_t i = 0; i < mNumVertices; ++i)
+        {
+            // Both Vertex and VertexColor place glm::vec3 mPosition at offset 0.
+            const glm::vec3& pos = *reinterpret_cast<const glm::vec3*>(vertBytes + i * vertSize);
+            aabbMin.setMin(btVector3(pos.x, pos.y, pos.z));
+            aabbMax.setMax(btVector3(pos.x, pos.y, pos.z));
+        }
+        if (mNumVertices == 0)
+        {
+            aabbMin.setValue(0, 0, 0);
+            aabbMax.setValue(0, 0, 0);
+        }
+        const btScalar kAabbEps = btScalar(0.01);
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            if (aabbMax[axis] - aabbMin[axis] < kAabbEps)
+            {
+                aabbMin[axis] -= kAabbEps * btScalar(0.5);
+                aabbMax[axis] += kAabbEps * btScalar(0.5);
+            }
+        }
+
+        mTriangleCollisionShape = new btBvhTriangleMeshShape(
+            mTriangleIndexVertexArray, useQuantizedAabbCompression, aabbMin, aabbMax);
         mTriangleInfoMap = new btTriangleInfoMap();
         btGenerateInternalEdgeInfo(mTriangleCollisionShape, mTriangleInfoMap);
     }

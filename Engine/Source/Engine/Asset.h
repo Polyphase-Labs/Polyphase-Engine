@@ -128,6 +128,14 @@ public:
 
     virtual void Copy(Asset* srcAsset);
 
+    // Reset the loaded flag without destroying the asset or erasing live
+    // AssetRefs. Lets a caller tear down the GPU/physics side of an asset
+    // and then call Create() again to rebuild from new data, while any
+    // scene references to this asset stay intact. Used by editor-time
+    // rebuilds such as StaticMesh::CreateRaw being invoked on an asset
+    // that AssetManager already auto-Create()'d at registration time.
+    void ResetLoadedFlag();
+
     const std::string& GetName() const;
     bool IsLoaded() const;
     bool IsRefCounted() const;

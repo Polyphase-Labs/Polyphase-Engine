@@ -212,7 +212,12 @@
       "Bash(mkdir -p test/java/com/you/appname)",
       "Bash(mkdir -p androidTest/java/com/you/appname)",
       "Bash(mv main/java/com/solarscapegames/standalone/PolyphaseActivity.java main/java/com/you/appname/)",
-      "Bash(mv test/java/com/solarscapegames/standalone/ExampleUnitTest.java test/java/com/you/appname/)"
+      "Bash(mv test/java/com/solarscapegames/standalone/ExampleUnitTest.java test/java/com/you/appname/)",
+      "Bash(dumpbin //EXPORTS Polyphase.lib)",
+      "Bash(cmd.exe //c build.bat)",
+      "Bash(dumpbin //SYMBOLS Engine.lib)",
+      "Bash(cmd.exe //c \"T:\\\\\\\\\\\\\\\\..\\\\\\\\tmp\\\\\\\\build_test.bat\")",
+      "Bash(cmd.exe //c \"C:\\\\\\\\tmp\\\\\\\\build_test.bat\")"
     ]
   }
 }
