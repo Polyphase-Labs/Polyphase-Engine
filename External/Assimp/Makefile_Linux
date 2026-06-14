@@ -50,11 +50,13 @@ TARGET		:=	$(notdir $(CURDIR))
 # POLYPHASE_PIC=1 (used by libPolyphaseEditor.so / libPolyphaseGame.so),
 # route PIC objects + .a into a separate intermediate/output directory so
 # they don't clobber the regular non-PIC build.
+# W1: BUILD_SUFFIX (default empty) for cross-arch isolation; see
+# Standalone/Makefile_Linux_Game's header comment. Same pattern as Bullet.
 ifneq ($(strip $(POLYPHASE_PIC)),)
-BUILD		:=	Intermediate/Linux-pic
+BUILD		:=	Intermediate/Linux$(BUILD_SUFFIX)-pic
 PIC_OUTPUT_SUFFIX := -pic
 else
-BUILD		:=	Intermediate/Linux
+BUILD		:=	Intermediate/Linux$(BUILD_SUFFIX)
 PIC_OUTPUT_SUFFIX :=
 endif
 SOURCES		:=	$(wildcard ../IrrXML/*.cpp) \
@@ -69,7 +71,7 @@ SOURCES		:=	$(wildcard ../IrrXML/*.cpp) \
 				$(wildcard contrib/poly2tri/poly2tri/*/*.cc) \
 				$(wildcard contrib/zip/*/*.c)
 INCLUDES	:=	./ ../ ../IrrXML ../Zlib contrib contrib/openddlparser/include Step contrib/src/zip
-OUTPUT_DIR	:=	$(CURDIR)/Build/Linux$(PIC_OUTPUT_SUFFIX)
+OUTPUT_DIR	:=	$(CURDIR)/Build/Linux$(BUILD_SUFFIX)$(PIC_OUTPUT_SUFFIX)
 
 #---------------------------------------------------------------------------------
 # options for code generation

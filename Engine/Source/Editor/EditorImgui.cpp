@@ -278,6 +278,8 @@ static bool sShowUIDocumentPicker = false;
 static int sNewSceneType = 1;        // 0=2D, 1=3D
 static bool sNewSceneCreateCamera = true;
 static bool sNewSceneCreateSkybox = true;
+static bool sNewSceneCreateDirectionalLight = true;
+static bool sNewSceneCreateUICanvas = true;
 static int32_t sZooColumns = 5;
 static float sZooSpacing = 3.0f;
 
@@ -2655,7 +2657,7 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
     }
 }
 
-static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = true)
+static void CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = true, bool createDirectionalLight = true, bool createUICanvas = true)
 {
     // Plugin-registered scene types (sceneType >= 2) call into addon function pointers
     // that aren't safe to invoke from non-editor contexts (e.g. the REST controller).
@@ -2688,7 +2690,7 @@ static void CreateNewScene(const char* sceneName, int sceneType, bool createCame
         }
     }
 
-    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera, createSkybox);
+    ActionManager::Get()->CreateNewScene(sceneName, sceneType, createCamera, createSkybox, createDirectionalLight, createUICanvas);
 }
 
 namespace PolyphaseEditorInternal
@@ -7016,6 +7018,8 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         Polyphase::Checkbox("Create Camera", &sNewSceneCreateCamera);
         if (sNewSceneType != 0) {
             Polyphase::Checkbox("Create Skybox", &sNewSceneCreateSkybox);
+            Polyphase::Checkbox("Create Directional Light", &sNewSceneCreateDirectionalLight);
+            Polyphase::Checkbox("Create UI Canvas", &sNewSceneCreateUICanvas);
         }
 
         if (ImGui::Button("Create"))
@@ -7024,7 +7028,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (sceneName.empty())
                 sceneName = "SC_Scene";
 
-            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera, sNewSceneCreateSkybox);
+            CreateNewScene(sceneName.c_str(), sNewSceneType, sNewSceneCreateCamera, sNewSceneCreateSkybox, sNewSceneCreateDirectionalLight, sNewSceneCreateUICanvas);
 
             ImGui::CloseCurrentPopup();
             closeContextPopup = true;

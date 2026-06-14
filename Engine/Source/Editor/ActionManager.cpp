@@ -4965,6 +4965,21 @@ static void CreateAndSaveDefaultScene(const std::string& scenePath, const std::s
     camera->As<Camera3D>()->SetPosition(glm::vec3(0.0f, 0.0f, 10.0f));
     root->AddChild(camera.Get());
 
+    NodePtr skybox = Node::Construct(Skybox3D::GetStaticType());
+    skybox->SetName("Skybox");
+    ConfigureSkyboxNode(skybox->As<Skybox3D>());
+    root->AddChild(skybox.Get());
+
+    NodePtr dirLight = Node::Construct(DirectionalLight3D::GetStaticType());
+    dirLight->SetName("DirectionalLight");
+    dirLight->As<DirectionalLight3D>()->SetLightingDomain(LightingDomain::All);
+    dirLight->As<DirectionalLight3D>()->SetRotation(glm::vec3(-45.0f, 30.0f, 0.0f));
+    root->AddChild(dirLight.Get());
+
+    NodePtr uiCanvas = Node::Construct(Canvas::GetStaticType());
+    uiCanvas->SetName("Canvas_UI");
+    root->AddChild(uiCanvas.Get());
+
     Scene scene;
     scene.Create();
     scene.SetName(sceneName);
@@ -5539,7 +5554,7 @@ void ActionManager::RequestOpenSceneFromDialog()
     es->mOpenSceneAtEndOfFrame = true;
 }
 
-Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox, AssetDir* targetDir)
+Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox, bool createDirectionalLight, bool createUICanvas, AssetDir* targetDir)
 {
     if (sceneName == nullptr || sceneName[0] == '\0')
         return nullptr;
@@ -5576,6 +5591,18 @@ Scene* ActionManager::CreateNewScene(const char* sceneName, int sceneType, bool 
         {
             Skybox3D* skyNode = root->CreateChild<Skybox3D>("Skybox");
             ConfigureSkyboxNode(skyNode);
+        }
+
+        if (createDirectionalLight)
+        {
+            DirectionalLight3D* dirLight = root->CreateChild<DirectionalLight3D>("DirectionalLight");
+            dirLight->SetLightingDomain(LightingDomain::All);
+            dirLight->SetRotation(glm::vec3(-45.0f, 30.0f, 0.0f));
+        }
+
+        if (createUICanvas)
+        {
+            root->CreateChild<Canvas>("Canvas_UI");
         }
 
         scene->Capture(root.Get());

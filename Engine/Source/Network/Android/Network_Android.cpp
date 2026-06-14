@@ -96,7 +96,13 @@ int32_t NET_SocketRecv(SocketHandle socketHandle, char* buffer, uint32_t size)
 int32_t NET_SocketRecvFrom(SocketHandle socketHandle, char* buffer, uint32_t size, uint32_t& addr, uint16_t& port)
 {
     struct sockaddr_in fromAddr;
-    uint32_t fromAddrLen = (uint32_t) sizeof(fromAddr);
+    // Use socklen_t to match recvfrom's signature exactly. The previous
+    // uint32_t worked on arm64-v8a because clang treated the unsigned int*
+    // → socklen_t* (int*) mismatch as a warning. armv7's _FORTIFY_SOURCE=2
+    // recvfrom overload set rejects it as a hard error. socklen_t is the
+    // portable POSIX type — int on Android (both ABIs), unsigned int on
+    // Linux/macOS — and has been in Android NDK since v1, so no legacy risk.
+    socklen_t fromAddrLen = sizeof(fromAddr);
     int32_t numBytes = recvfrom(socketHandle, buffer, size, 0, (struct sockaddr*) &fromAddr, &fromAddrLen);
     addr = ntohl(fromAddr.sin_addr.s_addr);
     port = ntohs(fromAddr.sin_port);

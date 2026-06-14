@@ -460,6 +460,9 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
     //   Body: { "name": string (required),
     //           "type": "3D" | "2D" (default "3D"),
     //           "createCamera": bool (default true, 3D only),
+    //           "createSkybox": bool (default true, 3D only),
+    //           "createDirectionalLight": bool (default true, 3D only),
+    //           "createUICanvas": bool (default true, 3D only),
     //           "open": bool (default true) }
     // ------------------------------------------------------------------
     CROW_ROUTE(app, "/api/scene/new").methods("POST"_method)
@@ -497,16 +500,22 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
 
             bool createSkybox = true;
             bool createCamera = true;
+            bool createDirectionalLight = true;
+            bool createUICanvas = true;
             if (parsed.has("createCamera"))
                 createCamera = parsed["createCamera"].b();
             if (parsed.has("createSkybox"))
                 createSkybox = parsed["createSkybox"].b();
+            if (parsed.has("createDirectionalLight"))
+                createDirectionalLight = parsed["createDirectionalLight"].b();
+            if (parsed.has("createUICanvas"))
+                createUICanvas = parsed["createUICanvas"].b();
 
             bool open = true;
             if (parsed.has("open"))
                 open = parsed["open"].b();
 
-            Scene* scene = ActionManager::Get()->CreateNewScene(sceneName.c_str(), sceneTypeInt, createCamera, createSkybox);
+            Scene* scene = ActionManager::Get()->CreateNewScene(sceneName.c_str(), sceneTypeInt, createCamera, createSkybox, createDirectionalLight, createUICanvas);
             if (scene == nullptr)
             {
                 return ErrorJson("Failed to create scene: " + sceneName).dump();

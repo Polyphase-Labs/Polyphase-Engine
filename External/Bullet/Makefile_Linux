@@ -53,11 +53,16 @@ TARGET		:=	$(notdir $(CURDIR))
 # non-PIC build. The engine Makefile picks up .o files via wildcard on
 # Intermediate/Linux-pic/, so the output .a path is only used to give make
 # a distinct up-to-date check.
+# W1: BUILD_SUFFIX (default empty) for cross-arch isolation; see
+# Standalone/Makefile_Linux_Game's header comment. Linux x64 leaves it empty
+# (Intermediate/Linux + Build/Linux); Linux ARM64 uses BUILD_SUFFIX=/arm64
+# (Intermediate/Linux/arm64 + Build/Linux/arm64). PIC_OUTPUT_SUFFIX is then
+# appended on top for the libPolyphase*.so PIC variants.
 ifneq ($(strip $(POLYPHASE_PIC)),)
-BUILD		:=	Intermediate/Linux-pic
+BUILD		:=	Intermediate/Linux$(BUILD_SUFFIX)-pic
 PIC_OUTPUT_SUFFIX := -pic
 else
-BUILD		:=	Intermediate/Linux
+BUILD		:=	Intermediate/Linux$(BUILD_SUFFIX)
 PIC_OUTPUT_SUFFIX :=
 endif
 SOURCES		:=	BulletCollision/BroadphaseCollision \
@@ -73,7 +78,7 @@ SOURCES		:=	BulletCollision/BroadphaseCollision \
 				BulletDynamics/Vehicle \
 				LinearMath 
 INCLUDES	:=	./
-OUTPUT_DIR	:=	$(CURDIR)/Build/Linux$(PIC_OUTPUT_SUFFIX)
+OUTPUT_DIR	:=	$(CURDIR)/Build/Linux$(BUILD_SUFFIX)$(PIC_OUTPUT_SUFFIX)
 
 #---------------------------------------------------------------------------------
 # options for code generation
