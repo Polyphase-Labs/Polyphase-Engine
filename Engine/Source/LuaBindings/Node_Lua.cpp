@@ -170,10 +170,23 @@ int Node_Lua::Create(lua_State* L, Node* node)
                     }
                     else
                     {
-                        // We should never not be able to find a reference for a node with userdatacreated.
-                        // If totally unreferenced in lua, then it should have been destroyed.
-                        lua_pushnil(L);
-                        OCT_ASSERT(false);
+                        // The userdata-created flag is set but neither the
+                        // strong nor weak ref table contains an entry for
+                        // this nodeId. Observed in editor when an inspector
+                        // edit on a Script-attached node propagates through
+                        // HandleScriptPropChange -> UploadDatum and the
+                        // target Node's wrapper was already reclaimed by Lua
+                        // without the GC finaliser resetting the flag (e.g.
+                        // the IsShuttingDown bail-out, or an interrupted
+                        // finaliser pass). Recover by clearing the stale
+                        // flag and rebuilding the wrapper via the
+                        // create-new path. Stack here is [weakTable]; pop
+                        // it and recurse so the fresh call sees a clean
+                        // IsUserdataCreated()==false and falls into the
+                        // create branch.
+                        lua_pop(L, 1);
+                        node->SetUserdataCreated(false);
+                        return Node_Lua::Create(L, node);
                     }
                 }
             }

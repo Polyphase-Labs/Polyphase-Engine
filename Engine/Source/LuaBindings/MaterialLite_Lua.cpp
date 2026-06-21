@@ -118,6 +118,30 @@ int MaterialLite_Lua::SetUvScale(lua_State* L)
     return 0;
 }
 
+int MaterialLite_Lua::GetUvSource(lua_State* L)
+{
+    MaterialLite* mat = CHECK_MATERIAL_LITE(L, 1);
+    uint32_t uvIndex = 0;
+    if (!lua_isnone(L, 2)) { uvIndex = CHECK_INTEGER(L, 2); }
+
+    MaterialLiteUvSource ret = mat->GetUvSource(uvIndex);
+
+    lua_pushinteger(L, (int32_t)ret);
+    return 1;
+}
+
+int MaterialLite_Lua::SetUvSource(lua_State* L)
+{
+    MaterialLite* mat = CHECK_MATERIAL_LITE(L, 1);
+    MaterialLiteUvSource value = (MaterialLiteUvSource)CHECK_INTEGER(L, 2);
+    uint32_t uvIndex = 0;
+    if (!lua_isnone(L, 3)) { uvIndex = CHECK_INTEGER(L, 3); }
+
+    mat->SetUvSource(value, uvIndex);
+
+    return 0;
+}
+
 int MaterialLite_Lua::GetColor(lua_State* L)
 {
     MaterialLite* mat = CHECK_MATERIAL_LITE(L, 1);
@@ -392,6 +416,10 @@ void MaterialLite_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, GetUvScale);
 
     REGISTER_TABLE_FUNC(L, mtIndex, SetUvScale);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetUvSource);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetUvSource);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetColor);
 

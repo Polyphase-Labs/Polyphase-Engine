@@ -1010,6 +1010,10 @@ void WriteMaterialLiteUniformData(MaterialData& outData, MaterialLite* material)
     outData.mTevModes[1] = textures[1] ? (uint32_t)material->GetTevMode(1) : (uint32_t)TevMode::Count;
     outData.mTevModes[2] = textures[2] ? (uint32_t)material->GetTevMode(2) : (uint32_t)TevMode::Count;
     outData.mTevModes[3] = textures[3] ? (uint32_t)material->GetTevMode(3) : (uint32_t)TevMode::Count;
+    outData.mUvSources = glm::uvec4(
+        static_cast<uint32_t>(material->GetUvSource(0)),
+        static_cast<uint32_t>(material->GetUvSource(1)),
+        0u, 0u);
 }
 
 void WriteMaterialCustomUniformData(MaterialData& outData, Material* material)

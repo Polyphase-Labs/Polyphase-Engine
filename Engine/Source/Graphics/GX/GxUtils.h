@@ -7,6 +7,7 @@ class StaticMesh;
 class SkeletalMesh;
 class StaticMesh3D;
 class SkeletalMesh3D;
+class Primitive3D;
 class Widget;
 
 #include "Assets/MaterialLite.h"
@@ -22,7 +23,7 @@ void PrepareUiRendering();
 
 bool IsCpuSkinningRequired(SkeletalMesh3D* component);
 
-void BindMaterial(MaterialLite* material, bool useVertexColor, bool useBakedLighting);
+void BindMaterial(MaterialLite* material, Primitive3D* primitive, bool useVertexColor, bool useBakedLighting);
 void BindStaticMesh(StaticMesh* staticMesh, uint32_t* instanceColors);
 void BindSkeletalMesh(SkeletalMesh* skeletalMesh);
 

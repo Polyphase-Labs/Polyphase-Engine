@@ -113,8 +113,10 @@ float SampleDirShadow(vec3 worldPos)
 
 void main()
 {
-    vec2 texCoord0 = (inTexcoord0 + material.mUvOffset0) * material.mUvScale0;
-    vec2 texCoord1 = (inTexcoord1 + material.mUvOffset1) * material.mUvScale1;
+    vec2 sourceUv0 = BuildMaterialUv(material.mUvSources.x, inTexcoord0, inPosition, inNormal);
+    vec2 sourceUv1 = BuildMaterialUv(material.mUvSources.y, inTexcoord1, inPosition, inNormal);
+    vec2 texCoord0 = (sourceUv0 + material.mUvOffset0) * material.mUvScale0;
+    vec2 texCoord1 = (sourceUv1 + material.mUvOffset1) * material.mUvScale1;
 
     uint shadingModel = material.mShadingModel;
 

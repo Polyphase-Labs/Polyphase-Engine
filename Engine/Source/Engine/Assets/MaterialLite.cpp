@@ -44,6 +44,16 @@ extern const char* gVertexColorModeStrings[] =
 };
 static_assert(int32_t(VertexColorMode::Count) == 3, "Need to update string conversion table");
 
+extern const char* gMaterialLiteUvSourceStrings[] =
+{
+    "Mesh",
+    "World XY",
+    "World XZ",
+    "World YZ",
+    "World Auto Axis"
+};
+static_assert(int32_t(MaterialLiteUvSource::Count) == 5, "Need to update string conversion table");
+
 static const char* sTevModeStrings[] =
 {
     "Replace",
@@ -177,6 +187,14 @@ void MaterialLite::LoadStream(Stream& stream, Platform platform)
         mLiteParams.mUvScales[i] = stream.ReadVec2();
     }
 
+    for (uint32_t i = 0; i < MAX_UV_MAPS; ++i)
+    {
+        if (mVersion >= ASSET_VERSION_MATERIAL_LITE_UV_SOURCE)
+            mLiteParams.mUvSources[i] = stream.ReadUint8();
+        else
+            mLiteParams.mUvSources[i] = uint8_t(MaterialLiteUvSource::Mesh);
+    }
+
     mLiteParams.mColor = stream.ReadVec4();
     mLiteParams.mFresnelColor = stream.ReadVec4();
     mLiteParams.mFresnelPower = stream.ReadFloat();
@@ -225,6 +243,11 @@ void MaterialLite::SaveStream(Stream& stream, Platform platform)
     {
         stream.WriteVec2(mLiteParams.mUvOffsets[i]);
         stream.WriteVec2(mLiteParams.mUvScales[i]);
+    }
+
+    for (uint32_t i = 0; i < MAX_UV_MAPS; ++i)
+    {
+        stream.WriteUint8(mLiteParams.mUvSources[i]);
     }
 
     stream.WriteVec4(mLiteParams.mColor);
@@ -310,8 +333,10 @@ void MaterialLite::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Asset, "Texture 3", this, &mLiteParams.mTextures[3], 1, HandlePropChange, int32_t(Texture::GetStaticType())));
     outProps.push_back(Property(DatumType::Byte, "UV Map 3", this, &mLiteParams.mUvMaps[3], 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Integer, "TEV Mode 3", this, &mLiteParams.mTevModes[3], 1, HandlePropChange, NULL_DATUM, int32_t(TevMode::Count), sTevModeStrings));
+    outProps.push_back(Property(DatumType::Byte, "UV Source 0", this, &mLiteParams.mUvSources[0], 1, HandlePropChange, NULL_DATUM, int32_t(MaterialLiteUvSource::Count), gMaterialLiteUvSourceStrings));
     outProps.push_back(Property(DatumType::Vector2D, "UV Offset 0", this, &mLiteParams.mUvOffsets[0], 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Vector2D, "UV Scale 0", this, &mLiteParams.mUvScales[0], 1, HandlePropChange));
+    outProps.push_back(Property(DatumType::Byte, "UV Source 1", this, &mLiteParams.mUvSources[1], 1, HandlePropChange, NULL_DATUM, int32_t(MaterialLiteUvSource::Count), gMaterialLiteUvSourceStrings));
     outProps.push_back(Property(DatumType::Vector2D, "UV Offset 1", this, &mLiteParams.mUvOffsets[1], 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Vector2D, "UV Scale 1", this, &mLiteParams.mUvScales[1], 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Color, "Color", this, &mLiteParams.mColor, 1, HandlePropChange));
@@ -456,6 +481,11 @@ void MaterialLite::SaveLiteParams(Stream& stream)
         stream.WriteVec2(mLiteParams.mUvScales[i]);
     }
 
+    for (uint32_t i = 0; i < MAX_UV_MAPS; ++i)
+    {
+        stream.WriteUint8(mLiteParams.mUvSources[i]);
+    }
+
     stream.WriteVec4(mLiteParams.mColor);
     stream.WriteVec4(mLiteParams.mFresnelColor);
     stream.WriteFloat(mLiteParams.mFresnelPower);
@@ -492,6 +522,14 @@ void MaterialLite::LoadLiteParams(Stream& stream, uint32_t version)
     {
         mLiteParams.mUvOffsets[i] = stream.ReadVec2();
         mLiteParams.mUvScales[i] = stream.ReadVec2();
+    }
+
+    for (uint32_t i = 0; i < MAX_UV_MAPS; ++i)
+    {
+        if (version >= ASSET_VERSION_MATERIAL_LITE_UV_SOURCE)
+            mLiteParams.mUvSources[i] = stream.ReadUint8();
+        else
+            mLiteParams.mUvSources[i] = uint8_t(MaterialLiteUvSource::Mesh);
     }
 
     mLiteParams.mColor = stream.ReadVec4();
@@ -615,6 +653,26 @@ void MaterialLite::SetUvScale(glm::vec2 scale, int32_t uvIndex)
     }
 
     mLiteParams.mUvScales[uvIndex] = scale;
+}
+
+MaterialLiteUvSource MaterialLite::GetUvSource(int32_t uvIndex) const
+{
+    if (uvIndex < 0 || uvIndex >= MAX_UV_MAPS)
+    {
+        uvIndex = glm::clamp<int32_t>(uvIndex, 0, MAX_UV_MAPS - 1);
+    }
+
+    return MaterialLiteUvSource(mLiteParams.mUvSources[uvIndex]);
+}
+
+void MaterialLite::SetUvSource(MaterialLiteUvSource source, int32_t uvIndex)
+{
+    if (uvIndex < 0 || uvIndex >= MAX_UV_MAPS)
+    {
+        uvIndex = glm::clamp<int32_t>(uvIndex, 0, MAX_UV_MAPS - 1);
+    }
+
+    mLiteParams.mUvSources[uvIndex] = uint8_t(source);
 }
 
 glm::vec4 MaterialLite::GetColor() const
@@ -842,6 +900,8 @@ void MaterialLite::ApplyGraphToParams()
     mLiteParams.mUvScales[0]  = output->GetInputValue(10).GetVector2D();
     mLiteParams.mUvOffsets[1] = output->GetInputValue(11).GetVector2D();
     mLiteParams.mUvScales[1]  = output->GetInputValue(12).GetVector2D();
+    mLiteParams.mUvSources[0] = uint8_t(output->GetInputValue(13).GetInteger());
+    mLiteParams.mUvSources[1] = uint8_t(output->GetInputValue(14).GetInteger());
 }
 
 void MaterialLite::ApplyGraphValues(NodeGraph* graph)

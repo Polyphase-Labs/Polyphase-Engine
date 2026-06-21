@@ -50,5 +50,6 @@ DatumType = {
     TileMap = 0,
     Timeline = 0,
     NodeGraphAsset = 0,
+    TransformKeyframe = 0,
     Count = 0
 }

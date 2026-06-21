@@ -28,6 +28,8 @@ struct MaterialLite_Lua
     static int SetUvOffset(lua_State* L);
     static int GetUvScale(lua_State* L);
     static int SetUvScale(lua_State* L);
+    static int GetUvSource(lua_State* L);
+    static int SetUvSource(lua_State* L);
     static int GetColor(lua_State* L);
     static int SetColor(lua_State* L);
     static int EnableFresnel(lua_State* L);

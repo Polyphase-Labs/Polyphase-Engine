@@ -14,6 +14,7 @@
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
 
 #include <malloc.h>
@@ -210,7 +211,7 @@ bool IsCpuSkinningRequired(SkeletalMesh3D* component)
     }
 }
 
-void BindMaterial(MaterialLite* material, bool useVertexColor, bool useBakedLighting)
+void BindMaterial(MaterialLite* material, Primitive3D* primitive, bool useVertexColor, bool useBakedLighting)
 {
     // If we are using vertex color modulation, then we need to use the first channel
     // since there is only one color vertex attribute.
@@ -223,20 +224,72 @@ void BindMaterial(MaterialLite* material, bool useVertexColor, bool useBakedLigh
     float opacity = material->GetOpacity();
     bool depthless = material->IsDepthTestDisabled();
 
-    // Setup TexCoord matrices
-    glm::vec2 uvOffset0 = material->GetUvOffset(0);
-    glm::vec2 uvScale0 = material->GetUvScale(0);
-    Mtx texMatrix0;
-    guMtxTrans(texMatrix0, uvOffset0.x, uvOffset0.y, 0.0f);
-    guMtxScaleApply(texMatrix0, texMatrix0, uvScale0.x, uvScale0.y, 1.0f);
-    GX_LoadTexMtxImm(texMatrix0, GX_TEXMTX0, GX_TG_MTX3x4);
+    // Pull the per-draw world transform for any world-space UV sources.
+    // Use Node3D::GetTransform() (world matrix) rather than Mesh3D::GetRenderTransform()
+    // because BindMaterial only has the base Primitive3D pointer; billboarding is
+    // irrelevant for blockout UV projection.
+    glm::mat4 worldMtx = primitive ? primitive->GetTransform() : glm::mat4(1.0f);
 
-    glm::vec2 uvOffset1 = material->GetUvOffset(1);
-    glm::vec2 uvScale1 = material->GetUvScale(1);
-    Mtx texMatrix1;
-    guMtxTrans(texMatrix1, uvOffset1.x, uvOffset1.y, 0.0f);
-    guMtxScaleApply(texMatrix1, texMatrix1, uvScale1.x, uvScale1.y, 1.0f);
-    GX_LoadTexMtxImm(texMatrix1, GX_TEXMTX1, GX_TG_MTX3x4);
+    // Setup TexCoord matrices and texgen sources per UV channel.
+    // Each channel can either use mesh UVs (TG_TEX) or be derived from world position (TG_POS).
+    uint8_t uvTexGenSrc[MAX_UV_MAPS] = { 0, 0 };
+    for (uint32_t uv = 0; uv < MAX_UV_MAPS; ++uv)
+    {
+        glm::vec2 uvOffset = material->GetUvOffset(uv);
+        glm::vec2 uvScale = material->GetUvScale(uv);
+        MaterialLiteUvSource src = material->GetUvSource(uv);
+
+        // GX TEV is fixed-function and cannot pick a projection per-pixel.
+        // WorldAutoAxis falls back to WorldXZ (top-down blockout default).
+        if (src == MaterialLiteUvSource::WorldAutoAxis)
+            src = MaterialLiteUvSource::WorldXZ;
+
+        Mtx texMatrix;
+        if (src == MaterialLiteUvSource::Mesh)
+        {
+            guMtxTrans(texMatrix, uvOffset.x, uvOffset.y, 0.0f);
+            guMtxScaleApply(texMatrix, texMatrix, uvScale.x, uvScale.y, 1.0f);
+            uvTexGenSrc[uv] = GX_TG_TEX0 + uv;
+        }
+        else
+        {
+            // Build axis swizzle picking two world-space axes into (S,T).
+            glm::mat4 swizzle(0.0f);
+            switch (src)
+            {
+                case MaterialLiteUvSource::WorldXY:
+                    swizzle[0][0] = 1.0f; swizzle[1][1] = 1.0f; break;
+                case MaterialLiteUvSource::WorldXZ:
+                    swizzle[0][0] = 1.0f; swizzle[2][1] = 1.0f; break;
+                case MaterialLiteUvSource::WorldYZ:
+                    swizzle[1][0] = 1.0f; swizzle[2][1] = 1.0f; break;
+                default: break;
+            }
+            swizzle[3][3] = 1.0f;
+
+            glm::mat4 scaleM = glm::mat4(1.0f);
+            scaleM[0][0] = uvScale.x;
+            scaleM[1][1] = uvScale.y;
+
+            glm::mat4 offsetM = glm::mat4(1.0f);
+            offsetM[3][0] = uvOffset.x * uvScale.x;
+            offsetM[3][1] = uvOffset.y * uvScale.y;
+
+            glm::mat4 finalMtx = offsetM * scaleM * swizzle * worldMtx;
+
+            // GX matrices are row-major 3x4; convert from glm column-major.
+            for (uint32_t r = 0; r < 3; ++r)
+            {
+                for (uint32_t c = 0; c < 4; ++c)
+                {
+                    texMatrix[r][c] = finalMtx[c][r];
+                }
+            }
+            uvTexGenSrc[uv] = GX_TG_POS;
+        }
+
+        GX_LoadTexMtxImm(texMatrix, GX_TEXMTX0 + uv * 3, GX_MTX3x4);
+    }
 
     uint32_t tevStage = 0;
     bool vertexColorBlend = (vertexColorMode == VertexColorMode::TextureBlend);
@@ -255,7 +308,8 @@ void BindMaterial(MaterialLite* material, bool useVertexColor, bool useBakedLigh
             tevMode != TevMode::Count &&
             texture != nullptr)
         {
-            GX_SetTexCoordGen(GX_TEXCOORD0 + texIdx, GX_TG_MTX3x4, GX_TG_TEX0 + uvMap, GX_TEXMTX0 + uvMap * 3);
+            uint32_t uv = (uvMap < MAX_UV_MAPS) ? uvMap : 0;
+            GX_SetTexCoordGen(GX_TEXCOORD0 + texIdx, GX_TG_MTX3x4, uvTexGenSrc[uv], GX_TEXMTX0 + uv * 3);
             GX_LoadTexObj(&texture->GetResource()->mGxTexObj, GX_TEXMAP0 + texIdx);
 
             tevStage = ConfigTev(tevStage, texIdx, tevMode, vertexColorBlend);

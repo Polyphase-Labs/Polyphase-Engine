@@ -4,14 +4,17 @@
 .fvec WorldViewMtx[4]
 .fvec NormalMtx[4]
 .fvec ProjMtx[4]
+.fvec WorldMtx[4]
 .fvec UvOffsetScale0
 .fvec UvOffsetScale1
 .fvec UvMaps
+.fvec UvSources
 .fvec ColorMult
 
 ; Constants
 .constf myconst(0.0, 1.0, -1.0, 0.1)
 .constf myconst2(0.3, 0.003922, 0.0, 0.0)
+.constf uvSrcConst(1.0, 2.0, 3.0, 4.0)
 .alias  zeros myconst.xxxx ; Vector full of zeros
 .alias  ones  myconst.yyyy ; Vector full of ones
 .alias  half  myconst.wwww
@@ -53,11 +56,98 @@
 	dp4 outpos.z, ProjMtx[2], r1
 	dp4 outpos.w, ProjMtx[3], r1
 
-	; Set texture coords depending on selection
-	add r1, UvOffsetScale0.xyxy, intc0
+	; Compute world position for world-space UV projection
+	dp4 r4.x, WorldMtx[0], r0
+	dp4 r4.y, WorldMtx[1], r0
+	dp4 r4.z, WorldMtx[2], r0
+	dp4 r4.w, WorldMtx[3], r0
+
+	; Compute approximate world-space normal (WorldMtx * innrm)
+	dp3 r6.x, WorldMtx[0], innrm
+	dp3 r6.y, WorldMtx[1], innrm
+	dp3 r6.z, WorldMtx[2], innrm
+	; r13 = abs(world normal)
+	max r13.x, r6.x, -r6.x
+	max r13.y, r6.y, -r6.y
+	max r13.z, r6.z, -r6.z
+
+	; Pre-compute WorldAutoAxis UV into r12 (default = XY for Z-dominant)
+	mov r12.x, r4.x
+	mov r12.y, r4.y
+	; If |n.x| >= |n.z|, switch to ZY (X-dominant default)
+	cmp r13.x, ge, ge, r13.z
+	ifc cmp.x
+		mov r12.x, r4.z
+		mov r12.y, r4.y
+	.end
+	; If |n.y| >= |n.x| AND |n.y| >= |n.z|, override with XZ (Y-dominant wins)
+	cmp r13.yy, ge, ge, r13.xz
+	ifc cmp.x
+		ifc cmp.y
+			mov r12.x, r4.x
+			mov r12.y, r4.z
+		.end
+	.end
+
+	; Copy UvSources into a temp register so it can be used as cmp src2
+	; (PICA cmp requires src2 to be a temp register, not a constant uniform)
+	mov r14, UvSources
+
+	; --- UV channel 0 source selection (default: mesh) ---
+	mov r10, intc0
+	; If UvSources.x == 1 (WorldXY)
+	cmp uvSrcConst.xxxx, eq, eq, r14.xxxx
+	ifc cmp.x
+		mov r10.x, r4.x
+		mov r10.y, r4.y
+	.end
+	; If UvSources.x == 2 (WorldXZ)
+	cmp uvSrcConst.yyyy, eq, eq, r14.xxxx
+	ifc cmp.x
+		mov r10.x, r4.x
+		mov r10.y, r4.z
+	.end
+	; If UvSources.x == 3 (WorldYZ)
+	cmp uvSrcConst.zzzz, eq, eq, r14.xxxx
+	ifc cmp.x
+		mov r10.x, r4.y
+		mov r10.y, r4.z
+	.end
+	; If UvSources.x == 4 (WorldAutoAxis)
+	cmp uvSrcConst.wwww, eq, eq, r14.xxxx
+	ifc cmp.x
+		mov r10.x, r12.x
+		mov r10.y, r12.y
+	.end
+
+	; --- UV channel 1 source selection (default: mesh) ---
+	mov r11, intc1
+	cmp uvSrcConst.xxxx, eq, eq, r14.yyyy
+	ifc cmp.x
+		mov r11.x, r4.x
+		mov r11.y, r4.y
+	.end
+	cmp uvSrcConst.yyyy, eq, eq, r14.yyyy
+	ifc cmp.x
+		mov r11.x, r4.x
+		mov r11.y, r4.z
+	.end
+	cmp uvSrcConst.zzzz, eq, eq, r14.yyyy
+	ifc cmp.x
+		mov r11.x, r4.y
+		mov r11.y, r4.z
+	.end
+	cmp uvSrcConst.wwww, eq, eq, r14.yyyy
+	ifc cmp.x
+		mov r11.x, r12.x
+		mov r11.y, r12.y
+	.end
+
+	; Apply offset + scale per UV channel
+	add r1, UvOffsetScale0.xyxy, r10.xyxy
 	mul r1, UvOffsetScale0.zwzw, r1
 
-	add r2, UvOffsetScale1.xyxy, intc1
+	add r2, UvOffsetScale1.xyxy, r11.xyxy
 	mul r2, UvOffsetScale1.zwzw, r2
 
 	mov r3, UvMaps

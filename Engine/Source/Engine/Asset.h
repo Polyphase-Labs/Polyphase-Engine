@@ -54,7 +54,8 @@ class AssetDir;
 #define ASSET_VERSION_TRANSFORM_KEYFRAME_SIGNAL 32
 #define ASSET_VERSION_INPUT_PROMPT_MAP 33
 #define ASSET_VERSION_INPUT_PROMPT_STYLE 34
-#define ASSET_VERSION_CURRENT 34
+#define ASSET_VERSION_MATERIAL_LITE_UV_SOURCE 35
+#define ASSET_VERSION_CURRENT 35
 // ----------------------------------------------------
 
 #define DECLARE_ASSET(Base, Parent) DECLARE_FACTORY(Base, Asset); DECLARE_OBJECT(Base, Parent);

@@ -36,6 +36,14 @@ function MaterialLite:GetUvScale(uvIndex) end
 ---@param uvIndex? integer
 function MaterialLite:SetUvScale(value, uvIndex) end
 
+---@param uvIndex? integer
+---@return integer
+function MaterialLite:GetUvSource(uvIndex) end
+
+---@param value integer
+---@param uvIndex? integer
+function MaterialLite:SetUvSource(value, uvIndex) end
+
 ---@return Vector
 function MaterialLite:GetColor() end
 

@@ -549,6 +549,28 @@ void UploadUvOffsetScale(int8_t uniformLoc, MaterialLite* material, uint32_t uvI
         uvOffsetScale.w);
 }
 
+void UploadUvSources(int8_t uniformLoc, MaterialLite* material)
+{
+    if (uniformLoc < 0)
+        return;
+
+    C3D_FVUnifSet(
+        GPU_VERTEX_SHADER,
+        uniformLoc,
+        float(uint32_t(material->GetUvSource(0))),
+        float(uint32_t(material->GetUvSource(1))),
+        0.0f,
+        0.0f);
+}
+
+void UploadWorldMtx(int8_t uniformLoc, const C3D_Mtx& worldMtx)
+{
+    if (uniformLoc < 0)
+        return;
+
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uniformLoc, &worldMtx);
+}
+
 void ResetTexEnv()
 {
     C3D_TexEnvInit(C3D_GetTexEnv(0));

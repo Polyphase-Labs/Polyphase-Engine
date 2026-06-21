@@ -5,6 +5,18 @@
 
 extern const char* gShadingModelStrings[];
 extern const char* gVertexColorModeStrings[];
+extern const char* gMaterialLiteUvSourceStrings[];
+
+enum class MaterialLiteUvSource : uint8_t
+{
+    Mesh,
+    WorldXY,
+    WorldXZ,
+    WorldYZ,
+    WorldAutoAxis,
+
+    Count
+};
 
 struct MaterialLiteParams
 {
@@ -16,6 +28,7 @@ struct MaterialLiteParams
     TevMode mTevModes[MATERIAL_LITE_MAX_TEXTURES] = { TevMode::Replace, TevMode::Modulate, TevMode::Modulate, TevMode::Modulate };
     glm::vec2 mUvOffsets[MAX_UV_MAPS] = { { 0.0f, 0.0f }, {0.0f, 0.0f} };
     glm::vec2 mUvScales[MAX_UV_MAPS] = { { 1.0f, 1.0f }, {1.0f, 1.0f} };
+    uint8_t mUvSources[MAX_UV_MAPS] = { uint8_t(MaterialLiteUvSource::Mesh), uint8_t(MaterialLiteUvSource::Mesh) };
     glm::vec4 mColor = { 1.0f, 1.0f, 1.0f, 1.0f };
     glm::vec4 mFresnelColor = { 1.0f, 0.0f, 0.0f, 0.0f };
     float mEmission = 0.0f;
@@ -90,6 +103,9 @@ public:
 
     glm::vec2 GetUvScale(int32_t uvIndex = 0) const;
     void SetUvScale(glm::vec2 scale, int32_t uvIndex = 0);
+
+    MaterialLiteUvSource GetUvSource(int32_t uvIndex = 0) const;
+    void SetUvSource(MaterialLiteUvSource source, int32_t uvIndex = 0);
 
     glm::vec4 GetColor() const;
     void SetColor(const glm::vec4& color);

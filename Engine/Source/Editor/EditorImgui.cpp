@@ -2554,7 +2554,7 @@ static void DrawImagePlaneModal()
     ImGui::EndPopup();
 }
 
-static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybox = false, bool userProvidedName = false)
+static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybox = false, bool userProvidedName = false, bool isPrototypeGrid = false)
 {
     AssetStub* stub = nullptr;
     AssetDir* currentDir = GetEditorState()->GetAssetDirectory();
@@ -2575,6 +2575,32 @@ static void CreateNewAsset(TypeId assetType, const char* assetName, bool isSkybo
             skyMat->SetSortPriority(-1000);
             skyMat->SetApplyFog(false);
             skyMat->SetColor(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+            AssetManager::Get()->SaveAsset(*stub);
+        }
+    }
+
+    if (isPrototypeGrid && stub != nullptr && stub->mAsset != nullptr)
+    {
+        MaterialLite* gridMat = stub->mAsset->As<MaterialLite>();
+        if (gridMat != nullptr)
+        {
+            gridMat->SetShadingModel(ShadingModel::Unlit);
+            gridMat->SetBlendMode(BlendMode::Opaque);
+            gridMat->SetCullMode(CullMode::Back);
+            gridMat->SetApplyFog(true);
+            MaterialLiteParams params = gridMat->GetLiteParams();
+            params.mNumTextures = 1;
+            params.mUvMaps[0] = 0;
+            params.mUvSources[0] = uint8_t(MaterialLiteUvSource::WorldAutoAxis);
+            params.mUvSources[1] = uint8_t(MaterialLiteUvSource::Mesh);
+            params.mUvScales[0] = glm::vec2(1.0f, 1.0f);
+            params.mUvOffsets[0] = glm::vec2(0.0f, 0.0f);
+            params.mColor = glm::vec4(1.0f);
+            Texture* gridTex = LoadAsset<Texture>("T_PrototypeGrid");
+            if (gridTex == nullptr)
+                gridTex = LoadAsset<Texture>("T_Checker");
+            params.mTextures[0] = gridTex;
+            gridMat->SetLiteParams(params);
             AssetManager::Get()->SaveAsset(*stub);
         }
     }
@@ -3317,6 +3343,29 @@ static bool HandleScriptSelection( std::string sTempString,
         sOrigVal = sTempString;
     }
     return selectionMade;
+}
+
+static const char* GetPropertyTooltip(const std::string& propName)
+{
+    if (propName == "UV Source 0" || propName == "UV Source 1")
+    {
+        return
+            "Per-UV-channel projection source.\n"
+            "  Mesh: use the mesh's stored UVs.\n"
+            "  World XY / XZ / YZ: project the world position onto a fixed plane.\n"
+            "  World Auto Axis: pick the projection plane per-face based on the\n"
+            "    world-space normal (correct tiling on every face of an axis-\n"
+            "    aligned cube).\n"
+            "\n"
+            "Tiling stays consistent in world units regardless of object scale.\n"
+            "\n"
+            "NOTE: World Auto Axis is supported on Vulkan and 3DS only. On the\n"
+            "GameCube/Wii (GX) backend the fixed-function TEV pipeline cannot\n"
+            "branch per-pixel on the face normal, so the material falls back to\n"
+            "World XZ (top-down). For materials that ship to those targets,\n"
+            "pick an explicit planar source if XZ isn't appropriate.";
+    }
+    return nullptr;
 }
 
 static void DrawPropertyList(Object* owner, std::vector<Property>& props)
@@ -4156,6 +4205,12 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 break;
             }
             default: break;
+            }
+
+            if (const char* tip = GetPropertyTooltip(prop.mName))
+            {
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", tip);
             }
 
             ImGui::PopID();
@@ -6228,6 +6283,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
     bool closeContextPopup = false;
     static TypeId sNewAssetType = INVALID_TYPE_ID;
     static bool sNewAssetIsSkybox = false;
+    static bool sNewAssetIsPrototypeGrid = false;
 
     ActionManager* actMan = ActionManager::Get();
     AssetManager* assMan = AssetManager::Get();
@@ -6639,6 +6695,12 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 sNewAssetIsSkybox = true;
                 showPopup = true;
             }
+            if (ImGui::Selectable("Prototype Grid Material", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = MaterialLite::GetStaticType();
+                sNewAssetIsPrototypeGrid = true;
+                showPopup = true;
+            }
             if (ImGui::Selectable("Particle System", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = ParticleSystem::GetStaticType();
@@ -6936,6 +6998,10 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 {
                     assetName = "M_Skybox";
                 }
+                else if (sNewAssetIsPrototypeGrid)
+                {
+                    assetName = "M_PrototypeGrid";
+                }
                 else if (sNewAssetType == MaterialLite::GetStaticType())
                 {
                     Asset* selAsset = GetEditorState()->GetSelectedAsset();
@@ -6977,10 +7043,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
             if (assetName != "" && sNewAssetType != INVALID_TYPE_ID)
             {
-                CreateNewAsset(sNewAssetType, assetName.c_str(), sNewAssetIsSkybox, userProvidedName);
+                CreateNewAsset(sNewAssetType, assetName.c_str(), sNewAssetIsSkybox, userProvidedName, sNewAssetIsPrototypeGrid);
             }
 
             sNewAssetIsSkybox = false;
+            sNewAssetIsPrototypeGrid = false;
             ImGui::CloseCurrentPopup();
             closeContextPopup = true;
         }

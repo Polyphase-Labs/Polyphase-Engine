@@ -290,6 +290,8 @@ struct MaterialData
 
     uint32_t mUvMaps[MATERIAL_LITE_MAX_TEXTURES];
     uint32_t mTevModes[MATERIAL_LITE_MAX_TEXTURES];
+
+    glm::uvec4 mUvSources;
 };
 
 enum class RayTraceLightType

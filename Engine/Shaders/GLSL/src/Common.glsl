@@ -27,6 +27,12 @@
 #define TEV_MODE_INTERPOLATE 6
 #define TEV_MODE_PASS 7
 
+#define UV_SOURCE_MESH            0u
+#define UV_SOURCE_WORLD_XY        1u
+#define UV_SOURCE_WORLD_XZ        2u
+#define UV_SOURCE_WORLD_YZ        3u
+#define UV_SOURCE_WORLD_AUTO_AXIS 4u
+
 #define LIGHT_TYPE_POINT 0
 #define LIGHT_TYPE_SPOT 1
 #define LIGHT_TYPE_DIRECTIONAL 2
@@ -223,7 +229,24 @@ struct MaterialUniforms
 
     uvec4 mUvMaps; // MAX_TEXTURES
     uvec4 mTevModes; // MAX_TEXTURES
+
+    uvec4 mUvSources; // .x = UV0 source, .y = UV1 source
 };
+
+vec2 BuildMaterialUv(uint source, vec2 meshUv, vec3 worldPos, vec3 worldNormal)
+{
+    if (source == UV_SOURCE_WORLD_XY) return worldPos.xy;
+    if (source == UV_SOURCE_WORLD_XZ) return worldPos.xz;
+    if (source == UV_SOURCE_WORLD_YZ) return worldPos.yz;
+    if (source == UV_SOURCE_WORLD_AUTO_AXIS)
+    {
+        vec3 n = abs(worldNormal);
+        if (n.y >= n.x && n.y >= n.z) return worldPos.xz; // top/bottom: project onto XZ plane
+        if (n.x >= n.z)               return worldPos.zy; // sides (X-aligned normal): project onto ZY plane
+        return worldPos.xy;                                // front/back (Z-aligned normal): project onto XY plane
+    }
+    return meshUv;
+}
 
 const mat4 SHADOW_BIAS_MAT = mat4( 
 	0.5, 0.0, 0.0, 0.0,

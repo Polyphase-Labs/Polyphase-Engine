@@ -22,6 +22,8 @@ void PrepareForwardRendering();
 void PrepareUiRendering();
 
 void UploadUvOffsetScale(int8_t uniformLoc, MaterialLite* material, uint32_t uvIndex);
+void UploadUvSources(int8_t uniformLoc, MaterialLite* material);
+void UploadWorldMtx(int8_t uniformLoc, const C3D_Mtx& worldMtx);
 
 void ResetTexEnv();
 void ResetLightingEnv();

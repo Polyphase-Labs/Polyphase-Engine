@@ -26,6 +26,8 @@ void MaterialOutputNode::SetupPins()
     AddInputPin("UV Scale 0",     DatumType::Vector2D, Datum(glm::vec2(1.0f)));           // pin 10
     AddInputPin("UV Offset 1",    DatumType::Vector2D, Datum(glm::vec2(0.0f)));           // pin 11
     AddInputPin("UV Scale 1",     DatumType::Vector2D, Datum(glm::vec2(1.0f)));           // pin 12
+    AddInputPin("UV Source 0",    DatumType::Integer,  Datum(int32_t(0)));                // pin 13
+    AddInputPin("UV Source 1",    DatumType::Integer,  Datum(int32_t(0)));                // pin 14
 }
 
 void MaterialOutputNode::Evaluate()
