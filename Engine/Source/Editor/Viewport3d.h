@@ -15,7 +15,14 @@ public:
     bool IsMouseInside() const;
 
     float GetFocalDistance() const;
+    void SetFocalDistance(float distance);
     void ToggleTransformMode();
+
+    // Bookmark hotkey pass — checks View_SaveBookmark* / View_GotoBookmark*
+    // and dispatches to EditorState. Runs from HandleDefaultControls so it
+    // inherits the viewport-focus / text-field / popup gating; exposed so
+    // tests / addons can also drive it deterministically.
+    void HandleCameraBookmarkHotkeys();
 
 protected:
 

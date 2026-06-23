@@ -35,6 +35,8 @@
 #include "InputMapWindow.h"
 #include "InputTester/InputTesterPanel.h"
 #include "Hotkeys/EditorHotkeysWindow.h"
+#include "Hotkeys/EditorHotkeyMap.h"
+#include "Hotkeys/EditorAction.h"
 #include "PlayerInputEditor.h"
 #include "PlayerInputDebugger.h"
 #include "ThemeEditor/ThemeEditorWindow.h"
@@ -633,6 +635,63 @@ static void DrawViewMenu()
         {
             GetThemeEditorWindow()->Open();
         }
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::BeginMenu("Camera Bookmarks"))
+    {
+        EditorHotkeyMap* hk = EditorHotkeyMap::Get();
+        EditorState* es = GetEditorState();
+
+        // User-facing slot labels follow the keyboard order: 1..9 then 0.
+        static const int32_t kBookmarkSlot[kEditorCameraBookmarkSlotCount] = { 0,1,2,3,4,5,6,7,8,9 };
+        static const char    kBookmarkLabel[kEditorCameraBookmarkSlotCount] = { '1','2','3','4','5','6','7','8','9','0' };
+        static const EditorAction kSaveAction[kEditorCameraBookmarkSlotCount] =
+        {
+            EditorAction::View_SaveBookmark1, EditorAction::View_SaveBookmark2,
+            EditorAction::View_SaveBookmark3, EditorAction::View_SaveBookmark4,
+            EditorAction::View_SaveBookmark5, EditorAction::View_SaveBookmark6,
+            EditorAction::View_SaveBookmark7, EditorAction::View_SaveBookmark8,
+            EditorAction::View_SaveBookmark9, EditorAction::View_SaveBookmark0,
+        };
+        static const EditorAction kGotoAction[kEditorCameraBookmarkSlotCount] =
+        {
+            EditorAction::View_GotoBookmark1, EditorAction::View_GotoBookmark2,
+            EditorAction::View_GotoBookmark3, EditorAction::View_GotoBookmark4,
+            EditorAction::View_GotoBookmark5, EditorAction::View_GotoBookmark6,
+            EditorAction::View_GotoBookmark7, EditorAction::View_GotoBookmark8,
+            EditorAction::View_GotoBookmark9, EditorAction::View_GotoBookmark0,
+        };
+
+        if (ImGui::BeginMenu("Save"))
+        {
+            for (int32_t i = 0; i < kEditorCameraBookmarkSlotCount; ++i)
+            {
+                char label[32];
+                snprintf(label, sizeof(label), "Save Bookmark %c", kBookmarkLabel[i]);
+                std::string shortcut = hk ? EditorHotkeyMap::BindingToDisplayString(hk->GetBinding(kSaveAction[i])) : std::string();
+                if (ImGui::MenuItem(label, shortcut.c_str()))
+                    es->SaveCameraBookmark(kBookmarkSlot[i]);
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Jump"))
+        {
+            for (int32_t i = 0; i < kEditorCameraBookmarkSlotCount; ++i)
+            {
+                char label[32];
+                bool valid = es->HasCameraBookmark(kBookmarkSlot[i]);
+                snprintf(label, sizeof(label), "Jump to Bookmark %c%s", kBookmarkLabel[i], valid ? "" : " (empty)");
+                std::string shortcut = hk ? EditorHotkeyMap::BindingToDisplayString(hk->GetBinding(kGotoAction[i])) : std::string();
+                if (ImGui::MenuItem(label, shortcut.c_str(), false, valid))
+                    es->RestoreCameraBookmark(kBookmarkSlot[i]);
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndMenu();
     }
 
     ImGui::Separator();

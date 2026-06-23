@@ -137,6 +137,52 @@ float Viewport3D::GetFocalDistance() const
     return mFocalDistance;
 }
 
+void Viewport3D::SetFocalDistance(float distance)
+{
+    mFocalDistance = glm::max(0.01f, distance);
+}
+
+void Viewport3D::HandleCameraBookmarkHotkeys()
+{
+    EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
+    if (hotkeys == nullptr) return;
+
+    // Save (Ctrl+number by default). Run save first: the Ctrl-modified bind
+    // is more specific than the bare-number jump bind, but exact-match
+    // KeyBinding semantics already prevent both from firing on the same
+    // press — the order here is just deterministic.
+    static const EditorAction saveActions[kEditorCameraBookmarkSlotCount] =
+    {
+        EditorAction::View_SaveBookmark1, EditorAction::View_SaveBookmark2,
+        EditorAction::View_SaveBookmark3, EditorAction::View_SaveBookmark4,
+        EditorAction::View_SaveBookmark5, EditorAction::View_SaveBookmark6,
+        EditorAction::View_SaveBookmark7, EditorAction::View_SaveBookmark8,
+        EditorAction::View_SaveBookmark9, EditorAction::View_SaveBookmark0,
+    };
+    static const EditorAction gotoActions[kEditorCameraBookmarkSlotCount] =
+    {
+        EditorAction::View_GotoBookmark1, EditorAction::View_GotoBookmark2,
+        EditorAction::View_GotoBookmark3, EditorAction::View_GotoBookmark4,
+        EditorAction::View_GotoBookmark5, EditorAction::View_GotoBookmark6,
+        EditorAction::View_GotoBookmark7, EditorAction::View_GotoBookmark8,
+        EditorAction::View_GotoBookmark9, EditorAction::View_GotoBookmark0,
+    };
+
+    for (int32_t i = 0; i < kEditorCameraBookmarkSlotCount; ++i)
+    {
+        if (hotkeys->IsActionJustTriggered(saveActions[i]))
+        {
+            GetEditorState()->SaveCameraBookmark(i);
+            return;
+        }
+        if (hotkeys->IsActionJustTriggered(gotoActions[i]))
+        {
+            GetEditorState()->RestoreCameraBookmark(i);
+            return;
+        }
+    }
+}
+
 void Viewport3D::HandleDefaultControls()
 {
     Renderer* renderer = Renderer::Get();
@@ -351,6 +397,12 @@ void Viewport3D::HandleDefaultControls()
         {
             GetEditorState()->ToggleEditorCameraProjection();
         }
+
+        // Bookmark save/jump. ShouldHandleInput (gated above via the
+        // IsMouseInside / Update path) already guarantees the viewport
+        // owns input — text fields, popups, and non-viewport panels are
+        // out by the time we get here.
+        HandleCameraBookmarkHotkeys();
 
         // View_FocusSelection is checked as held (matches existing IsKeyDown semantics).
         // The original code also accepted Numpad . (DECIMAL) -- migrate that as a held check.

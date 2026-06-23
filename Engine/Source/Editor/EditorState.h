@@ -2,6 +2,7 @@
 
 #if EDITOR
 
+#include <array>
 #include <string>
 #include <set>
 #include <unordered_map>
@@ -10,6 +11,7 @@
 #include "AssetRef.h"
 #include "SmartPointer.h"
 #include "Property.h"
+#include "Enums.h"
 #include "Nodes/Widgets/Text.h"
 #include "imgui.h"
 #include "./ImGuizmo/ImGuizmo.h"
@@ -104,6 +106,28 @@ struct RecentScene
     std::string mSceneName;
     uint64_t mTimestamp = 0;
 };
+
+// Editor 3D viewport camera bookmark. One of 10 per-scene slots driven by the
+// `View_SaveBookmark*` / `View_GotoBookmark*` editor actions. Persisted in
+// EditorProject.sav, keyed by scene name.
+constexpr int32_t kEditorCameraBookmarkSlotCount = 10;
+
+struct EditorCameraBookmark
+{
+    bool mValid = false;
+    glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
+    glm::quat mRotation = { 1.0f, 0.0f, 0.0f, 0.0f };
+    ProjectionMode mProjectionMode = ProjectionMode::PERSPECTIVE;
+    float mPerspectiveNearZ = 0.25f;
+    float mPerspectiveFarZ  = 4096.0f;
+    float mPerspectiveFov   = 70.0f;
+    float mOrthoNearZ = -2048.0f;
+    float mOrthoFarZ  = 2048.0f;
+    float mOrthoWidth = 12.8f;
+    float mFocalDistance = 10.0f;
+};
+
+using EditorCameraBookmarkArray = std::array<EditorCameraBookmark, kEditorCameraBookmarkSlotCount>;
 
 // Per-asset state captured at BeginPlayInEditor and re-applied at
 // EndPlayInEditor so script mutations during play don't leak into the editor.
@@ -236,6 +260,12 @@ struct EditorState
     std::vector<std::string> mFavoritedDirs;
     std::vector<std::string> mRecentProjects;
     std::vector<RecentScene> mRecentScenes;
+
+    // Per-scene camera bookmark slots, keyed by Scene asset name. Saved
+    // and restored from EditorProject.sav (kEditorProjectSaveVersion >= 4).
+    // Unsaved / untitled scenes use the empty-string key — those bookmarks
+    // work within the session but never persist.
+    std::unordered_map<std::string, EditorCameraBookmarkArray> mCameraBookmarks;
     PaintMode mPaintMode = PaintMode::None;
     PaintManager* mPaintManager = nullptr;
     VoxelSculptManager* mVoxelSculptManager = nullptr;
@@ -443,6 +473,18 @@ struct EditorState
     Camera3D* GetEditorCamera();
     void ToggleEditorCameraProjection();
     void ApplyEditorCameraSettings();
+
+    // Camera bookmarks. Slots are 0..kEditorCameraBookmarkSlotCount-1; the
+    // hotkey labels (1..0) correspond to slots 0..9. Save captures the editor
+    // camera's transform / projection / focal distance, Restore re-applies
+    // them, and Has reports whether a slot has been populated. Restore is
+    // intentionally NOT undoable — it changes editor view state, not scene
+    // content.
+    void SaveCameraBookmark(int32_t slot);
+    void RestoreCameraBookmark(int32_t slot);
+    bool HasCameraBookmark(int32_t slot) const;
+    const EditorCameraBookmarkArray* GetActiveSceneCameraBookmarks() const;
+    EditorCameraBookmarkArray* GetOrCreateActiveSceneCameraBookmarks();
 
     void LoadStartupScene();
 

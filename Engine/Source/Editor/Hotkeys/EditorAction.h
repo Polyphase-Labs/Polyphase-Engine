@@ -66,6 +66,31 @@ enum class EditorAction : int32_t
     View_FocusSelection,
     View_PositionAtCamera,
 
+    // ----- View Camera Bookmarks (Unreal-style) -----
+    // The number after each name is the user-facing slot label, not the
+    // enum/array index. SaveBookmark1 -> slot 0, SaveBookmark0 -> slot 9,
+    // so the labels read "1, 2, 3, ..., 9, 0" in keyboard order.
+    View_SaveBookmark1,
+    View_SaveBookmark2,
+    View_SaveBookmark3,
+    View_SaveBookmark4,
+    View_SaveBookmark5,
+    View_SaveBookmark6,
+    View_SaveBookmark7,
+    View_SaveBookmark8,
+    View_SaveBookmark9,
+    View_SaveBookmark0,
+    View_GotoBookmark1,
+    View_GotoBookmark2,
+    View_GotoBookmark3,
+    View_GotoBookmark4,
+    View_GotoBookmark5,
+    View_GotoBookmark6,
+    View_GotoBookmark7,
+    View_GotoBookmark8,
+    View_GotoBookmark9,
+    View_GotoBookmark0,
+
     // ----- Gizmo / Transform -----
     Gizmo_Translate,
     Gizmo_Rotate,

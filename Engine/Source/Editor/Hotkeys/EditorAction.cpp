@@ -57,11 +57,14 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "Cut Nodes",            "Edit",   "Copy selected nodes and delete the originals",        "Edit_CutNodes",   KB(POLYPHASE_KEY_X, true, false, false) },
 
     // ----- Scene Mode -----
-    { "Mode: Scene",          "Mode",   "Switch to the mixed Scene editor",    "Mode_Scene",             KB(POLYPHASE_KEY_1, true, false, false) },
-    { "Mode: 2D",             "Mode",   "Switch to the 2D Widget editor",      "Mode_Scene2D",           KB(POLYPHASE_KEY_2, true, false, false) },
-    { "Mode: 3D",             "Mode",   "Switch to the 3D Scene editor",      "Mode_Scene3D",           KB(POLYPHASE_KEY_3, true, false, false) },
-    { "Mode: Paint Color",    "Mode",   "Enter the color paint mode",          "Mode_PaintColor",        KB(POLYPHASE_KEY_4, true, false, false) },
-    { "Mode: Paint Instance", "Mode",   "Enter the instance paint mode",       "Mode_PaintInstance",     KB(POLYPHASE_KEY_5, true, false, false) },
+    // Defaults moved from Ctrl+1..5 to Ctrl+Alt+1..5 so the unmodified and
+    // Ctrl-modified number rows are free for the camera-bookmark jump/save
+    // actions ("Unreal-style" workflow). Still remappable in the hotkey UI.
+    { "Mode: Scene",          "Mode",   "Switch to the mixed Scene editor",    "Mode_Scene",             KB(POLYPHASE_KEY_1, true, false, true ) },
+    { "Mode: 2D",             "Mode",   "Switch to the 2D Widget editor",      "Mode_Scene2D",           KB(POLYPHASE_KEY_2, true, false, true ) },
+    { "Mode: 3D",             "Mode",   "Switch to the 3D Scene editor",      "Mode_Scene3D",           KB(POLYPHASE_KEY_3, true, false, true ) },
+    { "Mode: Paint Color",    "Mode",   "Enter the color paint mode",          "Mode_PaintColor",        KB(POLYPHASE_KEY_4, true, false, true ) },
+    { "Mode: Paint Instance", "Mode",   "Enter the instance paint mode",       "Mode_PaintInstance",     KB(POLYPHASE_KEY_5, true, false, true ) },
 
     // ----- Play-In-Editor -----
     { "Toggle Play in Editor","PIE",    "Start Play-In-Editor (PIE safety keys F8/Esc/F10/Alt+P stay fixed during PIE)", "PIE_Toggle", KB(POLYPHASE_KEY_P, false, false, true) },
@@ -84,6 +87,34 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "View: Toggle Perspective","View","Toggle between perspective and orthographic","View_PerspToggle", KB(POLYPHASE_KEY_NUMPAD5) },
     { "View: Focus Selection","View",   "Center the camera on the selection",  "View_FocusSelection",    KB(POLYPHASE_KEY_F) },
     { "View: Position At Camera","View","Snap selected node to the camera",    "View_PositionAtCamera",  KB(POLYPHASE_KEY_NUMPAD0) },
+
+    // ----- View: Camera Bookmarks -----
+    // Save = Shift+number, Jump = bare number. The bare-number jump only fires
+    // while the 3D viewport owns input (ShouldHandleInput gates text fields,
+    // popups, and non-viewport panels), so number keys remain usable in text
+    // inputs and asset filters. Shift was picked for Save because Ctrl+number
+    // conflicts with browser-style tab/asset-filter shortcuts users hit
+    // reflexively.
+    { "View: Save Bookmark 1", "View", "Capture the editor camera as bookmark 1", "View_SaveBookmark1", KB(POLYPHASE_KEY_1, false, true, false) },
+    { "View: Save Bookmark 2", "View", "Capture the editor camera as bookmark 2", "View_SaveBookmark2", KB(POLYPHASE_KEY_2, false, true, false) },
+    { "View: Save Bookmark 3", "View", "Capture the editor camera as bookmark 3", "View_SaveBookmark3", KB(POLYPHASE_KEY_3, false, true, false) },
+    { "View: Save Bookmark 4", "View", "Capture the editor camera as bookmark 4", "View_SaveBookmark4", KB(POLYPHASE_KEY_4, false, true, false) },
+    { "View: Save Bookmark 5", "View", "Capture the editor camera as bookmark 5", "View_SaveBookmark5", KB(POLYPHASE_KEY_5, false, true, false) },
+    { "View: Save Bookmark 6", "View", "Capture the editor camera as bookmark 6", "View_SaveBookmark6", KB(POLYPHASE_KEY_6, false, true, false) },
+    { "View: Save Bookmark 7", "View", "Capture the editor camera as bookmark 7", "View_SaveBookmark7", KB(POLYPHASE_KEY_7, false, true, false) },
+    { "View: Save Bookmark 8", "View", "Capture the editor camera as bookmark 8", "View_SaveBookmark8", KB(POLYPHASE_KEY_8, false, true, false) },
+    { "View: Save Bookmark 9", "View", "Capture the editor camera as bookmark 9", "View_SaveBookmark9", KB(POLYPHASE_KEY_9, false, true, false) },
+    { "View: Save Bookmark 0", "View", "Capture the editor camera as bookmark 0", "View_SaveBookmark0", KB(POLYPHASE_KEY_0, false, true, false) },
+    { "View: Jump Bookmark 1", "View", "Jump the editor camera to bookmark 1",    "View_GotoBookmark1", KB(POLYPHASE_KEY_1) },
+    { "View: Jump Bookmark 2", "View", "Jump the editor camera to bookmark 2",    "View_GotoBookmark2", KB(POLYPHASE_KEY_2) },
+    { "View: Jump Bookmark 3", "View", "Jump the editor camera to bookmark 3",    "View_GotoBookmark3", KB(POLYPHASE_KEY_3) },
+    { "View: Jump Bookmark 4", "View", "Jump the editor camera to bookmark 4",    "View_GotoBookmark4", KB(POLYPHASE_KEY_4) },
+    { "View: Jump Bookmark 5", "View", "Jump the editor camera to bookmark 5",    "View_GotoBookmark5", KB(POLYPHASE_KEY_5) },
+    { "View: Jump Bookmark 6", "View", "Jump the editor camera to bookmark 6",    "View_GotoBookmark6", KB(POLYPHASE_KEY_6) },
+    { "View: Jump Bookmark 7", "View", "Jump the editor camera to bookmark 7",    "View_GotoBookmark7", KB(POLYPHASE_KEY_7) },
+    { "View: Jump Bookmark 8", "View", "Jump the editor camera to bookmark 8",    "View_GotoBookmark8", KB(POLYPHASE_KEY_8) },
+    { "View: Jump Bookmark 9", "View", "Jump the editor camera to bookmark 9",    "View_GotoBookmark9", KB(POLYPHASE_KEY_9) },
+    { "View: Jump Bookmark 0", "View", "Jump the editor camera to bookmark 0",    "View_GotoBookmark0", KB(POLYPHASE_KEY_0) },
 
     // ----- Gizmo / Transform -----
     { "Gizmo: Translate",            "Gizmo", "Enter cursor-locked translate mode",     "Gizmo_Translate",            KB(POLYPHASE_KEY_G) },

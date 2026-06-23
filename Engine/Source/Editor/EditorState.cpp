@@ -53,7 +53,8 @@ static EditorState sEditorState;
 
 constexpr const char* kEditorProjectSaveFile = "EditorProject.sav";
 constexpr const char* kEditorSaveFile = "Editor.sav";
-constexpr int32_t kEditorProjectSaveVersion = 3;
+// v4: per-scene camera bookmarks (View_SaveBookmark* / View_GotoBookmark*).
+constexpr int32_t kEditorProjectSaveVersion = 4;
 constexpr int32_t kEditorSaveVersion = 1;
 
 constexpr const uint32_t kMaxRecentProjects = 10;
@@ -481,6 +482,7 @@ void EditorState::ReadEditorProjectSave()
     // Clear previous project data
     mFavoritedDirs.clear();
     mRecentScenes.clear();
+    mCameraBookmarks.clear();
 
     if (projDir != "" &&
         SYS_DoesFileExist(saveFilePath.c_str(), false))
@@ -512,6 +514,57 @@ void EditorState::ReadEditorProjectSave()
                     stream.ReadString(recent.mSceneName);
                     recent.mTimestamp = stream.ReadUint64();
                     mRecentScenes.push_back(recent);
+                }
+            }
+
+            // Read camera bookmarks (v4+). Each entry: sceneName + slot count
+            // + that many bookmark records (valid bit gates the payload).
+            if (version >= 4)
+            {
+                uint32_t numSceneBookmarks = stream.ReadUint32();
+                for (uint32_t s = 0; s < numSceneBookmarks; ++s)
+                {
+                    std::string sceneName;
+                    stream.ReadString(sceneName);
+                    uint32_t slotCount = stream.ReadUint32();
+
+                    EditorCameraBookmarkArray arr{};
+                    uint32_t loadCount = glm::min(slotCount, (uint32_t)kEditorCameraBookmarkSlotCount);
+                    for (uint32_t i = 0; i < loadCount; ++i)
+                    {
+                        EditorCameraBookmark& bm = arr[i];
+                        bm.mValid = stream.ReadBool();
+                        if (bm.mValid)
+                        {
+                            bm.mPosition         = stream.ReadVec3();
+                            bm.mRotation         = stream.ReadQuat();
+                            bm.mProjectionMode   = (ProjectionMode)stream.ReadUint8();
+                            bm.mPerspectiveNearZ = stream.ReadFloat();
+                            bm.mPerspectiveFarZ  = stream.ReadFloat();
+                            bm.mPerspectiveFov   = stream.ReadFloat();
+                            bm.mOrthoNearZ       = stream.ReadFloat();
+                            bm.mOrthoFarZ        = stream.ReadFloat();
+                            bm.mOrthoWidth       = stream.ReadFloat();
+                            bm.mFocalDistance    = stream.ReadFloat();
+                        }
+                    }
+                    // Drain any extra slots saved by a future version.
+                    for (uint32_t i = loadCount; i < slotCount; ++i)
+                    {
+                        bool valid = stream.ReadBool();
+                        if (valid)
+                        {
+                            (void)stream.ReadVec3();
+                            (void)stream.ReadQuat();
+                            (void)stream.ReadUint8();
+                            for (int j = 0; j < 7; ++j) (void)stream.ReadFloat();
+                        }
+                    }
+
+                    if (!sceneName.empty())
+                    {
+                        mCameraBookmarks[sceneName] = arr;
+                    }
                 }
             }
         }
@@ -548,6 +601,49 @@ void EditorState::WriteEditorProjectSave()
         {
             stream.WriteString(r.mSceneName);
             stream.WriteUint64(r.mTimestamp);
+        }
+
+        // Camera bookmarks (v4+). Only write entries that have at least one
+        // valid slot, and only those scenes that still exist on disk.
+        std::vector<const std::pair<const std::string, EditorCameraBookmarkArray>*> bookmarkEntries;
+        bookmarkEntries.reserve(mCameraBookmarks.size());
+        for (const auto& kv : mCameraBookmarks)
+        {
+            if (kv.first.empty()) continue;
+            if (assetMgr && !assetMgr->DoesAssetExist(kv.first)) continue;
+
+            bool anyValid = false;
+            for (const EditorCameraBookmark& bm : kv.second)
+            {
+                if (bm.mValid) { anyValid = true; break; }
+            }
+            if (!anyValid) continue;
+
+            bookmarkEntries.push_back(&kv);
+        }
+
+        stream.WriteUint32((uint32_t)bookmarkEntries.size());
+        for (const auto* entry : bookmarkEntries)
+        {
+            stream.WriteString(entry->first);
+            stream.WriteUint32((uint32_t)kEditorCameraBookmarkSlotCount);
+            for (const EditorCameraBookmark& bm : entry->second)
+            {
+                stream.WriteBool(bm.mValid);
+                if (bm.mValid)
+                {
+                    stream.WriteVec3(bm.mPosition);
+                    stream.WriteQuat(bm.mRotation);
+                    stream.WriteUint8((uint8_t)bm.mProjectionMode);
+                    stream.WriteFloat(bm.mPerspectiveNearZ);
+                    stream.WriteFloat(bm.mPerspectiveFarZ);
+                    stream.WriteFloat(bm.mPerspectiveFov);
+                    stream.WriteFloat(bm.mOrthoNearZ);
+                    stream.WriteFloat(bm.mOrthoFarZ);
+                    stream.WriteFloat(bm.mOrthoWidth);
+                    stream.WriteFloat(bm.mFocalDistance);
+                }
+            }
         }
 
         std::string projSavesDir = projDir + "Saves";
@@ -1364,6 +1460,111 @@ void EditorState::ApplyEditorCameraSettings()
         mEditorCamera->SetFarZ(mOrthoFarZ);
         mEditorCamera->SetFieldOfView(mOrthoWidth);
     }
+}
+
+// ---------- Camera bookmarks ----------
+
+static std::string GetActiveSceneBookmarkKey(EditorState* state)
+{
+    EditScene* es = state->GetEditScene();
+    if (es == nullptr) return std::string();
+    Scene* scene = es->mSceneAsset.Get<Scene>();
+    if (scene == nullptr) return std::string();
+    return scene->GetName();
+}
+
+const EditorCameraBookmarkArray* EditorState::GetActiveSceneCameraBookmarks() const
+{
+    std::string key = GetActiveSceneBookmarkKey(const_cast<EditorState*>(this));
+    if (key.empty()) return nullptr;
+    auto it = mCameraBookmarks.find(key);
+    return it == mCameraBookmarks.end() ? nullptr : &it->second;
+}
+
+EditorCameraBookmarkArray* EditorState::GetOrCreateActiveSceneCameraBookmarks()
+{
+    std::string key = GetActiveSceneBookmarkKey(this);
+    if (key.empty()) return nullptr;
+    return &mCameraBookmarks[key];
+}
+
+void EditorState::SaveCameraBookmark(int32_t slot)
+{
+    if (slot < 0 || slot >= kEditorCameraBookmarkSlotCount)
+        return;
+    if (mEditorCamera == nullptr)
+        return;
+
+    EditorCameraBookmarkArray* arr = GetOrCreateActiveSceneCameraBookmarks();
+    if (arr == nullptr)
+    {
+        LogWarning("Save the scene before placing camera bookmarks (no active scene asset).");
+        return;
+    }
+
+    EditorCameraBookmark& bm = (*arr)[slot];
+    bm.mValid          = true;
+    bm.mPosition       = mEditorCamera->GetWorldPosition();
+    bm.mRotation       = mEditorCamera->GetWorldRotationQuat();
+    bm.mProjectionMode = mEditorCamera->GetProjectionMode();
+    bm.mPerspectiveNearZ = mPerspectiveNearZ;
+    bm.mPerspectiveFarZ  = mPerspectiveFarZ;
+    bm.mPerspectiveFov   = mPerspectiveFov;
+    bm.mOrthoNearZ       = mOrthoNearZ;
+    bm.mOrthoFarZ        = mOrthoFarZ;
+    bm.mOrthoWidth       = mOrthoWidth;
+    bm.mFocalDistance    = (mViewport3D != nullptr) ? mViewport3D->GetFocalDistance() : 10.0f;
+
+    LogDebug("Saved camera bookmark %d", slot == 9 ? 0 : (slot + 1));
+}
+
+void EditorState::RestoreCameraBookmark(int32_t slot)
+{
+    if (slot < 0 || slot >= kEditorCameraBookmarkSlotCount)
+        return;
+    if (mEditorCamera == nullptr)
+        return;
+
+    const EditorCameraBookmarkArray* arr = GetActiveSceneCameraBookmarks();
+    if (arr == nullptr || !(*arr)[slot].mValid)
+    {
+        LogDebug("No camera bookmark %d", slot == 9 ? 0 : (slot + 1));
+        return;
+    }
+
+    const EditorCameraBookmark& bm = (*arr)[slot];
+
+    // Apply projection params + projection mode before re-applying settings
+    // so ApplyEditorCameraSettings picks the right branch.
+    mPerspectiveNearZ = bm.mPerspectiveNearZ;
+    mPerspectiveFarZ  = bm.mPerspectiveFarZ;
+    mPerspectiveFov   = bm.mPerspectiveFov;
+    mOrthoNearZ       = bm.mOrthoNearZ;
+    mOrthoFarZ        = bm.mOrthoFarZ;
+    mOrthoWidth       = bm.mOrthoWidth;
+
+    mEditorCamera->SetProjectionMode(bm.mProjectionMode);
+    ApplyEditorCameraSettings();
+
+    mEditorCamera->SetWorldPosition(bm.mPosition);
+    mEditorCamera->SetWorldRotation(bm.mRotation);
+
+    if (mViewport3D != nullptr)
+    {
+        mViewport3D->SetFocalDistance(bm.mFocalDistance);
+    }
+
+    LogDebug("Restored camera bookmark %d", slot == 9 ? 0 : (slot + 1));
+}
+
+bool EditorState::HasCameraBookmark(int32_t slot) const
+{
+    if (slot < 0 || slot >= kEditorCameraBookmarkSlotCount)
+        return false;
+
+    const EditorCameraBookmarkArray* arr = GetActiveSceneCameraBookmarks();
+    if (arr == nullptr) return false;
+    return (*arr)[slot].mValid;
 }
 
 
