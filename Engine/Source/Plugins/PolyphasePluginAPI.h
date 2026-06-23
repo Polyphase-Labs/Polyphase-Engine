@@ -44,7 +44,13 @@
 //     FileDropImportModal). All ABI-additive — appended to the END of
 //     the struct. Old plugins still load; new plugins null-check the
 //     function pointers before calling for forward/backward compat.
-#define POLYPHASE_PLUGIN_API_VERSION 7
+// v8: added EditorUIHooks::Viewport_GetMouseWorldRay (mouse → world
+//     origin/dir for plugin transform gizmos, arbitrary plane
+//     intersections, etc) and Viewport_WorldToScreen (project a
+//     world-space point into the editor viewport's window-space
+//     pixels, for overlaying ImGui labels on top of scene objects).
+//     Both ABI-additive at the end of EditorUIHooks.
+#define POLYPHASE_PLUGIN_API_VERSION 8
 
 // Forward declarations
 struct PolyphaseEngineAPI;

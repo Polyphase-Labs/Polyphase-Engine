@@ -1240,6 +1240,38 @@ struct EditorUIHooks
      *         0 otherwise (no mode active, or buffer too small / null).
      */
     int (*GetActiveViewportMode)(char* outBuffer, int outBufferSize);
+
+    // ===== Batch 15 / v8: viewport math for plugin gizmos ==================
+    //
+    // Mouse → world ray. `mx`/`my` are window-space pixels (same units
+    // Viewport_GetMouseState returns). `outOrigin` is the ray's starting
+    // point in world space; `outDir` is the normalized direction.
+    //
+    // Used by plugins that need to roll their own scene intersection —
+    // axis-constrained transform gizmos, arbitrary plane intersection,
+    // line-to-line distance for rotation rings, etc. The simpler
+    // Viewport_RaycastUnderMouse stays for the common "give me the
+    // hit point on the scene OR a fallback Y plane" case.
+    void (*Viewport_GetMouseWorldRay)(float mx, float my,
+                                       float* outOriginX,
+                                       float* outOriginY,
+                                       float* outOriginZ,
+                                       float* outDirX,
+                                       float* outDirY,
+                                       float* outDirZ);
+
+    // World → editor-viewport screen pixels. Returns 1 if the point
+    // projects in front of the camera (sx/sy are usable window-space
+    // coords); returns 0 if behind (sx/sy still filled but the caller
+    // probably wants to skip drawing). The output coordinate system
+    // matches Viewport_GetMouseState — i.e. the same window-space
+    // pixels you'd hover-test against.
+    //
+    // Used by plugins that want to overlay ImGui labels / billboards
+    // on top of scene objects (e.g. "Socket: Left" text floating
+    // over the socket gizmo).
+    int  (*Viewport_WorldToScreen)(float wx, float wy, float wz,
+                                    float* outSx, float* outSy);
 };
 
 /**

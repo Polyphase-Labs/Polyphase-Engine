@@ -1310,6 +1310,64 @@ void EditorUIHookManager::InitializeHooks()
         return false;
     };
 
+    // ===== Batch 15 / v8: viewport math for plugin gizmos =====
+
+    mHooks.Viewport_GetMouseWorldRay = [](float mx, float my,
+                                           float* outOX, float* outOY, float* outOZ,
+                                           float* outDX, float* outDY, float* outDZ)
+    {
+        auto writeNothing = [&]() {
+            if (outOX) *outOX = 0.0f; if (outOY) *outOY = 0.0f; if (outOZ) *outOZ = 0.0f;
+            if (outDX) *outDX = 0.0f; if (outDY) *outDY = 0.0f; if (outDZ) *outDZ = 1.0f;
+        };
+        Camera3D* camera = (GetEditorState() != nullptr) ? GetEditorState()->GetEditorCamera() : nullptr;
+        if (camera == nullptr) { writeNothing(); return; }
+
+        float scale = GetEngineConfig()->mEditorInterfaceScale;
+        if (scale == 0.0f) scale = 1.0f;
+        int32_t rx = (int32_t)(mx * scale);
+        int32_t ry = (int32_t)(my * scale);
+
+        // Mirror Viewport_RaycastUnderMouse's perspective/ortho ray
+        // construction so both entries agree on coordinate semantics.
+        glm::vec3 nearPoint = camera->ScreenToWorldPosition(rx, ry);
+        glm::vec3 origin, dir;
+        if (camera->GetProjectionMode() == ProjectionMode::PERSPECTIVE)
+        {
+            origin = camera->GetWorldPosition();
+            dir    = Maths::SafeNormalize(nearPoint - origin);
+        }
+        else
+        {
+            origin = nearPoint;
+            dir    = Maths::SafeNormalize(camera->GetForwardVector());
+        }
+
+        if (outOX) *outOX = origin.x; if (outOY) *outOY = origin.y; if (outOZ) *outOZ = origin.z;
+        if (outDX) *outDX = dir.x;    if (outDY) *outDY = dir.y;    if (outDZ) *outDZ = dir.z;
+    };
+
+    mHooks.Viewport_WorldToScreen = [](float wx, float wy, float wz,
+                                        float* outSx, float* outSy) -> int
+    {
+        if (outSx) *outSx = 0.0f;
+        if (outSy) *outSy = 0.0f;
+        Camera3D* camera = (GetEditorState() != nullptr) ? GetEditorState()->GetEditorCamera() : nullptr;
+        if (camera == nullptr) return 0;
+
+        // Camera3D::WorldToScreenPosition returns xy = device pixels,
+        // z = depth (positive = in front of camera; negative = behind).
+        glm::vec3 sp = camera->WorldToScreenPosition(glm::vec3(wx, wy, wz));
+
+        // Convert device-pixel coords back to the window-space pixels
+        // Viewport_GetMouseState uses (divide by interface scale).
+        float scale = GetEngineConfig()->mEditorInterfaceScale;
+        if (scale == 0.0f) scale = 1.0f;
+        if (outSx) *outSx = sp.x / scale;
+        if (outSy) *outSy = sp.y / scale;
+        return (sp.z > 0.0f) ? 1 : 0;
+    };
+
     mHooks.Viewport_GetMouseState = [](float* outViewportX, float* outViewportY,
                                        float* outViewportW, float* outViewportH,
                                        float* outMouseX,    float* outMouseY,
