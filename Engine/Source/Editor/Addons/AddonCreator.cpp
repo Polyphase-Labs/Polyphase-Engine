@@ -13,6 +13,8 @@
 #include "prettywriter.h"
 #include "stringbuffer.h"
 
+#include <git2.h>
+
 #include <cctype>
 #include <sstream>
 #include <cstring>
@@ -473,13 +475,52 @@ bool AddonCreator::IsGitAvailable()
 
 bool AddonCreator::HasGitRepo(const std::string& dir)
 {
-    std::string gitDir = dir;
-    if (gitDir.back() != '/' && gitDir.back() != '\\')
+    if (dir.empty()) return false;
+
+    // libgit2 discovery handles worktrees, submodules with .git files, and
+    // repos discovered upward from a subdirectory — the old `.git` directory
+    // check missed all three. across_fs=0 keeps the walk on the same volume
+    // so a sibling repo on a mounted drive doesn't get falsely claimed.
+    git_buf repoPath = GIT_BUF_INIT;
+    const int rc = git_repository_discover(&repoPath, dir.c_str(), /*across_fs*/0, nullptr);
+    if (rc == 0)
     {
-        gitDir += '/';
+        git_buf_dispose(&repoPath);
+        return true;
     }
-    gitDir += ".git";
-    return DoesDirExist(gitDir.c_str());
+    return false;
+}
+
+std::string AddonCreator::DiscoverGitRepoRoot(const std::string& dir)
+{
+    if (dir.empty()) return {};
+
+    git_buf gitDirPath = GIT_BUF_INIT;
+    if (git_repository_discover(&gitDirPath, dir.c_str(), /*across_fs*/0, nullptr) != 0)
+        return {};
+
+    // git_repository_discover returns the path to the .git directory (or the
+    // gitdir for a worktree/submodule). We want the workdir root so callers
+    // can pass it straight to GitService::OpenRepository, which expects a
+    // working-tree path.
+    git_repository* repo = nullptr;
+    std::string workdir;
+    if (git_repository_open(&repo, gitDirPath.ptr) == 0 && repo != nullptr)
+    {
+        const char* wd = git_repository_workdir(repo);
+        if (wd != nullptr)
+        {
+            workdir = wd;
+            // Trim the trailing separator libgit2 always appends so the
+            // result round-trips equal to what the addon's discovered dir
+            // looks like elsewhere in editor code.
+            if (!workdir.empty() && (workdir.back() == '/' || workdir.back() == '\\'))
+                workdir.pop_back();
+        }
+        git_repository_free(repo);
+    }
+    git_buf_dispose(&gitDirPath);
+    return workdir;
 }
 
 bool AddonCreator::InitGitRepo(const std::string& dir, std::string& outError)

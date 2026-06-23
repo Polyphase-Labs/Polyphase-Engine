@@ -58,6 +58,31 @@ private:
     int32_t mCheckoutChoiceSelected = 0;
 
     void DrawCheckoutChoicePopup();
+
+    // ---- Repo switcher (toolbar dropdown) ----
+    // Cached list of repos the user can switch into:
+    //   [0]       = current project (if it's a git repo)
+    //   [1..N-1]  = each addon under <Project>/Packages/ that resolves to
+    //               a git repo (via AddonCreator::HasGitRepo).
+    // Refreshed when the active project changes OR when the user clicks
+    // the dropdown (cheap rescan — addon list is typically <20 entries).
+    struct RepoEntry
+    {
+        std::string mLabel;   // dropdown display ("Current Project", "Addon: foo")
+        std::string mPath;    // working-tree root passed to GitService::OpenRepository
+    };
+    std::vector<RepoEntry> mRepoChoices;
+    std::string mRepoChoicesProjectDir;
+    bool mRepoComboWasOpen = false;
+    // Deferred repo switch: the Selectable handler stores the target path
+    // here and the actual OpenRepository call happens at the top of the
+    // NEXT Draw(). This lets the combo close cleanly first and gives the
+    // rest of the window one frame to clear stale per-repo state (diff,
+    // selected commit, etc.) before re-rendering against the new repo.
+    std::string mPendingRepoSwitch;
+    void RefreshRepoChoices();
+    void DrawRepoSwitcher();
+    void ProcessPendingRepoSwitch();
 };
 
 GitWorkspaceWindow* GetGitWorkspaceWindow();

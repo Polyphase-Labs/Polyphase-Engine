@@ -150,9 +150,19 @@ namespace AddonCreator
     bool IsGitAvailable();
 
     /**
-     * @brief Check if a directory has a .git folder.
+     * @brief Detect whether a directory (or any ancestor) is inside a git
+     *        repository. Uses libgit2's git_repository_discover so worktrees,
+     *        submodules (.git file), and nested checkouts all resolve.
      */
     bool HasGitRepo(const std::string& dir);
+
+    /**
+     * @brief Walk upward from @p dir and return the discovered repo's
+     *        working-tree root (no trailing slash). Empty if not in a repo.
+     *        Callers can pass the result directly to
+     *        GitService::OpenRepository.
+     */
+    std::string DiscoverGitRepoRoot(const std::string& dir);
 
     /**
      * @brief Initialize a git repository in a directory.

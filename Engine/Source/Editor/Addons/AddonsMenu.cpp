@@ -11,6 +11,8 @@
 #include "Engine.h"
 #include "InputDevices.h"
 #include "Log.h"
+#include "Git/GitService.h"
+#include "Git/GitWorkspaceWindow.h"
 
 #include "imgui.h"
 
@@ -1105,6 +1107,31 @@ static void DrawPublishGitDialog()
             }
         }
 
+        if (!canPublish) ImGui::EndDisabled();
+
+        // Open the selected addon's repo in the built-in Version Control
+        // window. Same canPublish gate (needs a repo + valid selection) so
+        // the button is disabled when there's nothing meaningful to open.
+        ImGui::SameLine();
+        if (!canPublish) ImGui::BeginDisabled();
+        if (ImGui::Button("Open in Version Control", ImVec2(180, 0)))
+        {
+            const UserAddonInfo& selected = sGitUserAddons[sGitSelectedAddon];
+            std::string repoRoot = AddonCreator::DiscoverGitRepoRoot(selected.mPath);
+            if (repoRoot.empty()) repoRoot = selected.mPath;
+
+            GitService* svc = GitService::Get();
+            GitWorkspaceWindow* win = GetGitWorkspaceWindow();
+            if (svc != nullptr && win != nullptr && svc->OpenRepository(repoRoot))
+            {
+                win->Open();
+                closePopup = true;
+            }
+            else
+            {
+                sGitError = "Failed to open repository in Version Control.";
+            }
+        }
         if (!canPublish) ImGui::EndDisabled();
 
         ImGui::SameLine();

@@ -4,8 +4,11 @@
 #include "EditorWidgets.h"
 #include "AddonsMenu.h"
 #include "AddonManager.h"
+#include "AddonCreator.h"
 #include "AddonDependencyResolver.h"
 #include "NativeAddonManager.h"
+#include "Git/GitService.h"
+#include "Git/GitWorkspaceWindow.h"
 #include "../ProjectSelect/TemplateData.h"
 #include "Preferences/JsonSettings.h"
 
@@ -800,6 +803,31 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
                 ImGui::SameLine();
             }
         }
+        // Git workflow button — "VC" opens the addon's repo in the built-
+        // in Version Control window; "Init Git" runs git init on the
+        // addon dir for first-time setup. The cached DoesAddonHaveGitRepo
+        // check keeps the libgit2 discover from running every frame.
+        if (DoesAddonHaveGitRepo(inst.mId))
+        {
+            if (ImGui::SmallButton("VC"))
+            {
+                OpenAddonInVersionControl(inst.mId);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Open this addon's repository in Version Control");
+            ImGui::SameLine();
+        }
+        else
+        {
+            if (ImGui::SmallButton("Init Git"))
+            {
+                InitAddonGitRepo(inst.mId);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Initialize a git repository in this addon's directory");
+            ImGui::SameLine();
+        }
+
         if (ImGui::SmallButton("Uninstall"))
         {
             mUninstallAddonId = inst.mId;
@@ -1172,6 +1200,27 @@ void AddonsWindow::DrawInstalledAddons()
         {
             mUninstallAddonId = inst.mId;
             mShowUninstallConfirm = true;
+        }
+
+        // Git workflow button (cards view) — mirrors the table-view entry.
+        ImGui::SameLine();
+        if (DoesAddonHaveGitRepo(inst.mId))
+        {
+            if (ImGui::SmallButton("VC"))
+            {
+                OpenAddonInVersionControl(inst.mId);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Open this addon's repository in Version Control");
+        }
+        else
+        {
+            if (ImGui::SmallButton("Init Git"))
+            {
+                InitAddonGitRepo(inst.mId);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Initialize a git repository in this addon's directory");
         }
 
         // Native addon controls
@@ -1580,6 +1629,93 @@ void AddonsWindow::DrawAddRepoPopup()
         }
     }
     ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// Git-repo integration for installed addons
+// ---------------------------------------------------------------------------
+
+std::string AddonsWindow::GetAddonDirectory(const std::string& addonId) const
+{
+    const std::string& projDir = GetEngineState()->mProjectDirectory;
+    if (projDir.empty() || addonId.empty()) return {};
+    std::string out = projDir;
+    if (out.back() != '/' && out.back() != '\\') out += '/';
+    out += "Packages/";
+    out += addonId;
+    return out;
+}
+
+void AddonsWindow::InvalidateAddonGitRepoCacheIfProjectChanged()
+{
+    const std::string& projDir = GetEngineState()->mProjectDirectory;
+    if (projDir != mGitRepoCacheProjectDir)
+    {
+        mAddonGitRepoCache.clear();
+        mGitRepoCacheProjectDir = projDir;
+    }
+}
+
+bool AddonsWindow::DoesAddonHaveGitRepo(const std::string& addonId)
+{
+    InvalidateAddonGitRepoCacheIfProjectChanged();
+
+    auto it = mAddonGitRepoCache.find(addonId);
+    if (it != mAddonGitRepoCache.end()) return it->second;
+
+    const std::string addonDir = GetAddonDirectory(addonId);
+    const bool has = !addonDir.empty() && AddonCreator::HasGitRepo(addonDir);
+    mAddonGitRepoCache[addonId] = has;
+    return has;
+}
+
+void AddonsWindow::OpenAddonInVersionControl(const std::string& addonId)
+{
+    const std::string addonDir = GetAddonDirectory(addonId);
+    if (addonDir.empty())
+    {
+        LogError("AddonsWindow: cannot resolve addon directory for '%s'", addonId.c_str());
+        return;
+    }
+
+    // Walk to the actual repo root so the Version Control window opens the
+    // working tree, not a nested subdir libgit2 might quietly accept.
+    std::string repoRoot = AddonCreator::DiscoverGitRepoRoot(addonDir);
+    if (repoRoot.empty()) repoRoot = addonDir;
+
+    GitService* svc = GitService::Get();
+    GitWorkspaceWindow* win = GetGitWorkspaceWindow();
+    if (svc == nullptr || win == nullptr)
+    {
+        LogError("AddonsWindow: Git subsystem unavailable");
+        return;
+    }
+
+    if (!svc->OpenRepository(repoRoot))
+    {
+        LogError("AddonsWindow: failed to open repository at %s", repoRoot.c_str());
+        return;
+    }
+    win->Open();
+}
+
+void AddonsWindow::InitAddonGitRepo(const std::string& addonId)
+{
+    const std::string addonDir = GetAddonDirectory(addonId);
+    if (addonDir.empty())
+    {
+        LogError("AddonsWindow: cannot resolve addon directory for '%s'", addonId.c_str());
+        return;
+    }
+
+    std::string err;
+    if (!AddonCreator::InitGitRepo(addonDir, err))
+    {
+        LogError("AddonsWindow: git init failed for '%s': %s", addonId.c_str(), err.c_str());
+        return;
+    }
+    // Invalidate the cache so the next row draw flips the button to "VC".
+    mAddonGitRepoCache.erase(addonId);
 }
 
 void AddonsWindow::OnDownloadAddon(const std::string& addonId)

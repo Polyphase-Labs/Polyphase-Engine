@@ -6,6 +6,7 @@
 #include "GitRepository.h"
 #include "GitOperationQueue.h"
 #include "GitCliProbe.h"
+#include "../Addons/AddonCreator.h"
 #include "Dialogs/GitOpenDialog.h"
 #include "Dialogs/GitInitDialog.h"
 #include "Dialogs/GitCloneDialog.h"
@@ -142,6 +143,12 @@ void GitWorkspaceWindow::Draw()
     {
         return;
     }
+
+    // Apply any repo switch the user queued on the previous frame. Runs
+    // BEFORE every panel draws against the active repo, so view state has
+    // already been wiped and the OpenRepository blocking call only stalls
+    // this single frame (not the click frame).
+    ProcessPendingRepoSwitch();
 
     ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f), ImGuiCond_FirstUseEver);
 
@@ -387,6 +394,140 @@ void GitWorkspaceWindow::DrawCheckoutChoicePopup()
 }
 
 // ---------------------------------------------------------------------------
+// Repo switcher
+// ---------------------------------------------------------------------------
+
+void GitWorkspaceWindow::RefreshRepoChoices()
+{
+    mRepoChoices.clear();
+
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    mRepoChoicesProjectDir = projectDir;
+    if (projectDir.empty()) return;
+
+    // Project repo (only listed when it actually resolves to a repo so the
+    // dropdown doesn't dangle entries that fail to open).
+    if (AddonCreator::HasGitRepo(projectDir))
+    {
+        RepoEntry e;
+        e.mLabel = "Current Project";
+        e.mPath = projectDir;
+        mRepoChoices.push_back(std::move(e));
+    }
+
+    // Addon repos under <Project>/Packages/. GetUserCreatedAddons walks the
+    // dir once; HasGitRepo per entry is cheap (one libgit2 discover). Skip
+    // the addons that aren't repos — they show up in Addons UI with the
+    // "Init Git" affordance instead.
+    std::vector<UserAddonInfo> addons = AddonCreator::GetUserCreatedAddons(projectDir);
+    for (const UserAddonInfo& a : addons)
+    {
+        if (!AddonCreator::HasGitRepo(a.mPath)) continue;
+        RepoEntry e;
+        e.mLabel = "Addon: " + (a.mName.empty() ? a.mId : a.mName);
+        e.mPath = a.mPath;
+        mRepoChoices.push_back(std::move(e));
+    }
+}
+
+void GitWorkspaceWindow::ProcessPendingRepoSwitch()
+{
+    if (mPendingRepoSwitch.empty()) return;
+
+    std::string target;
+    target.swap(mPendingRepoSwitch);
+
+    GitService* service = GitService::Get();
+    if (service == nullptr) return;
+
+    GitRepository* repo = service->GetCurrentRepo();
+    if (repo != nullptr && repo->GetPath() == target)
+        return;  // already on the target — nothing to do
+
+    // Drop per-repo view state BEFORE the open so we don't render against
+    // a fresh repo with old commit/file/diff indices for one frame. The
+    // diff struct may hold paths from the previous repo's worktree.
+    mSelectedCommitIndex = -1;
+    mSelectedCommitOid.clear();
+    mSelectedFilePath.clear();
+    mCurrentDiff = GitFileDiff{};
+    mDiffDirty = true;
+
+    if (!service->OpenRepository(target))
+    {
+        LogError("GitWorkspaceWindow: failed to open repo at %s", target.c_str());
+    }
+}
+
+void GitWorkspaceWindow::DrawRepoSwitcher()
+{
+    GitService* service = GitService::Get();
+    if (service == nullptr) return;
+
+    // Invalidate the cached list whenever the active project changes —
+    // covers project open/switch without needing a hook into EditorState.
+    if (mRepoChoicesProjectDir != GetEngineState()->mProjectDirectory)
+        RefreshRepoChoices();
+
+    GitRepository* repo = service->GetCurrentRepo();
+    const std::string activePath = repo ? repo->GetPath() : std::string();
+
+    // Pick a preview label: prefer an exact path match against our cached
+    // entries so users always see the human-readable label they picked.
+    // Falls back to a basename so a manually-opened repo isn't blank.
+    std::string preview = "(no repo)";
+    for (const RepoEntry& e : mRepoChoices)
+    {
+        if (e.mPath == activePath) { preview = e.mLabel; break; }
+    }
+    if (preview == "(no repo)" && !activePath.empty())
+    {
+        size_t slash = activePath.find_last_of("/\\");
+        preview = (slash == std::string::npos) ? activePath : activePath.substr(slash + 1);
+        if (preview.empty()) preview = activePath;
+    }
+
+    ImGui::Text("Repo:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(220.0f);
+    const bool comboOpen = ImGui::BeginCombo("##RepoSwitcher", preview.c_str());
+
+    // Re-scan disk ONCE on the closed→open transition. Previously this
+    // ran every frame the combo was open, which froze the dropdown while
+    // hovering as GetUserCreatedAddons + HasGitRepo did per-frame walks.
+    if (comboOpen && !mRepoComboWasOpen)
+        RefreshRepoChoices();
+    mRepoComboWasOpen = comboOpen;
+
+    if (comboOpen)
+    {
+        for (const RepoEntry& e : mRepoChoices)
+        {
+            const bool isActive = (e.mPath == activePath);
+            if (ImGui::Selectable(e.mLabel.c_str(), isActive))
+            {
+                // Defer the actual switch to next frame so the combo can
+                // close + view state can be cleared before OpenRepository
+                // (which calls RefreshStatus synchronously) blocks the UI.
+                if (!isActive) mPendingRepoSwitch = e.mPath;
+            }
+            if (isActive) ImGui::SetItemDefaultFocus();
+        }
+
+        ImGui::Separator();
+        if (ImGui::Selectable("Open Repository..."))
+        {
+            GetGitOpenDialog()->Open();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+}
+
+// ---------------------------------------------------------------------------
 // Toolbar
 // ---------------------------------------------------------------------------
 
@@ -395,6 +536,11 @@ void GitWorkspaceWindow::DrawToolbar()
     GitService* service = GitService::Get();
     GitRepository* repo = service ? service->GetCurrentRepo() : nullptr;
     GitOperationQueue* queue = service ? service->GetOperationQueue() : nullptr;
+
+    // Repo selector — switches between the project repo and any addon
+    // repos discovered under <Project>/Packages/. Drawn first so it's
+    // always at the leftmost edge of the toolbar.
+    DrawRepoSwitcher();
 
     // Branch display
     std::string branch = repo ? repo->GetCurrentBranch() : "unknown";

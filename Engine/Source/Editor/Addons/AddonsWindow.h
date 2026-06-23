@@ -55,6 +55,17 @@ private:
     void OnDownloadAddon(const std::string& addonId);
     void OnViewMore(const std::string& addonId);
     void OnUninstallAddon(const std::string& addonId);
+
+    // Git-repo helpers for the per-row "Open in Version Control" /
+    // "Init Git" actions. HasGitRepo does a libgit2 discover under the
+    // hood (filesystem walk) — caching per row avoids re-running it every
+    // frame across the full installed-addon list. Cache invalidates when
+    // the active project changes.
+    bool DoesAddonHaveGitRepo(const std::string& addonId);
+    void InvalidateAddonGitRepoCacheIfProjectChanged();
+    std::string GetAddonDirectory(const std::string& addonId) const;
+    void OpenAddonInVersionControl(const std::string& addonId);
+    void InitAddonGitRepo(const std::string& addonId);
     void OnAddRepository();
     void OnRemoveRepository(const std::string& url);
     void OnRefreshRepositories();
@@ -110,6 +121,11 @@ private:
     ImTextureID GetAddonThumbnail(const std::string& addonId);
     void ClearThumbnailCache();
     std::unordered_map<std::string, ThumbnailEntry> mThumbnailCache;
+
+    // Per-addon "is this dir inside a git repo" cache. Keyed by addonId
+    // (the Packages/ subdir name). Cleared on project switch.
+    std::unordered_map<std::string, bool> mAddonGitRepoCache;
+    std::string mGitRepoCacheProjectDir;
 };
 
 AddonsWindow* GetAddonsWindow();
