@@ -148,7 +148,23 @@ void Viewport3D::HandleDefaultControls()
             GetEditorState()->SetControlMode(ControlMode::Pilot);
         }
 
-        if (IsMouseButtonJustDown(MOUSE_LEFT) && !ImGuizmo::IsOver())
+        // Plugin tools (Level Builder placement, paint, etc.) can set
+        // EditorState::mSuppressNextSelectionClick via the hook
+        // EditorUIHooks::Viewport_SuppressNextSelectionClick to opt out
+        // of the editor's standard "click selects the hit node" behavior
+        // for exactly one click. We read-and-clear here so the latch never
+        // survives — a stale flag would silently break Shift/Ctrl
+        // multi-select on the next legit click. Gizmo + hotkey paths
+        // further below still run.
+        bool suppressSelectionThisClick = false;
+        if (IsMouseButtonJustDown(MOUSE_LEFT) && !ImGuizmo::IsOver()
+            && GetEditorState()->mSuppressNextSelectionClick)
+        {
+            GetEditorState()->mSuppressNextSelectionClick = false;
+            suppressSelectionThisClick = true;
+        }
+
+        if (IsMouseButtonJustDown(MOUSE_LEFT) && !ImGuizmo::IsOver() && !suppressSelectionThisClick)
         {
             int32_t mouseX = 0;
             int32_t mouseY = 0;

@@ -987,6 +987,168 @@ struct EditorUIHooks
 
     /** @brief Remove a previously-registered build target by id. */
     void (*UnregisterBuildTarget)(HookId hookId, const char* targetId);
+
+    // ===== Batch 12: Viewport input polling for addons =====
+    //
+    // Poll-style helpers for tools (e.g. Level Builder) that want to react
+    // to mouse hover and clicks inside the 3D viewport. There is no HookId
+    // because nothing is allocated — old engines simply leave these fields
+    // null and addons must null-check before calling.
+    //
+    // Both calls are intended to be invoked from inside a
+    // RegisterViewportOverlay callback (which fires mid-frame with the
+    // viewport rect already laid out).
+    //
+    // Screen coordinates are unscaled ImGui pixels (i.e. ImGui::GetIO().MousePos);
+    // the implementation multiplies by EngineConfig::mEditorInterfaceScale
+    // internally to match Renderer pixel space.
+
+    /**
+     * @brief Cast a ray from the editor camera through (screenX, screenY)
+     *        and return the first hit.
+     *
+     * Tries Bullet collider ray-test first; on a miss falls back to GPU
+     * id-buffer pick + bounding-sphere intersection. On a final miss, if
+     * @p fallbackPlaneY is finite (i.e. not NaN), solves the ray against
+     * the Y=fallbackPlaneY plane.
+     *
+     * @param screenX,screenY  Unscaled ImGui pixel coords.
+     * @param fallbackPlaneY   World-Y of the fallback ground plane.
+     *                         Pass NAN to disable the fallback.
+     * @param outHitX/Y/Z      Hit position in world space (zeroed on miss).
+     * @param outNormalX/Y/Z   Hit-surface normal (zeroed on miss).
+     * @param outHitNode       Node3D* of the hit, or null on miss / plane hit.
+     *
+     * @return true on hit (collider, sphere fallback, or plane fallback),
+     *         false otherwise.
+     */
+    bool (*Viewport_RaycastUnderMouse)(float screenX, float screenY,
+                                       float fallbackPlaneY,
+                                       float* outHitX, float* outHitY, float* outHitZ,
+                                       float* outNormalX, float* outNormalY, float* outNormalZ,
+                                       void** outHitNode);
+
+    /**
+     * @brief Read the current viewport rect and pointer state for this frame.
+     *
+     * `outHovered` follows the same gate as EditorImguiIsViewportHovered():
+     * false when an ImGui popup is open or the cursor is outside the
+     * viewport rect. `outLeftClicked` is edge-triggered on mouse release
+     * with a small drag-threshold so orbit-camera drags don't count as
+     * clicks. Any output pointer may be null to skip it.
+     */
+    void (*Viewport_GetMouseState)(float* outViewportX, float* outViewportY,
+                                   float* outViewportW, float* outViewportH,
+                                   float* outMouseX,    float* outMouseY,
+                                   int* outHovered, int* outLeftClicked,
+                                   int* outLeftDown, int* outRightClicked);
+
+    // ===== Batch 13: Selection control (additive — safe for older addons) =====
+
+    /**
+     * @brief Suppress the editor's standard "click selects the hit node"
+     *        behavior for exactly the next left-mouse-release inside the
+     *        viewport. Auto-clears after one consumed click, even if that
+     *        click did not actually hit a node.
+     *
+     * Intended call pattern: a plugin tool (Level Builder placement, paint
+     * tools, lasso, etc.) that handles its own click via a viewport callback
+     * sets this every frame the tool is "armed" — i.e. the next click is
+     * going to be the tool's, not a selection click. The engine reads-and-
+     * clears the latch in Viewport3D's click path, so the latch never
+     * survives a real click.
+     *
+     * Safe to call when no latch is needed — it's a single bool write.
+     * Null-check before calling: older engine builds won't expose this.
+     */
+    void (*Viewport_SuppressNextSelectionClick)();
+
+    /**
+     * @brief Programmatically clear the editor's current node selection.
+     *
+     * Equivalent to the user pressing Escape over an empty viewport area.
+     * Plugin tools that place objects can call this after a successful
+     * place to undo any spurious selection that slipped through, so
+     * subsequent hotkeys (R rotate-gizmo, etc.) don't act on a stale pick.
+     *
+     * Null-check before calling: older engine builds won't expose this.
+     */
+    void (*Selection_Clear)();
+
+    // ===== Batch 14: File dialogs + OS file-drop dispatch ==================
+    //
+    // Thin wrappers over the existing SYS_OpenFileDialog / SYS_SaveFileDialog
+    // / SYS_SelectFolderDialog calls + the SYS_DrainDroppedFiles polling
+    // mechanism, exposed so plugins (Level Builder share UI, asset importers,
+    // settings panels) don't have to vendor their own platform code.
+    //
+    // All dialogs are SYNCHRONOUS — the call blocks until the user picks or
+    // cancels. UI threads call them from a button click; no callback needed.
+    // The file-drop hook IS callback-based since drops can land any frame.
+
+    /**
+     * @brief Show an OS-native file-open dialog.
+     *
+     * @param title           Window title (may be null for "Open").
+     * @param filter          Newline-separated filter pairs, "label\0pattern\0"
+     *                        style flattened to "label|pattern;label|pattern".
+     *                        Null/empty = all files. Today's impl ignores
+     *                        the filter (matches existing SYS_OpenFileDialog
+     *                        behavior); accepted for forward compat.
+     * @param initialDir      Suggested starting directory; null = system default.
+     * @param outPath         Buffer to receive the chosen path (forward slashes).
+     * @param outPathSize     Size of outPath buffer in bytes.
+     *
+     * @return 1 on selection, 0 on cancel.
+     */
+    int (*ShowOpenFileDialog)(const char* title,
+                              const char* filter,
+                              const char* initialDir,
+                              char* outPath, int outPathSize);
+
+    /**
+     * @brief Show an OS-native save-file dialog (with overwrite prompt).
+     *
+     * @param title           Window title (may be null for "Save As").
+     * @param filter          See ShowOpenFileDialog.
+     * @param defaultName     Suggested file name (may include extension).
+     * @param outPath         Buffer to receive the chosen path (forward slashes).
+     * @param outPathSize     Size of outPath buffer.
+     *
+     * @return 1 on confirm, 0 on cancel.
+     */
+    int (*ShowSaveFileDialog)(const char* title,
+                              const char* filter,
+                              const char* defaultName,
+                              char* outPath, int outPathSize);
+
+    /**
+     * @brief Show an OS-native folder-picker dialog.
+     *
+     * @param title           Window title (may be null for "Select Folder").
+     * @param outPath         Buffer to receive the chosen directory (forward slashes).
+     * @param outPathSize     Size of outPath buffer.
+     *
+     * @return 1 on selection, 0 on cancel.
+     */
+    int (*ShowSelectFolderDialog)(const char* title,
+                                  char* outPath, int outPathSize);
+
+    /**
+     * @brief Subscribe to OS file-drop events on the editor window.
+     *
+     * Each frame the engine drains the OS drop queue (SYS_DrainDroppedFiles)
+     * and dispatches the path list to every registered handler. Handlers
+     * filter by extension / count and consume what they recognize; the
+     * standard FileDropImportModal still sees the drop unless every
+     * registered plugin handler returns true.
+     *
+     * `paths` is a contiguous array of `count` C strings, lifetime ends
+     * when the callback returns — copy what you need.
+     */
+    typedef bool (*FileDropCallback)(int count, const char** paths, void* userData);
+    void (*RegisterFileDropHandler)(HookId hookId, FileDropCallback cb, void* userData);
+    void (*UnregisterFileDropHandler)(HookId hookId);
 };
 
 /**

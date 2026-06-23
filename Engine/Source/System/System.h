@@ -98,6 +98,52 @@ bool SYS_ExecFull(const char* cmd, std::string* outStdout, std::string* outStder
  */
 void SYS_ExecDetached(const char* cmd);
 
+/**
+ * @brief Terminate every running process matching an image name.
+ *
+ * Windows: taskkill /F /IM <name>  (synchronous; returns 0 on success, non-zero
+ *   when nothing matched or termination failed). The image name is the .exe
+ *   filename, e.g. "mspdbsrv.exe".
+ * Linux/macOS: pkill -9 <name>.
+ * Other platforms (consoles, headless): no-op, returns false.
+ *
+ * Used by native-addon recovery to clear orphaned mspdbsrv / link / cl
+ * processes that pin the addon .pdb after a crashed prior build. Safe to call
+ * even when no process matches — the failing exit code is treated as success
+ * for the caller's "kill what you can" semantics.
+ *
+ * @param processName Image name (e.g. "mspdbsrv.exe"). NULL/empty = no-op.
+ * @return true if a process likely existed and was terminated; false if
+ *         nothing matched, terminate failed, or the platform has no kill
+ *         facility. Most callers should ignore the return and call
+ *         SYS_Sleep afterwards to let the OS release file handles.
+ */
+bool SYS_KillProcessByName(const char* processName);
+
+/**
+ * @brief Spawn a detached, fully-independent copy of an executable.
+ *
+ * Unlike SYS_ExecDetached (which routes through cmd.exe /c and is for "open
+ * external app" flows), this spawns a binary directly with NO inherited
+ * handles, NO Job-Object membership, and NO shell wrapper. The new process
+ * survives the parent's death — which is exactly what the addon-recovery
+ * Restart Editor flow needs: the new editor must outlive the dying current
+ * editor so the Job Object's KILL_ON_JOB_CLOSE kills mspdbsrv without also
+ * killing the replacement.
+ *
+ * Windows: CreateProcessA(exePath, exePath + " " + args,
+ *           DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
+ *           bInheritHandles=FALSE).
+ * Linux/macOS: posix double-fork with execv.
+ * Other platforms: no-op, returns false.
+ *
+ * @param exePath Absolute path to the executable. NULL/empty = no-op.
+ * @param args    Command-line arguments (space-separated; quoted as needed).
+ *                NULL or empty means launch with no args.
+ * @return true if spawn succeeded, false otherwise.
+ */
+bool SYS_SpawnDetachedExecutable(const char* exePath, const char* args);
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment);
 void SYS_AlignedFree(void* pointer);

@@ -140,6 +140,15 @@ struct EditorState
     bool mPaused = false;
     bool mHasEjectedOnce = false;
     bool mSavedGridEnabled = false;
+
+    // One-frame latch consumed by Viewport3D's left-click selection path.
+    // Set true to make the next left-click release inside the viewport NOT
+    // change the selection. Plugin tools that handle their own clicks
+    // (Level Builder placement etc.) set this every frame they're armed
+    // via EditorUIHooks::Viewport_SuppressNextSelectionClick. Read-and-
+    // cleared in Viewport3D::HandleDefaultControls, so a stale flag never
+    // survives a real click.
+    bool mSuppressNextSelectionClick = false;
     glm::vec4 mSavedEditorClearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     int32_t mSavedWindowRect[4] = {}; // x, y, w, h — saved before Play Full Screen resize
     int32_t mEditSceneIndex = -1;
@@ -163,6 +172,19 @@ struct EditorState
     bool mReloadScriptsAtEndOfFrame = false;
     bool mOpenProjectAtEndOfFrame = false;
     std::string mPendingOpenProjectPath;
+    // Deferred "close current project" — used by File > Close Project and as
+    // a precondition for Tier-2 recovery. Drained by EditorMain's per-frame
+    // dispatcher alongside the open/save deferreds.
+    bool mCloseProjectAtEndOfFrame = false;
+    // Deferred Tier-2 recovery: drop addon DLLs, kill mspdbsrv, wipe
+    // Intermediate/Plugins, reopen project. mPendingAddonRecoveryReason is
+    // surfaced in logs.
+    bool mAddonRecoveryAtEndOfFrame = false;
+    std::string mPendingAddonRecoveryReason;
+    // Deferred Tier-3 recovery: spawn a fresh editor with --addon-recovery
+    // and quit the current one. The new instance does the wipe + reopen.
+    bool mEditorRestartAtEndOfFrame = false;
+    std::string mPendingEditorRestartReason;
     // Deferred OpenScene. Either a stub (preferred -- path is captured at
     // request time so a later directory rename doesn't break it) or empty
     // to trigger the OS file dialog inside the worker. Scene* is held as

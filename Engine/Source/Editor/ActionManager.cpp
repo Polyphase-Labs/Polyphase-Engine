@@ -12,6 +12,7 @@
 #if PLATFORM_LINUX
 #include <sys/wait.h>
 #include <signal.h>
+#include <unistd.h>   // getpid for addon-recovery sentinel.
 #endif
 
 #include <stdint.h>
@@ -4452,17 +4453,117 @@ void ActionManager::ExecuteAction(Action* action)
     OCT_ASSERT(std::find(mActionHistory.begin(), mActionHistory.end(), action) == mActionHistory.end());
     OCT_ASSERT(std::find(mActionFuture.begin(), mActionFuture.end(), action) == mActionFuture.end());
 
+    // Inside an open plugin group: execute immediately, accumulate as a child,
+    // and DON'T push to mActionHistory — the group will push once on EndGroup.
+    // The `action != mOpenGroup` guard lets EndActionGroup recurse here to
+    // commit the group itself onto the history.
+    if (mOpenGroup && action != mOpenGroup)
+    {
+        action->Execute();
+        mOpenGroup->Add(action);
+        return;
+    }
+
     action->Execute();
 
     // Limit max number of history?
     const uint32_t MaxActionHistoryCount = 100;
     if (mActionHistory.size() >= MaxActionHistoryCount)
     {
+        delete mActionHistory.front();
         mActionHistory.erase(mActionHistory.begin());
     }
 
     mActionHistory.push_back(action);
     ClearActionFuture();
+}
+
+void ActionManager::BeginActionGroup(const char* name)
+{
+    if (mGroupDepth == 0)
+    {
+        mOpenGroup = new ActionGroup(name);
+    }
+    ++mGroupDepth;
+}
+
+void ActionManager::EndActionGroup()
+{
+    if (mGroupDepth == 0) return;
+    --mGroupDepth;
+    if (mGroupDepth != 0) return;
+
+    ActionGroup* g = mOpenGroup;
+    mOpenGroup = nullptr;
+    if (!g) return;
+
+    if (g->IsEmpty())
+    {
+        delete g;
+        return;
+    }
+
+    // Group already executed its children inline via the open-group branch
+    // in ExecuteAction. Push the group onto history without re-executing.
+    const uint32_t MaxActionHistoryCount = 100;
+    if (mActionHistory.size() >= MaxActionHistoryCount)
+    {
+        delete mActionHistory.front();
+        mActionHistory.erase(mActionHistory.begin());
+    }
+    mActionHistory.push_back(g);
+    ClearActionFuture();
+}
+
+static bool ActionContainsPluginTag(Action* action, const std::string& tag)
+{
+    if (PluginAction* pa = dynamic_cast<PluginAction*>(action))
+    {
+        return pa->GetPluginTag() == tag;
+    }
+    if (ActionGroup* g = dynamic_cast<ActionGroup*>(action))
+    {
+        for (Action* child : g->GetChildren())
+        {
+            if (ActionContainsPluginTag(child, tag))
+                return true;
+        }
+    }
+    return false;
+}
+
+void ActionManager::PurgePluginActions(const std::string& pluginTag)
+{
+    if (pluginTag.empty()) return;
+
+    auto purgeFrom = [&](std::vector<Action*>& stack)
+    {
+        for (auto it = stack.begin(); it != stack.end();)
+        {
+            if (ActionContainsPluginTag(*it, pluginTag))
+            {
+                delete *it;
+                it = stack.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    };
+
+    purgeFrom(mActionHistory);
+    purgeFrom(mActionFuture);
+
+    // Drop an in-flight group if it's accumulating actions for this plugin.
+    // Safer to discard the partial group than to leak children pointing into
+    // a DLL that's about to be FreeLibrary'd.
+    if (mOpenGroup && ActionContainsPluginTag(mOpenGroup, pluginTag))
+    {
+        delete mOpenGroup;
+        mOpenGroup = nullptr;
+        mGroupDepth = 0;
+    }
 }
 
 void ActionManager::Undo()
@@ -5374,6 +5475,189 @@ void ActionManager::RequestOpenProject(const char* path)
         return;
     es->mPendingOpenProjectPath = path ? path : "";
     es->mOpenProjectAtEndOfFrame = true;
+}
+
+void ActionManager::RequestCloseProject()
+{
+    EditorState* es = GetEditorState();
+    // Don't pile up on top of an already-pending open or another close; the
+    // progress modal coalesces these into one round-trip.
+    if (es->mOpenProjectAtEndOfFrame || es->mCloseProjectAtEndOfFrame ||
+        EditorProgress::IsActive())
+    {
+        return;
+    }
+    es->mCloseProjectAtEndOfFrame = true;
+}
+
+void ActionManager::RequestAddonRecovery(const char* reason)
+{
+    EditorState* es = GetEditorState();
+    if (es->mAddonRecoveryAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mPendingAddonRecoveryReason = reason ? reason : "";
+    es->mAddonRecoveryAtEndOfFrame = true;
+}
+
+void ActionManager::RequestEditorRestartForAddonRecovery(const char* reason)
+{
+    EditorState* es = GetEditorState();
+    if (es->mEditorRestartAtEndOfFrame)
+        return;
+    es->mPendingEditorRestartReason = reason ? reason : "";
+    es->mEditorRestartAtEndOfFrame = true;
+}
+
+void ActionManager::CloseProject()
+{
+    if (GetEngineState()->mProjectDirectory.empty())
+    {
+        LogDebug("CloseProject: no project loaded; nothing to close.");
+        return;
+    }
+
+    LogDebug("CloseProject: closing '%s'.", GetEngineState()->mProjectName.c_str());
+
+    EditorProgress::Begin("Closing Project", "Tearing down...");
+    ::CloseProject(/*unloadNativeAddons*/ true);
+
+    // Match OpenProject's editor-side resets so the UI doesn't keep stale
+    // pointers into the now-closed project's directory tree.
+    EditorState* es = GetEditorState();
+    es->ClearAssetDirHistory();
+    es->SetAssetDirectory(nullptr, false);
+    es->SetSelectedAssetStub(nullptr);
+
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr)
+    {
+        hookMgr->FireOnProjectClose("");
+    }
+
+    SYS_SetWindowTitle("Polyphase");
+    EditorProgress::End();
+}
+
+void ActionManager::RecoverFromStuckAddons(const char* reason)
+{
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr)
+    {
+        LogWarning("RecoverFromStuckAddons: NativeAddonManager not available; aborting.");
+        return;
+    }
+    nam->RecoverFromStuckAddons(reason ? reason : "RequestAddonRecovery");
+}
+
+void ActionManager::RestartEditorForAddonRecovery(const char* reason)
+{
+    // Capture the project path now — once the new editor takes over, this
+    // process's globals are gone. Empty path is fine; the recovery sentinel
+    // then just launches the editor into the project-select window.
+    std::string projectPath = GetEngineState()->mProjectPath;
+
+    // Resolve PID + per-user sentinel directory. Tier-3 is Windows-first;
+    // the POSIX path is a best-effort fallback so a Linux editor build
+    // doesn't link-error.
+    uint64_t pid = 0;
+    std::string sentinelDir;
+#if PLATFORM_WINDOWS
+    pid = (uint64_t)GetCurrentProcessId();
+    {
+        const char* appData = std::getenv("LOCALAPPDATA");
+        if (appData != nullptr && *appData != 0)
+        {
+            sentinelDir = std::string(appData) + "\\Polyphase\\";
+            for (char& c : sentinelDir) { if (c == '/') c = '\\'; }
+            SYS_CreateDirectory(sentinelDir.c_str());
+        }
+        else
+        {
+            sentinelDir = SYS_GetAbsolutePath("./");
+        }
+    }
+#elif PLATFORM_LINUX
+    pid = (uint64_t)::getpid();
+    {
+        const char* home = std::getenv("HOME");
+        if (home != nullptr && *home != 0)
+        {
+            sentinelDir = std::string(home) + "/.local/share/Polyphase/";
+            SYS_CreateDirectory(sentinelDir.c_str());
+        }
+        else
+        {
+            sentinelDir = SYS_GetAbsolutePath("./");
+        }
+    }
+#else
+    sentinelDir = SYS_GetAbsolutePath("./");
+#endif
+
+    // Build the sentinel JSON so the new instance knows the project + reason
+    // without relying solely on argv (process-spawning tools sometimes mangle
+    // long quoted command lines).
+    {
+        char sentinelName[64];
+        snprintf(sentinelName, sizeof(sentinelName),
+                 "addon-recovery-%llu.json",
+                 (unsigned long long)pid);
+        std::string sentinelPath = sentinelDir + sentinelName;
+
+        std::string json = "{\n";
+        json += "  \"projectPath\": \"";
+        for (char c : projectPath)
+        {
+            if (c == '\\' || c == '"') { json += '\\'; }
+            json += c;
+        }
+        json += "\",\n";
+        json += "  \"reason\": \"";
+        for (char c : std::string(reason ? reason : ""))
+        {
+            if (c == '\\' || c == '"') { json += '\\'; }
+            json += c;
+        }
+        json += "\",\n";
+        json += "  \"pid\": ";
+        json += std::to_string(pid);
+        json += "\n}\n";
+
+        Stream s;
+        s.WriteBytes((const uint8_t*)json.data(), (uint32_t)json.size());
+        s.WriteFile(sentinelPath.c_str());
+        LogDebug("Addon-recovery sentinel: %s", sentinelPath.c_str());
+    }
+
+    // Compose argv for the new instance. The sentinel pid lets the receiver
+    // pick its file deterministically; --addon-recovery is the flag that
+    // triggers the wipe-before-open branch in EditorMain.
+    std::string exePath = SYS_GetExecutablePath();
+    std::string args = "--addon-recovery=";
+    args += std::to_string(pid);
+    if (!projectPath.empty())
+    {
+        args += " --project=\"";
+        args += projectPath;
+        args += "\"";
+    }
+
+    LogDebug("Spawning replacement editor for addon recovery: %s %s",
+             exePath.c_str(), args.c_str());
+
+    if (!SYS_SpawnDetachedExecutable(exePath.c_str(), args.c_str()))
+    {
+        LogError("RestartEditorForAddonRecovery: SpawnDetachedExecutable failed; "
+                 "current editor will stay alive.");
+        return;
+    }
+
+    // Trigger the same clean-shutdown path as the OS close button. The
+    // unsaved-asset guard still fires first if there's dirty state — the user
+    // can save and the restart will then proceed.
+    LogDebug("RestartEditorForAddonRecovery: requesting current editor quit "
+             "(reason: %s).", reason ? reason : "?");
+    GetEngineState()->mQuit = true;
 }
 
 // Drop a Directory.Build.props (auto-imported by MSBuild) and a
@@ -8528,6 +8812,87 @@ void Action::Execute()
 void Action::Reverse()
 {
     MarkEditSceneDirty();
+}
+
+// ---- PluginAction ----
+
+PluginAction::PluginAction(const char* name, DoFn doFn, UndoFn undoFn,
+                           FreeFn freeFn, void* userData)
+    : mName(name ? name : "plugin")
+    , mDoFn(doFn)
+    , mUndoFn(undoFn)
+    , mFreeFn(freeFn)
+    , mUserData(userData)
+{
+}
+
+PluginAction::~PluginAction()
+{
+    if (mFreeFn)
+    {
+        mFreeFn(mUserData);
+    }
+}
+
+void PluginAction::Execute()
+{
+    Action::Execute();
+    if (mDoFn) mDoFn(mUserData);
+}
+
+void PluginAction::Reverse()
+{
+    Action::Reverse();
+    if (mUndoFn) mUndoFn(mUserData);
+}
+
+const char* PluginAction::GetName()
+{
+    return mName.c_str();
+}
+
+// ---- ActionGroup ----
+
+ActionGroup::ActionGroup(const char* name)
+    : mName(name ? name : "Group")
+{
+}
+
+ActionGroup::~ActionGroup()
+{
+    for (Action* a : mChildren)
+    {
+        delete a;
+    }
+}
+
+void ActionGroup::Add(Action* a)
+{
+    if (a) mChildren.push_back(a);
+}
+
+void ActionGroup::Execute()
+{
+    Action::Execute();
+    for (Action* a : mChildren)
+    {
+        a->Execute();
+    }
+}
+
+void ActionGroup::Reverse()
+{
+    Action::Reverse();
+    // Reverse in REVERSE order so dependencies unwind correctly.
+    for (auto it = mChildren.rbegin(); it != mChildren.rend(); ++it)
+    {
+        (*it)->Reverse();
+    }
+}
+
+const char* ActionGroup::GetName()
+{
+    return mName.c_str();
 }
 
 ActionEditProperty::ActionEditProperty(

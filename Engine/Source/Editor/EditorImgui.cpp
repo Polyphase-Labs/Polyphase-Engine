@@ -11909,6 +11909,8 @@ static void DrawNativeAddonBuildBlockedModal()
             // Defer the call until after EndPopup so the modal isn't redrawn
             // mid-state-change. RetryBlockedBuild may set mBlocked again if
             // files are still locked, which will reopen the popup next frame.
+            // The new RetryBlockedBuild also auto-kills mspdbsrv + waits before
+            // re-sweeping, so the common race-with-handle-release case is gone.
             nam->RetryBlockedBuild();
         }
         ImGui::SameLine();
@@ -11916,6 +11918,58 @@ static void DrawNativeAddonBuildBlockedModal()
         {
             nam->CancelBlockedBuild();
             ImGui::CloseCurrentPopup();
+        }
+
+        // Escalation row. After the user has retried at least twice without
+        // unsticking the build, surface the heavier-weight Tier-2 / Tier-3
+        // recovery flows so they don't have to hunt them out of the menu.
+        if (info.mRetryCount >= 2)
+        {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                "Retry has run %d times and the files are still locked. Try a heavier reset:",
+                info.mRetryCount);
+
+            ImGui::SameLine();
+            // Tier 2 — close the project, taskkill mspdbsrv, wipe Intermediate,
+            // reopen. Most users find this is enough.
+            if (ImGui::Button("Recover from stuck addons", ImVec2(240, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+                // Clear the blocked state so the modal doesn't pop again next
+                // frame while CloseProject is mid-flight.
+                nam->CancelBlockedBuild();
+                ActionManager::Get()->RequestAddonRecovery(
+                    "Build-blocked modal escalation");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(
+                    "Tier 2: close project, kill mspdbsrv, delete Intermediate/Plugins,\n"
+                    "then reopen. The current session keeps running.");
+            }
+        }
+        if (info.mRetryCount >= 3)
+        {
+            // Tier 3 — full editor restart. Reserved for the case where even
+            // Tier 2 can't pry the lock loose (VS debugger attached etc.).
+            ImGui::SameLine();
+            if (ImGui::Button("Restart Editor", ImVec2(160, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+                nam->CancelBlockedBuild();
+                ActionManager::Get()->RequestEditorRestartForAddonRecovery(
+                    "Build-blocked modal Tier-3 escalation");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(
+                    "Tier 3: spawn a fresh editor process, exit this one. The OS\n"
+                    "tears down mspdbsrv via the Job Object when this instance\n"
+                    "dies. The new editor wipes Intermediate/Plugins before\n"
+                    "opening the project.");
+            }
         }
 
         ImGui::EndPopup();
@@ -14081,6 +14135,14 @@ void EditorImguiGetViewport(uint32_t& x, uint32_t& y, uint32_t& width, uint32_t&
         width = uint32_t(ImGui::GetIO().DisplaySize.x + 0.5f);
         height = uint32_t(ImGui::GetIO().DisplaySize.y + 0.5f);
     }
+}
+
+void EditorImguiGetViewportRect(float* outX, float* outY, float* outW, float* outH)
+{
+    if (outX) *outX = sViewportDockPos.x;
+    if (outY) *outY = sViewportDockPos.y;
+    if (outW) *outW = sViewportDockSize.x;
+    if (outH) *outH = sViewportDockSize.y;
 }
 
 bool EditorImguiIsViewportHovered()

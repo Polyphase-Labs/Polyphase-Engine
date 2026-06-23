@@ -1069,6 +1069,99 @@ void SYS_ExecDetached(const char* cmd)
     ExecCommonDetached(cmd);
 }
 
+bool SYS_KillProcessByName(const char* processName)
+{
+    if (processName == nullptr || *processName == 0) return false;
+
+    // taskkill /F /IM <name>  — synchronous. Exit code 0 = killed, 128 = no
+    // match. We treat both as a successful no-op outcome for callers (the
+    // observable post-state is "no process by that name is running"), but
+    // only return true when something was actually terminated so callers
+    // that want diagnostic logging can distinguish.
+    std::string cmd = std::string("taskkill /F /IM \"") + processName + "\" >nul 2>&1";
+
+    std::string out;
+    int exitCode = -1;
+    SYS_ExecFull(cmd.c_str(), &out, nullptr, &exitCode);
+
+    if (exitCode == 0)
+    {
+        LogDebug("SYS_KillProcessByName: terminated %s", processName);
+        return true;
+    }
+    LogDebug("SYS_KillProcessByName: no live %s (exit=%d)", processName, exitCode);
+    return false;
+}
+
+bool SYS_SpawnDetachedExecutable(const char* exePath, const char* args)
+{
+    if (exePath == nullptr || *exePath == 0) return false;
+
+    // Build mutable cmdline: argv0 must be the executable path (quoted in
+    // case of spaces) followed by any user args verbatim.
+    std::string cmdLine;
+    cmdLine.reserve(strlen(exePath) + (args ? strlen(args) : 0) + 4);
+    cmdLine.push_back('"');
+    cmdLine.append(exePath);
+    cmdLine.push_back('"');
+    if (args && *args)
+    {
+        cmdLine.push_back(' ');
+        cmdLine.append(args);
+    }
+
+    STARTUPINFOA si = {};
+    si.cb = sizeof(si);
+
+    PROCESS_INFORMATION pi = {};
+
+    // DETACHED_PROCESS: no console inheritance.
+    // CREATE_NEW_PROCESS_GROUP: independent Ctrl+C group from the parent.
+    // CREATE_BREAKAWAY_FROM_JOB: critical — the parent (editor) belongs to
+    //   the editor's Job Object with KILL_ON_JOB_CLOSE; without breakaway the
+    //   new editor instance would die the moment the current editor exits,
+    //   defeating the whole point of the restart-with-cleanup flow.
+    DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB;
+
+    BOOL ok = CreateProcessA(
+        nullptr,
+        &cmdLine[0],
+        nullptr, nullptr,
+        FALSE,        // bInheritHandles — must be FALSE; new editor must not inherit pipes.
+        flags,
+        nullptr, nullptr,
+        &si, &pi);
+
+    if (!ok)
+    {
+        // Retry without breakaway if the parent's Job forbids it. Better to
+        // have the new editor die with the old one than to fail to launch.
+        DWORD gle = GetLastError();
+        if (gle == ERROR_ACCESS_DENIED)
+        {
+            flags &= ~CREATE_BREAKAWAY_FROM_JOB;
+            ok = CreateProcessA(
+                nullptr,
+                &cmdLine[0],
+                nullptr, nullptr,
+                FALSE,
+                flags,
+                nullptr, nullptr,
+                &si, &pi);
+        }
+    }
+
+    if (!ok)
+    {
+        LogError("SYS_SpawnDetachedExecutable failed (gle=%lu) for: %s", GetLastError(), cmdLine.c_str());
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment)
 {

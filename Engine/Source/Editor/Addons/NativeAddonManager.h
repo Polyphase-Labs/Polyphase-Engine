@@ -217,6 +217,41 @@ public:
      */
     void ReloadAllNativeAddons();
 
+    /**
+     * @brief Unload every loaded native addon.
+     *
+     * FreeLibrary's each loaded module, strips its factories / editor UI hooks
+     * / Asset instances first, and queues shadow-copy directories for delete.
+     * Called from Engine::CloseProject (Tier 2 recovery, Tools > Close Project)
+     * and from the manager dtor at shutdown. Safe to call when nothing is
+     * loaded — iterates and skips entries whose mModuleHandle is null.
+     */
+    void UnloadAllNativeAddons();
+
+    /**
+     * @brief Tier-2 recovery — get unstuck without restarting the editor.
+     *
+     * Used when Tier-1 (the build-blocked modal's Retry) couldn't free the
+     * locked .pdb on its own. Sequence:
+     *   1. EndPlayInEditor + CloseAllEditScenes (UI-safe state).
+     *   2. Engine::CloseProject() — Purge assets, UnloadAllNativeAddons,
+     *      clear loaded scripts. Drops every engine-side handle on the
+     *      addon DLLs and their PDBs.
+     *   3. SYS_KillProcessByName mspdbsrv / mspdbcmf / link + 1s wait.
+     *   4. Hard-wipe <project>/Intermediate/Plugins/ and PluginsCache/.
+     *   5. ActionManager::OpenProject(previousPath) — triggers a clean
+     *      rebuild of every addon from scratch.
+     *
+     * Bails out (no destructive changes) if no project is currently open or
+     * if the user has an active project-restart modal in flight. The reason
+     * string is logged and surfaced in the progress dialog.
+     *
+     * @param reason Short user-facing description (e.g. "Tools > Recover
+     *               from stuck addons", "Retry escalation").
+     * @return true if recovery ran end-to-end; false if it bailed early.
+     */
+    bool RecoverFromStuckAddons(const char* reason);
+
     // Force Rebuild was removed in favour of the per-addon Reload button +
     // the per-project chokepoint. To force a fresh compile of all addons,
     // call ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/true, ...).
@@ -262,6 +297,12 @@ public:
         // simplest manual fix is to delete this entire directory. The modal
         // surfaces this as a copy-paste shell command.
         std::string              mIntermediateDir;
+        // Number of times the user has clicked Retry on this block. Reset
+        // when a fresh block is raised by a different addon or after the
+        // build succeeds. The modal uses this to escalate the recovery UX
+        // (Tier 1 → Tier 2 → Tier 3) once auto-kill-and-retry plainly isn't
+        // unsticking the lock.
+        int                      mRetryCount = 0;
     };
     bool                IsBuildBlocked() const   { return mBlocked.mActive; }
     const BuildBlocked& GetBuildBlocked() const  { return mBlocked; }
@@ -636,6 +677,14 @@ private:
 
     // Set when a pre-build sweep finds locked files in the intermediate dir.
     BuildBlocked                     mBlocked;
+
+    // Carries the retry counter from one RetryBlockedBuild into the next
+    // BuildBlocked the (synchronous or async) build path raises. Reset to 0
+    // after the value lands in mBlocked.mRetryCount. Without this, the
+    // counter would reset every time we transiently clear mBlocked at the
+    // top of RetryBlockedBuild — the modal would never see "this is the
+    // user's third try" and never escalate to Tier 2.
+    int                              mPendingRetryCount = 0;
 
     // Project-restart state machine. See ProjectRestartPhase for the flow.
     ProjectRestart                   mRestart;

@@ -401,10 +401,23 @@ glm::vec3 Camera3D::ScreenToWorldPosition(int32_t x, int32_t y)
 
 glm::vec3 Camera3D::TraceScreenToWorld(int32_t x, int32_t y, uint8_t colMask, RayTestResult& rayResult)
 {
-    glm::vec3 worldPos = ScreenToWorldPosition(x, y);
+    glm::vec3 nearPos = ScreenToWorldPosition(x, y);
 
-    glm::vec3 startPos = GetWorldPosition();
-    glm::vec3 rayDir = Maths::SafeNormalize(worldPos - startPos);
+    glm::vec3 startPos;
+    glm::vec3 rayDir;
+    if (GetProjectionMode() == ProjectionMode::PERSPECTIVE)
+    {
+        startPos = GetWorldPosition();
+        rayDir   = Maths::SafeNormalize(nearPos - startPos);
+    }
+    else
+    {
+        // Orthographic: every screen pixel produces a parallel ray. The unprojected
+        // near-plane point IS the ray origin; direction is the camera's forward axis.
+        startPos = nearPos;
+        rayDir   = Maths::SafeNormalize(GetForwardVector());
+    }
+
     glm::vec3 endPos = startPos + rayDir * GetFarZ();
 
     GetWorld()->RayTest(startPos, endPos, colMask, rayResult);

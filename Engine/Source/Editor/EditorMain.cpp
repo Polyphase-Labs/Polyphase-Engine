@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <cstdlib>   // getenv for addon-recovery sentinel path resolution
 #include <chrono>
 
 #if PLATFORM_WINDOWS
@@ -363,6 +364,114 @@ void EditorMain(int32_t argc, char** argv)
 
     InitializeGrid();
 
+    // Tier-3 addon-recovery handoff. The prior editor process spawned us with
+    // --addon-recovery=<pid> and dropped a sentinel JSON describing the
+    // project to reopen. Run the kill-and-wipe sequence BEFORE any
+    // OpenProject so the rebuild that follows hits a fully clean tree —
+    // even if the prior editor never managed to release the .pdb.
+    //
+    // GetEngineConfig() returns a const view of the singleton; we need to
+    // patch mProjectPath / clear mAddonRecoveryOldPid here so cast it away.
+    // No other concurrent reader exists this early in EditorMain.
+    EngineConfig* mutableEngineConfig = const_cast<EngineConfig*>(engineConfig);
+    if (mutableEngineConfig->mAddonRecoveryOldPid != 0)
+    {
+        const uint64_t oldPid = mutableEngineConfig->mAddonRecoveryOldPid;
+        LogWarning("Addon-recovery startup: prior PID=%llu",
+                   (unsigned long long)oldPid);
+
+        // Look up the sentinel JSON: same path the spawner wrote it to.
+        std::string sentinelDir;
+#if PLATFORM_WINDOWS
+        const char* appData = std::getenv("LOCALAPPDATA");
+        if (appData != nullptr && *appData != 0)
+        {
+            sentinelDir = std::string(appData) + "\\Polyphase\\";
+            for (char& c : sentinelDir) { if (c == '/') c = '\\'; }
+        }
+        else
+        {
+            sentinelDir = SYS_GetAbsolutePath("./");
+        }
+#elif PLATFORM_LINUX
+        const char* home = std::getenv("HOME");
+        if (home != nullptr && *home != 0)
+        {
+            sentinelDir = std::string(home) + "/.local/share/Polyphase/";
+        }
+        else
+        {
+            sentinelDir = SYS_GetAbsolutePath("./");
+        }
+#else
+        sentinelDir = SYS_GetAbsolutePath("./");
+#endif
+        char sentinelName[64];
+        snprintf(sentinelName, sizeof(sentinelName),
+                 "addon-recovery-%llu.json",
+                 (unsigned long long)oldPid);
+        std::string sentinelPath = sentinelDir + sentinelName;
+
+        // If we don't yet have a project path (argv was mangled), pull one
+        // from the sentinel — that's why we wrote it.
+        std::string projectFromSentinel;
+        std::string reason;
+        {
+            rapidjson::Document doc;
+            if (JsonSettings::LoadFromFile(sentinelPath, doc) && doc.IsObject())
+            {
+                projectFromSentinel = JsonSettings::GetString(doc, "projectPath", "");
+                reason = JsonSettings::GetString(doc, "reason", "");
+                LogWarning("Addon-recovery: sentinel %s  reason='%s'",
+                           sentinelPath.c_str(), reason.c_str());
+            }
+            else
+            {
+                LogWarning("Addon-recovery: sentinel missing (%s) — proceeding "
+                           "with argv-supplied path only.", sentinelPath.c_str());
+            }
+        }
+        if (mutableEngineConfig->mProjectPath.empty() && !projectFromSentinel.empty())
+        {
+            mutableEngineConfig->mProjectPath = projectFromSentinel;
+        }
+
+        // Mop up the off-process lock holders the prior editor couldn't
+        // shake. The prior editor's Job Object died with the process — but
+        // mspdbsrv has a habit of detaching from its parent in subtle ways,
+        // so kill by image name to be safe.
+        LogWarning("Addon-recovery: terminating mspdbsrv / link / mspdbcmf...");
+#if PLATFORM_WINDOWS
+        SYS_KillProcessByName("mspdbsrv.exe");
+        SYS_KillProcessByName("mspdbcmf.exe");
+        SYS_KillProcessByName("link.exe");
+#endif
+        SYS_Sleep(1000);
+
+        // Wipe both Intermediate trees for the project. This is the action
+        // Tier 1 and Tier 2 couldn't pull off; the locked files are now
+        // releasable because the old editor is gone and we've reaped its
+        // build child processes.
+        if (!mutableEngineConfig->mProjectPath.empty())
+        {
+            const std::string& pp = mutableEngineConfig->mProjectPath;
+            std::string projectDir = pp.substr(0, pp.find_last_of("/\\") + 1);
+            std::string pluginsDir = projectDir + "Intermediate/Plugins/";
+            std::string cacheDir   = projectDir + "Intermediate/PluginsCache/";
+            LogWarning("Addon-recovery: rmdir %s", pluginsDir.c_str());
+            SYS_RemoveDirectory(pluginsDir.c_str());
+            LogWarning("Addon-recovery: rmdir %s", cacheDir.c_str());
+            SYS_RemoveDirectory(cacheDir.c_str());
+        }
+
+        // Sentinel served its purpose; drop it so a future crash doesn't
+        // accidentally re-trigger the recovery sweep without an explicit
+        // request from the user.
+        SYS_RemoveFile(sentinelPath.c_str());
+        mutableEngineConfig->mAddonRecoveryOldPid = 0;
+        LogWarning("Addon-recovery: cleanup complete — opening project clean.");
+    }
+
     if (engineConfig->mProjectPath != "")
     {
         // Clear the project path so we don't overwrite the EditorProject.sav file with default data.
@@ -518,6 +627,25 @@ void EditorMain(int32_t argc, char** argv)
                 std::string p = es->mPendingOpenProjectPath;
                 es->mPendingOpenProjectPath.clear();
                 ActionManager::Get()->OpenProject(p.empty() ? nullptr : p.c_str());
+            }
+            else if (es->mCloseProjectAtEndOfFrame)
+            {
+                es->mCloseProjectAtEndOfFrame = false;
+                ActionManager::Get()->CloseProject();
+            }
+            else if (es->mAddonRecoveryAtEndOfFrame)
+            {
+                es->mAddonRecoveryAtEndOfFrame = false;
+                std::string r = es->mPendingAddonRecoveryReason;
+                es->mPendingAddonRecoveryReason.clear();
+                ActionManager::Get()->RecoverFromStuckAddons(r.c_str());
+            }
+            else if (es->mEditorRestartAtEndOfFrame)
+            {
+                es->mEditorRestartAtEndOfFrame = false;
+                std::string r = es->mPendingEditorRestartReason;
+                es->mPendingEditorRestartReason.clear();
+                ActionManager::Get()->RestartEditorForAddonRecovery(r.c_str());
             }
             else if (es->mOpenSceneAtEndOfFrame)
             {

@@ -262,6 +262,56 @@ static void PluginDestroyNode(Node* node)
     }
 }
 
+// ---- Plugin-driven undo actions ----
+//
+// Wrappers exposed to addons through PolyphaseEngineAPI::EditorAction_*.
+// PluginEditorAction_Push tags the new PluginAction with the owning addon id
+// (reverse-looked-up from the doFn pointer's DLL image) so UnloadNativeAddon
+// can scrub stale actions before FreeLibrary invalidates the function
+// pointers.
+
+static void PluginEditorAction_Push(const char* name,
+                                    void (*doFn)(void*),
+                                    void (*undoFn)(void*),
+                                    void (*freeFn)(void*),
+                                    void* userData)
+{
+    if (!doFn || !undoFn) return;  // both required
+    ActionManager* am = ActionManager::Get();
+    if (!am) return;
+
+    PluginAction* a = new PluginAction(name, doFn, undoFn, freeFn, userData);
+
+    // Tag the action with the owning addon id by reverse-mapping the doFn's
+    // address through the loaded-addon image table. Same mechanism the editor
+    // uses for factory bucketing.
+    if (NativeAddonManager* nam = NativeAddonManager::Get())
+    {
+        if (const char* addonId = nam->FindAddonIdForFactory((const void*)doFn))
+        {
+            a->SetPluginTag(addonId);
+        }
+    }
+
+    am->ExecuteAction(a);  // also calls doFn the first time
+}
+
+static void PluginEditorAction_BeginGroup(const char* name)
+{
+    if (ActionManager* am = ActionManager::Get())
+    {
+        am->BeginActionGroup(name);
+    }
+}
+
+static void PluginEditorAction_EndGroup()
+{
+    if (ActionManager* am = ActionManager::Get())
+    {
+        am->EndActionGroup();
+    }
+}
+
 static Node* PluginFindNode(World* world, const char* name)
 {
     if (world == nullptr || name == nullptr)
@@ -677,12 +727,26 @@ NativeAddonManager::~NativeAddonManager()
     }
 
     // Unload all native addons
+    UnloadAllNativeAddons();
+}
+
+void NativeAddonManager::UnloadAllNativeAddons()
+{
+    // Snapshot the ids first — UnloadNativeAddon mutates per-entry state but
+    // doesn't erase from mStates, so iterator invalidation isn't a worry
+    // today; still, taking a snapshot keeps this safe under future churn.
+    std::vector<std::string> ids;
+    ids.reserve(mStates.size());
     for (auto& pair : mStates)
     {
         if (pair.second.mModuleHandle != nullptr)
         {
-            UnloadNativeAddon(pair.first);
+            ids.push_back(pair.first);
         }
+    }
+    for (const std::string& id : ids)
+    {
+        UnloadNativeAddon(id);
     }
 }
 
@@ -751,6 +815,11 @@ void NativeAddonManager::InitializeEngineAPI()
     mEngineAPI.SpawnNode = PluginSpawnNode;
     mEngineAPI.DestroyNode = PluginDestroyNode;
     mEngineAPI.FindNode = PluginFindNode;
+
+    // Editor undo actions
+    mEngineAPI.EditorAction_Push       = PluginEditorAction_Push;
+    mEngineAPI.EditorAction_BeginGroup = PluginEditorAction_BeginGroup;
+    mEngineAPI.EditorAction_EndGroup   = PluginEditorAction_EndGroup;
 
     // Node3D Operations
     mEngineAPI.Node3D_GetRotation = PluginNode3D_GetRotation;
@@ -1402,6 +1471,34 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
     return fingerprint;
 }
 
+// Kill the well-known process family that can pin addon build outputs after a
+// prior session (mspdbsrv = PDB type server; mspdbcmf = LTCG PDB merge worker;
+// link / cl = stray compiler/linker from a crashed prior build), then sleep
+// briefly so the Windows kernel can finish releasing file handles before the
+// caller re-attempts the wipe.
+//
+// All three callers (the build-blocked modal Retry, ProjectRestartBeginClose's
+// proactive sweep, and Tier-2 RecoverFromStuckAddons) funnel through here so
+// the kill list stays in one place. Safe to call when no matching process is
+// running — SYS_KillProcessByName logs and returns false in that case.
+static void KillKnownAddonBuildHolders()
+{
+#if PLATFORM_WINDOWS
+    bool killedAny = false;
+    killedAny |= SYS_KillProcessByName("mspdbsrv.exe");
+    killedAny |= SYS_KillProcessByName("mspdbcmf.exe");
+    killedAny |= SYS_KillProcessByName("link.exe");
+
+    // Only pay the half-second wait when we actually killed something — a
+    // common "no live mspdbsrv" path should still be fast for the user.
+    if (killedAny)
+    {
+        LogDebug("KillKnownAddonBuildHolders: waiting 500ms for handle release.");
+        SYS_Sleep(500);
+    }
+#endif
+}
+
 std::vector<std::string> NativeAddonManager::TryClearAddonIntermediates(const std::string& addonId)
 {
     std::vector<std::string> locked;
@@ -1488,6 +1585,70 @@ std::vector<std::string> NativeAddonManager::TryClearAddonIntermediates(const st
     };
 
     walk(root);
+
+    // ---------- Rename-aside escape (Windows) ----------
+    //
+    // If files remain locked AFTER our best-effort per-file delete pass, the
+    // holder is something we can't kill — Defender real-time scan, the
+    // Indexing service, an antivirus minifilter, or a VS debugger that's
+    // attached. taskkill won't unstick it; even admin `rmdir /s /q` fails
+    // with Access is denied because the kernel won't let you unlink a file
+    // that has an open handle.
+    //
+    // But the *containing directory* can usually still be renamed: the lock
+    // is on the file handle, not the directory entry. So we MoveFileEx the
+    // whole fingerprint dir to a sibling `<dir>_LOCKED_<sessionId>_<counter>`
+    // and report success — the next build creates the original dir empty and
+    // writes its outputs there, completely sidestepping the locked file.
+    // The orphan dir gets swept on next launch by SweepStaleLockedBuildDirs.
+    //
+    // This is the only escape that survives the case where neither admin
+    // rmdir nor reboot are willing/able to fix the lock (the original
+    // "I have to reboot" path the recovery system was built around).
+#if PLATFORM_WINDOWS
+    if (!locked.empty() && DoesDirExist(root.c_str()))
+    {
+        // Strip trailing slash for MoveFile (Windows refuses dir-with-trailing-slash).
+        std::string src = root;
+        while (!src.empty() && (src.back() == '/' || src.back() == '\\')) src.pop_back();
+
+        // Find a free target name. Counter survives across calls per session
+        // so a user retrying multiple times doesn't collide.
+        static int sLockedTrashCounter = 0;
+        std::string trash;
+        for (int attempt = 0; attempt < 8; ++attempt)
+        {
+            ++sLockedTrashCounter;
+            char suffix[64];
+            snprintf(suffix, sizeof(suffix), "_LOCKED_%s_%d",
+                     mShadowSessionId.c_str(), sLockedTrashCounter);
+            trash = src + suffix;
+            if (!DoesDirExist(trash.c_str())) break;
+        }
+
+        // Normalise both paths to backslashes for the Win32 API.
+        std::string srcWin = src;
+        std::string trashWin = trash;
+        for (char& c : srcWin) { if (c == '/') c = '\\'; }
+        for (char& c : trashWin) { if (c == '/') c = '\\'; }
+
+        if (MoveFileExA(srcWin.c_str(), trashWin.c_str(), 0))
+        {
+            LogWarning("TryClearAddonIntermediates: rename-aside escape — "
+                       "%zu locked file(s) moved to '%s'. Build can proceed.",
+                       locked.size(), trashWin.c_str());
+            // Best-effort schedule the trash dir for delete-on-reboot.
+            // Windows queues the delete; nothing in the current session has
+            // to release the handle for the build to proceed.
+            MoveFileExA(trashWin.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+            return {};
+        }
+
+        LogError("TryClearAddonIntermediates: rename-aside also failed "
+                 "(gle=%lu). Falling back to user-visible block modal.",
+                 GetLastError());
+    }
+#endif
 
     return locked;
 }
@@ -2659,6 +2820,8 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
             mBlocked.mAddonId = addonId;
             mBlocked.mLockedFiles = std::move(stillLocked);
             mBlocked.mIntermediateDir = GetIntermediateDir(addonId);
+            mBlocked.mRetryCount = mPendingRetryCount;
+            mPendingRetryCount = 0;
 
             outError = "Build blocked: " + std::to_string(mBlocked.mLockedFiles.size())
                      + " intermediate file(s) locked. See modal for paths.";
@@ -3520,6 +3683,16 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     SafeCallPurgeAssetsFromModule(state.mModuleHandle, state.mPurgedAssetUuids,
                                   addonId.c_str());
 
+    // Drop any plugin-driven undo actions (and groups containing them) whose
+    // doFn / undoFn / freeFn live in this DLL's image. Must run BEFORE
+    // FreeLibrary — PluginAction::~PluginAction invokes freeFn, and ActionGroup
+    // children execute their dtors too. Otherwise undoing into the stale stack
+    // after the DLL is unloaded calls into freed memory.
+    if (ActionManager* am = ActionManager::Get())
+    {
+        am->PurgePluginActions(addonId);
+    }
+
     // Remove factory pointers owned by this DLL from the engine's factory lists BEFORE
     // FreeLibrary. Otherwise the lists hold dangling pointers and the next load of the
     // addon hits a duplicate-class-name assert in Node::RegisterFactory when the DLL's
@@ -3564,6 +3737,77 @@ bool NativeAddonManager::ReloadNativeAddon(const std::string& addonId, std::stri
     return LoadNativeAddon(addonId, outError);
 }
 
+bool NativeAddonManager::RecoverFromStuckAddons(const char* reason)
+{
+    LogDebug("RecoverFromStuckAddons begin (reason=%s)", reason ? reason : "?");
+
+    // Preconditions. A project must be loaded, and we must not be in the
+    // middle of the regular project-restart modal (it would race with our
+    // close + reopen). Bail with a warning rather than corrupting state.
+    const std::string projectPath = GetEngineState()->mProjectPath;
+    if (projectPath.empty())
+    {
+        LogWarning("RecoverFromStuckAddons: no project loaded; aborting.");
+        return false;
+    }
+    if (mRestart.mPhase != ProjectRestartPhase::None)
+    {
+        LogWarning("RecoverFromStuckAddons: project-restart in flight (phase=%d); "
+                   "let it finish before retrying.",
+                   (int)mRestart.mPhase);
+        return false;
+    }
+    if (mActiveBuild != nullptr)
+    {
+        LogWarning("RecoverFromStuckAddons: an async addon build is running; "
+                   "wait for it to finish (or click Cancel in the build modal) "
+                   "before retrying.");
+        return false;
+    }
+
+    EditorProgress::Begin("Recovering native addons", "Closing project (Tier 2 recovery)...");
+
+    // Engine::CloseProject(true) does the heavy lift: ends PIE, closes all
+    // edit scenes, purges/unloads project assets, clears loaded Lua scripts,
+    // and UnloadAllNativeAddons() the addon DLLs. After this every engine-
+    // side handle on the addon DLL/PDB is released. Qualified so the compiler
+    // doesn't even glance at ActionManager::CloseProject (different signature
+    // and ambiguity-prone).
+    ::CloseProject(/*unloadNativeAddons*/ true);
+
+    // Now kill the off-process holders (mspdbsrv etc.) and wait longer than
+    // the Tier 1 path — Tier 2 is the "this really wasn't unsticking with
+    // a quick retry" escalation, so we trade UI snappiness for reliability.
+    EditorProgress::SetStatus("Terminating mspdbsrv / link / mspdbcmf...");
+    KillKnownAddonBuildHolders();
+    SYS_Sleep(1000);
+
+    // Compute the project's Intermediate trees from the captured path. We
+    // can't rely on GetEngineState()->mProjectDirectory because CloseProject
+    // just cleared it.
+    std::string projectDir = projectPath.substr(0, projectPath.find_last_of("/\\") + 1);
+    std::string pluginsDir = projectDir + "Intermediate/Plugins/";
+    std::string cacheDir   = projectDir + "Intermediate/PluginsCache/";
+
+    EditorProgress::SetStatus("Wiping Intermediate/Plugins/...");
+    LogDebug("RecoverFromStuckAddons: rmdir %s", pluginsDir.c_str());
+    SYS_RemoveDirectory(pluginsDir.c_str());
+
+    EditorProgress::SetStatus("Wiping Intermediate/PluginsCache/...");
+    LogDebug("RecoverFromStuckAddons: rmdir %s", cacheDir.c_str());
+    SYS_RemoveDirectory(cacheDir.c_str());
+
+    EditorProgress::End();
+
+    // Defer the reopen by one frame so the editor renders an idle state
+    // between the close and the reopen — gives the user visible confirmation
+    // that something happened, and lets ImGui clean up popups that referred
+    // to the now-gone project.
+    LogDebug("RecoverFromStuckAddons: queueing reopen of %s", projectPath.c_str());
+    ActionManager::Get()->RequestOpenProject(projectPath.c_str());
+    return true;
+}
+
 // ===== Async build queue =====
 //
 // Reload used to call into the build path synchronously, freezing the editor
@@ -3575,6 +3819,17 @@ bool NativeAddonManager::ReloadNativeAddon(const std::string& addonId, std::stri
 
 bool NativeAddonManager::IsBuildingAsync() const
 {
+    // While mBlocked is active, no build is in flight — StartNextQueuedBuild
+    // requeued the addon and bailed, waiting for the user. The build-progress
+    // modal must NOT report "building" in this state or it stays open as a
+    // top-level popup and Win32 ImGui's popup stack refuses to open the
+    // blocked modal underneath it (BeginPopupModal returns false). That's
+    // exactly the "no popup despite 'Async build paused' log" symptom users
+    // were hitting after Reload Native Addons.
+    if (mBlocked.mActive)
+    {
+        return false;
+    }
     return (mActiveBuild != nullptr) || !mBuildQueue.empty();
 }
 
@@ -3643,6 +3898,8 @@ void NativeAddonManager::StartNextQueuedBuild()
                 mBlocked.mAddonId = addonId;
                 mBlocked.mLockedFiles = std::move(stillLocked);
                 mBlocked.mIntermediateDir = GetIntermediateDir(addonId);
+                mBlocked.mRetryCount = mPendingRetryCount;
+                mPendingRetryCount = 0;
 
                 // Put this addon back at the front so Retry resumes it first.
                 mBuildQueue.insert(mBuildQueue.begin(), addonId);
@@ -3704,12 +3961,27 @@ void NativeAddonManager::RetryBlockedBuild()
         return;
     }
 
-    LogDebug("Retry: re-sweeping intermediates for blocked addon '%s'.",
-             mBlocked.mAddonId.c_str());
+    LogDebug("Retry: re-sweeping intermediates for blocked addon '%s' (attempt %d).",
+             mBlocked.mAddonId.c_str(), mBlocked.mRetryCount + 1);
+
+    // Tier 1 hardening — kill the usual culprits and sleep before the retry.
+    // The previous implementation just re-ran the sweep, which raced the
+    // kernel's handle release after the user's explicit "Kill mspdbsrv"
+    // click in the modal: Kill returned immediately, but the .pdb stayed
+    // locked for ~100-500ms while Windows finalised process teardown.
+    // RetryBlockedBuild now kills and waits unconditionally so a single
+    // click is enough in the common case.
+    KillKnownAddonBuildHolders();
+
+    // Track how many times the user has retried this block. The modal uses
+    // this to escalate the UX after Tier 1 plainly isn't enough.
+    int prevRetryCount = mBlocked.mRetryCount;
 
     // Clear blocked state up front. If the sweep still finds locks, the
-    // build path will set it again with a fresh list.
+    // build path will set it again with a fresh list — and we'll restore
+    // the retry counter so the modal can show the right escalation hint.
     mBlocked = BuildBlocked{};
+    mPendingRetryCount = prevRetryCount + 1;
 
     // Two paths to resume:
     //  - If we were in the middle of an async queue (mBuildQueue has the
@@ -4105,6 +4377,15 @@ void NativeAddonManager::ProjectRestartBeginClose()
     // honoring package.json's resolveMode.
     if (mRestart.mForceRebuild)
     {
+        // Proactively kill mspdbsrv / link / mspdbcmf BEFORE the wipe loop.
+        // Without this, the very first force-rebuild after the editor has
+        // been running for a while hits the build-blocked modal in a high
+        // fraction of cases because mspdbsrv from the prior compile still
+        // holds a handle on the addon's .pdb. UnloadNativeAddon released the
+        // editor's own LoadLibrary lock above, but mspdbsrv is a separate
+        // process; we have to terminate it ourselves.
+        KillKnownAddonBuildHolders();
+
         for (const std::string& addonId : toBuild)
         {
             std::string fingerprint = ComputeFingerprint(addonId);

@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "Gizmos.h"
 #include "Renderer.h"
 #include "World.h"
 #include "LoadingMenu.h"
@@ -87,6 +88,7 @@
 #include "EditorState.h"
 #include "EditorImgui.h"
 #include "FileDropImport/FileDropImportModal.h"
+#include "EditorUIHookManager.h"
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
 
@@ -460,6 +462,26 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
                 ++i;
             }
         }
+        // --addon-recovery=<pid> — Tier-3 entry. Set by RestartEditorForAddonRecovery
+        // so the new editor knows to wipe Intermediate/Plugins / PluginsCache
+        // before the first OpenProject.
+        else if (strncmp(argv[i], "--addon-recovery=", 17) == 0)
+        {
+            const char* pidStr = argv[i] + 17;
+            sEngineConfig.mAddonRecoveryOldPid =
+                (uint64_t)strtoull(pidStr, nullptr, 10);
+        }
+        // --project=<path> — alternate spelling used by the Tier-3 spawn so
+        // the new editor doesn't need both -project and a sentinel parse.
+        // Spaces in the path are supported when the shell hands us a single
+        // argv (the launcher uses CreateProcess with a quoted exe + args
+        // string, which is then re-tokenised by CRT into a single argv slot
+        // for the quoted path).
+        else if (strncmp(argv[i], "--project=", 10) == 0)
+        {
+            const char* path = argv[i] + 10;
+            sEngineConfig.mProjectPath = path;
+        }
     }
 }
 
@@ -786,6 +808,14 @@ bool Update()
     GetProfiler()->BeginFrame();
     BEGIN_FRAME_STAT("Frame");
 
+    // Begin the gizmo queue for this frame BEFORE any code can push into it.
+    // The queue must span the entire frame so pushes from World::Update,
+    // Graph node Evaluate, EditorImguiDraw addon overlays, and Renderer
+    // internals all accumulate together and reach the gizmo render pass
+    // later inside Renderer::Render. BeginFrame is idempotent within a
+    // single frame, so Renderer::Render's own call becomes a no-op.
+    Gizmos::BeginFrame();
+
     {
         SCOPED_FRAME_STAT("Audio");
         AUD_Update();
@@ -942,13 +972,23 @@ bool Update()
         SCOPED_FRAME_STAT("EditorUI");
 
         // Drain any files the OS dropped on the editor window this frame
-        // (WM_DROPFILES on Windows) and hand them to the import-mode modal.
-        // No-op on platforms that haven't wired drag-drop yet.
+        // (WM_DROPFILES on Windows). Plugins (Batch 14) get first crack via
+        // EditorUIHookManager::DispatchFileDrop — a handler returning true
+        // claims the drop so the built-in import modal stays out of the
+        // way (Level Builder's `.kit` import is the motivating case).
         std::vector<std::string> droppedFiles;
         SYS_DrainDroppedFiles(droppedFiles);
         if (!droppedFiles.empty())
         {
-            FileDropImportModal::Get()->EnqueueDroppedPaths(droppedFiles);
+            bool claimedByPlugin = false;
+            if (EditorUIHookManager* uiMgr = EditorUIHookManager::Get())
+            {
+                claimedByPlugin = uiMgr->DispatchFileDrop(droppedFiles);
+            }
+            if (!claimedByPlugin)
+            {
+                FileDropImportModal::Get()->EnqueueDroppedPaths(droppedFiles);
+            }
         }
 
         EditorImguiDraw();
@@ -1113,40 +1153,74 @@ bool IsShuttingDown()
     return sEngineState.mQuit;
 }
 
+#if EDITOR
+void CloseProject(bool unloadNativeAddons)
+{
+    if (IsHeadless()) return;
+
+    EditorProgress::SetStatus("Stopping play mode...");
+    GetEditorState()->EndPlayInEditor();
+    EditorProgress::SetStatus("Closing open scenes...");
+    GetEditorState()->CloseAllEditScenes();
+
+    if (sEngineState.mProjectDirectory == "")
+    {
+        // No project loaded — close-of-nothing is a no-op, not an error
+        // (the editor calls CloseProject() unconditionally during a project
+        // switch and during Tier-2 recovery).
+        return;
+    }
+
+    EditorProgress::SetStatus("Saving editor state...");
+    GetEditorState()->WriteEditorProjectSave();
+    EditorProgress::SetStatus("Purging previous project assets...");
+    AssetManager::Get()->Purge(false);
+    EditorProgress::SetStatus("Unloading previous project directory...");
+    AssetManager::Get()->UnloadProjectDirectory();
+
+    // Wipe the loaded-script registry. Lua state itself persists across
+    // project switches (lua_close only runs at engine shutdown), so the
+    // IsScriptLoaded fast-path in Script::LoadScript would otherwise
+    // skip re-reading files — meaning addon Lua edits made between
+    // sessions stay invisible until the user touches the file in the
+    // current session. Clear so the next Script attach reloads from disk.
+    ScriptUtils::ClearLoadedScripts();
+
+    if (unloadNativeAddons)
+    {
+        // Drop every loaded addon DLL's handle on its way to recovery /
+        // shutdown. This is the only path the editor exposes today for
+        // "release every addon FreeLibrary at once" without a full editor
+        // exit — Tier-2 RecoverFromStuckAddons and Tools > Close Project
+        // both rely on it. Skipped during normal project-switch LoadProject
+        // because that path's later ReloadAllNativeAddons does targeted
+        // per-addon reloads of only the ones that need it.
+        NativeAddonManager* nam = NativeAddonManager::Get();
+        if (nam != nullptr)
+        {
+            EditorProgress::SetStatus("Unloading native addons...");
+            nam->UnloadAllNativeAddons();
+        }
+    }
+
+    sEngineState.mProjectName = "";
+    sEngineState.mProjectPath = "";
+    sEngineState.mProjectDirectory = "";
+}
+#endif
+
 void LoadProject(const std::string& path, bool discoverAssets)
 {
     SCOPED_STAT("LoadProject");
 
 #if EDITOR
+    // Close the existing project (if any) before loading the new one. Pass
+    // unloadNativeAddons=false: ReloadAllNativeAddons below does targeted
+    // per-addon reloads only for addons whose source or fingerprint changed,
+    // which is cheaper and avoids the rebuild-on-every-project-switch tax.
     if (!IsHeadless())
     {
-        EditorProgress::SetStatus("Stopping play mode...");
-        GetEditorState()->EndPlayInEditor();
-        EditorProgress::SetStatus("Closing open scenes...");
-        GetEditorState()->CloseAllEditScenes();
-
-        // Reset asset manager??
-        if (sEngineState.mProjectDirectory != "")
-        {
-            EditorProgress::SetStatus("Saving editor state...");
-            GetEditorState()->WriteEditorProjectSave();
-            EditorProgress::SetStatus("Purging previous project assets...");
-            AssetManager::Get()->Purge(false);
-            EditorProgress::SetStatus("Unloading previous project directory...");
-            AssetManager::Get()->UnloadProjectDirectory();
-
-            // Wipe the loaded-script registry. Lua state itself persists across
-            // project switches (lua_close only runs at engine shutdown), so the
-            // IsScriptLoaded fast-path in Script::LoadScript would otherwise
-            // skip re-reading files — meaning addon Lua edits made between
-            // sessions stay invisible until the user touches the file in the
-            // current session. Clear so the next Script attach reloads from disk.
-            ScriptUtils::ClearLoadedScripts();
-
-            sEngineState.mProjectName = "";
-            sEngineState.mProjectPath = "";
-            sEngineState.mProjectDirectory = "";
-        }
+        CloseProject(/*unloadNativeAddons*/ false);
     }
 #endif
 

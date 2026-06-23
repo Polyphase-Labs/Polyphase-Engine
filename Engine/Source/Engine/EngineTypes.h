@@ -340,6 +340,12 @@ struct EngineConfig
     bool mHeadless = false;
     Platform mBuildPlatform = Platform::Count;  // Count = no build requested
     bool mBuildEmbedded = false;
+
+    // Set when the editor was launched with --addon-recovery=<pid>. Value is
+    // the PID of the prior editor process whose sentinel JSON we should look
+    // for. EditorMain reads this on startup and triggers the addon-recovery
+    // wipe before the first OpenProject. 0 = not in recovery mode.
+    uint64_t mAddonRecoveryOldPid = 0;
 };
 
 enum class ConsoleMode

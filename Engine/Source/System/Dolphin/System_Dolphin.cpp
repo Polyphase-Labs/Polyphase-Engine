@@ -444,6 +444,19 @@ void SYS_ExecDetached(const char* cmd)
     (void)cmd;
 }
 
+bool SYS_KillProcessByName(const char* processName)
+{
+    (void)processName;
+    return false;
+}
+
+bool SYS_SpawnDetachedExecutable(const char* exePath, const char* args)
+{
+    (void)exePath;
+    (void)args;
+    return false;
+}
+
 // Memory
 void* SYS_AlignedMalloc(uint32_t size, uint32_t alignment)
 {

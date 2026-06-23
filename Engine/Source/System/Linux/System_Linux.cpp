@@ -22,6 +22,8 @@
 #include <signal.h>
 #include <limits.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
 
 #if API_VULKAN
 #include "Graphics/Vulkan/VramAllocator.h"
@@ -1000,6 +1002,61 @@ void SYS_Exec(const char* cmd, std::string* output)
 void SYS_ExecDetached(const char* cmd)
 {
     ExecCommonDetached(cmd);
+}
+
+bool SYS_KillProcessByName(const char* processName)
+{
+    if (processName == nullptr || *processName == 0) return false;
+
+    std::string cmd = std::string("pkill -9 ") + processName + " >/dev/null 2>&1";
+
+    std::string out;
+    int exitCode = -1;
+    SYS_ExecFull(cmd.c_str(), &out, nullptr, &exitCode);
+
+    if (exitCode == 0)
+    {
+        LogDebug("SYS_KillProcessByName: terminated %s", processName);
+        return true;
+    }
+    LogDebug("SYS_KillProcessByName: no live %s (exit=%d)", processName, exitCode);
+    return false;
+}
+
+bool SYS_SpawnDetachedExecutable(const char* exePath, const char* args)
+{
+    if (exePath == nullptr || *exePath == 0) return false;
+
+    // Double-fork so the grandchild reparents to init and survives the parent.
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        LogError("SYS_SpawnDetachedExecutable: fork failed for %s", exePath);
+        return false;
+    }
+    if (pid == 0)
+    {
+        setsid();
+        pid_t grand = fork();
+        if (grand == 0)
+        {
+            int devnull = open("/dev/null", O_RDWR);
+            if (devnull >= 0)
+            {
+                dup2(devnull, 0); dup2(devnull, 1); dup2(devnull, 2);
+                if (devnull > 2) close(devnull);
+            }
+            // Use the shell to handle quoted args without us needing argv splitting.
+            std::string full = std::string("exec \"") + exePath + "\"";
+            if (args && *args) { full += ' '; full += args; }
+            execlp("/bin/sh", "sh", "-c", full.c_str(), (char*)nullptr);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return true;
 }
 
 // Memory

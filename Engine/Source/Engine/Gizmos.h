@@ -50,4 +50,10 @@ private:
     static std::vector<DebugDraw> sSolidDraws;
     static std::vector<DebugDraw> sWireDraws;
     static std::vector<Line> sLines;
+
+    // Last EngineState::mFrameNumber on which BeginFrame() actually cleared
+    // the queue. Used to make BeginFrame idempotent within a single frame so
+    // late callers (Renderer::Render) don't wipe pushes from early callers
+    // (EditorImguiDraw addon overlays).
+    static uint32_t sClearedAtFrame;
 };

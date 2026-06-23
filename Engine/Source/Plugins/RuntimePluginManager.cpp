@@ -622,6 +622,11 @@ void RuntimePluginManager::InitializeEngineAPI()
 
     // Editor UI (not available in runtime)
     mEngineAPI.editorUI = nullptr;
+
+    // Editor undo actions (not available in runtime — no ActionManager).
+    mEngineAPI.EditorAction_Push       = nullptr;
+    mEngineAPI.EditorAction_BeginGroup = nullptr;
+    mEngineAPI.EditorAction_EndGroup   = nullptr;
 }
 
 void RuntimePluginManager::Initialize()

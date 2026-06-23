@@ -508,4 +508,42 @@ struct PolyphaseEngineAPI
      * @param category Bucket label, or null/empty to revert to auto
      */
     void (*SetNodeCategory)(const char* className, const char* category);
+
+    // ==== Editor-side undo actions for native plugins ====
+    //
+    // Plugins push a custom action into the editor's ActionManager so the
+    // work is undo-able alongside the rest of the editor (gizmo moves,
+    // property edits, etc.). All three callbacks receive the opaque
+    // `userData` pointer; the engine never inspects it. freeFn is optional
+    // (pass nullptr if the userData is owned elsewhere); when supplied it
+    // is called once when the action falls out of the history.
+    //
+    // Naming convention for `name`: use a stable identifier like
+    // "level-builder.modular.spawn" — surfaces in the undo UI label.
+    //
+    // PUSH SEMANTICS:
+    //   - Push() calls doFn IMMEDIATELY (it's both Execute-the-first-time
+    //     and Re-execute-on-redo).
+    //   - Reverse (Ctrl+Z) calls undoFn.
+    //   - On fall-out-of-cap, editor shutdown, or addon DLL unload, freeFn
+    //     is called once (then the engine deletes the action — DON'T delete
+    //     userData inside undoFn/doFn).
+    //
+    // GROUPING:
+    //   - BeginGroup("Paint Stroke") opens a group; subsequent Push() calls
+    //     accumulate as children. EndGroup() closes the group and pushes
+    //     ONE entry to the undo stack (Ctrl+Z reverses every child in
+    //     reverse order).
+    //   - Begin/End nests safely — only the outermost pair commits.
+    //   - Empty groups are dropped.
+    //
+    // No-op in non-editor builds (function pointers are nullptr).
+
+    void (*EditorAction_Push)(const char* name,
+                              void (*doFn)(void* userData),
+                              void (*undoFn)(void* userData),
+                              void (*freeFn)(void* userData),
+                              void* userData);
+    void (*EditorAction_BeginGroup)(const char* name);
+    void (*EditorAction_EndGroup)();
 };

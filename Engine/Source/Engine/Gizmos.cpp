@@ -12,6 +12,7 @@ glm::mat4 Gizmos::sMatrix = glm::mat4(1.0f);
 std::vector<DebugDraw> Gizmos::sSolidDraws;
 std::vector<DebugDraw> Gizmos::sWireDraws;
 std::vector<Line> Gizmos::sLines;
+uint32_t Gizmos::sClearedAtFrame = 0xFFFFFFFFu;  // sentinel: forces a clear on the first call
 
 void Gizmos::SetColor(glm::vec4 color)
 {
@@ -53,10 +54,13 @@ void Gizmos::DrawCube(glm::vec3 center, glm::vec3 size)
 {
     if (!IsEnabled()) return;
 
+    // SM_Cube has vertices at +/-1 (edge length 2), so passing the caller's
+    // intended edge length straight in as a scale factor yields a cube
+    // twice as big as asked. Halve to honour `size` as the full edge length.
     DebugDraw draw;
     draw.mMesh = LoadAsset<StaticMesh>("SM_Cube");
     draw.mColor = sColor;
-    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), size);
+    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), size * 0.5f);
     sSolidDraws.push_back(draw);
 }
 
@@ -64,10 +68,12 @@ void Gizmos::DrawSphere(glm::vec3 center, float radius)
 {
     if (!IsEnabled()) return;
 
+    // SM_Sphere is unit-diameter at scale 1 (vertices on a radius-1 sphere
+    // produce a diameter of 2). Treat `radius` as a real radius by halving.
     DebugDraw draw;
     draw.mMesh = LoadAsset<StaticMesh>("SM_Sphere");
     draw.mColor = sColor;
-    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), glm::vec3(radius));
+    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), glm::vec3(radius * 0.5f));
     sSolidDraws.push_back(draw);
 }
 
@@ -86,10 +92,12 @@ void Gizmos::DrawWireCube(glm::vec3 center, glm::vec3 size)
 {
     if (!IsEnabled()) return;
 
+    // Same SM_Cube ±1 footgun as DrawCube — halve so `size` is the
+    // intended full edge length.
     DebugDraw draw;
     draw.mMesh = LoadAsset<StaticMesh>("SM_Cube");
     draw.mColor = sColor;
-    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), size);
+    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), size * 0.5f);
     sWireDraws.push_back(draw);
 }
 
@@ -97,10 +105,12 @@ void Gizmos::DrawWireSphere(glm::vec3 center, float radius)
 {
     if (!IsEnabled()) return;
 
+    // Same SM_Sphere footgun as DrawSphere — halve so `radius` is the
+    // intended sphere radius.
     DebugDraw draw;
     draw.mMesh = LoadAsset<StaticMesh>("SM_Sphere");
     draw.mColor = sColor;
-    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), glm::vec3(radius));
+    draw.mTransform = BuildTransform(sMatrix, center, glm::vec3(0.0f), glm::vec3(radius * 0.5f));
     sWireDraws.push_back(draw);
 }
 
@@ -195,6 +205,18 @@ void Gizmos::DrawLineStrip(const glm::vec3* points, uint32_t count)
 
 void Gizmos::BeginFrame()
 {
+    // The gizmo queue must persist for an entire frame so callers in any
+    // phase — World::Update, Graph node Evaluate, EditorImguiDraw overlays
+    // (addons), and Renderer::Render itself — can all push into the same
+    // queue and have their draws make it to the render pass.
+    //
+    // Engine::Update calls BeginFrame() once at the top of every frame
+    // (immediately after mFrameNumber++). Renderer::Render also calls it
+    // for historical reasons and so the standalone game-runtime path still
+    // works; the guard below makes the duplicate call a no-op.
+    uint32_t currentFrame = GetEngineState()->mFrameNumber;
+    if (sClearedAtFrame == currentFrame) return;
+    sClearedAtFrame = currentFrame;
     sSolidDraws.clear();
     sWireDraws.clear();
     sLines.clear();

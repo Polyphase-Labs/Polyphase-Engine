@@ -1,17 +1,28 @@
 #if EDITOR
 
 #include "EditorUIHookManager.h"
+#include "EditorImgui.h"
+#include "EditorState.h"
+#include "Engine.h"
 #include "Log.h"
 #include "InputDevices.h"
+#include "Renderer.h"
+#include "World.h"
+#include "Maths.h"
+#include "Nodes/3D/Camera3d.h"
+#include "Nodes/3D/Primitive3d.h"
 #include "Plugins/ImGuiPluginContext.h"
 #include "Profiling/ProfilingWindow.h"
 #include "Packaging/BuiltInBuildTargets.h"
+#include "System/System.h"
 
 #include "imgui.h"
 #include "imgui_dock.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <functional>
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1185,257 @@ void EditorUIHookManager::InitializeHooks()
             profiling->UnregisterCustomSection(hookId, sectionName);
         }
     };
+
+    // ===== Batch 12: Viewport input polling for addons =====
+    mHooks.Viewport_RaycastUnderMouse = [](float screenX, float screenY,
+                                           float fallbackPlaneY,
+                                           float* outHitX, float* outHitY, float* outHitZ,
+                                           float* outNormalX, float* outNormalY, float* outNormalZ,
+                                           void** outHitNode) -> bool
+    {
+        auto writeMiss = [&]() {
+            if (outHitX) *outHitX = 0.0f;
+            if (outHitY) *outHitY = 0.0f;
+            if (outHitZ) *outHitZ = 0.0f;
+            if (outNormalX) *outNormalX = 0.0f;
+            if (outNormalY) *outNormalY = 0.0f;
+            if (outNormalZ) *outNormalZ = 0.0f;
+            if (outHitNode) *outHitNode = nullptr;
+        };
+
+        Camera3D* camera = (GetEditorState() != nullptr) ? GetEditorState()->GetEditorCamera() : nullptr;
+        if (camera == nullptr)
+        {
+            writeMiss();
+            return false;
+        }
+
+        float scale = GetEngineConfig()->mEditorInterfaceScale;
+        if (scale == 0.0f) scale = 1.0f;
+        int32_t rx = (int32_t)(screenX * scale);
+        int32_t ry = (int32_t)(screenY * scale);
+
+        // 1. Bullet ray-test (matches asset-drop precedent in EditorImgui.cpp:10085-10125).
+        RayTestResult rayResult;
+        camera->TraceScreenToWorld(rx, ry, ColGroupAll, rayResult);
+        if (rayResult.mHitNode != nullptr)
+        {
+            if (outHitX) *outHitX = rayResult.mHitPosition.x;
+            if (outHitY) *outHitY = rayResult.mHitPosition.y;
+            if (outHitZ) *outHitZ = rayResult.mHitPosition.z;
+            if (outNormalX) *outNormalX = rayResult.mHitNormal.x;
+            if (outNormalY) *outNormalY = rayResult.mHitNormal.y;
+            if (outNormalZ) *outNormalZ = rayResult.mHitNormal.z;
+            if (outHitNode) *outHitNode = (void*)rayResult.mHitNode;
+            return true;
+        }
+
+        // Compute the same ray geometry the asset-drop fallback uses (perspective only
+        // produces a single origin; for ortho the ray slides with the screen point).
+        glm::vec3 rayOrigin;
+        glm::vec3 rayDir;
+        glm::vec3 nearPoint = camera->ScreenToWorldPosition(rx, ry);
+        if (camera->GetProjectionMode() == ProjectionMode::PERSPECTIVE)
+        {
+            rayOrigin = camera->GetWorldPosition();
+            rayDir    = Maths::SafeNormalize(nearPoint - rayOrigin);
+        }
+        else
+        {
+            rayOrigin = nearPoint;
+            rayDir    = Maths::SafeNormalize(camera->GetForwardVector());
+        }
+
+        // 2. GPU id-buffer pick + bounding-sphere intersect for non-collidable meshes.
+        Node3D* hitNode = Renderer::Get()->ProcessHitCheck(GetWorld(0), rx, ry);
+        if (hitNode != nullptr)
+        {
+            Primitive3D* prim = hitNode->As<Primitive3D>();
+            if (prim != nullptr)
+            {
+                Bounds bounds = prim->GetBounds();
+                glm::vec3 oc = rayOrigin - bounds.mCenter;
+                float b = 2.0f * glm::dot(oc, rayDir);
+                float c = glm::dot(oc, oc) - bounds.mRadius * bounds.mRadius;
+                float discriminant = b * b - 4.0f * c;
+
+                glm::vec3 hitPos;
+                if (discriminant >= 0.0f)
+                {
+                    float t = (-b - sqrtf(discriminant)) / 2.0f;
+                    hitPos = rayOrigin + rayDir * t;
+                }
+                else
+                {
+                    float t = -glm::dot(oc, rayDir);
+                    hitPos = rayOrigin + rayDir * glm::max(t, 0.0f);
+                }
+
+                if (outHitX) *outHitX = hitPos.x;
+                if (outHitY) *outHitY = hitPos.y;
+                if (outHitZ) *outHitZ = hitPos.z;
+                // No surface normal from the id buffer — return -rayDir as a cheap stand-in.
+                glm::vec3 nrm = -rayDir;
+                if (outNormalX) *outNormalX = nrm.x;
+                if (outNormalY) *outNormalY = nrm.y;
+                if (outNormalZ) *outNormalZ = nrm.z;
+                if (outHitNode) *outHitNode = (void*)hitNode;
+                return true;
+            }
+        }
+
+        // 3. Optional ground-plane fallback at world Y=fallbackPlaneY.
+        if (!std::isnan(fallbackPlaneY))
+        {
+            const float kEps = 1e-6f;
+            if (fabsf(rayDir.y) > kEps)
+            {
+                float t = (fallbackPlaneY - rayOrigin.y) / rayDir.y;
+                if (t >= 0.0f)
+                {
+                    glm::vec3 hitPos = rayOrigin + rayDir * t;
+                    if (outHitX) *outHitX = hitPos.x;
+                    if (outHitY) *outHitY = hitPos.y;
+                    if (outHitZ) *outHitZ = hitPos.z;
+                    if (outNormalX) *outNormalX = 0.0f;
+                    if (outNormalY) *outNormalY = 1.0f;
+                    if (outNormalZ) *outNormalZ = 0.0f;
+                    if (outHitNode) *outHitNode = nullptr;
+                    return true;
+                }
+            }
+        }
+
+        writeMiss();
+        return false;
+    };
+
+    mHooks.Viewport_GetMouseState = [](float* outViewportX, float* outViewportY,
+                                       float* outViewportW, float* outViewportH,
+                                       float* outMouseX,    float* outMouseY,
+                                       int* outHovered, int* outLeftClicked,
+                                       int* outLeftDown, int* outRightClicked)
+    {
+        EditorImguiGetViewportRect(outViewportX, outViewportY, outViewportW, outViewportH);
+
+        ImVec2 mp = ImGui::GetIO().MousePos;
+        if (outMouseX) *outMouseX = mp.x;
+        if (outMouseY) *outMouseY = mp.y;
+
+        const bool hovered = EditorImguiIsViewportHovered();
+        if (outHovered) *outHovered = hovered ? 1 : 0;
+
+        // Drag-vs-click: only count as a click when release lands inside the viewport AND
+        // the cursor didn't travel more than 4px since press (otherwise it's an orbit/pan).
+        const ImVec2 drag = ImGui::GetMouseDragDelta(0, 0.0f);
+        const bool leftClicked = hovered && ImGui::IsMouseReleased(0)
+                              && fabsf(drag.x) < 4.0f && fabsf(drag.y) < 4.0f;
+        if (outLeftClicked) *outLeftClicked = leftClicked ? 1 : 0;
+
+        if (outLeftDown)    *outLeftDown    = (hovered && ImGui::IsMouseDown(0))    ? 1 : 0;
+        if (outRightClicked) *outRightClicked = (hovered && ImGui::IsMouseClicked(1)) ? 1 : 0;
+    };
+
+    // ===== Batch 13: Selection control =====
+
+    mHooks.Viewport_SuppressNextSelectionClick = []()
+    {
+        // One-frame latch. Read-and-cleared in Viewport3D::HandleDefaultControls
+        // — see EditorUIHooks.h for the full contract.
+        if (EditorState* state = GetEditorState())
+        {
+            state->mSuppressNextSelectionClick = true;
+        }
+    };
+
+    mHooks.Selection_Clear = []()
+    {
+        // Equivalent to Escape over an empty viewport. SetSelectedNode(nullptr)
+        // fires the existing OnSelectionChanged callbacks so observer addons
+        // (and the editor's own UI) react normally.
+        if (EditorState* state = GetEditorState())
+        {
+            state->SetSelectedNode(nullptr);
+        }
+    };
+
+    // ===== Batch 14: File dialogs + OS file-drop dispatch =====
+    //
+    // All three dialogs are thin wrappers around the existing SYS_*
+    // platform layer (System_Windows.cpp / System_Linux.cpp / etc.).
+    // The drag-drop subscription stores entries in mFileDropHandlers;
+    // Engine.cpp's main loop calls DispatchFileDrop each frame after
+    // SYS_DrainDroppedFiles.
+
+    mHooks.ShowOpenFileDialog = [](const char* /*title*/,
+                                   const char* /*filter*/,
+                                   const char* /*initialDir*/,
+                                   char* outPath, int outPathSize) -> int
+    {
+        std::vector<std::string> picks = SYS_OpenFileDialog();
+        if (picks.empty()) return 0;
+        if (outPath && outPathSize > 0)
+            std::snprintf(outPath, outPathSize, "%s", picks.front().c_str());
+        return 1;
+    };
+
+    mHooks.ShowSaveFileDialog = [](const char* /*title*/,
+                                   const char* /*filter*/,
+                                   const char* /*defaultName*/,
+                                   char* outPath, int outPathSize) -> int
+    {
+        const std::string pick = SYS_SaveFileDialog();
+        if (pick.empty()) return 0;
+        if (outPath && outPathSize > 0)
+            std::snprintf(outPath, outPathSize, "%s", pick.c_str());
+        return 1;
+    };
+
+    mHooks.ShowSelectFolderDialog = [](const char* /*title*/,
+                                       char* outPath, int outPathSize) -> int
+    {
+        const std::string pick = SYS_SelectFolderDialog();
+        if (pick.empty()) return 0;
+        if (outPath && outPathSize > 0)
+            std::snprintf(outPath, outPathSize, "%s", pick.c_str());
+        return 1;
+    };
+
+    mHooks.RegisterFileDropHandler = [](HookId hookId,
+                                        EditorUIHooks::FileDropCallback cb,
+                                        void* userData)
+    {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (!mgr || !cb) return;
+        // Re-registering the same hookId replaces — matches the
+        // hot-reload-safe contract every other registration uses.
+        for (auto& h : mgr->mFileDropHandlers)
+        {
+            if (h.mHookId == hookId)
+            {
+                h.mCallback = cb;
+                h.mUserData = userData;
+                return;
+            }
+        }
+        RegisteredFileDropHandler h;
+        h.mHookId   = hookId;
+        h.mCallback = cb;
+        h.mUserData = userData;
+        mgr->mFileDropHandlers.push_back(h);
+    };
+
+    mHooks.UnregisterFileDropHandler = [](HookId hookId)
+    {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (!mgr) return;
+        auto& v = mgr->mFileDropHandlers;
+        v.erase(std::remove_if(v.begin(), v.end(),
+                               [hookId](const RegisteredFileDropHandler& h) {
+                                   return h.mHookId == hookId;
+                               }),
+                v.end());
+    };
 }
 
 const std::vector<RegisteredMenuItem>& EditorUIHookManager::GetMenuItems(const std::string& menuPath) const
@@ -1438,6 +1700,7 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     removeByHookId(mAddonsMenuItems);
     removeByHookId(mPlayTargets);
     removeByHookId(mDragDropHandlers);
+    removeByHookId(mFileDropHandlers);
     removeByHookId(mAssetImporters);
     removeByHookId(mOnPreAssetImport);
     removeByHookId(mOnPostAssetImport);
@@ -1461,6 +1724,32 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     {
         profiling->RemoveAllHooks(hookId);
     }
+}
+
+// ===== Batch 14: OS file-drop dispatch =====
+
+bool EditorUIHookManager::DispatchFileDrop(const std::vector<std::string>& paths)
+{
+    if (paths.empty() || mFileDropHandlers.empty())
+        return false;
+
+    // Marshal to a const char* array. Stable for the callback's lifetime.
+    std::vector<const char*> raw;
+    raw.reserve(paths.size());
+    for (const std::string& s : paths) raw.push_back(s.c_str());
+
+    bool claimed = false;
+    // Snapshot the handler list before dispatch so a callback that
+    // unregisters itself (or another) mid-iteration can't invalidate
+    // the iterator.
+    std::vector<RegisteredFileDropHandler> snapshot = mFileDropHandlers;
+    for (const RegisteredFileDropHandler& h : snapshot)
+    {
+        if (!h.mCallback) continue;
+        if (h.mCallback((int)raw.size(), raw.data(), h.mUserData))
+            claimed = true;
+    }
+    return claimed;
 }
 
 // ===== Top-Level Menus and Toolbar Drawing =====

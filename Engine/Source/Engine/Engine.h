@@ -67,6 +67,18 @@ bool IsShuttingDown();
 
 void LoadProject(const std::string& path, bool discoverAssets = true);
 
+// Close the currently-loaded project — symmetric counterpart to LoadProject.
+// Ends PIE, closes edit scenes, purges asset state, unloads the project
+// directory, clears loaded Lua scripts, and (when unloadNativeAddons=true)
+// FreeLibrary's every loaded native addon DLL. Leaves engine state empty
+// (mProjectDirectory == ""); the editor falls back to its no-project UI.
+// LoadProject calls this internally before loading a new path; callers that
+// just want the close half (e.g. Tools > Close Project, Tier-2 recovery)
+// invoke it directly. Editor-only — shipped runtimes have no close concept.
+#if EDITOR
+void CloseProject(bool unloadNativeAddons = true);
+#endif
+
 void EnableConsole(bool enable);
 
 void ResizeWindow(uint32_t width, uint32_t height);

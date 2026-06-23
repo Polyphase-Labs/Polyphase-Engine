@@ -31,7 +31,20 @@
 // Plugin API version - increment when breaking changes are made
 // v4: added EditorUIHooks::RegisterBuildTarget / UnregisterBuildTarget
 //     (ABI-additive; old plugins still load and just don't see the new ptrs)
-#define POLYPHASE_PLUGIN_API_VERSION 4
+// v5: added EditorUIHooks::Viewport_RaycastUnderMouse / Viewport_GetMouseState
+//     (ABI-additive; old plugins still load and just don't see the new ptrs)
+// v6: added PolyphaseEngineAPI::EditorAction_Push / _BeginGroup / _EndGroup
+//     (ABI-additive; lets native addons push undo-able actions into the
+//     editor's ActionManager. Old plugins still load and just don't see the
+//     new ptrs.)
+// v7: added EditorUIHooks::ShowOpenFileDialog / ShowSaveFileDialog /
+//     ShowSelectFolderDialog (thin wrappers over SYS_*Dialog) and
+//     RegisterFileDropHandler / UnregisterFileDropHandler (plugin-side
+//     OS file-drop subscription, dispatched alongside the built-in
+//     FileDropImportModal). All ABI-additive — appended to the END of
+//     the struct. Old plugins still load; new plugins null-check the
+//     function pointers before calling for forward/backward compat.
+#define POLYPHASE_PLUGIN_API_VERSION 7
 
 // Forward declarations
 struct PolyphaseEngineAPI;

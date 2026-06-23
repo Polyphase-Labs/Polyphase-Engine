@@ -164,6 +164,68 @@ public:
     virtual const char* GetName() = 0;
 };
 
+// Plugin-driven actions — addons push these via the
+// PolyphaseEngineAPI::EditorAction_Push entry. The three callbacks carry
+// arbitrary userData (opaque to the engine); the optional freeFn cleans
+// it up when the action falls out of the history.
+//
+// mPluginTag identifies the owning addon DLL — used by NativeAddonManager
+// during UnloadNativeAddon to scrub any PluginAction whose function
+// pointers live inside the DLL that's about to be FreeLibrary'd. Without
+// this, undoing into a stale history after a hot-reload calls into freed
+// memory.
+class PluginAction : public Action
+{
+public:
+    using DoFn   = void (*)(void* userData);
+    using UndoFn = void (*)(void* userData);
+    using FreeFn = void (*)(void* userData);
+
+    PluginAction(const char* name, DoFn doFn, UndoFn undoFn,
+                 FreeFn freeFn, void* userData);
+    ~PluginAction() override;
+
+    void        Execute() override;
+    void        Reverse() override;
+    const char* GetName() override;
+
+    void        SetPluginTag(const std::string& tag) { mPluginTag = tag; }
+    const std::string& GetPluginTag() const          { return mPluginTag; }
+
+private:
+    std::string mName;
+    std::string mPluginTag;
+    DoFn        mDoFn   = nullptr;
+    UndoFn      mUndoFn = nullptr;
+    FreeFn      mFreeFn = nullptr;
+    void*       mUserData = nullptr;
+};
+
+// Groups multiple actions into a single undo step. Used by plugin
+// EditorAction_BeginGroup / EditorAction_EndGroup so a continuous
+// paint-drag (which may push 60+ spawn actions per second) is one
+// Ctrl+Z.
+class ActionGroup : public Action
+{
+public:
+    explicit ActionGroup(const char* name);
+    ~ActionGroup() override;
+
+    void Add(Action* a);                  // takes ownership
+    bool IsEmpty() const { return mChildren.empty(); }
+
+    void        Execute() override;       // forward order
+    void        Reverse() override;       // reverse order
+    const char* GetName() override;
+
+    std::vector<Action*>&       GetChildren()       { return mChildren; }
+    const std::vector<Action*>& GetChildren() const { return mChildren; }
+
+private:
+    std::string           mName;
+    std::vector<Action*>  mChildren;
+};
+
 class ActionManager
 {
 public:
@@ -186,6 +248,20 @@ public:
     void ExecuteAction(Action* action);
     void Undo();
     void Redo();
+
+    // Plugin-action group helpers (used by EditorAction_BeginGroup /
+    // EditorAction_EndGroup). Nesting is supported — the outermost
+    // Begin starts the group; the matching End closes it and pushes
+    // a single ActionGroup onto the history.
+    void BeginActionGroup(const char* name);
+    void EndActionGroup();
+
+    // Walk mActionHistory + mActionFuture and drop any PluginAction
+    // (or ActionGroup containing one) whose mPluginTag matches `tag`.
+    // Called from NativeAddonManager::UnloadNativeAddon BEFORE the DLL
+    // is FreeLibrary'd, so the function pointers stored on the action
+    // are still valid when freeFn fires.
+    void PurgePluginActions(const std::string& pluginTag);
 
     // Actions
     void EXE_EditProperty(void* owner, PropertyOwnerType ownerType, const std::string& name, uint32_t index, Datum newValue);
@@ -289,6 +365,11 @@ protected:
     std::vector<Action*> mActionFuture;
     std::vector<NodePtr> mExiledNodes;
 
+    // Open plugin-action group; non-null between BeginActionGroup
+    // and the outermost matching EndActionGroup.
+    ActionGroup* mOpenGroup  = nullptr;
+    int          mGroupDepth = 0;
+
     // Non-blocking build state
     LocalBuildState mBuildState;
     bool mShowBuildModal = false;
@@ -338,6 +419,23 @@ public:
     // blocks the main thread. Pass empty/null path to trigger the OS folder
     // picker inside the worker (same as direct OpenProject).
     void RequestOpenProject(const char* path);
+    // File > Close Project — closes the current project at end-of-frame.
+    // Unloads every native addon DLL on the way out so addon Intermediate
+    // folders are no longer file-locked and the user can rebuild on demand.
+    void RequestCloseProject();
+    // Tools > Addons > Recover from stuck addons — Tier-2 recovery.
+    void RequestAddonRecovery(const char* reason);
+    // Tools > Addons > Restart Editor (Clean Addon Rebuild) — Tier-3 recovery.
+    // Spawns a new editor process, then exits the current one (Job Object
+    // teardown reliably kills mspdbsrv); the new instance picks up
+    // --addon-recovery and wipes intermediates before opening the project.
+    void RequestEditorRestartForAddonRecovery(const char* reason);
+    // Synchronous Tier-2 / Tier-3 implementations. Called by the EditorMain
+    // deferred-dispatcher after the request flag is set; safe to call
+    // directly when no progress modal is in flight.
+    void CloseProject();
+    void RecoverFromStuckAddons(const char* reason);
+    void RestartEditorForAddonRecovery(const char* reason);
     // sceneType: 0 = 2D Canvas root, 1 = 3D Node3D root. targetDir defaults to the
     // editor's currently-selected asset directory. Returns the created Scene asset
     // (already saved to disk) or nullptr on failure.

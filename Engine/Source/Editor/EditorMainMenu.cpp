@@ -378,6 +378,29 @@ static void DrawFileMenu(bool& openSaveSceneAsModal)
         ImGui::EndMenu();
     }
 
+    // Close-current-project — symmetric with Project Select / Recent Projects.
+    // Drops every loaded native addon DLL on its way out so the user can then
+    // wipe Intermediate/Plugins/ from Explorer and reopen with a clean rebuild.
+    // Useful both as an explicit user action and as the precondition for the
+    // Tier-2 Recover from stuck addons flow.
+    {
+        const bool hasOpenProject = !GetEngineState()->mProjectDirectory.empty();
+        if (ImGui::MenuItem("Close Project", nullptr, false, hasOpenProject))
+        {
+            // Defer the actual close until end-of-frame so we're not closing
+            // scenes / unloading addons while a menu draw is still in flight.
+            // Matches the deferred pattern used by RequestOpenProject.
+            am->RequestCloseProject();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Close the current project. Unloads every native addon DLL "
+                "so the addon's Intermediate/Plugins folder is no longer "
+                "locked. Returns to the project-select window.");
+        }
+    }
+
     ImGui::Separator();
 
     if (ImGui::BeginMenu("Scene"))
@@ -716,6 +739,51 @@ static void DrawToolsAddonsMenu()
             nam->ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild*/true,
                                                       "Edit > Reload Native Addons");
         }
+    }
+
+    // Tier-2 escalation: when Reload Native Addons fails because mspdbsrv /
+    // a stray linker is pinning the .pdb, this does a heavier reset — closes
+    // the project entirely (drops every addon DLL handle), kills the locker
+    // processes, deletes Intermediate/Plugins/ outright, then reopens the
+    // project. The build-blocked modal surfaces a button for the same flow
+    // after two unsuccessful Retries.
+    if (ImGui::MenuItem("Recover from stuck addons"))
+    {
+        // Deferred so close-project / unload-addons runs at end-of-frame,
+        // safely past the menu draw rather than mid-popup.
+        ActionManager::Get()->RequestAddonRecovery("Tools > Recover from stuck addons");
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Tier-2 recovery: close project, taskkill mspdbsrv/link, wipe\n"
+            "Intermediate/Plugins, reopen project. Use when Reload Native\n"
+            "Addons leaves the build blocked on locked .pdb / .dll files.");
+    }
+
+    // Tier-3 escalation: when even Tier-2 can't free the locked files (rare —
+    // typically VS debugger or Defender holding the .pdb), restart the editor
+    // process entirely. The Windows Job Object's KILL_ON_JOB_CLOSE guarantees
+    // mspdbsrv dies with the editor; the new instance gets --addon-recovery
+    // and re-opens the project with a clean wipe. Implementation lives in
+    // EditorAddonRecovery; this menu just kicks it off.
+    if (ImGui::MenuItem("Restart Editor (Clean Addon Rebuild)"))
+    {
+        ActionManager* am = ActionManager::Get();
+        if (am != nullptr)
+        {
+            am->RequestEditorRestartForAddonRecovery(
+                "Tools > Restart Editor (Clean Addon Rebuild)");
+        }
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip(
+            "Tier-3 recovery: spawn a fresh editor, exit this one. The OS\n"
+            "tears down every build subprocess (mspdbsrv etc.) when this\n"
+            "instance exits, then the new instance wipes Intermediate/Plugins\n"
+            "before opening the project. Use only when Recover from stuck\n"
+            "addons still can't unlock the .pdb.");
     }
 
     if (ImGui::MenuItem("Discover Native Addons"))

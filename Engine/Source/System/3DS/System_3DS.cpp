@@ -432,6 +432,19 @@ void SYS_ExecDetached(const char* cmd)
     (void)cmd;
 }
 
+bool SYS_KillProcessByName(const char* processName)
+{
+    (void)processName;
+    return false;
+}
+
+bool SYS_SpawnDetachedExecutable(const char* exePath, const char* args)
+{
+    (void)exePath;
+    (void)args;
+    return false;
+}
+
 void SYS_CopyDirectory(const char* sourceDir, const char* destDir)
 {
 

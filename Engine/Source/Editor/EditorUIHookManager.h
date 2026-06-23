@@ -249,6 +249,22 @@ struct RegisteredViewportOverlay
 };
 
 /**
+ * @brief Registered OS file-drop handler (Batch 14).
+ *
+ * Fired each frame the engine drains a non-empty list of OS-dropped file
+ * paths from `SYS_DrainDroppedFiles`. The callback returns true to claim
+ * the drop (so the built-in import modal can be suppressed). Each
+ * `HookId` may register at most one handler — the impl replaces on
+ * re-register and `RemoveAllHooks` strips it.
+ */
+struct RegisteredFileDropHandler
+{
+    HookId mHookId;
+    EditorUIHooks::FileDropCallback mCallback;
+    void* mUserData;
+};
+
+/**
  * @brief Registered preferences panel.
  */
 struct RegisteredPreferencesPanel
@@ -645,6 +661,17 @@ public:
      */
     void RemoveAllHooks(HookId hookId);
 
+    // ===== Batch 14: OS file-drop dispatch =====
+
+    /**
+     * @brief Fan out a list of OS-dropped file paths to every registered
+     *        plugin file-drop handler. Returns true if any handler claimed
+     *        the drop (callback returned true) — Engine.cpp uses this to
+     *        decide whether to also hand the paths to the built-in
+     *        FileDropImportModal.
+     */
+    bool DispatchFileDrop(const std::vector<std::string>& paths);
+
 private:
     static EditorUIHookManager* sInstance;
     EditorUIHookManager();
@@ -720,6 +747,9 @@ private:
     std::vector<RegisteredSimpleContextItem> mImportMenuItems;
     std::vector<RegisteredSimpleContextItem> mAddonsMenuItems;
     std::vector<RegisteredPlayTarget> mPlayTargets;
+
+    // Batch 14: OS file-drop dispatch
+    std::vector<RegisteredFileDropHandler> mFileDropHandlers;
 
     // Batch 9: Drag-drop & asset pipeline
     std::vector<RegisteredDragDropHandler> mDragDropHandlers;
