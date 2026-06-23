@@ -39,6 +39,7 @@
 #include "EditorImgui.h"
 #include "Viewport3d.h"
 #include "Viewport2d.h"
+#include "EditorUIHookManager.h"
 #include "PaintManager.h"
 #include "VoxelSculpt/VoxelSculptManager.h"
 #include "TerrainSculpt/TerrainSculptManager.h"
@@ -220,6 +221,17 @@ void EditorState::SetEditorMode(EditorMode mode)
         mode = EditorMode::Scene;
     }
 
+    // Addon viewport modes are pinned to Scene3D. Leaving Scene3D — by user
+    // dropdown pick, PIE forcing Scene, etc. — implicitly deactivates the
+    // active addon mode so its overlays/tools don't bleed into 2D / scene-
+    // selector views. SetActiveAddonViewportMode sets the id BEFORE calling
+    // SetEditorMode(Scene3D), so its own activation pass never triggers
+    // this clear.
+    if (mode != EditorMode::Scene3D && !mActiveAddonViewportModeId.empty())
+    {
+        ClearActiveAddonViewportMode();
+    }
+
     if (mMode != mode)
     {
         EditorMode prevMode = mMode;
@@ -253,6 +265,16 @@ void EditorState::SetEditorMode(EditorMode mode)
 
 void EditorState::SetPaintMode(PaintMode paintMode)
 {
+    // Built-in paint modes own left-click painting; an active addon mode
+    // would race them for input. Switching to any built-in PaintMode
+    // (anything other than None) implicitly deactivates the addon mode.
+    // SetActiveAddonViewportMode calls SetPaintMode(None) — paintMode is
+    // None, so this branch doesn't fire during addon activation.
+    if (paintMode != PaintMode::None && !mActiveAddonViewportModeId.empty())
+    {
+        ClearActiveAddonViewportMode();
+    }
+
     if (mPaintMode != paintMode)
     {
         PaintMode previousMode = mPaintMode;
@@ -328,6 +350,64 @@ void EditorState::SetPaintMode(PaintMode paintMode)
 PaintMode EditorState::GetPaintMode()
 {
     return mPaintMode;
+}
+
+void EditorState::SetActiveAddonViewportMode(const std::string& modeId)
+{
+    // Empty id = "clear" — delegate to ClearActiveAddonViewportMode so the
+    // OnDeactivate dispatch path is shared.
+    if (modeId.empty())
+    {
+        ClearActiveAddonViewportMode();
+        return;
+    }
+
+    if (mActiveAddonViewportModeId == modeId)
+        return;
+
+    EditorUIHookManager* mgr = EditorUIHookManager::Get();
+
+    // Honour CanActivate if the addon provided one — a false gate silently
+    // drops the request so the dropdown doesn't lurch back to a stale mode.
+    if (mgr != nullptr && !mgr->CanActivateViewportMode(modeId))
+        return;
+
+    // Fire the previous mode's OnDeactivate before installing the new id so
+    // the addon sees a clean handover. ClearActiveAddonViewportMode already
+    // does this but we want to avoid the additional SetEditorMode call it
+    // would make — we're about to do that ourselves below.
+    if (!mActiveAddonViewportModeId.empty() && mgr != nullptr)
+    {
+        mgr->FireViewportModeDeactivate(mActiveAddonViewportModeId);
+    }
+
+    mActiveAddonViewportModeId = modeId;
+
+    // Addon modes live in the 3D scene. Force Scene3D + clear any active
+    // built-in PaintMode so the two systems don't fight over the viewport
+    // (PaintMode owns left-click painting, addon modes own everything else).
+    SetEditorMode(EditorMode::Scene3D);
+    SetPaintMode(PaintMode::None);
+
+    if (mgr != nullptr)
+    {
+        mgr->FireViewportModeActivate(modeId);
+    }
+}
+
+void EditorState::ClearActiveAddonViewportMode()
+{
+    if (mActiveAddonViewportModeId.empty())
+        return;
+
+    EditorUIHookManager* mgr = EditorUIHookManager::Get();
+    const std::string prev = mActiveAddonViewportModeId;
+    mActiveAddonViewportModeId.clear();
+
+    if (mgr != nullptr)
+    {
+        mgr->FireViewportModeDeactivate(prev);
+    }
 }
 
 EditorMode EditorState::GetEditorMode()

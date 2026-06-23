@@ -9635,59 +9635,148 @@ static void DrawMainMenuBar()
         ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
         ImGui::SameLine(0.0f, 20.0f);
 
-        // Editor mode combo
-        int curMode = (int)GetEditorState()->mMode;
-        PaintMode paintMode = (GetEditorState()->mMode == EditorMode::Scene3D) ? GetEditorState()->mPaintMode : PaintMode::None;
+        // Editor mode combo. Eight built-in entries followed by any addon-
+        // contributed viewport modes (Batch 15). The built-in indices 0..7
+        // map to (EditorMode, PaintMode) exactly as before — anything past
+        // index 7 routes through EditorState::SetActiveAddonViewportMode.
+        EditorState* es = GetEditorState();
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
 
-        if (paintMode != PaintMode::None && paintMode != PaintMode::Count)
+        // Built-in entries. Order is load-bearing (selection mapping below
+        // depends on these exact indices) so this is not just a label list.
+        static const char* kBuiltinModeLabels[] = {
+            "Scene", "2D", "3D", "Paint Colors", "Paint Instances",
+            "Voxel Sculpt", "Terrain Sculpt", "Tile Paint"
+        };
+        constexpr int kBuiltinModeCount = (int)(sizeof(kBuiltinModeLabels) / sizeof(kBuiltinModeLabels[0]));
+
+        // Snapshot the addon mode list — addons may register/unregister
+        // mid-frame (e.g. from inside another hook), but we render off a
+        // local snapshot so pointers stay valid for this draw.
+        std::vector<const RegisteredViewportMode*> addonModes;
+        if (hookMgr != nullptr) addonModes = hookMgr->GetViewportModesSorted();
+
+        // Compute the current selection index.
+        PaintMode paintMode = (es->mMode == EditorMode::Scene3D) ? es->mPaintMode : PaintMode::None;
+        int curMode = (int)es->mMode;
+        if (es->HasActiveAddonViewportMode())
+        {
+            // Active addon mode wins the preview regardless of underlying
+            // EditorMode/PaintMode state.
+            curMode = kBuiltinModeCount;
+            for (int i = 0; i < (int)addonModes.size(); ++i)
+            {
+                if (addonModes[i]->mModeId == es->GetActiveAddonViewportModeId())
+                {
+                    curMode = kBuiltinModeCount + i;
+                    break;
+                }
+            }
+        }
+        else if (paintMode != PaintMode::None && paintMode != PaintMode::Count)
         {
             curMode = int(EditorMode::Count) + int(paintMode) - 1;
         }
 
-        const char* modeStrings[] = { "Scene", "2D", "3D", "Paint Colors", "Paint Instances", "Voxel Sculpt", "Terrain Sculpt", "Tile Paint" };
+        const int totalEntries = kBuiltinModeCount + (int)addonModes.size();
+        const char* previewLabel = "";
+        if (curMode >= 0 && curMode < kBuiltinModeCount)
+            previewLabel = kBuiltinModeLabels[curMode];
+        else if (curMode >= kBuiltinModeCount && curMode < totalEntries)
+            previewLabel = addonModes[curMode - kBuiltinModeCount]->mDisplayName.c_str();
+
+        int prevCurMode = curMode;
         ImGui::SetNextItemWidth(80);
-        ImGui::Combo("##EditorMode", &curMode, modeStrings, 8);
-
-        if (curMode == 3)
+        if (ImGui::BeginCombo("##EditorMode", previewLabel))
         {
-            curMode = (int)EditorMode::Scene3D;
-            paintMode = PaintMode::Color;
-        }
-        else if (curMode == 4)
-        {
-            curMode = (int)EditorMode::Scene3D;
-            paintMode = PaintMode::Instance;
-        }
-        else if (curMode == 5)
-        {
-            curMode = (int)EditorMode::Scene3D;
-            paintMode = PaintMode::Voxel;
-        }
-        else if (curMode == 6)
-        {
-            curMode = (int)EditorMode::Scene3D;
-            paintMode = PaintMode::Terrain;
-        }
-        else if (curMode == 7)
-        {
-            curMode = (int)EditorMode::Scene3D;
-            paintMode = PaintMode::TilePaint;
-        }
-        else
-        {
-            paintMode = PaintMode::None;
+            for (int i = 0; i < kBuiltinModeCount; ++i)
+            {
+                bool selected = (i == curMode);
+                if (ImGui::Selectable(kBuiltinModeLabels[i], selected))
+                    curMode = i;
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            for (int i = 0; i < (int)addonModes.size(); ++i)
+            {
+                const RegisteredViewportMode* vm = addonModes[i];
+                bool enabled = (vm->mCanActivate == nullptr) || vm->mCanActivate(vm->mUserData);
+                const int idx = kBuiltinModeCount + i;
+                bool selected = (idx == curMode);
+                ImGuiSelectableFlags flags = enabled ? 0 : ImGuiSelectableFlags_Disabled;
+                if (ImGui::Selectable(vm->mDisplayName.c_str(), selected, flags) && enabled)
+                    curMode = idx;
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
         }
 
+        const bool pickedAddon = (curMode >= kBuiltinModeCount && curMode < totalEntries);
+        if (!pickedAddon)
         {
-            EditorMode prevMode = GetEditorState()->mMode;
-            GetEditorState()->SetEditorMode((EditorMode)curMode);
-            GetEditorState()->SetPaintMode(paintMode);
+            // Built-in path — preserve original mapping verbatim.
+            if (curMode == 3)
+            {
+                curMode = (int)EditorMode::Scene3D;
+                paintMode = PaintMode::Color;
+            }
+            else if (curMode == 4)
+            {
+                curMode = (int)EditorMode::Scene3D;
+                paintMode = PaintMode::Instance;
+            }
+            else if (curMode == 5)
+            {
+                curMode = (int)EditorMode::Scene3D;
+                paintMode = PaintMode::Voxel;
+            }
+            else if (curMode == 6)
+            {
+                curMode = (int)EditorMode::Scene3D;
+                paintMode = PaintMode::Terrain;
+            }
+            else if (curMode == 7)
+            {
+                curMode = (int)EditorMode::Scene3D;
+                paintMode = PaintMode::TilePaint;
+            }
+            else
+            {
+                paintMode = PaintMode::None;
+            }
+
+            EditorMode prevMode = es->mMode;
+            // Picking a built-in entry also drops any active addon mode.
+            // SetEditorMode auto-clears when leaving Scene3D, and
+            // SetPaintMode auto-clears when entering a non-None paint mode;
+            // for the bare "Scene3D / no paint" pick we need an explicit
+            // clear here so the addon's OnDeactivate still fires.
+            if (es->HasActiveAddonViewportMode() &&
+                (EditorMode)curMode == EditorMode::Scene3D &&
+                paintMode == PaintMode::None)
+            {
+                es->ClearActiveAddonViewportMode();
+            }
+            es->SetEditorMode((EditorMode)curMode);
+            es->SetPaintMode(paintMode);
 
             // Fire editor mode changed hook (Batch 10)
             if ((int)prevMode != curMode)
             {
-                EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
                 if (hookMgr != nullptr) hookMgr->FireOnEditorModeChanged(curMode);
+            }
+        }
+        else if (curMode != prevCurMode)
+        {
+            // Addon mode pick — SetActiveAddonViewportMode handles the
+            // Scene3D/PaintMode forcing and OnDeactivate/OnActivate
+            // dispatch. Only fire on a real change, to avoid re-activate
+            // spam from rendering the same selection every frame.
+            EditorMode prevMode = es->mMode;
+            const RegisteredViewportMode* vm = addonModes[curMode - kBuiltinModeCount];
+            es->SetActiveAddonViewportMode(vm->mModeId);
+            if (prevMode != es->mMode && hookMgr != nullptr)
+            {
+                hookMgr->FireOnEditorModeChanged((int)es->mMode);
             }
         }
 
@@ -12400,6 +12489,17 @@ void EditorImguiDraw()
         DrawImGuizmo();
         // Draw ImGuizmo gizmos for selected 2D widgets
         DrawImGuizmo2D();
+
+        // Addon viewport mode (Batch 15) properties panel. Fires first so
+        // an addon panel can claim the layout slot the built-in PaintMode
+        // panels live in — EditorState guarantees PaintMode is None
+        // whenever an addon mode is active, so the built-in branch below
+        // is a no-op in that case.
+        if (GetEditorState()->HasActiveAddonViewportMode())
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawActiveViewportModePanel();
+        }
 
         PaintMode paintMode = GetEditorState()->GetPaintMode();
         if (paintMode == PaintMode::Color)

@@ -25,6 +25,7 @@
 #include "VoxelSculpt/VoxelSculptManager.h"
 #include "TerrainSculpt/TerrainSculptManager.h"
 #include "TilePaint/TilePaintManager.h"
+#include "EditorUIHookManager.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
@@ -100,6 +101,16 @@ void Viewport3D::Update(float deltaTime)
         {
             GetEditorState()->mPaintManager->Update();
         }
+    }
+    else if (GetEditorState()->HasActiveAddonViewportMode() && controlMode == ControlMode::Default)
+    {
+        // Addon viewport mode (Batch 15) — runs in lieu of any built-in
+        // paint manager. EditorState guarantees PaintMode is None whenever
+        // an addon mode is active, so these two branches are mutually
+        // exclusive. We pass the engine deltaTime so addon timing matches
+        // the editor's frame clock.
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->TickActiveViewportMode(deltaTime);
     }
 
     INP_GetMousePosition(mPrevMouseX, mPrevMouseY);

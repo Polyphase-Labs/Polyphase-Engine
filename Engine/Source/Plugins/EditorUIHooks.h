@@ -1149,6 +1149,97 @@ struct EditorUIHooks
     typedef bool (*FileDropCallback)(int count, const char** paths, void* userData);
     void (*RegisterFileDropHandler)(HookId hookId, FileDropCallback cb, void* userData);
     void (*UnregisterFileDropHandler)(HookId hookId);
+
+    // ===== Batch 15: Viewport Mode dropdown ============================
+    //
+    // Lets a native addon contribute a new entry to the top-of-editor mode
+    // dropdown (Scene / 2D / 3D / Paint Colors / Paint Instances / Voxel /
+    // Terrain / Tile Paint). When the user picks an addon mode the editor:
+    //   - switches EditorMode to Scene3D (and clears any built-in PaintMode)
+    //   - records the active addon mode id on EditorState
+    //   - fires OnActivate(userData)
+    // Switching to a built-in entry (or another addon entry) fires
+    // OnDeactivate(userData) on the previously-active addon mode first.
+    //
+    // While the addon mode is active the engine calls:
+    //   - Tick(deltaTime, userData)  every frame inside the viewport update
+    //   - DrawPanel(userData)        every frame in the mode-properties strip
+    //
+    // Hot-reload safety: re-registering with the same modeId replaces the
+    // entry's callbacks (so a freshly reloaded DLL's function pointers
+    // overwrite the stale ones). RemoveAllHooks(hookId) deactivates the
+    // mode first if it's currently active, then erases the registration.
+    //
+    // All callbacks are optional — pass nullptr to skip. CanActivate is a
+    // gating check: if it returns false the dropdown entry greys out and
+    // the editor refuses to switch into the mode. Null CanActivate = always
+    // available.
+
+    /**
+     * @brief Optional gate — return false to grey out / refuse activation.
+     * @param userData User data passed during registration.
+     */
+    typedef bool (*ViewportModeCanActivateCallback)(void* userData);
+
+    /** @brief Fired when the mode becomes active. */
+    typedef void (*ViewportModeActivateCallback)(void* userData);
+
+    /** @brief Fired when the mode is being deactivated (mode-switch or hot-reload). */
+    typedef void (*ViewportModeDeactivateCallback)(void* userData);
+
+    /** @brief Fired every viewport-update frame while the mode is active. */
+    typedef void (*ViewportModeTickCallback)(float deltaTime, void* userData);
+
+    /** @brief Fired every frame to draw the mode's properties panel/strip. */
+    typedef void (*ViewportModeDrawPanelCallback)(void* userData);
+
+    /**
+     * @brief Register (or replace) a viewport-mode dropdown entry.
+     *
+     * @param hookId        Owning hook id (used by RemoveAllHooks for cleanup).
+     * @param modeId        Stable id, e.g. "com.myteam.splinepaint". Required.
+     *                      Re-registering the same id replaces the entry.
+     * @param displayName   Label shown in the dropdown. Required (non-null).
+     * @param sortOrder     Ordering hint; lower = earlier. Addon entries
+     *                      always render after built-ins regardless.
+     * @param canActivate   Optional gate. Null = always available.
+     * @param onActivate    Optional. Fired on switch-in.
+     * @param onDeactivate  Optional. Fired on switch-out / hot-reload.
+     * @param tick          Optional. Fired every viewport update frame.
+     * @param drawPanel     Optional. Fired every frame in the panel area.
+     * @param userData      Passed back to every callback.
+     */
+    void (*AddViewportMode)(
+        HookId hookId,
+        const char* modeId,
+        const char* displayName,
+        int32_t sortOrder,
+        ViewportModeCanActivateCallback canActivate,
+        ViewportModeActivateCallback onActivate,
+        ViewportModeDeactivateCallback onDeactivate,
+        ViewportModeTickCallback tick,
+        ViewportModeDrawPanelCallback drawPanel,
+        void* userData
+    );
+
+    /**
+     * @brief Remove a viewport-mode entry by id.
+     *
+     * If the mode is currently active the editor deactivates it (fires
+     * OnDeactivate, clears EditorState::mActiveAddonViewportModeId)
+     * before erasing the registration.
+     */
+    void (*RemoveViewportMode)(HookId hookId, const char* modeId);
+
+    /**
+     * @brief Read the id of the currently-active addon viewport mode.
+     *
+     * @param outBuffer       Destination buffer (caller-owned).
+     * @param outBufferSize   Capacity of outBuffer in bytes.
+     * @return 1 if an addon mode is active and the id fit into the buffer,
+     *         0 otherwise (no mode active, or buffer too small / null).
+     */
+    int (*GetActiveViewportMode)(char* outBuffer, int outBufferSize);
 };
 
 /**

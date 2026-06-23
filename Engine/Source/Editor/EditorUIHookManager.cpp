@@ -1436,6 +1436,93 @@ void EditorUIHookManager::InitializeHooks()
                                }),
                 v.end());
     };
+
+    // ===== Batch 15: Viewport Mode dropdown =====
+
+    mHooks.AddViewportMode = [](HookId hookId,
+                                const char* modeId,
+                                const char* displayName,
+                                int32_t sortOrder,
+                                EditorUIHooks::ViewportModeCanActivateCallback canActivate,
+                                EditorUIHooks::ViewportModeActivateCallback onActivate,
+                                EditorUIHooks::ViewportModeDeactivateCallback onDeactivate,
+                                EditorUIHooks::ViewportModeTickCallback tick,
+                                EditorUIHooks::ViewportModeDrawPanelCallback drawPanel,
+                                void* userData)
+    {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (!mgr) return;
+        if (modeId == nullptr || modeId[0] == '\0') return;
+
+        // Re-registering the same modeId replaces the entry's callbacks +
+        // userData so a freshly-reloaded addon DLL swaps in fresh function
+        // pointers without leaving stale ones behind. The hookId may shift
+        // (different load instance), so update that too.
+        for (RegisteredViewportMode& vm : mgr->mViewportModes)
+        {
+            if (vm.mModeId == modeId)
+            {
+                vm.mHookId = hookId;
+                if (displayName) vm.mDisplayName = displayName;
+                vm.mSortOrder = sortOrder;
+                vm.mCanActivate = canActivate;
+                vm.mOnActivate = onActivate;
+                vm.mOnDeactivate = onDeactivate;
+                vm.mTick = tick;
+                vm.mDrawPanel = drawPanel;
+                vm.mUserData = userData;
+                return;
+            }
+        }
+
+        RegisteredViewportMode vm;
+        vm.mHookId = hookId;
+        vm.mModeId = modeId;
+        vm.mDisplayName = (displayName && displayName[0] != '\0') ? displayName : modeId;
+        vm.mSortOrder = sortOrder;
+        vm.mCanActivate = canActivate;
+        vm.mOnActivate = onActivate;
+        vm.mOnDeactivate = onDeactivate;
+        vm.mTick = tick;
+        vm.mDrawPanel = drawPanel;
+        vm.mUserData = userData;
+        mgr->mViewportModes.push_back(std::move(vm));
+    };
+
+    mHooks.RemoveViewportMode = [](HookId hookId, const char* modeId)
+    {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (!mgr || modeId == nullptr) return;
+
+        // If the mode being removed is the currently active addon mode,
+        // deactivate it via EditorState first so callbacks run + the id
+        // gets cleared before the entry is erased.
+        EditorState* es = GetEditorState();
+        if (es != nullptr && es->HasActiveAddonViewportMode() &&
+            es->GetActiveAddonViewportModeId() == modeId)
+        {
+            es->ClearActiveAddonViewportMode();
+        }
+
+        auto& v = mgr->mViewportModes;
+        v.erase(std::remove_if(v.begin(), v.end(),
+                               [hookId, modeId](const RegisteredViewportMode& vm) {
+                                   return vm.mHookId == hookId && vm.mModeId == modeId;
+                               }),
+                v.end());
+    };
+
+    mHooks.GetActiveViewportMode = [](char* outBuffer, int outBufferSize) -> int
+    {
+        EditorState* es = GetEditorState();
+        if (es == nullptr || !es->HasActiveAddonViewportMode())
+            return 0;
+        const std::string& id = es->GetActiveAddonViewportModeId();
+        if (outBuffer == nullptr || outBufferSize <= 0) return 0;
+        if ((int)id.size() + 1 > outBufferSize) return 0;
+        std::snprintf(outBuffer, outBufferSize, "%s", id.c_str());
+        return 1;
+    };
 }
 
 const std::vector<RegisteredMenuItem>& EditorUIHookManager::GetMenuItems(const std::string& menuPath) const
@@ -1712,6 +1799,27 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     removeByHookId(mControllerRoutes);
     removeByHookId(mOnControllerServerStateChanged);
 
+    // Batch 15: Viewport modes. Hot-reload safety — if the currently active
+    // addon mode is owned by the hook being torn down, deactivate it via
+    // EditorState first so OnDeactivate fires while the function pointer is
+    // still valid AND the id gets cleared. Then erase the registrations.
+    {
+        EditorState* es = GetEditorState();
+        if (es != nullptr && es->HasActiveAddonViewportMode())
+        {
+            const std::string& activeId = es->GetActiveAddonViewportModeId();
+            for (const RegisteredViewportMode& vm : mViewportModes)
+            {
+                if (vm.mHookId == hookId && vm.mModeId == activeId)
+                {
+                    es->ClearActiveAddonViewportMode();
+                    break;
+                }
+            }
+        }
+        removeByHookId(mViewportModes);
+    }
+
     // Batch 11: build-target registry. Critical for hot-reload safety —
     // descriptors hold function pointers into the addon DLL; leaving them
     // around after FreeLibrary makes the next PackagingWindow::Draw call
@@ -1750,6 +1858,77 @@ bool EditorUIHookManager::DispatchFileDrop(const std::vector<std::string>& paths
             claimed = true;
     }
     return claimed;
+}
+
+// ===== Batch 15: Viewport Mode dropdown =====
+
+std::vector<const RegisteredViewportMode*> EditorUIHookManager::GetViewportModesSorted() const
+{
+    std::vector<const RegisteredViewportMode*> out;
+    out.reserve(mViewportModes.size());
+    for (const RegisteredViewportMode& vm : mViewportModes) out.push_back(&vm);
+    std::stable_sort(out.begin(), out.end(),
+        [](const RegisteredViewportMode* a, const RegisteredViewportMode* b) {
+            return a->mSortOrder < b->mSortOrder;
+        });
+    return out;
+}
+
+const RegisteredViewportMode* EditorUIHookManager::FindViewportMode(const std::string& modeId) const
+{
+    for (const RegisteredViewportMode& vm : mViewportModes)
+    {
+        if (vm.mModeId == modeId) return &vm;
+    }
+    return nullptr;
+}
+
+void EditorUIHookManager::FireViewportModeActivate(const std::string& modeId)
+{
+    const RegisteredViewportMode* vm = FindViewportMode(modeId);
+    if (vm != nullptr && vm->mOnActivate != nullptr)
+    {
+        vm->mOnActivate(vm->mUserData);
+    }
+}
+
+void EditorUIHookManager::FireViewportModeDeactivate(const std::string& modeId)
+{
+    const RegisteredViewportMode* vm = FindViewportMode(modeId);
+    if (vm != nullptr && vm->mOnDeactivate != nullptr)
+    {
+        vm->mOnDeactivate(vm->mUserData);
+    }
+}
+
+bool EditorUIHookManager::CanActivateViewportMode(const std::string& modeId)
+{
+    const RegisteredViewportMode* vm = FindViewportMode(modeId);
+    if (vm == nullptr) return false;
+    if (vm->mCanActivate == nullptr) return true;
+    return vm->mCanActivate(vm->mUserData);
+}
+
+void EditorUIHookManager::TickActiveViewportMode(float deltaTime)
+{
+    EditorState* es = GetEditorState();
+    if (es == nullptr || !es->HasActiveAddonViewportMode()) return;
+    const RegisteredViewportMode* vm = FindViewportMode(es->GetActiveAddonViewportModeId());
+    if (vm != nullptr && vm->mTick != nullptr)
+    {
+        vm->mTick(deltaTime, vm->mUserData);
+    }
+}
+
+void EditorUIHookManager::DrawActiveViewportModePanel()
+{
+    EditorState* es = GetEditorState();
+    if (es == nullptr || !es->HasActiveAddonViewportMode()) return;
+    const RegisteredViewportMode* vm = FindViewportMode(es->GetActiveAddonViewportModeId());
+    if (vm != nullptr && vm->mDrawPanel != nullptr)
+    {
+        vm->mDrawPanel(vm->mUserData);
+    }
 }
 
 // ===== Top-Level Menus and Toolbar Drawing =====

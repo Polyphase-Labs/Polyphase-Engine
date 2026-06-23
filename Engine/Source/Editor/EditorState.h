@@ -242,6 +242,15 @@ struct EditorState
     class TerrainSculptManager* mTerrainSculptManager = nullptr;
     TilePaintManager* mTilePaintManager = nullptr;
 
+    // ID of the currently-active addon viewport mode (Batch 15), empty when
+    // no addon mode is active. Activation is mutually exclusive with the
+    // built-in PaintMode: selecting an addon mode forces mMode=Scene3D and
+    // mPaintMode=None; selecting any built-in entry clears this string.
+    // Cross-reference: EditorUIHookManager owns the mode registrations
+    // (RegisteredViewportMode) — this struct only holds the active id and
+    // fires activate/deactivate callbacks via the manager on transition.
+    std::string mActiveAddonViewportModeId;
+
     // Tile-paint mode stashes the editor camera's previous projection AND
     // transform so it can switch to a top-down orthographic view of the
     // currently-selected TileMap2D and restore the original camera on exit.
@@ -347,6 +356,38 @@ struct EditorState
 
     void SetPaintMode(PaintMode paintMode);
     PaintMode GetPaintMode();
+
+    // ===== Batch 15: Addon viewport mode helpers =====
+
+    /**
+     * @brief Activate an addon-registered viewport mode.
+     *
+     * Side effects on a real transition (the requested id is non-empty AND
+     * differs from the current active id):
+     *   - Fires OnDeactivate on the previously-active addon mode (if any).
+     *   - Switches the editor to EditorMode::Scene3D and clears PaintMode.
+     *   - Records the new id on this struct.
+     *   - Fires OnActivate on the new mode.
+     *
+     * If the manager's CanActivate gate returns false the request is
+     * silently dropped and no transition occurs. Passing an empty modeId
+     * is equivalent to ClearActiveAddonViewportMode().
+     */
+    void SetActiveAddonViewportMode(const std::string& modeId);
+
+    /**
+     * @brief Deactivate any active addon viewport mode.
+     *
+     * Fires OnDeactivate on the active mode (if any), then clears the id.
+     * No-op when no addon mode is active.
+     */
+    void ClearActiveAddonViewportMode();
+
+    /** @brief True iff an addon viewport mode is currently active. */
+    bool HasActiveAddonViewportMode() const { return !mActiveAddonViewportModeId.empty(); }
+
+    /** @brief The id of the active addon viewport mode (empty when none). */
+    const std::string& GetActiveAddonViewportModeId() const { return mActiveAddonViewportModeId; }
 
     void ReadEditorSave();
     void WriteEditorSave();

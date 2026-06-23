@@ -265,6 +265,28 @@ struct RegisteredFileDropHandler
 };
 
 /**
+ * @brief Registered addon-contributed viewport mode (Batch 15).
+ *
+ * Appears in the top-of-editor mode dropdown after the built-in entries.
+ * Activation transitions are owned by EditorState (it stores the active
+ * mode id and routes click events). The manager owns the registration list
+ * + lifecycle dispatch.
+ */
+struct RegisteredViewportMode
+{
+    HookId mHookId;
+    std::string mModeId;        // stable id used for selection routing + replace-on-register
+    std::string mDisplayName;   // dropdown label
+    int32_t mSortOrder = 0;
+    EditorUIHooks::ViewportModeCanActivateCallback mCanActivate = nullptr;
+    EditorUIHooks::ViewportModeActivateCallback mOnActivate = nullptr;
+    EditorUIHooks::ViewportModeDeactivateCallback mOnDeactivate = nullptr;
+    EditorUIHooks::ViewportModeTickCallback mTick = nullptr;
+    EditorUIHooks::ViewportModeDrawPanelCallback mDrawPanel = nullptr;
+    void* mUserData = nullptr;
+};
+
+/**
  * @brief Registered preferences panel.
  */
 struct RegisteredPreferencesPanel
@@ -654,6 +676,44 @@ public:
     const std::vector<RegisteredControllerRoute>& GetControllerRoutes() const { return mControllerRoutes; }
     void FireOnControllerServerStateChanged(int32_t state);
 
+    // ===== Batch 15: Viewport Mode dropdown =====
+
+    /**
+     * @brief Get all registered addon viewport modes.
+     *
+     * Order is stable: insertion order with no implicit re-sort. Callers
+     * that want sortOrder-applied iteration should use GetViewportModesSorted().
+     */
+    const std::vector<RegisteredViewportMode>& GetViewportModes() const { return mViewportModes; }
+
+    /**
+     * @brief Return registered viewport modes sorted by sortOrder ASC,
+     *        ties broken by original insertion order (stable_sort).
+     */
+    std::vector<const RegisteredViewportMode*> GetViewportModesSorted() const;
+
+    /** @brief Look up a registered viewport mode by id; nullptr if missing. */
+    const RegisteredViewportMode* FindViewportMode(const std::string& modeId) const;
+
+    /**
+     * @brief Fire OnActivate for the named mode (no-op if missing/null cb).
+     *        Does NOT touch EditorState — caller (EditorState::SetActiveAddonViewportMode)
+     *        is responsible for the id transition itself.
+     */
+    void FireViewportModeActivate(const std::string& modeId);
+
+    /** @brief Fire OnDeactivate for the named mode (no-op if missing/null cb). */
+    void FireViewportModeDeactivate(const std::string& modeId);
+
+    /** @brief Fire CanActivate; true if mode allows activation (or has no gate). */
+    bool CanActivateViewportMode(const std::string& modeId);
+
+    /** @brief Tick the currently-active addon mode (no-op if none active). */
+    void TickActiveViewportMode(float deltaTime);
+
+    /** @brief Draw the currently-active addon mode's properties panel. */
+    void DrawActiveViewportModePanel();
+
     // ===== Cleanup =====
 
     /**
@@ -750,6 +810,11 @@ private:
 
     // Batch 14: OS file-drop dispatch
     std::vector<RegisteredFileDropHandler> mFileDropHandlers;
+
+    // Batch 15: Addon-contributed viewport modes (dropdown entries).
+    // Insertion order is preserved; GetViewportModesSorted() applies sortOrder
+    // at read time. The active mode id lives on EditorState, not here.
+    std::vector<RegisteredViewportMode> mViewportModes;
 
     // Batch 9: Drag-drop & asset pipeline
     std::vector<RegisteredDragDropHandler> mDragDropHandlers;
