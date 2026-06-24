@@ -308,6 +308,17 @@ void StaticMesh3D::RecreateCollisionShape()
             staticMesh->GetTriangleCollisionShape())
         {
             glm::vec3 scale = GetWorldScale();
+            // btScaledBvhTriangleMeshShape::processAllTriangles divides the
+            // query AABB by every scale axis (1.f / scale.x etc.). A zero or
+            // near-zero axis produces Inf/NaN bounds; the quantized BVH casts
+            // those to unsigned short (UB on MSVC), traversal visits garbage
+            // leaves, and the inner triangle callback faults. Pad any near-zero
+            // axis with a small non-zero magnitude (sign-preserved so negative-
+            // scale mirroring still flips correctly).
+            const float kScaleEps = 1e-4f;
+            if (fabsf(scale.x) < kScaleEps) scale.x = (scale.x < 0.0f) ? -kScaleEps : kScaleEps;
+            if (fabsf(scale.y) < kScaleEps) scale.y = (scale.y < 0.0f) ? -kScaleEps : kScaleEps;
+            if (fabsf(scale.z) < kScaleEps) scale.z = (scale.z < 0.0f) ? -kScaleEps : kScaleEps;
             btVector3 btscale = btVector3(scale.x, scale.y, scale.z);
             btScaledBvhTriangleMeshShape* scaledTriangleShape = new btScaledBvhTriangleMeshShape(staticMesh->GetTriangleCollisionShape(), btscale);
             SetCollisionShape(scaledTriangleShape);

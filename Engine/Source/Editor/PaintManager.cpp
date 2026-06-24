@@ -110,6 +110,13 @@ static btTransform ConvertToBulletTransform(glm::vec3 position, glm::quat rotati
 
 static btCollisionShape* CreateTriCollisionShape(StaticMesh* mesh, glm::vec3 scale)
 {
+    // btScaledBvhTriangleMeshShape reciprocates each scale axis when mapping
+    // query AABBs; a near-zero axis produces Inf/NaN and crashes traversal
+    // inside processAllTriangles. Pad with a small magnitude (sign-preserved).
+    const float kScaleEps = 1e-4f;
+    if (fabsf(scale.x) < kScaleEps) scale.x = (scale.x < 0.0f) ? -kScaleEps : kScaleEps;
+    if (fabsf(scale.y) < kScaleEps) scale.y = (scale.y < 0.0f) ? -kScaleEps : kScaleEps;
+    if (fabsf(scale.z) < kScaleEps) scale.z = (scale.z < 0.0f) ? -kScaleEps : kScaleEps;
     btVector3 btscale = btVector3(scale.x, scale.y, scale.z);
     btScaledBvhTriangleMeshShape* scaledTriangleShape = new btScaledBvhTriangleMeshShape(mesh->GetTriangleCollisionShape(), btscale);
     return scaledTriangleShape;

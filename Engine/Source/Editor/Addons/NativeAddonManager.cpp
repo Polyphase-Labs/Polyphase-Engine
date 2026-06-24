@@ -5150,6 +5150,31 @@ bool NativeAddonManager::WriteTemplateSourceFile(const std::string& path,
         className = "MyAddon";
     }
 
+    // Sanitized addon id used as the static-link entry-point suffix. Mirrors
+    // ActionManager::SanitizeAddonIdForSymbol — letters / digits / '_' pass
+    // through; everything else (notably '.' and '-' in dotted addon ids like
+    // com.vendor.foo) becomes '_'. The matching declaration is emitted into
+    // Generated/AddonPlugins.cpp by GenerateAddonPluginsRegistrar at shipping
+    // time, so the suffix MUST stay aligned with that helper.
+    std::string symSuffix;
+    symSuffix.reserve(binaryName.size());
+    for (char c : binaryName)
+    {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_')
+        {
+            symSuffix.push_back(c);
+        }
+        else
+        {
+            symSuffix.push_back('_');
+        }
+    }
+    if (symSuffix.empty())
+    {
+        symSuffix = "myaddon";
+    }
+
     std::stringstream ss;
     ss << "/**\n";
     ss << " * @file " << className << ".cpp\n";
@@ -5200,7 +5225,16 @@ bool NativeAddonManager::WriteTemplateSourceFile(const std::string& path,
     ss << "}\n";
     ss << "#endif\n";
     ss << "\n";
-    ss << "extern \"C\" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)\n";
+    // Dual-entry pattern. The editor's hot-reload DLL build defines
+    // OCTAVE_PLUGIN_EXPORT, so PolyphasePlugin_GetDesc is dllexport and
+    // NativeAddonManager picks it up via GetProcAddress. The shipped Standalone
+    // build statically links the addon's TUs WITHOUT that define, so a plain
+    // PolyphasePlugin_GetDesc would resolve to dllimport and hit C2491 on MSVC
+    // — and would collide with other statically-linked addons. The #else branch
+    // emits PolyphasePlugin_GetDesc_<sanitized id>, which matches the extern
+    // declared by Generated/AddonPlugins.cpp (see
+    // ActionManager::GenerateAddonPluginsRegistrar).
+    ss << "static int FillDesc(PolyphasePluginDesc* desc)\n";
     ss << "{\n";
     ss << "    desc->apiVersion = OCTAVE_PLUGIN_API_VERSION;\n";
     ss << "    desc->pluginName = \"" << addonName << "\";\n";
@@ -5218,6 +5252,18 @@ bool NativeAddonManager::WriteTemplateSourceFile(const std::string& path,
     ss << "    desc->OnEditorReady = nullptr;\n";
     ss << "    return 0;\n";
     ss << "}\n";
+    ss << "\n";
+    ss << "#if EDITOR\n";
+    ss << "extern \"C\" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* desc)\n";
+    ss << "{\n";
+    ss << "    return FillDesc(desc);\n";
+    ss << "}\n";
+    ss << "#else\n";
+    ss << "extern \"C\" int PolyphasePlugin_GetDesc_" << symSuffix << "(PolyphasePluginDesc* desc)\n";
+    ss << "{\n";
+    ss << "    return FillDesc(desc);\n";
+    ss << "}\n";
+    ss << "#endif\n";
 
     std::string content = ss.str();
     Stream stream(content.c_str(), (uint32_t)content.size());

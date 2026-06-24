@@ -363,6 +363,12 @@ btCompoundShape* InstancedMesh3D::GenerateTriangleCollisionShape()
 
             // Instances can only have uniform scale for now (based on X component)
             float scale = mInstanceData[i].mScale.x;
+            // btScaledBvhTriangleMeshShape reciprocates each scale axis when
+            // mapping query AABBs; a near-zero scale produces Inf/NaN and
+            // crashes the BVH traversal inside processAllTriangles. Pad with
+            // a small magnitude (sign-preserved).
+            const float kScaleEps = 1e-4f;
+            if (fabsf(scale) < kScaleEps) scale = (scale < 0.0f) ? -kScaleEps : kScaleEps;
             btVector3 btscale = btVector3(scale, scale, scale);
 
             if (mUseTriangleCollision && staticMesh->GetTriangleCollisionShape())
