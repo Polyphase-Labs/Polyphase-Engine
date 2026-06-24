@@ -2121,6 +2121,7 @@ bool NativeAddonManager::StageShadowCopy(const std::string& sourceModulePath,
     // PDB sidecar (Windows debug symbols). Best-effort — locked PDBs from
     // mspdbsrv shouldn't block the load.
     size_t dotIdx = sourceModulePath.find_last_of('.');
+    std::string pdbBaseName;
     if (dotIdx != std::string::npos)
     {
         std::string pdbSrc = sourceModulePath.substr(0, dotIdx) + ".pdb";
@@ -2128,8 +2129,49 @@ bool NativeAddonManager::StageShadowCopy(const std::string& sourceModulePath,
         {
             std::string pdbDst = outShadowModulePath.substr(0, outShadowModulePath.find_last_of('.')) + ".pdb";
             SYS_CopyFile(pdbSrc.c_str(), pdbDst.c_str());
+            size_t pdbSlash = pdbSrc.find_last_of("/\\");
+            pdbBaseName = (pdbSlash == std::string::npos) ? pdbSrc : pdbSrc.substr(pdbSlash + 1);
         }
     }
+
+    // Companion files. The addon's post-build `xcopy` step (see
+    // GenerateBuildScript: copyBinaries) drops FFmpeg DLLs and similar
+    // load-time dependencies next to the freshly-linked addon DLL. MOD_Load
+    // searches only the loaded DLL's own directory via
+    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, so any companion sitting in the
+    // source dir but not in the shadow dir vanishes from the search path
+    // and the load fails with Windows error 126 ("module not found").
+    // Iterate the source dir and copy every regular file to the shadow,
+    // skipping the addon DLL + its PDB (already copied above) and any
+    // subdirectories. Build leftovers (.obj/.lib/.exp/.ilk) are harmless;
+    // an allow-list would just be one more thing to forget to update.
+    std::string sourceDir = (slashIdx == std::string::npos) ? ""
+                                                            : sourceModulePath.substr(0, slashIdx + 1);
+    if (!sourceDir.empty())
+    {
+        DirEntry entry;
+        SYS_OpenDirectory(sourceDir, entry);
+        while (entry.mValid)
+        {
+            if (entry.mFilename[0] != '.' && !entry.mDirectory)
+            {
+                std::string name = entry.mFilename;
+                if (name != baseName && (pdbBaseName.empty() || name != pdbBaseName))
+                {
+                    std::string companionSrc = sourceDir + name;
+                    std::string companionDst = shadowDir + name;
+                    SYS_CopyFile(companionSrc.c_str(), companionDst.c_str());
+                    if (!SYS_DoesFileExist(companionDst.c_str(), false))
+                    {
+                        LogWarning("Addon shadow-copy: failed to stage companion '%s' (load may fail if it is a runtime dep)", name.c_str());
+                    }
+                }
+            }
+            SYS_IterateDirectory(entry);
+        }
+        SYS_CloseDirectory(entry);
+    }
+
     return true;
 }
 
@@ -3116,6 +3158,19 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     // Load the module
     LogDebug("Loading native addon: %s from %s", addonId.c_str(), loadPath.c_str());
 
+    // BuildNativeAddon already left mBuildSucceeded=true / mBuildError="" when
+    // the compile+link step succeeded. Any failure from here on is a load-time
+    // failure, but the user-visible surface for those is the same modal that
+    // surfaces compile failures. Route every load-side `return false` through
+    // this helper so HasUnacknowledgedBuildFailures() picks the addon up and
+    // DrawNativeAddonBuildFailureModal opens with the verbatim error string.
+    auto markLoadFailed = [&state](const std::string& err)
+    {
+        state.mBuildSucceeded         = false;
+        state.mBuildError             = err;
+        state.mBuildFailureAcknowledged = false;
+    };
+
     void* handle = MOD_Load(loadPath.c_str());
     if (handle == nullptr)
     {
@@ -3127,6 +3182,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
             TryDeleteShadowDir(state.mShadowDir);
             state.mShadowDir.clear();
         }
+        markLoadFailed(outError);
         return false;
     }
 
@@ -3147,6 +3203,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     {
         unwindLoad(handle);
         outError = "Entry symbol not found: " + state.mNativeMetadata.mEntrySymbol;
+        markLoadFailed(outError);
         return false;
     }
 
@@ -3156,6 +3213,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     {
         unwindLoad(handle);
         outError = "Failed to get plugin descriptor";
+        markLoadFailed(outError);
         return false;
     }
 
@@ -3165,6 +3223,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         unwindLoad(handle);
         outError = "API version mismatch: plugin=" + std::to_string(desc.apiVersion) +
                    ", max supported=" + std::to_string(OCTAVE_PLUGIN_API_VERSION);
+        markLoadFailed(outError);
         return false;
     }
 
@@ -3183,6 +3242,7 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         {
             unwindLoad(handle);
             outError = "Plugin OnLoad failed with code " + std::to_string(result);
+            markLoadFailed(outError);
             return false;
         }
     }
