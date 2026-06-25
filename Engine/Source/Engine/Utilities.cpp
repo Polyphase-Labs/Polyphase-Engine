@@ -778,10 +778,14 @@ void ApplySubSceneOverride(Node* sceneRoot, const SubSceneOverride& over)
     // Remember transient asset properties before applying overrides. Legacy scene files
     // may have incorrectly saved transient material overrides as null references
     // (see GatherNonDefaultProperties fix). We need to restore them if they get nulled out.
+    // Vector-of-asset and empty-asset datums skip — GetAsset()/GetAssetRef()
+    // both OCT_ASSERT(index < mCount), and the transient-shortcut here only
+    // makes sense for single-asset slots like inline material overrides.
+    // (Match the guard pattern in GatherNonDefaultProperties around line 604.)
     std::vector<std::pair<std::string, AssetRef>> transientAssets;
     for (uint32_t i = 0; i < dstProps.size(); ++i)
     {
-        if (dstProps[i].mType == DatumType::Asset)
+        if (dstProps[i].mType == DatumType::Asset && dstProps[i].GetCount() > 0)
         {
             Asset* asset = dstProps[i].GetAsset();
             if (asset != nullptr && asset->IsTransient())
@@ -818,10 +822,12 @@ void ApplySubSceneOverride(Node* sceneRoot, const SubSceneOverride& over)
     }
 
     // Restore any transient assets that were incorrectly nulled out by legacy overrides.
+    // CopyPropertyValues can leave the destination with mCount==0 if the override
+    // dropped this slot — GetAsset()/SetAsset() would assert in that case, so skip.
     for (auto& saved : transientAssets)
     {
         Property* prop = FindProperty(dstProps, saved.first);
-        if (prop != nullptr && prop->GetAsset() == nullptr)
+        if (prop != nullptr && prop->GetCount() > 0 && prop->GetAsset() == nullptr)
         {
             prop->SetAsset(saved.second.Get());
         }

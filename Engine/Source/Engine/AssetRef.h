@@ -42,6 +42,14 @@ public:
     void SetLoadRequest(AsyncLoadRequest* loadRequest);
     AsyncLoadRequest* GetLoadRequest();
 
+    // Drops mAsset without touching its refcount. The normal `*this = nullptr`
+    // assignment decrements the old asset's refcount, which crashes if the
+    // pointer is already dangling (post-purge cross-project leak). Defensive
+    // call sites that detected the dangling pointer via AssetManager
+    // pointer-validation use this to neutralize the ref so subsequent
+    // accesses (and the eventual ~AssetRef) don't redo the same crash.
+    void ClearDangling();
+
 private:
 
     void EraseAsyncLoadRef();
@@ -72,3 +80,5 @@ typedef AssetRef TimelineRef;
 typedef AssetRef TransformAnimationRef;
 typedef AssetRef DataAssetRef;
 typedef AssetRef SpriteAnimationRef;
+typedef AssetRef SkeletalAnimationRef;
+typedef AssetRef HumanoidAvatarRef;

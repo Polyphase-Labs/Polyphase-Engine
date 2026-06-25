@@ -46,6 +46,8 @@
 #include "Assets/ParticleSystem.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
+#include "Assets/HumanoidAvatarAsset.h"
 #include "Assets/MaterialBase.h"
 #include "Assets/MaterialInstance.h"
 #include "Assets/MaterialLite.h"
@@ -2956,11 +2958,15 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
 {
     bool selectionMade = false;
 
-    // Use static variables with the ID to handle multiple instances correctly
+    // Singleton state. By construction exactly one autocomplete dropdown is
+    // open at a time in the editor — activeDropdownId tracks which picker owns
+    // it. All other pickers' helper calls short-circuit on the mismatch and
+    // never enter the BeginPopup block, which is what stops cross-picker key
+    // leakage that the old global-IsKeyPressed-plus-KeysDown[]-mutation code
+    // suffered from when multiple AssetRefPickers were visible at once.
     static ImGuiID activeDropdownId = 0;
     static size_t selectedIndex = 0;
     static bool hasSelection = false;
-    static bool dropdownActive = false;
     static std::string lastInputText = "";
     static std::vector<std::string> filteredItems;
     static bool selectionJustMade = false;
@@ -2973,24 +2979,8 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
     ImVec2 inputRectMin = (overrideRectMax.x > overrideRectMin.x) ? overrideRectMin : ImGui::GetItemRectMin();
     ImVec2 inputRectMax = (overrideRectMax.x > overrideRectMin.x) ? overrideRectMax : ImGui::GetItemRectMax();
 
-    // If forceActive is true, force the dropdown to show
-    // But not if a selection was just made (prevents immediate reopen)
-    if (forceActive && !selectionJustMade) {
-        dropdownActive = true;
-    }
-    // Reset the flag after one frame
-    selectionJustMade = false;
-
-    // If we have a new active item, reset state
-    if (activeDropdownId != inputId && (isInputActive || isInputFocused))
-    {
-        activeDropdownId = inputId;
-        hasSelection = false;
-        dropdownActive = true; // Set to true to ensure dropdown shows
-        selectedIndex = 0;
-    }
-
-    // Always update filtered items before bounds checks so we use the actual item count
+    // Always refresh filtered items so the bounds checks below see the actual
+    // item count.
     filteredItems.clear();
     for (const auto& suggestion : suggestions)
     {
@@ -3000,7 +2990,6 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
         }
     }
 
-    // Reset selection state when filter text changes
     if (inputText != lastInputText)
     {
         lastInputText = inputText;
@@ -3012,92 +3001,68 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
         selectedIndex = filteredItems.size() - 1;
     }
 
-    // Hide dropdown when input loses focus (but not if mouse is over dropdown)
-    if (!isInputActive && !isInputFocused && activeDropdownId == inputId)
+    // Deterministic popup id per call site. The popup stack uses it to route
+    // OpenPopup → BeginPopup and to auto-close one popup when a different
+    // popup id is opened — that's how stacked AssetRefPickers each get their
+    // own z-correct popup without manually fighting over draw order.
+    char popupId[160];
+    snprintf(popupId, sizeof(popupId), "##acpop_%s", dropdownId);
+
+    bool wantsOpen = (forceActive || isInputActive || isInputFocused) && !filteredItems.empty();
+
+    // Focus-acquired edge: this picker just claimed input. Open its popup and
+    // claim the singleton. We DON'T re-open if we just committed via click
+    // (selectionJustMade is the one-frame suppression).
+    if (selectionJustMade)
     {
-        // Calculate dropdown bounds to check if mouse is hovering over it
-        ImVec2 inputSize = ImVec2(inputRectMax.x - inputRectMin.x, inputRectMax.y - inputRectMin.y);
-        const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
-        const size_t visibleItems = std::min(filteredItems.size(), (size_t)4);
-        const float maxDropdownHeight = itemHeight * visibleItems + ImGui::GetStyle().WindowPadding.y * 2;
-        ImVec2 dropdownMin = ImVec2(inputRectMin.x, inputRectMin.y + inputSize.y);
-        ImVec2 dropdownMax = ImVec2(inputRectMax.x, inputRectMin.y + inputSize.y + maxDropdownHeight);
-
-        ImVec2 mousePos = ImGui::GetIO().MousePos;
-        bool mouseOverDropdown = mousePos.x >= dropdownMin.x && mousePos.x <= dropdownMax.x &&
-                                 mousePos.y >= dropdownMin.y && mousePos.y <= dropdownMax.y;
-
-        // Only close if mouse is not over dropdown (allows click selection)
-        if (!mouseOverDropdown)
-        {
-            dropdownActive = false;
-        }
+        selectionJustMade = false;
+    }
+    else if (wantsOpen && activeDropdownId != inputId)
+    {
+        activeDropdownId = inputId;
+        hasSelection = false;
+        selectedIndex = 0;
+        ImGui::OpenPopup(popupId);
     }
 
-    // Close dropdown when user clicks outside BOTH the input field AND dropdown
-    if (dropdownActive && activeDropdownId == inputId && ImGui::IsMouseClicked(0))
+    // Only the singleton-owning picker calls BeginPopup. This gates both the
+    // visual render AND the key polling — pickers that aren't the active one
+    // skip everything below and don't consume keys.
+    if (activeDropdownId == inputId)
     {
-        // Calculate dropdown bounds (same calculation as later in the function)
-        ImVec2 inputSize = ImVec2(inputRectMax.x - inputRectMin.x, inputRectMax.y - inputRectMin.y);
-        const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
-        const size_t visibleItems = std::min(filteredItems.size(), (size_t)4);
-        const float maxDropdownHeight = itemHeight * visibleItems + ImGui::GetStyle().WindowPadding.y * 2;
-
-        // Dropdown rect is below the input
-        ImVec2 dropdownMin = ImVec2(inputRectMin.x, inputRectMin.y + inputSize.y);
-        ImVec2 dropdownMax = ImVec2(inputRectMax.x, inputRectMin.y + inputSize.y + maxDropdownHeight);
-
-        ImVec2 mousePos = ImGui::GetIO().MousePos;
-        bool outsideInput = mousePos.x < inputRectMin.x || mousePos.x > inputRectMax.x ||
-                            mousePos.y < inputRectMin.y || mousePos.y > inputRectMax.y;
-        bool outsideDropdown = mousePos.x < dropdownMin.x || mousePos.x > dropdownMax.x ||
-                               mousePos.y < dropdownMin.y || mousePos.y > dropdownMax.y;
-        if (outsideInput && outsideDropdown)
-        {
-            dropdownActive = false;
-        }
-    }
-    
-    // Only show dropdown when we have filtered items and the dropdown is active
-    // Either the input should be active/focused OR we're in the process of selecting an item
-    if (!filteredItems.empty() && dropdownActive && (isInputActive || isInputFocused || activeDropdownId == inputId ))
-    {
-        activeDropdownId = inputId; // Keep track of which dropdown is active
-
-        // Calculate popup position below the input field
         ImVec2 inputSize = ImVec2(inputRectMax.x - inputRectMin.x, inputRectMax.y - inputRectMin.y);
         ImGui::SetNextWindowPos(ImVec2(inputRectMin.x, inputRectMin.y + inputSize.y));
 
-        // Set maximum height for 4 items plus a bit of padding
         const float itemHeight = ImGui::GetTextLineHeightWithSpacing();
         const float maxHeight = itemHeight * 4 + ImGui::GetStyle().WindowPadding.y * 2;
         ImGui::SetNextWindowSizeConstraints(ImVec2(inputSize.x, 0), ImVec2(inputSize.x, maxHeight));
 
-        // Make sure the dropdown appears above other elements
-        ImGui::SetNextWindowBgAlpha(1.0f); // Fully opaque background
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f); // Add a border for better visibility
+        ImGui::SetNextWindowBgAlpha(1.0f);
 
-        // Use flags to ensure the dropdown stays on top
+        // NoFocusOnAppearing keeps keyboard focus on the parent InputText so
+        // the user can keep typing to filter while the popup is on screen.
+        // The popup stack handles z-order (no more ImGuiWindowFlags_Tooltip,
+        // which was non-interactive for input).
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_Tooltip | // Use tooltip flag to ensure it draws on top
-            ImGuiWindowFlags_NoScrollbar;
-        
-        if (ImGui::Begin(dropdownId, nullptr, flags))
+                                 ImGuiWindowFlags_NoResize |
+                                 ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoSavedSettings |
+                                 ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoScrollbar |
+                                 ImGuiWindowFlags_NoFocusOnAppearing;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+
+        if (ImGui::BeginPopup(popupId, flags))
         {
-            // Get current key state
-            bool upArrowPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow));
+            bool upArrowPressed   = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow));
             bool downArrowPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow));
-            bool tabPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab));
-            bool enterPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)) ||
-                                  ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
-            bool escapePressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape));
+            bool tabPressed       = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab));
+            bool enterPressed     = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter)) ||
+                                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+            bool escapePressed    = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape));
             bool backspacePressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Backspace));
-            
-            // Handle keyboard navigation
+
             if (upArrowPressed)
             {
                 if (!hasSelection && !filteredItems.empty())
@@ -3109,9 +3074,6 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 {
                     selectedIndex = (selectedIndex > 0) ? selectedIndex - 1 : filteredItems.size() - 1;
                 }
-                
-                // Consume the event
-                ImGui::GetIO().KeysDown[ImGui::GetKeyIndex(ImGuiKey_UpArrow)] = false;
             }
             else if (downArrowPressed || tabPressed)
             {
@@ -3124,18 +3086,9 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 {
                     selectedIndex = (selectedIndex + 1) % filteredItems.size();
                 }
-                
-                // Consume the events
-                if (downArrowPressed)
-                    ImGui::GetIO().KeysDown[ImGui::GetKeyIndex(ImGuiKey_DownArrow)] = false;
-                if (tabPressed)
-                    ImGui::GetIO().KeysDown[ImGui::GetKeyIndex(ImGuiKey_Tab)] = false;
             }
             else if (enterPressed)
             {
-                // Always hide dropdown when Enter is pressed
-                dropdownActive = false;
-
                 if (hasSelection && selectedIndex < filteredItems.size())
                 {
                     inputText = filteredItems[selectedIndex];
@@ -3143,47 +3096,27 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 }
                 else if (inputText.empty())
                 {
-                    // If Enter is pressed with empty input, set to null
                     inputText = "null";
                     selectionMade = true;
                 }
-
+                selectionJustMade = true;
                 ImGui::CloseCurrentPopup();
-
-                // Consume the event
-                ImGui::GetIO().KeysDown[ImGui::GetKeyIndex(ImGuiKey_Enter)] = false;
             }
             else if (escapePressed)
             {
-                dropdownActive = false;
                 ImGui::CloseCurrentPopup();
-                
-                // Consume the event
-                ImGui::GetIO().KeysDown[ImGui::GetKeyIndex(ImGuiKey_Escape)] = false;
             }
 
             if (inputText == "" && backspacePressed)
             {
                 selectedIndex = -1;
             }
-            
-            // Display filtered items
-            // Ensure the selected item is always visible by scrolling to it
-            if (hasSelection && selectedIndex < filteredItems.size())
+
+            if (hasSelection && selectedIndex < filteredItems.size() && (upArrowPressed || downArrowPressed))
             {
-                // Calculate where we need to scroll to make the selected item visible
-                float itemHeight = ImGui::GetTextLineHeightWithSpacing();
-                float targetY = itemHeight * selectedIndex;
-                
-                // ImGui will handle the scrolling if we set focus on the selected item
-                // We'll also make sure to scroll into view if arrow keys are pressed
-                if (upArrowPressed || downArrowPressed)
-                {
-                    ImGui::SetScrollY(targetY - itemHeight); // Position selected item one row from top
-                }
+                ImGui::SetScrollY(itemHeight * selectedIndex - itemHeight);
             }
 
-            // Display all filtered items in a scrollable area
             for (size_t i = 0; i < filteredItems.size(); i++)
             {
                 bool isSelected = (hasSelection && i == selectedIndex);
@@ -3194,45 +3127,52 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 ImGui::Selectable(filteredItems[i].c_str(), isSelected);
 
                 // Use AllowWhenBlockedByActiveItem to detect hover even when
-                // another widget (InputText) holds g.ActiveId
+                // another widget (InputText) holds g.ActiveId.
                 bool itemHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
-                // Mouse hover - update selection
                 if (itemHovered)
                 {
                     selectedIndex = i;
                     hasSelection = true;
                 }
 
-                // Mouse click - manual detection that bypasses Selectable's internal
-                // hover check which fails when InputText holds ActiveId
+                // Manual click detection bypasses Selectable's internal hover
+                // check which fails when InputText holds ActiveId.
                 if (itemHovered && ImGui::IsMouseClicked(0))
                 {
                     inputText = filteredItems[i];
                     selectionMade = true;
-                    dropdownActive = false;
                     selectionJustMade = true;
+                    ImGui::CloseCurrentPopup();
                 }
 
                 if (isSelected)
                 {
-                    ImGui::SetItemDefaultFocus(); // This also scrolls to make the item visible
+                    ImGui::SetItemDefaultFocus();
                     ImGui::PopStyleColor();
                 }
             }
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(); // Pop the window border style
-    }
-    else
-    {
 
-        if (filteredItems.empty() && isInputActive)
-        {
-            // Only hide the dropdown if there are no filtered items AND the input is active
-            // This way we don't hide it when the user is trying to interact with it
-            dropdownActive = false;
+            ImGui::EndPopup();
         }
+        else
+        {
+            // Popup no longer open. Either the user clicked outside / pressed
+            // Escape / focused a different picker (ImGui auto-closed via the
+            // popup stack), or we just CloseCurrentPopup'd on a click-commit.
+            // Release the singleton only on user-driven dismissal; on commit,
+            // selectionJustMade is true and we keep activeDropdownId so the
+            // next-frame focus-edge check stays false and we don't immediately
+            // reopen on top of the freshly-set value.
+            if (!selectionJustMade)
+            {
+                activeDropdownId = 0;
+                hasSelection = false;
+                selectedIndex = 0;
+            }
+        }
+
+        ImGui::PopStyleVar();
     }
 
     return selectionMade;
@@ -6398,6 +6338,19 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 GetAnimationBrowser()->Open(skelMesh);
             }
         }
+
+        if (ImGui::Selectable("Extract Animations..."))
+        {
+            actMan->BeginExtractSkeletalAnimations(stub);
+        }
+    }
+
+    if (stub && stub->mType == SkeletalAnimationAsset::GetStaticType())
+    {
+        if (ImGui::Selectable("Retarget..."))
+        {
+            actMan->BeginRetargetAnimation(stub);
+        }
     }
 
     if (canInstantiate && ImGui::Selectable("Instantiate"))
@@ -6649,6 +6602,17 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             actMan->BeginImportScene();
         }
 
+        if (ImGui::Selectable("Import Animations"))
+        {
+            actMan->BeginImportAnimations(curDir);
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Import bone animations from an .fbx/.glb/.gltf/.dae file without\n"
+                "a render mesh. Each clip becomes a standalone SkeletalAnimationAsset.");
+        }
+
         if (ImGui::Selectable("Import TinyLLM Model"))
         {
             actMan->ImportTinyLLMModel();
@@ -6729,6 +6693,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Transform Animation", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = TransformAnimationAsset::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Humanoid Avatar", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = HumanoidAvatarAsset::GetStaticType();
                 showPopup = true;
             }
             if (ImGui::Selectable("Node Graph", false, ImGuiSelectableFlags_DontClosePopups))
@@ -8736,6 +8705,28 @@ static void DrawPropertiesPanel()
                 else if (obj->As<SkeletalMesh>())
                 {
                     SkeletalMesh* skelMesh = obj->As<SkeletalMesh>();
+
+                    const uint32_t numSections = skelMesh->GetNumSections();
+                    if (numSections > 0)
+                    {
+                        ImGui::Text("Sections (%u)", numSections);
+                        ImGui::Indent();
+                        for (uint32_t i = 0; i < numSections; ++i)
+                        {
+                            SkeletalMeshSection& s = skelMesh->GetSectionMutable(i);
+                            ImGui::PushID((int)i);
+                            ImGui::Text("[%u] %s  (%u tris)", i, s.mName.c_str(), s.mIndexCount / 3);
+                            AssetRef& matRef = s.mMaterial;
+                            if (Polyphase::AssetRefPicker("Material", matRef, Material::GetStaticType()))
+                            {
+                                skelMesh->SetDirtyFlag();
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::Unindent();
+                        ImGui::NewLine();
+                    }
+
                     ImGui::Text("Animations");
                     ImGui::Indent();
                     const std::vector<Animation>& animations = skelMesh->GetAnimations();
@@ -8757,6 +8748,112 @@ static void DrawPropertiesPanel()
                     ImGui::Text("Num Channels: %d", soundWave->GetNumChannels());
                     ImGui::Text("Bits Per Sample: %d", soundWave->GetBitsPerSample());
                     ImGui::Text("Sample Rate: %d", soundWave->GetSampleRate());
+                }
+                else if (obj->As<SkeletalAnimationAsset>())
+                {
+                    SkeletalAnimationAsset* clip = obj->As<SkeletalAnimationAsset>();
+                    ImGui::Text("Source Rig: %s", clip->GetSourceRigName().c_str());
+                    ImGui::Text("Duration: %.2fs (%.0f ticks @ %.0f tps)",
+                                clip->GetDurationSeconds(),
+                                clip->GetDuration(),
+                                clip->GetTicksPerSecond());
+
+                    const auto& channels = clip->GetChannels();
+                    ImGui::Text("Channels (%zu)", channels.size());
+                    if (channels.empty())
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                           "  Empty - asset has no animation data.");
+                        ImGui::TextWrapped("  For retargeted assets this usually means the source/target avatar's slot mappings "
+                                           "didn't match either the source clip's bones or the target mesh's bones.");
+                    }
+                    else
+                    {
+                        ImGui::Indent();
+                        if (ImGui::TreeNode("Channel List"))
+                        {
+                            for (uint32_t i = 0; i < channels.size(); ++i)
+                            {
+                                const SkeletalAnimationChannel& ch = channels[i];
+                                ImGui::Text("[%u] %s  (pos %zu, rot %zu, scale %zu)",
+                                            i, ch.mBoneName.c_str(),
+                                            ch.mPositionKeys.size(),
+                                            ch.mRotationKeys.size(),
+                                            ch.mScaleKeys.size());
+                            }
+                            ImGui::TreePop();
+                        }
+                        ImGui::Unindent();
+                    }
+                }
+                else if (obj->As<HumanoidAvatarAsset>())
+                {
+                    HumanoidAvatarAsset* avatar = obj->As<HumanoidAvatarAsset>();
+                    SkeletalMesh* refMesh = avatar->GetReferenceMesh();
+
+                    ImGui::Text("Reference: %s", refMesh ? refMesh->GetName().c_str() : "<none>");
+
+                    if (ImGui::Button("Auto-map from Reference"))
+                    {
+                        uint32_t filled = avatar->AutoMap(false);
+                        avatar->SetDirtyFlag();
+                        LogDebug("HumanoidAvatar: auto-mapped %u slots.", filled);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear All"))
+                    {
+                        for (uint32_t s = 0; s < (uint32_t)HumanoidBone::Count; ++s)
+                        {
+                            avatar->SetBoneName((HumanoidBone)s, "");
+                        }
+                        avatar->SetDirtyFlag();
+                    }
+
+                    std::vector<HumanoidBone> missing;
+                    std::vector<std::string> unknown;
+                    bool ok = avatar->Validate(&missing, &unknown);
+                    if (!ok)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                           "Invalid: %zu bone(s) not in reference mesh",
+                                           unknown.size());
+                    }
+
+                    ImGui::Separator();
+                    ImGui::Text("Humanoid Slots");
+                    ImGui::Indent();
+                    for (uint32_t s = 0; s < (uint32_t)HumanoidBone::Count; ++s)
+                    {
+                        HumanoidBone slot = (HumanoidBone)s;
+                        const std::string& cur = avatar->GetBoneName(slot);
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "%s", cur.c_str());
+
+                        ImGui::PushID((int)s);
+                        ImGui::SetNextItemWidth(220.0f);
+                        if (ImGui::InputText(HumanoidBoneName(slot), buf, sizeof(buf)))
+                        {
+                            avatar->SetBoneName(slot, buf);
+                            avatar->SetDirtyFlag();
+                        }
+
+                        // Live validation indicator: missing (yellow) vs unknown (red) vs ok (green).
+                        ImGui::SameLine();
+                        if (cur.empty())
+                        {
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.4f, 1.0f), " unset");
+                        }
+                        else if (refMesh != nullptr && refMesh->FindBoneIndex(cur) < 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), " not in mesh");
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), " ok");
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::Unindent();
                 }
                 else if (obj->As<Voxel3D>())
                 {
@@ -14140,6 +14237,9 @@ void EditorImguiDraw()
         GetPlayerInputEditor()->Draw();
         GetPlayerInputDebugger()->Draw();
         ActionManager::Get()->DrawBuildModal();
+        ActionManager::Get()->DrawExtractSkeletalAnimationsModal();
+        ActionManager::Get()->DrawImportAnimationsModal();
+        ActionManager::Get()->DrawRetargetAnimationModal();
         GetProjectSelectWindow()->Draw();
         GetAddonsWindow()->Draw();
         GetThemeEditorWindow()->Draw();

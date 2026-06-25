@@ -82,6 +82,19 @@ struct Animation
     std::vector<AnimEventTrack> mEventTracks;
 };
 
+// Contiguous range inside the SkeletalMesh's shared vertex/index buffers
+// that should be drawn with its own material. One section per source aiMesh
+// when the mesh was imported with "combineMeshes".
+struct SkeletalMeshSection
+{
+    std::string mName;
+    uint32_t mFirstIndex = 0;
+    uint32_t mIndexCount = 0;
+    uint32_t mBaseVertex = 0;
+    uint32_t mVertexCount = 0;
+    MaterialRef mMaterial;
+};
+
 class POLYPHASE_API SkeletalMesh : public Asset
 {
 public:
@@ -106,6 +119,16 @@ public:
 
     class Material* GetMaterial();
     void SetMaterial(class Material* newMaterial);
+
+    // Multi-section accessors. A legacy single-material mesh appears as one
+    // implicit section named "Default" covering the entire index range.
+    uint32_t GetNumSections() const;
+    const SkeletalMeshSection& GetSection(uint32_t index) const;
+    SkeletalMeshSection& GetSectionMutable(uint32_t index);
+    class Material* GetSectionMaterial(uint32_t index) const;
+    void SetSectionMaterial(uint32_t index, class Material* material);
+    int32_t FindSectionIndex(const std::string& name) const;
+    const std::vector<SkeletalMeshSection>& GetSections() const;
 
     uint32_t GetNumIndices();
     uint32_t GetNumFaces();
@@ -155,6 +178,7 @@ private:
     std::vector<Bone> mBones;
     std::vector<Animation> mAnimations;
     std::vector<VertexSkinned> mVertices;
+    std::vector<SkeletalMeshSection> mSections;
 
     glm::mat4 mInvRootTransform;
     std::vector<glm::mat4> mBindPoseMatrices;

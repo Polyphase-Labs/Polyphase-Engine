@@ -217,7 +217,9 @@
       "Bash(cmd.exe //c build.bat)",
       "Bash(dumpbin //SYMBOLS Engine.lib)",
       "Bash(cmd.exe //c \"T:\\\\\\\\\\\\\\\\..\\\\\\\\tmp\\\\\\\\build_test.bat\")",
-      "Bash(cmd.exe //c \"C:\\\\\\\\tmp\\\\\\\\build_test.bat\")"
+      "Bash(cmd.exe //c \"C:\\\\\\\\tmp\\\\\\\\build_test.bat\")",
+      "Bash(xxd Engine/Assets/Materials/SkyboxDay/M_SkyboxDay.oct)",
+      "Bash(xxd Engine/Assets/Materials/SkyboxDay/SkyDayGradient.oct)"
     ]
   }
 }

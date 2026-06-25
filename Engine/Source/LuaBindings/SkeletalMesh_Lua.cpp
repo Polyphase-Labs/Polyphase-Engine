@@ -116,6 +116,67 @@ int SkeletalMesh_Lua::GetAnimationDuration(lua_State* L)
     return 1;
 }
 
+int SkeletalMesh_Lua::GetNumSections(lua_State* L)
+{
+    SkeletalMesh* mesh = CHECK_SKELETAL_MESH(L, 1);
+    lua_pushinteger(L, (int)mesh->GetNumSections());
+    return 1;
+}
+
+int SkeletalMesh_Lua::GetSectionName(lua_State* L)
+{
+    SkeletalMesh* mesh = CHECK_SKELETAL_MESH(L, 1);
+    int32_t index = CHECK_INDEX(L, 2);
+
+    if (index >= 0 && uint32_t(index) < mesh->GetNumSections())
+    {
+        lua_pushstring(L, mesh->GetSection(uint32_t(index)).mName.c_str());
+    }
+    else
+    {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+int SkeletalMesh_Lua::GetSectionMaterial(lua_State* L)
+{
+    SkeletalMesh* mesh = CHECK_SKELETAL_MESH(L, 1);
+    int32_t index = CHECK_INDEX(L, 2);
+
+    Material* mat = nullptr;
+    if (index >= 0 && uint32_t(index) < mesh->GetNumSections())
+    {
+        mat = mesh->GetSectionMaterial(uint32_t(index));
+    }
+
+    Asset_Lua::Create(L, mat);
+    return 1;
+}
+
+int SkeletalMesh_Lua::SetSectionMaterial(lua_State* L)
+{
+    SkeletalMesh* mesh = CHECK_SKELETAL_MESH(L, 1);
+    int32_t index = CHECK_INDEX(L, 2);
+    Material* material = nullptr;
+    if (!lua_isnil(L, 3)) { material = CHECK_MATERIAL(L, 3); }
+
+    if (index >= 0 && uint32_t(index) < mesh->GetNumSections())
+    {
+        mesh->SetSectionMaterial(uint32_t(index), material);
+    }
+    return 0;
+}
+
+int SkeletalMesh_Lua::FindSectionIndex(lua_State* L)
+{
+    SkeletalMesh* mesh = CHECK_SKELETAL_MESH(L, 1);
+    const char* name = CHECK_STRING(L, 2);
+
+    lua_pushinteger(L, 1 + mesh->FindSectionIndex(name));
+    return 1;
+}
+
 void SkeletalMesh_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -145,6 +206,16 @@ void SkeletalMesh_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, GetNumAnimations);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetAnimationDuration);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetNumSections);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSectionName);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSectionMaterial);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetSectionMaterial);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, FindSectionIndex);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

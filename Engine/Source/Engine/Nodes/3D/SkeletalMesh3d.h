@@ -3,6 +3,10 @@
 #include "Nodes/3D/Mesh3d.h"
 #include "AssetRef.h"
 #include "Vertex.h"
+// std::vector<Animation> mBoundExternalAnims below needs the full Animation
+// type, so we can't fall back on the forward declarations the file used to
+// rely on for AnimEvent / Channel / Animation.
+#include "Assets/SkeletalMesh.h"
 
 enum class BoneInfluenceMode
 {
@@ -130,6 +134,18 @@ public:
     virtual Material* GetMaterial() override;
     virtual void Render() override;
 
+    // Per-section material slot accessors. A "slot" maps 1:1 onto
+    // SkeletalMesh::GetSection(i). Resolution order for a slot:
+    //   1. component override (mSectionMaterialOverrides[slot])
+    //   2. section's own material (SkeletalMesh::GetSection(slot).mMaterial)
+    //   3. legacy mMaterialOverride (whole-mesh override)
+    //   4. legacy mesh-default mMaterial
+    //   5. renderer default material
+    uint32_t GetNumMaterialSlots() const;
+    Material* GetMaterialSlot(uint32_t slot) const;
+    void SetMaterialSlot(uint32_t slot, Material* material);
+    int32_t FindMaterialSlot(const std::string& sectionName) const;
+
     void UpdateAnimation(float deltaTime, bool updateBones);
 
     virtual Bounds GetLocalBounds() const override;
@@ -163,9 +179,31 @@ protected:
     void UpdateAttachedChildren(float deltaTime);
     void CpuSkinVertices();
 
+    // External SkeletalAnimationAsset references. Resolution order in
+    // FindAnimation: embedded mesh animations first (preserves existing
+    // PlayAnimation behaviour), then animation-lookup-mesh chain, then
+    // bound external assets. Channels in external assets are keyed by bone
+    // NAME and get resolved into target-mesh bone indices lazily into the
+    // mBoundExternalAnims cache below.
+    const std::vector<SkeletalAnimationRef>& GetAnimationAssets() const { return mAnimationAssets; }
+    std::vector<SkeletalAnimationRef>& GetAnimationAssetsMutable();
+    void AddAnimationAsset(class SkeletalAnimationAsset* asset);
+    void RemoveAnimationAsset(class SkeletalAnimationAsset* asset);
+
+    const Animation* FindAnimation(const char* animName);
+    void InvalidateAnimationBindings();
+
     SkeletalMeshRef mSkeletalMesh;
     std::vector<glm::mat4> mBoneMatrices;
     std::vector<Vertex> mSkinnedVertices; // Used by CPU skinning only.
+    std::vector<MaterialRef> mSectionMaterialOverrides;
+    std::vector<SkeletalAnimationRef> mAnimationAssets;
+
+    // Lazy cache of external animation clips with channel bone indices
+    // resolved against the currently assigned target mesh. Rebuilt on
+    // first FindAnimation after the mesh or asset list changes.
+    std::vector<Animation> mBoundExternalAnims;
+    bool mAnimBindingsValid = false;
 
     ScriptableFP<AnimEventHandlerFP> mAnimEventHandler;
     std::string mDefaultAnimation;

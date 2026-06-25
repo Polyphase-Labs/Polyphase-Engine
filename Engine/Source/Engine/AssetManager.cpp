@@ -463,6 +463,26 @@ bool AssetManager::IsPurging() const
     return mPurging;
 }
 
+bool AssetManager::IsAssetLive(const Asset* asset) const
+{
+    if (asset == nullptr)
+        return false;
+
+    for (auto it = mAssetMap.begin(); it != mAssetMap.end(); ++it)
+    {
+        if (it->second != nullptr && it->second->mAsset == asset)
+            return true;
+    }
+
+    for (Asset* transient : mTransientAssets)
+    {
+        if (transient == asset)
+            return true;
+    }
+
+    return false;
+}
+
 void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
 {
     std::vector<std::string> subDirectories;

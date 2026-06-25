@@ -1101,17 +1101,15 @@ void GFX_DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             uvSourcesLoc = gC3dContext.mSkeletalMeshLocs.mUvSources;
         }
 
-        MaterialLite* material = Material::AsLite(skeletalMeshComp->GetMaterial());
+        MaterialLite* defaultMat = Material::AsLite(skeletalMeshComp->GetMaterial());
 
-        if (material == nullptr)
+        if (defaultMat == nullptr)
         {
-            material = Renderer::Get()->GetDefaultMaterial();
-            OCT_ASSERT(material != nullptr);
+            defaultMat = Renderer::Get()->GetDefaultMaterial();
+            OCT_ASSERT(defaultMat != nullptr);
         }
 
-        BindMaterial(material, skeletalMeshComp, false, false);
-
-        // Upload Uniforms
+        // Compute matrices once (same for every section).
         C3D_Mtx worldMtx;
         C3D_Mtx viewMtx;
         C3D_Mtx worldViewMtx;
@@ -1132,33 +1130,66 @@ void GFX_DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
         Mtx_Inverse(&normalMtx);
         Mtx_Transpose(&normalMtx);
 
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, worldViewMtxLoc, &worldViewMtx);
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, normalMtxLoc, &normalMtx);
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projMtxLoc, &projMtx);
-        UploadWorldMtx(worldMtxLoc, worldMtx);
+        // One draw per section so each can bind its own material. Per-section
+        // state setup MUST mirror the original single-draw ordering exactly:
+        // BindMaterial first, THEN matrix/UV/color-scale uniforms, THEN draw.
+        // Swapping that order leaves the first section's draw on stale state
+        // (only the second section onwards inherits a fully-applied material).
+        // Legacy meshes have a single default section spanning the full range.
+        const uint32_t numSections = mesh->GetNumSections();
+        const uint32_t sectionCount = numSections > 0 ? numSections : 1;
+        const uint16_t* indexBase = (const uint16_t*)mesh->GetResource()->mIndexData;
 
-        UploadUvOffsetScale(uvOffsetScaleLoc0, material, 0);
-        UploadUvOffsetScale(uvOffsetScaleLoc1, material, 1);
-        UploadUvSources(uvSourcesLoc, material);
-        C3D_FVUnifSet(GPU_VERTEX_SHADER, uvMapsLoc, material->GetUvMap(0), material->GetUvMap(1), material->GetUvMap(2), 0);
-
-        // Handle color scale
-        if (cpuSkinned)
+        for (uint32_t s = 0; s < sectionCount; ++s)
         {
-            C3D_FVUnifSet(GPU_VERTEX_SHADER, gC3dContext.mStaticMeshLocs.mColorMult, 1.0f, 1.0f, 1.0f, 1.0f);
-        }
-        else
-        {
-            float invColorScale = gC3dContext.mInvColorScale;
-            C3D_FVUnifSet(GPU_VERTEX_SHADER, gC3dContext.mSkeletalMeshLocs.mUniformColor, invColorScale, invColorScale, invColorScale, invColorScale);
-        }
+            uint32_t firstIndex = 0;
+            uint32_t indexCount = mesh->GetNumIndices();
 
-        // Draw
-        C3D_DrawElements(
-            GPU_TRIANGLES,
-            mesh->GetNumIndices(),
-            C3D_UNSIGNED_SHORT,
-            mesh->GetResource()->mIndexData);
+            if (numSections > 0)
+            {
+                const SkeletalMeshSection& section = mesh->GetSection(s);
+                if (section.mIndexCount == 0)
+                {
+                    continue;
+                }
+                firstIndex = section.mFirstIndex;
+                indexCount = section.mIndexCount;
+            }
+
+            MaterialLite* material = Material::AsLite(skeletalMeshComp->GetMaterialSlot(s));
+            if (material == nullptr)
+            {
+                material = defaultMat;
+            }
+
+            BindMaterial(material, skeletalMeshComp, false, false);
+
+            C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, worldViewMtxLoc, &worldViewMtx);
+            C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, normalMtxLoc, &normalMtx);
+            C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projMtxLoc, &projMtx);
+            UploadWorldMtx(worldMtxLoc, worldMtx);
+
+            UploadUvOffsetScale(uvOffsetScaleLoc0, material, 0);
+            UploadUvOffsetScale(uvOffsetScaleLoc1, material, 1);
+            UploadUvSources(uvSourcesLoc, material);
+            C3D_FVUnifSet(GPU_VERTEX_SHADER, uvMapsLoc, material->GetUvMap(0), material->GetUvMap(1), material->GetUvMap(2), 0);
+
+            if (cpuSkinned)
+            {
+                C3D_FVUnifSet(GPU_VERTEX_SHADER, gC3dContext.mStaticMeshLocs.mColorMult, 1.0f, 1.0f, 1.0f, 1.0f);
+            }
+            else
+            {
+                float invColorScale = gC3dContext.mInvColorScale;
+                C3D_FVUnifSet(GPU_VERTEX_SHADER, gC3dContext.mSkeletalMeshLocs.mUniformColor, invColorScale, invColorScale, invColorScale, invColorScale);
+            }
+
+            C3D_DrawElements(
+                GPU_TRIANGLES,
+                indexCount,
+                C3D_UNSIGNED_SHORT,
+                indexBase + firstIndex);
+        }
     }
 }
 

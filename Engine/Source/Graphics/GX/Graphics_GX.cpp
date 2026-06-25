@@ -803,15 +803,13 @@ void GFX_DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             BindSkeletalMesh(mesh);
         }
 
-        MaterialLite* material = Material::AsLite(skeletalMeshComp->GetMaterial());
+        MaterialLite* defaultMat = Material::AsLite(skeletalMeshComp->GetMaterial());
 
-        if (material == nullptr)
+        if (defaultMat == nullptr)
         {
-            material = Renderer::Get()->GetDefaultMaterial();
-            OCT_ASSERT(material != nullptr);
+            defaultMat = Renderer::Get()->GetDefaultMaterial();
+            OCT_ASSERT(defaultMat != nullptr);
         }
-
-        BindMaterial(material, skeletalMeshComp, false, false);
 
         Mtx model;
         Mtx view;
@@ -854,64 +852,100 @@ void GFX_DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             }
         }
 
-        SetupLightMask(material->GetShadingModel(), skeletalMeshComp->GetLightingChannels(), false);
-        SetupLightingChannels();
-
-        GX_Begin(GX_TRIANGLES, GX_VTXFMT0, mesh->GetNumIndices());
-
         const uint16_t* indices = mesh->GetIndices();
+        const VertexSkinned* verts = cpuSkinned ? nullptr : mesh->GetVertices().data();
+        const uint32_t numSections = mesh->GetNumSections();
 
-        if (cpuSkinned)
+        // One draw per section so per-part material/TEV state binds before each
+        // run of triangles. Legacy meshes are a single Default section covering
+        // the full index range and behave like the old path.
+        const uint32_t sectionCount = numSections > 0 ? numSections : 1;
+
+        for (uint32_t s = 0; s < sectionCount; ++s)
         {
-            for (uint32_t i = 0; i < mesh->GetNumFaces(); ++i)
+            uint32_t firstIndex = 0;
+            uint32_t indexCount = mesh->GetNumIndices();
+
+            if (numSections > 0)
             {
-                GX_Position1x16(indices[i * 3 + 0]);
-                GX_Normal1x16(indices[i * 3 + 0]);
-                GX_TexCoord1x16(indices[i * 3 + 0]);
-                GX_TexCoord1x16(indices[i * 3 + 0]);
-
-                GX_Position1x16(indices[i * 3 + 1]);
-                GX_Normal1x16(indices[i * 3 + 1]);
-                GX_TexCoord1x16(indices[i * 3 + 1]);
-                GX_TexCoord1x16(indices[i * 3 + 1]);
-
-                GX_Position1x16(indices[i * 3 + 2]);
-                GX_Normal1x16(indices[i * 3 + 2]);
-                GX_TexCoord1x16(indices[i * 3 + 2]);
-                GX_TexCoord1x16(indices[i * 3 + 2]);
+                const SkeletalMeshSection& section = mesh->GetSection(s);
+                if (section.mIndexCount == 0)
+                {
+                    continue;
+                }
+                firstIndex = section.mFirstIndex;
+                indexCount = section.mIndexCount;
             }
-        }
-        else
-        {
-            const VertexSkinned* verts = mesh->GetVertices().data();
 
-            for (uint32_t i = 0; i < mesh->GetNumFaces(); ++i)
+            MaterialLite* material = Material::AsLite(skeletalMeshComp->GetMaterialSlot(s));
+            if (material == nullptr)
             {
-                uint8_t bone0 = 3 * verts[indices[i * 3 + 0]].mBoneIndices[0];
-                uint8_t bone1 = 3 * verts[indices[i * 3 + 1]].mBoneIndices[0];
-                uint8_t bone2 = 3 * verts[indices[i * 3 + 2]].mBoneIndices[0];
-
-                GX_MatrixIndex1x8(bone0);
-                GX_Position1x16(indices[i * 3 + 0]);
-                GX_Normal1x16(indices[i * 3 + 0]);
-                GX_TexCoord1x16(indices[i * 3 + 0]);
-                GX_TexCoord1x16(indices[i * 3 + 0]);
-
-                GX_MatrixIndex1x8(bone1);
-                GX_Position1x16(indices[i * 3 + 1]);
-                GX_Normal1x16(indices[i * 3 + 1]);
-                GX_TexCoord1x16(indices[i * 3 + 1]);
-                GX_TexCoord1x16(indices[i * 3 + 1]);
-
-                GX_MatrixIndex1x8(bone2);
-                GX_Position1x16(indices[i * 3 + 2]);
-                GX_Normal1x16(indices[i * 3 + 2]);
-                GX_TexCoord1x16(indices[i * 3 + 2]);
-                GX_TexCoord1x16(indices[i * 3 + 2]);
+                material = defaultMat;
             }
-        }
 
-        GX_End();
+            BindMaterial(material, skeletalMeshComp, false, false);
+
+            SetupLightMask(material->GetShadingModel(), skeletalMeshComp->GetLightingChannels(), false);
+            SetupLightingChannels();
+
+            GX_Begin(GX_TRIANGLES, GX_VTXFMT0, indexCount);
+
+            const uint32_t numFaces = indexCount / 3;
+
+            if (cpuSkinned)
+            {
+                for (uint32_t i = 0; i < numFaces; ++i)
+                {
+                    const uint32_t base = firstIndex + i * 3;
+
+                    GX_Position1x16(indices[base + 0]);
+                    GX_Normal1x16(indices[base + 0]);
+                    GX_TexCoord1x16(indices[base + 0]);
+                    GX_TexCoord1x16(indices[base + 0]);
+
+                    GX_Position1x16(indices[base + 1]);
+                    GX_Normal1x16(indices[base + 1]);
+                    GX_TexCoord1x16(indices[base + 1]);
+                    GX_TexCoord1x16(indices[base + 1]);
+
+                    GX_Position1x16(indices[base + 2]);
+                    GX_Normal1x16(indices[base + 2]);
+                    GX_TexCoord1x16(indices[base + 2]);
+                    GX_TexCoord1x16(indices[base + 2]);
+                }
+            }
+            else
+            {
+                for (uint32_t i = 0; i < numFaces; ++i)
+                {
+                    const uint32_t base = firstIndex + i * 3;
+
+                    uint8_t bone0 = 3 * verts[indices[base + 0]].mBoneIndices[0];
+                    uint8_t bone1 = 3 * verts[indices[base + 1]].mBoneIndices[0];
+                    uint8_t bone2 = 3 * verts[indices[base + 2]].mBoneIndices[0];
+
+                    GX_MatrixIndex1x8(bone0);
+                    GX_Position1x16(indices[base + 0]);
+                    GX_Normal1x16(indices[base + 0]);
+                    GX_TexCoord1x16(indices[base + 0]);
+                    GX_TexCoord1x16(indices[base + 0]);
+
+                    GX_MatrixIndex1x8(bone1);
+                    GX_Position1x16(indices[base + 1]);
+                    GX_Normal1x16(indices[base + 1]);
+                    GX_TexCoord1x16(indices[base + 1]);
+                    GX_TexCoord1x16(indices[base + 1]);
+
+                    GX_MatrixIndex1x8(bone2);
+                    GX_Position1x16(indices[base + 2]);
+                    GX_Normal1x16(indices[base + 2]);
+                    GX_TexCoord1x16(indices[base + 2]);
+                    GX_TexCoord1x16(indices[base + 2]);
+                }
+            }
+
+            GX_End();
+        }
     }
 }
 

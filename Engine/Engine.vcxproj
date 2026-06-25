@@ -1059,6 +1059,8 @@
     <ClCompile Include="Source\Engine\Assets\ParticleSystem.cpp" />
     <ClCompile Include="Source\Engine\Assets\ParticleSystemInstance.cpp" />
     <ClCompile Include="Source\Engine\Assets\Scene.cpp" />
+    <ClCompile Include="Source\Engine\Assets\HumanoidAvatarAsset.cpp" />
+    <ClCompile Include="Source\Engine\Assets\SkeletalAnimationAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalMesh.cpp" />
     <ClCompile Include="Source\Engine\Assets\SoundWave.cpp" />
     <ClCompile Include="Source\Engine\Assets\SpriteAnimation.cpp" />
@@ -1336,6 +1338,7 @@
     <ClCompile Include="Source\LuaBindings\LoadingMenu_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Signal_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SoundWave_Lua.cpp" />
@@ -1621,6 +1624,8 @@
     <ClInclude Include="Source\Engine\Assets\ParticleSystem.h" />
     <ClInclude Include="Source\Engine\Assets\ParticleSystemInstance.h" />
     <ClInclude Include="Source\Engine\Assets\Scene.h" />
+    <ClInclude Include="Source\Engine\Assets\HumanoidAvatarAsset.h" />
+    <ClInclude Include="Source\Engine\Assets\SkeletalAnimationAsset.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalMesh.h" />
     <ClInclude Include="Source\Engine\Assets\SoundWave.h" />
     <ClInclude Include="Source\Engine\Assets\SpriteAnimation.h" />
@@ -1906,6 +1911,7 @@
     <ClInclude Include="Source\LuaBindings\LoadingMenu_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Signal_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SoundWave_Lua.h" />

@@ -27,6 +27,12 @@ struct SkeletalMesh_Lua
     static int GetNumAnimations(lua_State* L);
     static int GetAnimationDuration(lua_State* L);
 
+    static int GetNumSections(lua_State* L);
+    static int GetSectionName(lua_State* L);
+    static int GetSectionMaterial(lua_State* L);
+    static int SetSectionMaterial(lua_State* L);
+    static int FindSectionIndex(lua_State* L);
+
     static void Bind();
 };
 

@@ -214,6 +214,14 @@ public:
 
     bool IsPurging() const;
 
+    // Walks the asset map + transient list looking for a matching pointer
+    // identity without dereferencing the argument. Lets defensive call sites
+    // distinguish "live Asset" from "freed-but-not-yet-nulled raw pointer"
+    // when ASSET_LIVE_REF_TRACKING didn't catch the stale reference
+    // (e.g. across project-switch teardown). Linear scan, only intended for
+    // the rare paths that must defend against a dangling Asset*.
+    bool IsAssetLive(const Asset* asset) const;
+
 protected:
 
     static ThreadFuncRet AsyncLoadThreadFunc(void* in);

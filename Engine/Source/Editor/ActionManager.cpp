@@ -52,6 +52,8 @@
 #include "Assets/Timeline.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
+#include "Assets/HumanoidAvatarAsset.h"
 #include "Assets/SoundWave.h"
 #include "Assets/MaterialLite.h"
 #include "Assets/MaterialBase.h"
@@ -8062,6 +8064,790 @@ static void HandleReimportSceneCallback(const std::vector<std::string>& filePath
     if (filePaths.size() >= 1)
     {
         GetEditorState()->mPendingReimportScenePath = filePaths[0];
+    }
+}
+
+void ActionManager::BeginExtractSkeletalAnimations(AssetStub* skeletalMeshStub)
+{
+    if (skeletalMeshStub == nullptr ||
+        skeletalMeshStub->mType != SkeletalMesh::GetStaticType())
+    {
+        LogWarning("Cannot extract animations. Selected asset is not a SkeletalMesh.");
+        return;
+    }
+
+    if (skeletalMeshStub->mAsset == nullptr)
+    {
+        AssetManager::Get()->LoadAsset(*skeletalMeshStub);
+    }
+    SkeletalMesh* skelMesh = skeletalMeshStub->mAsset ? skeletalMeshStub->mAsset->As<SkeletalMesh>() : nullptr;
+    if (skelMesh == nullptr)
+    {
+        LogWarning("Cannot extract animations. Failed to load SkeletalMesh asset.");
+        return;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (animations.empty())
+    {
+        LogWarning("Cannot extract animations. SkeletalMesh '%s' has no embedded animations.",
+                   skelMesh->GetName().c_str());
+        return;
+    }
+
+    mExtractSkelAnimSourceStub = skeletalMeshStub;
+    mExtractSkelAnimSelections.assign(animations.size(), 1);
+    snprintf(mExtractSkelAnimPrefix, sizeof(mExtractSkelAnimPrefix), "SA_");
+    mExtractSkelAnimOverwrite = false;
+    mExtractSkelAnimUnique = true;
+    mExtractSkelAnimRemoveEmbedded = false;
+    mShowExtractSkelAnimModal = true;
+}
+
+bool ActionManager::ExtractSkeletalAnimations(const ExtractSkeletalAnimationsOptions& options)
+{
+    if (options.mSourceMeshStub == nullptr ||
+        options.mSourceMeshStub->mType != SkeletalMesh::GetStaticType())
+    {
+        return false;
+    }
+
+    if (options.mSourceMeshStub->mAsset == nullptr)
+    {
+        AssetManager::Get()->LoadAsset(*options.mSourceMeshStub);
+    }
+    SkeletalMesh* skelMesh = options.mSourceMeshStub->mAsset->As<SkeletalMesh>();
+    if (skelMesh == nullptr)
+    {
+        return false;
+    }
+
+    AssetDir* targetDir = options.mTargetDir ? options.mTargetDir : options.mSourceMeshStub->mDirectory;
+    if (targetDir == nullptr)
+    {
+        LogWarning("ExtractSkeletalAnimations: no target directory.");
+        return false;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (animations.empty())
+    {
+        return false;
+    }
+
+    std::vector<uint32_t> indices = options.mAnimationIndices;
+    if (indices.empty())
+    {
+        indices.reserve(animations.size());
+        for (uint32_t i = 0; i < animations.size(); ++i) indices.push_back(i);
+    }
+
+    const std::string meshName = skelMesh->GetName();
+    uint32_t generatedCount = 0;
+
+    for (uint32_t idx : indices)
+    {
+        if (idx >= animations.size())
+        {
+            continue;
+        }
+
+        const Animation& srcAnim = animations[idx];
+
+        std::string baseName = options.mPrefix + meshName + "_" + srcAnim.mName;
+        // Sanitize: replace anything that would break asset naming with '_'.
+        for (char& c : baseName)
+        {
+            if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-'))
+            {
+                c = '_';
+            }
+        }
+
+        std::string finalName = baseName;
+        AssetStub* existing = AssetManager::Get()->GetAssetStub(finalName);
+        if (existing != nullptr)
+        {
+            if (options.mOverwriteExisting && existing->mType == SkeletalAnimationAsset::GetStaticType())
+            {
+                AssetManager::Get()->PurgeAsset(finalName.c_str());
+                existing = nullptr;
+            }
+            else if (options.mUniqueNames)
+            {
+                uint32_t suffix = 1;
+                while (AssetManager::Get()->GetAssetStub(finalName) != nullptr)
+                {
+                    finalName = baseName + "_" + std::to_string(suffix++);
+                }
+            }
+            else
+            {
+                LogWarning("ExtractSkeletalAnimations: skipping '%s' (already exists).", finalName.c_str());
+                continue;
+            }
+        }
+
+        AssetStub* newStub = EditorAddUniqueAsset(finalName.c_str(), targetDir, SkeletalAnimationAsset::GetStaticType(), true);
+        if (newStub == nullptr || newStub->mAsset == nullptr)
+        {
+            LogWarning("ExtractSkeletalAnimations: failed to create asset '%s'.", finalName.c_str());
+            continue;
+        }
+
+        SkeletalAnimationAsset* newClip = newStub->mAsset->As<SkeletalAnimationAsset>();
+        OCT_ASSERT(newClip != nullptr);
+        newClip->CopyFromEmbedded(srcAnim, skelMesh);
+        newClip->SetDirtyFlag();
+        AssetManager::Get()->SaveAsset(*newStub);
+        ++generatedCount;
+    }
+
+    LogDebug("ExtractSkeletalAnimations: generated %u/%zu clips from '%s'.",
+             generatedCount, indices.size(), meshName.c_str());
+
+    return generatedCount > 0;
+}
+
+void ActionManager::DrawExtractSkeletalAnimationsModal()
+{
+    if (!mShowExtractSkelAnimModal)
+    {
+        return;
+    }
+
+    SkeletalMesh* skelMesh = nullptr;
+    if (mExtractSkelAnimSourceStub != nullptr && mExtractSkelAnimSourceStub->mAsset != nullptr)
+    {
+        skelMesh = mExtractSkelAnimSourceStub->mAsset->As<SkeletalMesh>();
+    }
+
+    if (skelMesh == nullptr)
+    {
+        mShowExtractSkelAnimModal = false;
+        mExtractSkelAnimSourceStub = nullptr;
+        return;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (mExtractSkelAnimSelections.size() != animations.size())
+    {
+        mExtractSkelAnimSelections.assign(animations.size(), 1);
+    }
+
+    ImGui::OpenPopup("Extract Animations");
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 380.0f), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal("Extract Animations", &mShowExtractSkelAnimModal, ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Text("Source: %s", skelMesh->GetName().c_str());
+        ImGui::Separator();
+
+        ImGui::InputText("Prefix", mExtractSkelAnimPrefix, sizeof(mExtractSkelAnimPrefix));
+        ImGui::Checkbox("Overwrite existing", &mExtractSkelAnimOverwrite);
+        ImGui::SameLine();
+        ImGui::Checkbox("Unique names", &mExtractSkelAnimUnique);
+
+        ImGui::Separator();
+        ImGui::Text("Animations (%zu)", animations.size());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("All"))
+        {
+            std::fill(mExtractSkelAnimSelections.begin(), mExtractSkelAnimSelections.end(), 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("None"))
+        {
+            std::fill(mExtractSkelAnimSelections.begin(), mExtractSkelAnimSelections.end(), 0);
+        }
+
+        ImGui::BeginChild("AnimList", ImVec2(0.0f, 220.0f), true);
+        for (uint32_t i = 0; i < animations.size(); ++i)
+        {
+            bool selected = mExtractSkelAnimSelections[i] != 0;
+            char label[256];
+            snprintf(label, sizeof(label), "%s  (dur %.2fs, %zu ch, %zu ev)",
+                     animations[i].mName.c_str(),
+                     animations[i].mTicksPerSecond > 0.0f ? animations[i].mDuration / animations[i].mTicksPerSecond : 0.0f,
+                     animations[i].mChannels.size(),
+                     animations[i].mEventTracks.size());
+            if (ImGui::Checkbox(label, &selected))
+            {
+                mExtractSkelAnimSelections[i] = selected ? 1 : 0;
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Extract Selected"))
+        {
+            ExtractSkeletalAnimationsOptions opts;
+            opts.mSourceMeshStub = mExtractSkelAnimSourceStub;
+            opts.mTargetDir = mExtractSkelAnimSourceStub->mDirectory;
+            opts.mPrefix = mExtractSkelAnimPrefix;
+            opts.mOverwriteExisting = mExtractSkelAnimOverwrite;
+            opts.mUniqueNames = mExtractSkelAnimUnique;
+            for (uint32_t i = 0; i < mExtractSkelAnimSelections.size(); ++i)
+            {
+                if (mExtractSkelAnimSelections[i]) opts.mAnimationIndices.push_back(i);
+            }
+            ExtractSkeletalAnimations(opts);
+            mShowExtractSkelAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Extract All"))
+        {
+            ExtractSkeletalAnimationsOptions opts;
+            opts.mSourceMeshStub = mExtractSkelAnimSourceStub;
+            opts.mTargetDir = mExtractSkelAnimSourceStub->mDirectory;
+            opts.mPrefix = mExtractSkelAnimPrefix;
+            opts.mOverwriteExisting = mExtractSkelAnimOverwrite;
+            opts.mUniqueNames = mExtractSkelAnimUnique;
+            ExtractSkeletalAnimations(opts);
+            mShowExtractSkelAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            mShowExtractSkelAnimModal = false;
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (!mShowExtractSkelAnimModal)
+    {
+        mExtractSkelAnimSourceStub = nullptr;
+        mExtractSkelAnimSelections.clear();
+    }
+}
+
+void ActionManager::BeginImportAnimations(AssetDir* targetDir)
+{
+    if (GetEngineState()->mProjectPath == "")
+    {
+        LogWarning("Cannot import animations. No project loaded.");
+        return;
+    }
+
+    std::vector<std::string> filePaths = SYS_OpenFileDialog();
+    if (filePaths.empty() || filePaths[0].empty())
+    {
+        return;
+    }
+
+    mImportAnimSourcePath = filePaths[0];
+    mImportAnimTargetDir = targetDir ? targetDir : GetEditorState()->GetAssetDirectory();
+
+    // Pre-parse to populate the selection list. Throwing the heavy
+    // SkeletalAnimationAsset vector away after listing — ImportAnimations
+    // re-parses at confirm-time so we don't keep big keyframe data live.
+    std::vector<SkeletalAnimationAsset> tmpAssets;
+    std::vector<std::string> tmpNames;
+    uint32_t count = SkeletalAnimationAsset::ParseAnimationsFromFile(
+        mImportAnimSourcePath, tmpAssets, tmpNames);
+    if (count == 0)
+    {
+        return;
+    }
+
+    mImportAnimNames = std::move(tmpNames);
+    mImportAnimSelections.assign(mImportAnimNames.size(), 1);
+    snprintf(mImportAnimPrefix, sizeof(mImportAnimPrefix), "SA_");
+    mImportAnimOverwrite = false;
+    mImportAnimUnique = true;
+    mShowImportAnimModal = true;
+}
+
+bool ActionManager::ImportAnimations(const ImportAnimationsOptions& options)
+{
+    if (options.mSourcePath.empty())
+    {
+        return false;
+    }
+
+    AssetDir* targetDir = options.mTargetDir ? options.mTargetDir : GetEditorState()->GetAssetDirectory();
+    if (targetDir == nullptr)
+    {
+        LogWarning("ImportAnimations: no target directory.");
+        return false;
+    }
+
+    std::vector<SkeletalAnimationAsset> parsed;
+    std::vector<std::string> parsedNames;
+    uint32_t parsedCount = SkeletalAnimationAsset::ParseAnimationsFromFile(
+        options.mSourcePath, parsed, parsedNames);
+    if (parsedCount == 0)
+    {
+        return false;
+    }
+
+    std::vector<uint32_t> indices = options.mAnimationIndices;
+    if (indices.empty())
+    {
+        indices.reserve(parsedCount);
+        for (uint32_t i = 0; i < parsedCount; ++i) indices.push_back(i);
+    }
+
+    uint32_t generatedCount = 0;
+    for (uint32_t idx : indices)
+    {
+        if (idx >= parsedCount) continue;
+
+        std::string baseName = options.mPrefix + parsedNames[idx];
+        for (char& c : baseName)
+        {
+            if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-'))
+            {
+                c = '_';
+            }
+        }
+
+        std::string finalName = baseName;
+        AssetStub* existing = AssetManager::Get()->GetAssetStub(finalName);
+        if (existing != nullptr)
+        {
+            if (options.mOverwriteExisting && existing->mType == SkeletalAnimationAsset::GetStaticType())
+            {
+                AssetManager::Get()->PurgeAsset(finalName.c_str());
+                existing = nullptr;
+            }
+            else if (options.mUniqueNames)
+            {
+                uint32_t suffix = 1;
+                while (AssetManager::Get()->GetAssetStub(finalName) != nullptr)
+                {
+                    finalName = baseName + "_" + std::to_string(suffix++);
+                }
+            }
+            else
+            {
+                LogWarning("ImportAnimations: skipping '%s' (already exists).", finalName.c_str());
+                continue;
+            }
+        }
+
+        AssetStub* newStub = EditorAddUniqueAsset(finalName.c_str(), targetDir, SkeletalAnimationAsset::GetStaticType(), true);
+        if (newStub == nullptr || newStub->mAsset == nullptr)
+        {
+            LogWarning("ImportAnimations: failed to create asset '%s'.", finalName.c_str());
+            continue;
+        }
+
+        SkeletalAnimationAsset* newClip = newStub->mAsset->As<SkeletalAnimationAsset>();
+        // Move the parsed data over wholesale — keys are large.
+        SkeletalAnimationAsset& src = parsed[idx];
+        newClip->SetClipName(src.GetClipName());
+        newClip->SetDuration(src.GetDuration());
+        newClip->SetTicksPerSecond(src.GetTicksPerSecond());
+        newClip->SetSourceRigName(src.GetSourceRigName());
+        newClip->GetSourceBoneNamesMutable() = std::move(src.GetSourceBoneNamesMutable());
+        newClip->GetSourceParentIndicesMutable() = std::move(src.GetSourceParentIndicesMutable());
+        newClip->GetSourceBindPoseMutable() = std::move(src.GetSourceBindPoseMutable());
+        newClip->GetChannelsMutable() = std::move(src.GetChannelsMutable());
+        newClip->GetEventTracksMutable() = std::move(src.GetEventTracksMutable());
+
+        newClip->SetDirtyFlag();
+        AssetManager::Get()->SaveAsset(*newStub);
+        ++generatedCount;
+    }
+
+    LogDebug("ImportAnimations: generated %u/%zu clips from '%s'.",
+             generatedCount, indices.size(), options.mSourcePath.c_str());
+
+    return generatedCount > 0;
+}
+
+void ActionManager::DrawImportAnimationsModal()
+{
+    if (!mShowImportAnimModal)
+    {
+        return;
+    }
+
+    if (mImportAnimNames.empty())
+    {
+        mShowImportAnimModal = false;
+        return;
+    }
+
+    ImGui::OpenPopup("Import Animations");
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 380.0f), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal("Import Animations", &mShowImportAnimModal, ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::TextWrapped("Source: %s", mImportAnimSourcePath.c_str());
+        ImGui::Separator();
+
+        ImGui::InputText("Prefix", mImportAnimPrefix, sizeof(mImportAnimPrefix));
+        ImGui::Checkbox("Overwrite existing", &mImportAnimOverwrite);
+        ImGui::SameLine();
+        ImGui::Checkbox("Unique names", &mImportAnimUnique);
+
+        ImGui::Separator();
+        ImGui::Text("Animations (%zu)", mImportAnimNames.size());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("All"))
+        {
+            std::fill(mImportAnimSelections.begin(), mImportAnimSelections.end(), 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("None"))
+        {
+            std::fill(mImportAnimSelections.begin(), mImportAnimSelections.end(), 0);
+        }
+
+        ImGui::BeginChild("ImportAnimList", ImVec2(0.0f, 220.0f), true);
+        for (uint32_t i = 0; i < mImportAnimNames.size(); ++i)
+        {
+            bool selected = mImportAnimSelections[i] != 0;
+            if (ImGui::Checkbox(mImportAnimNames[i].c_str(), &selected))
+            {
+                mImportAnimSelections[i] = selected ? 1 : 0;
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Import Selected"))
+        {
+            ImportAnimationsOptions opts;
+            opts.mSourcePath = mImportAnimSourcePath;
+            opts.mTargetDir = mImportAnimTargetDir;
+            opts.mPrefix = mImportAnimPrefix;
+            opts.mOverwriteExisting = mImportAnimOverwrite;
+            opts.mUniqueNames = mImportAnimUnique;
+            for (uint32_t i = 0; i < mImportAnimSelections.size(); ++i)
+            {
+                if (mImportAnimSelections[i]) opts.mAnimationIndices.push_back(i);
+            }
+            ImportAnimations(opts);
+            mShowImportAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Import All"))
+        {
+            ImportAnimationsOptions opts;
+            opts.mSourcePath = mImportAnimSourcePath;
+            opts.mTargetDir = mImportAnimTargetDir;
+            opts.mPrefix = mImportAnimPrefix;
+            opts.mOverwriteExisting = mImportAnimOverwrite;
+            opts.mUniqueNames = mImportAnimUnique;
+            ImportAnimations(opts);
+            mShowImportAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            mShowImportAnimModal = false;
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (!mShowImportAnimModal)
+    {
+        mImportAnimNames.clear();
+        mImportAnimSelections.clear();
+        mImportAnimSourcePath.clear();
+        mImportAnimTargetDir = nullptr;
+    }
+}
+
+void ActionManager::BeginRetargetAnimation(AssetStub* sourceClipStub)
+{
+    if (sourceClipStub == nullptr ||
+        sourceClipStub->mType != SkeletalAnimationAsset::GetStaticType())
+    {
+        LogWarning("Cannot retarget. Selected asset is not a SkeletalAnimationAsset.");
+        return;
+    }
+
+    if (sourceClipStub->mAsset == nullptr)
+    {
+        AssetManager::Get()->LoadAsset(*sourceClipStub);
+    }
+
+    mRetargetClipStub = sourceClipStub;
+    mRetargetSrcAvatar = AssetRef();
+    mRetargetDstAvatar = AssetRef();
+    snprintf(mRetargetOutputName, sizeof(mRetargetOutputName),
+             "%s_Retargeted", sourceClipStub->mAsset->GetName().c_str());
+    mRetargetMode = 0;
+    mRetargetOverwrite = false;
+    mRetargetUnique = true;
+    mShowRetargetModal = true;
+    mRetargetModalJustOpened = true;
+}
+
+bool ActionManager::RetargetAnimation(const RetargetAnimationOptions& options)
+{
+    if (options.mSourceClipStub == nullptr ||
+        options.mSourceAvatarStub == nullptr ||
+        options.mTargetAvatarStub == nullptr)
+    {
+        LogWarning("RetargetAnimation: missing source clip / source avatar / target avatar.");
+        return false;
+    }
+
+    if (options.mSourceClipStub->mAsset == nullptr)
+        AssetManager::Get()->LoadAsset(*options.mSourceClipStub);
+    if (options.mSourceAvatarStub->mAsset == nullptr)
+        AssetManager::Get()->LoadAsset(*options.mSourceAvatarStub);
+    if (options.mTargetAvatarStub->mAsset == nullptr)
+        AssetManager::Get()->LoadAsset(*options.mTargetAvatarStub);
+
+    SkeletalAnimationAsset* srcClip = options.mSourceClipStub->mAsset->As<SkeletalAnimationAsset>();
+    HumanoidAvatarAsset* srcAvatar = options.mSourceAvatarStub->mAsset->As<HumanoidAvatarAsset>();
+    HumanoidAvatarAsset* dstAvatar = options.mTargetAvatarStub->mAsset->As<HumanoidAvatarAsset>();
+    if (srcClip == nullptr || srcAvatar == nullptr || dstAvatar == nullptr)
+    {
+        return false;
+    }
+
+    AssetDir* targetDir = options.mTargetDir ? options.mTargetDir : options.mSourceClipStub->mDirectory;
+    if (targetDir == nullptr)
+    {
+        LogWarning("RetargetAnimation: no target directory.");
+        return false;
+    }
+
+    std::string baseName = options.mOutputName.empty()
+        ? (srcClip->GetName() + "_Retargeted")
+        : options.mOutputName;
+    for (char& c : baseName)
+    {
+        if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-'))
+        {
+            c = '_';
+        }
+    }
+
+    std::string finalName = baseName;
+    AssetStub* existing = AssetManager::Get()->GetAssetStub(finalName);
+    if (existing != nullptr)
+    {
+        if (options.mOverwriteExisting && existing->mType == SkeletalAnimationAsset::GetStaticType())
+        {
+            AssetManager::Get()->PurgeAsset(finalName.c_str());
+            existing = nullptr;
+        }
+        else if (options.mUniqueNames)
+        {
+            uint32_t suffix = 1;
+            while (AssetManager::Get()->GetAssetStub(finalName) != nullptr)
+            {
+                finalName = baseName + "_" + std::to_string(suffix++);
+            }
+        }
+        else
+        {
+            LogWarning("RetargetAnimation: '%s' already exists.", finalName.c_str());
+            return false;
+        }
+    }
+
+    SkeletalAnimationAsset::RetargetMode mode = (options.mMode == 1)
+        ? SkeletalAnimationAsset::RetargetMode::ReferencePose
+        : SkeletalAnimationAsset::RetargetMode::NameRemap;
+
+    std::string diag;
+    SkeletalAnimationAsset baked = SkeletalAnimationAsset::Retarget(
+        *srcClip, *srcAvatar, *dstAvatar, mode, &diag);
+    LogDebug("%s", diag.c_str());
+
+    AssetStub* newStub = EditorAddUniqueAsset(finalName.c_str(), targetDir, SkeletalAnimationAsset::GetStaticType(), true);
+    if (newStub == nullptr || newStub->mAsset == nullptr)
+    {
+        LogWarning("RetargetAnimation: failed to create asset '%s'.", finalName.c_str());
+        return false;
+    }
+
+    SkeletalAnimationAsset* newClip = newStub->mAsset->As<SkeletalAnimationAsset>();
+    newClip->SetClipName(baked.GetClipName());
+    newClip->SetDuration(baked.GetDuration());
+    newClip->SetTicksPerSecond(baked.GetTicksPerSecond());
+    newClip->SetSourceRigName(baked.GetSourceRigName());
+    newClip->GetSourceBoneNamesMutable() = std::move(baked.GetSourceBoneNamesMutable());
+    newClip->GetSourceParentIndicesMutable() = std::move(baked.GetSourceParentIndicesMutable());
+    newClip->GetSourceBindPoseMutable() = std::move(baked.GetSourceBindPoseMutable());
+    newClip->GetChannelsMutable() = std::move(baked.GetChannelsMutable());
+    newClip->GetEventTracksMutable() = std::move(baked.GetEventTracksMutable());
+
+    newClip->SetDirtyFlag();
+    AssetManager::Get()->SaveAsset(*newStub);
+
+    LogDebug("RetargetAnimation: created '%s'.", finalName.c_str());
+    return true;
+}
+
+void ActionManager::DrawRetargetAnimationModal()
+{
+    if (!mShowRetargetModal)
+    {
+        return;
+    }
+
+    if (mRetargetClipStub == nullptr || mRetargetClipStub->mAsset == nullptr)
+    {
+        mShowRetargetModal = false;
+        mRetargetClipStub = nullptr;
+        return;
+    }
+
+    // Regular Begin window, not BeginPopupModal. BeginPopupModal blocks input
+    // to every other window — that breaks the asset browser drag-drop AND
+    // the autocomplete dropdowns. A normal Begin window is "modal in look"
+    // only: centered, focused on open, X close button. Users keep access to
+    // the asset browser.
+    //
+    // Focus is forced ONCE on the frame the modal opens (mRetargetModalJustOpened),
+    // not every frame. Continuous SetNextWindowFocus steals focus back from
+    // any popup that opens inside the modal — combos, autocomplete, anything
+    // popup-driven — so they snap shut the moment they appear.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImVec2 center = ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f,
+                           vp->WorkPos.y + vp->WorkSize.y * 0.5f);
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520.0f, 480.0f), ImGuiCond_Appearing);
+    if (mRetargetModalJustOpened)
+    {
+        ImGui::SetNextWindowFocus();
+        mRetargetModalJustOpened = false;
+    }
+
+    if (ImGui::Begin("Retarget Animation", &mShowRetargetModal,
+                     ImGuiWindowFlags_NoSavedSettings))
+    {
+        // ---- Header ----
+        ImGui::TextDisabled("Source clip");
+        ImGui::SameLine();
+        ImGui::Text("%s", mRetargetClipStub->mAsset->GetName().c_str());
+
+        SkeletalAnimationAsset* srcClip = mRetargetClipStub->mAsset->As<SkeletalAnimationAsset>();
+        if (srcClip != nullptr)
+        {
+            ImGui::TextDisabled("  %.2fs, %zu channels", srcClip->GetDurationSeconds(),
+                                srcClip->GetChannels().size());
+        }
+        ImGui::Separator();
+
+        // ---- Avatar pickers ----
+        // Now that the modal is a regular Begin window (not BeginPopupModal),
+        // input passes through to the asset browser AND to the autocomplete
+        // dropdown — so AssetRefPicker works as designed. Drag-drop, X-clear,
+        // type-to-filter, Inspect, Reveal, asset-color tint all functional.
+        Polyphase::AssetRefPicker("Source Avatar", mRetargetSrcAvatar,
+                                   HumanoidAvatarAsset::GetStaticType());
+        Polyphase::AssetRefPicker("Target Avatar", mRetargetDstAvatar,
+                                   HumanoidAvatarAsset::GetStaticType());
+
+        // ---- Avatar validation panel ----
+        // At-a-glance status for each avatar so the user can tell before
+        // baking whether the result is going to be useful.
+        auto ShowAvatarStatus = [](const char* label, AssetRef& ref)
+        {
+            HumanoidAvatarAsset* av = ref.Get<HumanoidAvatarAsset>();
+            if (av == nullptr)
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.4f, 1.0f),
+                                   "  %s: not assigned", label);
+                return;
+            }
+
+            uint32_t mapped = 0;
+            for (uint32_t s = 0; s < (uint32_t)HumanoidBone::Count; ++s)
+            {
+                if (!av->GetBoneName((HumanoidBone)s).empty()) ++mapped;
+            }
+            std::vector<HumanoidBone> missing;
+            std::vector<std::string> unknown;
+            bool ok = av->Validate(&missing, &unknown);
+            SkeletalMesh* refMesh = av->GetReferenceMesh();
+
+            const ImVec4 green(0.4f, 0.9f, 0.4f, 1.0f);
+            const ImVec4 yellow(0.9f, 0.8f, 0.3f, 1.0f);
+            const ImVec4 red(1.0f, 0.4f, 0.4f, 1.0f);
+
+            ImVec4 col = ok ? (mapped >= 10 ? green : yellow) : red;
+            ImGui::TextColored(col, "  %s: mesh=%s, %u/%u slots%s%s",
+                               label,
+                               refMesh ? refMesh->GetName().c_str() : "<none>",
+                               mapped, (uint32_t)HumanoidBone::Count,
+                               ok ? "" : ", invalid bones!",
+                               refMesh ? "" : " (tier-2 needs ref mesh)");
+        };
+        ShowAvatarStatus("Source", mRetargetSrcAvatar);
+        ShowAvatarStatus("Target", mRetargetDstAvatar);
+        ImGui::Separator();
+
+        ImGui::InputText("Output Name", mRetargetOutputName, sizeof(mRetargetOutputName));
+
+        const char* modeNames[] = { "Tier 1 - Name remap (passthrough)", "Tier 2 - Reference-pose aware" };
+        ImGui::Combo("Mode", &mRetargetMode, modeNames, IM_ARRAYSIZE(modeNames));
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Tier 1: copy keyframes verbatim, rename channels by slot.\n"
+                "  Best for source/target rigs with identical proportions and\n"
+                "  bone-axis conventions (e.g. Mixamo-to-Mixamo).\n\n"
+                "Tier 2: world-space retarget through both rigs' bind poses.\n"
+                "  Required for differently-proportioned rigs, or any rig pair\n"
+                "  whose bones have different roll/axis conventions.\n"
+                "  Both avatars MUST have a Reference Mesh assigned.");
+        }
+
+        ImGui::Checkbox("Overwrite existing", &mRetargetOverwrite);
+        ImGui::SameLine();
+        ImGui::Checkbox("Unique names", &mRetargetUnique);
+
+        ImGui::Separator();
+
+        bool canBake = (mRetargetSrcAvatar.Get() != nullptr) &&
+                       (mRetargetDstAvatar.Get() != nullptr);
+
+        if (!canBake)
+        {
+            ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f),
+                               "Assign both source and target avatars to enable bake.");
+        }
+
+        if (!canBake) ImGui::BeginDisabled();
+        if (ImGui::Button("Bake"))
+        {
+            // Resolve avatars back to their stubs for the action options.
+            HumanoidAvatarAsset* srcAv = mRetargetSrcAvatar.Get<HumanoidAvatarAsset>();
+            HumanoidAvatarAsset* dstAv = mRetargetDstAvatar.Get<HumanoidAvatarAsset>();
+            AssetStub* srcAvStub = AssetManager::Get()->GetAssetStub(srcAv->GetName());
+            AssetStub* dstAvStub = AssetManager::Get()->GetAssetStub(dstAv->GetName());
+
+            RetargetAnimationOptions opts;
+            opts.mSourceClipStub = mRetargetClipStub;
+            opts.mSourceAvatarStub = srcAvStub;
+            opts.mTargetAvatarStub = dstAvStub;
+            opts.mTargetDir = mRetargetClipStub->mDirectory;
+            opts.mOutputName = mRetargetOutputName;
+            opts.mMode = mRetargetMode;
+            opts.mOverwriteExisting = mRetargetOverwrite;
+            opts.mUniqueNames = mRetargetUnique;
+            RetargetAnimation(opts);
+            mShowRetargetModal = false;
+        }
+        if (!canBake) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            mShowRetargetModal = false;
+        }
+    }
+    ImGui::End();
+
+    if (!mShowRetargetModal)
+    {
+        mRetargetClipStub = nullptr;
+        mRetargetSrcAvatar = AssetRef();
+        mRetargetDstAvatar = AssetRef();
     }
 }
 

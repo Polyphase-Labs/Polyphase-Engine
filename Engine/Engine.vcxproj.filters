@@ -596,6 +596,12 @@
     <ClCompile Include="Source\Engine\Assets\DataAsset.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\HumanoidAvatarAsset.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\SkeletalAnimationAsset.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Assets\SkeletalMesh.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
@@ -639,6 +645,9 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\ParticleSystemInstance_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\SkeletalMesh_Lua.cpp">
@@ -1908,6 +1917,12 @@
     <ClInclude Include="Source\Engine\Assets\DataAsset.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\HumanoidAvatarAsset.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\SkeletalAnimationAsset.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Assets\SkeletalMesh.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
@@ -2389,6 +2404,9 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\Script_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
     <ClInclude Include="Source\LuaBindings\SkeletalMesh_Lua.h">
