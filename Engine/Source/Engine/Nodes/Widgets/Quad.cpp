@@ -2,6 +2,7 @@
 #include "Renderer.h"
 #include "Log.h"
 #include "Utilities.h"
+#include "AssetManager.h"
 
 #include "Graphics/Graphics.h"
 
@@ -17,9 +18,27 @@ DEFINE_NODE(Quad, Widget);
 // AssetManager resolves the name to whatever type now owns it. Use this
 // accessor on every Quad code path that touches mTexture so a bad scene
 // doesn't take down the editor mid-load; the warning identifies the offender.
+//
+// Also guards against a dangling Asset* surviving across a project switch:
+// CloseProject purges the previous project's assets and ASSET_LIVE_REF_TRACKING
+// nulls every tracked AssetRef, but a Datum value copied through a path that
+// bypassed the live-ref set (e.g. a raw Asset* snapshot in saved scene data
+// re-resolved at instantiate-time) can still hold a freed pointer. Calling
+// asset->Is() on that pointer dereferences a stale vtable and takes the
+// editor down on the first PreRender. Validate against AssetManager first so
+// stale pointers are treated as null.
 static Texture* ResolveQuadTexture(Quad* quad, AssetRef& ref)
 {
     Asset* asset = ref.Get();
+    if (asset != nullptr && !AssetManager::Get()->IsAssetLive(asset))
+    {
+        // Don't go through `ref = nullptr` -- that calls DecrementRefCount on
+        // the freed asset and re-crashes. ClearDangling drops the pointer
+        // without touching the dead object, so subsequent reads and the
+        // eventual ~AssetRef are both safe.
+        ref.ClearDangling();
+        return nullptr;
+    }
     if (asset == nullptr || asset->Is(Texture::ClassRuntimeId()))
     {
         return static_cast<Texture*>(asset);

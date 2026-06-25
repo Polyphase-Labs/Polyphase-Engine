@@ -273,6 +273,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(ParticleSystem);
     FORCE_LINK_CALL(ParticleSystemInstance);
     FORCE_LINK_CALL(SkeletalMesh);
+    FORCE_LINK_CALL(SkeletalAnimationAsset);
     FORCE_LINK_CALL(SoundWave);
     FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);

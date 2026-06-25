@@ -277,6 +277,18 @@ AsyncLoadRequest* AssetRef::GetLoadRequest()
     return request;
 }
 
+void AssetRef::ClearDangling()
+{
+    // No DecrementRefCount: caller has already established the pointer is
+    // dangling. Async load bookkeeping is independent of asset memory so
+    // releasing it here is safe.
+    if (mLoadRequest != nullptr)
+    {
+        SetLoadRequest(nullptr);
+    }
+    mAsset = nullptr;
+}
+
 void AssetRef::EraseAsyncLoadRef()
 {
     // Mutex should be locked priority to calling

@@ -52,6 +52,7 @@
 #include "Assets/Timeline.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
 #include "Assets/SoundWave.h"
 #include "Assets/MaterialLite.h"
 #include "Assets/MaterialBase.h"
@@ -8062,6 +8063,261 @@ static void HandleReimportSceneCallback(const std::vector<std::string>& filePath
     if (filePaths.size() >= 1)
     {
         GetEditorState()->mPendingReimportScenePath = filePaths[0];
+    }
+}
+
+void ActionManager::BeginExtractSkeletalAnimations(AssetStub* skeletalMeshStub)
+{
+    if (skeletalMeshStub == nullptr ||
+        skeletalMeshStub->mType != SkeletalMesh::GetStaticType())
+    {
+        LogWarning("Cannot extract animations. Selected asset is not a SkeletalMesh.");
+        return;
+    }
+
+    if (skeletalMeshStub->mAsset == nullptr)
+    {
+        AssetManager::Get()->LoadAsset(*skeletalMeshStub);
+    }
+    SkeletalMesh* skelMesh = skeletalMeshStub->mAsset ? skeletalMeshStub->mAsset->As<SkeletalMesh>() : nullptr;
+    if (skelMesh == nullptr)
+    {
+        LogWarning("Cannot extract animations. Failed to load SkeletalMesh asset.");
+        return;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (animations.empty())
+    {
+        LogWarning("Cannot extract animations. SkeletalMesh '%s' has no embedded animations.",
+                   skelMesh->GetName().c_str());
+        return;
+    }
+
+    mExtractSkelAnimSourceStub = skeletalMeshStub;
+    mExtractSkelAnimSelections.assign(animations.size(), 1);
+    snprintf(mExtractSkelAnimPrefix, sizeof(mExtractSkelAnimPrefix), "SA_");
+    mExtractSkelAnimOverwrite = false;
+    mExtractSkelAnimUnique = true;
+    mExtractSkelAnimRemoveEmbedded = false;
+    mShowExtractSkelAnimModal = true;
+}
+
+bool ActionManager::ExtractSkeletalAnimations(const ExtractSkeletalAnimationsOptions& options)
+{
+    if (options.mSourceMeshStub == nullptr ||
+        options.mSourceMeshStub->mType != SkeletalMesh::GetStaticType())
+    {
+        return false;
+    }
+
+    if (options.mSourceMeshStub->mAsset == nullptr)
+    {
+        AssetManager::Get()->LoadAsset(*options.mSourceMeshStub);
+    }
+    SkeletalMesh* skelMesh = options.mSourceMeshStub->mAsset->As<SkeletalMesh>();
+    if (skelMesh == nullptr)
+    {
+        return false;
+    }
+
+    AssetDir* targetDir = options.mTargetDir ? options.mTargetDir : options.mSourceMeshStub->mDirectory;
+    if (targetDir == nullptr)
+    {
+        LogWarning("ExtractSkeletalAnimations: no target directory.");
+        return false;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (animations.empty())
+    {
+        return false;
+    }
+
+    std::vector<uint32_t> indices = options.mAnimationIndices;
+    if (indices.empty())
+    {
+        indices.reserve(animations.size());
+        for (uint32_t i = 0; i < animations.size(); ++i) indices.push_back(i);
+    }
+
+    const std::string meshName = skelMesh->GetName();
+    uint32_t generatedCount = 0;
+
+    for (uint32_t idx : indices)
+    {
+        if (idx >= animations.size())
+        {
+            continue;
+        }
+
+        const Animation& srcAnim = animations[idx];
+
+        std::string baseName = options.mPrefix + meshName + "_" + srcAnim.mName;
+        // Sanitize: replace anything that would break asset naming with '_'.
+        for (char& c : baseName)
+        {
+            if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-'))
+            {
+                c = '_';
+            }
+        }
+
+        std::string finalName = baseName;
+        AssetStub* existing = AssetManager::Get()->GetAssetStub(finalName);
+        if (existing != nullptr)
+        {
+            if (options.mOverwriteExisting && existing->mType == SkeletalAnimationAsset::GetStaticType())
+            {
+                AssetManager::Get()->PurgeAsset(finalName.c_str());
+                existing = nullptr;
+            }
+            else if (options.mUniqueNames)
+            {
+                uint32_t suffix = 1;
+                while (AssetManager::Get()->GetAssetStub(finalName) != nullptr)
+                {
+                    finalName = baseName + "_" + std::to_string(suffix++);
+                }
+            }
+            else
+            {
+                LogWarning("ExtractSkeletalAnimations: skipping '%s' (already exists).", finalName.c_str());
+                continue;
+            }
+        }
+
+        AssetStub* newStub = EditorAddUniqueAsset(finalName.c_str(), targetDir, SkeletalAnimationAsset::GetStaticType(), true);
+        if (newStub == nullptr || newStub->mAsset == nullptr)
+        {
+            LogWarning("ExtractSkeletalAnimations: failed to create asset '%s'.", finalName.c_str());
+            continue;
+        }
+
+        SkeletalAnimationAsset* newClip = newStub->mAsset->As<SkeletalAnimationAsset>();
+        OCT_ASSERT(newClip != nullptr);
+        newClip->CopyFromEmbedded(srcAnim, skelMesh);
+        newClip->SetDirtyFlag();
+        AssetManager::Get()->SaveAsset(*newStub);
+        ++generatedCount;
+    }
+
+    LogDebug("ExtractSkeletalAnimations: generated %u/%zu clips from '%s'.",
+             generatedCount, indices.size(), meshName.c_str());
+
+    return generatedCount > 0;
+}
+
+void ActionManager::DrawExtractSkeletalAnimationsModal()
+{
+    if (!mShowExtractSkelAnimModal)
+    {
+        return;
+    }
+
+    SkeletalMesh* skelMesh = nullptr;
+    if (mExtractSkelAnimSourceStub != nullptr && mExtractSkelAnimSourceStub->mAsset != nullptr)
+    {
+        skelMesh = mExtractSkelAnimSourceStub->mAsset->As<SkeletalMesh>();
+    }
+
+    if (skelMesh == nullptr)
+    {
+        mShowExtractSkelAnimModal = false;
+        mExtractSkelAnimSourceStub = nullptr;
+        return;
+    }
+
+    const std::vector<Animation>& animations = skelMesh->GetAnimations();
+    if (mExtractSkelAnimSelections.size() != animations.size())
+    {
+        mExtractSkelAnimSelections.assign(animations.size(), 1);
+    }
+
+    ImGui::OpenPopup("Extract Animations");
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 380.0f), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal("Extract Animations", &mShowExtractSkelAnimModal, ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Text("Source: %s", skelMesh->GetName().c_str());
+        ImGui::Separator();
+
+        ImGui::InputText("Prefix", mExtractSkelAnimPrefix, sizeof(mExtractSkelAnimPrefix));
+        ImGui::Checkbox("Overwrite existing", &mExtractSkelAnimOverwrite);
+        ImGui::SameLine();
+        ImGui::Checkbox("Unique names", &mExtractSkelAnimUnique);
+
+        ImGui::Separator();
+        ImGui::Text("Animations (%zu)", animations.size());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("All"))
+        {
+            std::fill(mExtractSkelAnimSelections.begin(), mExtractSkelAnimSelections.end(), 1);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("None"))
+        {
+            std::fill(mExtractSkelAnimSelections.begin(), mExtractSkelAnimSelections.end(), 0);
+        }
+
+        ImGui::BeginChild("AnimList", ImVec2(0.0f, 220.0f), true);
+        for (uint32_t i = 0; i < animations.size(); ++i)
+        {
+            bool selected = mExtractSkelAnimSelections[i] != 0;
+            char label[256];
+            snprintf(label, sizeof(label), "%s  (dur %.2fs, %zu ch, %zu ev)",
+                     animations[i].mName.c_str(),
+                     animations[i].mTicksPerSecond > 0.0f ? animations[i].mDuration / animations[i].mTicksPerSecond : 0.0f,
+                     animations[i].mChannels.size(),
+                     animations[i].mEventTracks.size());
+            if (ImGui::Checkbox(label, &selected))
+            {
+                mExtractSkelAnimSelections[i] = selected ? 1 : 0;
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        if (ImGui::Button("Extract Selected"))
+        {
+            ExtractSkeletalAnimationsOptions opts;
+            opts.mSourceMeshStub = mExtractSkelAnimSourceStub;
+            opts.mTargetDir = mExtractSkelAnimSourceStub->mDirectory;
+            opts.mPrefix = mExtractSkelAnimPrefix;
+            opts.mOverwriteExisting = mExtractSkelAnimOverwrite;
+            opts.mUniqueNames = mExtractSkelAnimUnique;
+            for (uint32_t i = 0; i < mExtractSkelAnimSelections.size(); ++i)
+            {
+                if (mExtractSkelAnimSelections[i]) opts.mAnimationIndices.push_back(i);
+            }
+            ExtractSkeletalAnimations(opts);
+            mShowExtractSkelAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Extract All"))
+        {
+            ExtractSkeletalAnimationsOptions opts;
+            opts.mSourceMeshStub = mExtractSkelAnimSourceStub;
+            opts.mTargetDir = mExtractSkelAnimSourceStub->mDirectory;
+            opts.mPrefix = mExtractSkelAnimPrefix;
+            opts.mOverwriteExisting = mExtractSkelAnimOverwrite;
+            opts.mUniqueNames = mExtractSkelAnimUnique;
+            ExtractSkeletalAnimations(opts);
+            mShowExtractSkelAnimModal = false;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            mShowExtractSkelAnimModal = false;
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (!mShowExtractSkelAnimModal)
+    {
+        mExtractSkelAnimSourceStub = nullptr;
+        mExtractSkelAnimSelections.clear();
     }
 }
 

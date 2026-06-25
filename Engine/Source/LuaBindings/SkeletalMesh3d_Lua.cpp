@@ -1,6 +1,7 @@
 #include "LuaBindings/SkeletalMesh3d_Lua.h"
 #include "LuaBindings/Mesh3d_Lua.h"
 #include "LuaBindings/Asset_Lua.h"
+#include "LuaBindings/Material_Lua.h"
 #include "LuaBindings/SkeletalMesh_Lua.h"
 #include "LuaBindings/Vector_Lua.h"
 
@@ -334,6 +335,76 @@ int SkeletalMesh3D_Lua::GetBoundsRadiusOverride(lua_State* L)
     return 1;
 }
 
+int SkeletalMesh3D_Lua::GetNumMaterialSlots(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    lua_pushinteger(L, (int)comp->GetNumMaterialSlots());
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetMaterialSlot(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = -1;
+
+    if (lua_isinteger(L, 2))
+    {
+        slot = CHECK_INDEX(L, 2);
+    }
+    else if (lua_isstring(L, 2))
+    {
+        // CHECK_STRING is a two-statement macro — assign to a local first
+        // so the semicolon doesn't land inside FindMaterialSlot's arg list.
+        const char* slotName = CHECK_STRING(L, 2);
+        slot = comp->FindMaterialSlot(slotName);
+    }
+
+    Material* mat = nullptr;
+    if (slot >= 0)
+    {
+        mat = comp->GetMaterialSlot(uint32_t(slot));
+    }
+
+    Asset_Lua::Create(L, mat);
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::SetMaterialSlot(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = -1;
+
+    if (lua_isinteger(L, 2))
+    {
+        slot = CHECK_INDEX(L, 2);
+    }
+    else if (lua_isstring(L, 2))
+    {
+        // CHECK_STRING is a two-statement macro — assign to a local first
+        // so the semicolon doesn't land inside FindMaterialSlot's arg list.
+        const char* slotName = CHECK_STRING(L, 2);
+        slot = comp->FindMaterialSlot(slotName);
+    }
+
+    Material* material = nullptr;
+    if (!lua_isnil(L, 3)) { material = CHECK_MATERIAL(L, 3); }
+
+    if (slot >= 0)
+    {
+        comp->SetMaterialSlot(uint32_t(slot), material);
+    }
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::FindMaterialSlot(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* name = CHECK_STRING(L, 2);
+
+    lua_pushinteger(L, 1 + comp->FindMaterialSlot(name));
+    return 1;
+}
+
 void SkeletalMesh3D_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -395,6 +466,14 @@ void SkeletalMesh3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, SetBoundsRadiusOverride);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetBoundsRadiusOverride);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetNumMaterialSlots);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetMaterialSlot);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetMaterialSlot);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, FindMaterialSlot);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

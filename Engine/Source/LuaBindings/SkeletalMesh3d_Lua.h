@@ -44,6 +44,11 @@ struct SkeletalMesh3D_Lua
     static int SetBoundsRadiusOverride(lua_State* L);
     static int GetBoundsRadiusOverride(lua_State* L);
 
+    static int GetNumMaterialSlots(lua_State* L);
+    static int GetMaterialSlot(lua_State* L);
+    static int SetMaterialSlot(lua_State* L);
+    static int FindMaterialSlot(lua_State* L);
+
     static void Bind();
 };
 

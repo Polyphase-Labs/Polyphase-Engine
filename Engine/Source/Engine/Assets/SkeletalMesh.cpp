@@ -12,6 +12,9 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include "EditorUtils.h"
+#include <unordered_set>
+#include <unordered_map>
+#include <functional>
 #endif
 
 using namespace std;
@@ -51,6 +54,63 @@ Material* SkeletalMesh::GetMaterial()
 void SkeletalMesh::SetMaterial(class Material* newMaterial)
 {
     mMaterial = newMaterial;
+}
+
+uint32_t SkeletalMesh::GetNumSections() const
+{
+    return uint32_t(mSections.size());
+}
+
+const SkeletalMeshSection& SkeletalMesh::GetSection(uint32_t index) const
+{
+    OCT_ASSERT(index < mSections.size());
+    return mSections[index];
+}
+
+SkeletalMeshSection& SkeletalMesh::GetSectionMutable(uint32_t index)
+{
+    OCT_ASSERT(index < mSections.size());
+    return mSections[index];
+}
+
+Material* SkeletalMesh::GetSectionMaterial(uint32_t index) const
+{
+    if (index >= mSections.size())
+    {
+        return nullptr;
+    }
+
+    Material* mat = mSections[index].mMaterial.Get<Material>();
+    if (mat == nullptr)
+    {
+        mat = mMaterial.Get<Material>();
+    }
+    return mat;
+}
+
+void SkeletalMesh::SetSectionMaterial(uint32_t index, class Material* material)
+{
+    if (index < mSections.size())
+    {
+        mSections[index].mMaterial = material;
+    }
+}
+
+int32_t SkeletalMesh::FindSectionIndex(const std::string& name) const
+{
+    for (uint32_t i = 0; i < mSections.size(); ++i)
+    {
+        if (mSections[i].mName == name)
+        {
+            return int32_t(i);
+        }
+    }
+    return -1;
+}
+
+const std::vector<SkeletalMeshSection>& SkeletalMesh::GetSections() const
+{
+    return mSections;
 }
 
 void SkeletalMesh::LoadStream(Stream& stream, Platform platform)
@@ -167,6 +227,39 @@ void SkeletalMesh::LoadStream(Stream& stream, Platform platform)
     mBounds.mCenter = stream.ReadVec3();
     mBounds.mRadius = stream.ReadFloat();
     mBoundsScale = stream.ReadFloat();
+
+    mSections.clear();
+    if (stream.GetAssetVersion() >= ASSET_VERSION_SKELETAL_MESH_SECTIONS)
+    {
+        uint32_t numSections = stream.ReadUint32();
+        mSections.resize(numSections);
+
+        for (uint32_t i = 0; i < numSections; ++i)
+        {
+            SkeletalMeshSection& s = mSections[i];
+            stream.ReadString(s.mName);
+            s.mFirstIndex = stream.ReadUint32();
+            s.mIndexCount = stream.ReadUint32();
+            s.mBaseVertex = stream.ReadUint32();
+            s.mVertexCount = stream.ReadUint32();
+            stream.ReadAsset(s.mMaterial);
+        }
+    }
+
+    // Legacy assets — and new assets that failed to write any section — get a
+    // single default section spanning the whole index buffer so the renderer
+    // can stay on the loop-sections path unconditionally.
+    if (mSections.empty())
+    {
+        SkeletalMeshSection s;
+        s.mName = "Default";
+        s.mFirstIndex = 0;
+        s.mIndexCount = mNumIndices;
+        s.mBaseVertex = 0;
+        s.mVertexCount = mNumVertices;
+        s.mMaterial = mMaterial;
+        mSections.push_back(s);
+    }
 }
 
 void SkeletalMesh::SaveStream(Stream& stream, Platform platform)
@@ -274,6 +367,18 @@ void SkeletalMesh::SaveStream(Stream& stream, Platform platform)
     stream.WriteVec3(mBounds.mCenter);
     stream.WriteFloat(mBounds.mRadius);
     stream.WriteFloat(mBoundsScale);
+
+    stream.WriteUint32(uint32_t(mSections.size()));
+    for (uint32_t i = 0; i < uint32_t(mSections.size()); ++i)
+    {
+        const SkeletalMeshSection& s = mSections[i];
+        stream.WriteString(s.mName);
+        stream.WriteUint32(s.mFirstIndex);
+        stream.WriteUint32(s.mIndexCount);
+        stream.WriteUint32(s.mBaseVertex);
+        stream.WriteUint32(s.mVertexCount);
+        stream.WriteAsset(s.mMaterial);
+    }
 #endif
 }
 
@@ -285,6 +390,21 @@ void SkeletalMesh::Create()
 
     GFX_CreateSkeletalMeshResource(this, mNumVertices, mVertices.data(), mNumIndices, mIndices.data());
 
+    // Backend draw loop assumes at least one section. Editor paths that
+    // didn't populate mSections — e.g. the single-mesh Create(scene, mesh)
+    // overload — get a default covering the entire index range.
+    if (mSections.empty() && mNumIndices > 0)
+    {
+        SkeletalMeshSection s;
+        s.mName = "Default";
+        s.mFirstIndex = 0;
+        s.mIndexCount = mNumIndices;
+        s.mBaseVertex = 0;
+        s.mVertexCount = mNumVertices;
+        s.mMaterial = mMaterial;
+        mSections.push_back(s);
+    }
+
     InitBindPose();
 }
 
@@ -294,6 +414,7 @@ void SkeletalMesh::Destroy()
 
     GFX_DestroySkeletalMeshResource(this);
     mMaterial = nullptr;
+    mSections.clear();
 }
 
 
@@ -1036,65 +1157,120 @@ void SkeletalMesh::CreateCombined(const aiScene& scene,
     if (renderMeshes.empty())
         return;
 
-    // Pick canonical skinned mesh (first one with bones). If none are skinned,
-    // fall back to the first primitive (we'll still get a skeletal mesh with
-    // one identity bone — caller already chose SkeletalMesh by intent).
-    const aiMesh* canonical = nullptr;
-    for (const aiMesh* m : renderMeshes)
-    {
-        if (m->HasBones())
-        {
-            canonical = m;
-            break;
-        }
-    }
-    if (canonical == nullptr)
-    {
-        LogWarning("CreateCombined called on file with no skinned primitives; output will have no bone deformation.");
-        canonical = renderMeshes[0];
-    }
-
     mInvRootTransform = glm::transpose(glm::make_mat4(&scene.mRootNode->mTransformation.a1));
     mInvRootTransform = glm::inverse(mInvRootTransform);
 
-    // Build the canonical skeleton. SetupBoneHierarchy fills mBones based on
-    // names found in canonical->mBones, and also populates the canonical's
-    // per-vertex bone-influence arrays. We discard those arrays — we'll rebuild
-    // per-primitive in the loop below.
+    // Step 1 - Gather the superset of bone names from EVERY skinned primitive
+    // (and remember any Event_* bones to register out-of-band, like the
+    // single-mesh path does). The old implementation used the first skinned
+    // primitive's bones as the canonical skeleton; that silently dropped
+    // weights from later primitives whose bone names weren't in the first.
     mBones.clear();
-    std::vector<uint8_t> canonBoneIndices(MAX_BONE_INFLUENCES * canonical->mNumVertices, 0);
-    std::vector<float>   canonBoneWeights(MAX_BONE_INFLUENCES * canonical->mNumVertices, 0.0f);
-    if (canonical->HasBones())
-    {
-        SetupBoneHierarchy(*scene.mRootNode, *canonical, canonBoneIndices, canonBoneWeights, -1);
-    }
+    std::unordered_set<std::string> boneNameSet;
+    std::vector<aiBone*> eventBones;
+    std::unordered_set<std::string> seenEventBoneNames;
 
-    // Register Event_* bones too (animations may target them).
-    if (canonical->HasBones())
+    for (const aiMesh* mesh : renderMeshes)
     {
-        for (uint32_t i = 0; i < canonical->mNumBones; ++i)
+        if (!mesh->HasBones())
         {
-            aiBone* bone = canonical->mBones[i];
-            if (strncmp(bone->mName.C_Str(), "Event_", 6) == 0)
+            continue;
+        }
+
+        for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+        {
+            aiBone* aibone = mesh->mBones[b];
+            const char* name = aibone->mName.C_Str();
+
+            if (strncmp(name, "Event_", 6) == 0)
             {
-                Bone boneData;
-                boneData.mName = bone->mName.C_Str();
-                boneData.mOffsetMatrix = glm::transpose(glm::make_mat4(&bone->mOffsetMatrix.a1));
-                boneData.mInvOffsetMatrix = glm::inverse(boneData.mOffsetMatrix);
-                boneData.mIndex = (int32_t)mBones.size();
-                mBones.push_back(boneData);
+                if (seenEventBoneNames.insert(name).second)
+                {
+                    eventBones.push_back(aibone);
+                }
+            }
+            else
+            {
+                boneNameSet.insert(name);
             }
         }
     }
 
+    // Cache offset matrices keyed by bone name. The same bone in two
+    // primitives shares the same inverse-bind, so a per-name lookup is fine.
+    std::unordered_map<std::string, glm::mat4> offsetByName;
+    for (const aiMesh* mesh : renderMeshes)
+    {
+        if (!mesh->HasBones())
+        {
+            continue;
+        }
+        for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+        {
+            aiBone* aibone = mesh->mBones[b];
+            const std::string name = aibone->mName.C_Str();
+            if (offsetByName.find(name) == offsetByName.end())
+            {
+                offsetByName[name] = glm::transpose(glm::make_mat4(&aibone->mOffsetMatrix.a1));
+            }
+        }
+    }
+
+    // Step 2 - Walk the scene hierarchy and emit a Bone for every node in the
+    // gathered name set, preserving parent indices. DFS keeps parents before
+    // children so FinalizeBoneTransforms / InitBindPose remain correct.
+    std::function<void(const aiNode*, int32_t)> walkHierarchy =
+        [&](const aiNode* node, int32_t parentBoneIndex)
+    {
+        int32_t newParent = parentBoneIndex;
+        const std::string nodeName = node->mName.C_Str();
+
+        // Skip Event_* bones here; they're added separately after the walk.
+        if (node->mParent != nullptr &&
+            node->mNumMeshes == 0 &&
+            boneNameSet.find(nodeName) != boneNameSet.end())
+        {
+            Bone boneData;
+            boneData.mName = nodeName;
+            auto it = offsetByName.find(nodeName);
+            boneData.mOffsetMatrix = (it != offsetByName.end()) ? it->second : glm::mat4(1.0f);
+            boneData.mInvOffsetMatrix = glm::inverse(boneData.mOffsetMatrix);
+            boneData.mIndex = (int32_t)mBones.size();
+            boneData.mParentIndex = parentBoneIndex;
+            mBones.push_back(boneData);
+            newParent = boneData.mIndex;
+        }
+
+        for (uint32_t i = 0; i < node->mNumChildren; ++i)
+        {
+            walkHierarchy(node->mChildren[i], newParent);
+        }
+    };
+    walkHierarchy(scene.mRootNode, -1);
+
+    // Register Event_* bones (animations target them by name).
+    for (aiBone* aibone : eventBones)
+    {
+        Bone boneData;
+        boneData.mName = aibone->mName.C_Str();
+        boneData.mOffsetMatrix = glm::transpose(glm::make_mat4(&aibone->mOffsetMatrix.a1));
+        boneData.mInvOffsetMatrix = glm::inverse(boneData.mOffsetMatrix);
+        boneData.mIndex = (int32_t)mBones.size();
+        mBones.push_back(boneData);
+    }
+
     SetupAnimations(scene);
 
-    // Accumulate vertices/indices across all primitives.
+    // Step 3 - Accumulate vertices/indices across all primitives. Filter out
+    // empty primitives once so we don't have to recheck per loop iteration.
+    std::vector<const aiMesh*> usableMeshes;
+    usableMeshes.reserve(renderMeshes.size());
     uint32_t totalVerts = 0;
     uint32_t totalIndices = 0;
     for (const aiMesh* m : renderMeshes)
     {
         if (m->mNumVertices == 0 || m->mNumFaces == 0) continue;
+        usableMeshes.push_back(m);
         totalVerts += m->mNumVertices;
         totalIndices += m->mNumFaces * 3;
     }
@@ -1106,69 +1282,58 @@ void SkeletalMesh::CreateCombined(const aiScene& scene,
     mVertices.resize(mNumVertices);
     mIndices.clear();
     mIndices.resize(mNumIndices);
+    mSections.clear();
+    mSections.reserve(usableMeshes.size());
 
     uint32_t vOffset = 0;
     uint32_t iOffset = 0;
 
-    for (const aiMesh* mesh : renderMeshes)
+    for (const aiMesh* mesh : usableMeshes)
     {
-        if (mesh->mNumVertices == 0 || mesh->mNumFaces == 0) continue;
-
         // Build this primitive's bone-influence arrays, mapping its local bone
-        // names back into the canonical skeleton.
+        // names into the now-merged skeleton.
         std::vector<uint8_t> bIdx(MAX_BONE_INFLUENCES * mesh->mNumVertices, 0);
         std::vector<float>   bWgt(MAX_BONE_INFLUENCES * mesh->mNumVertices, 0.0f);
 
         if (mesh->HasBones())
         {
-            if (mesh == canonical)
+            for (uint32_t b = 0; b < mesh->mNumBones; ++b)
             {
-                // Reuse what SetupBoneHierarchy already produced.
-                bIdx = canonBoneIndices;
-                bWgt = canonBoneWeights;
-            }
-            else
-            {
-                for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+                aiBone* aibone = mesh->mBones[b];
+                int32_t boneIdx = FindBoneIndex(aibone->mName.C_Str());
+                if (boneIdx < 0)
                 {
-                    aiBone* aibone = mesh->mBones[b];
-                    int32_t canonIdx = FindBoneIndex(aibone->mName.C_Str());
-                    if (canonIdx < 0)
-                    {
-                        // Bone not present in canonical skeleton — skip; affected
-                        // vertices will fall back to root-bone rigid attachment.
-                        continue;
-                    }
-                    for (uint32_t w = 0; w < aibone->mNumWeights; ++w)
-                    {
-                        aiVertexWeight weight = aibone->mWeights[w];
-                        uint8_t* vIdx = &bIdx[weight.mVertexId * MAX_BONE_INFLUENCES];
-                        float*   vWgt = &bWgt[weight.mVertexId * MAX_BONE_INFLUENCES];
+                    // Event_* bones aren't deformers; skip silently.
+                    continue;
+                }
+                for (uint32_t w = 0; w < aibone->mNumWeights; ++w)
+                {
+                    aiVertexWeight weight = aibone->mWeights[w];
+                    uint8_t* vIdx = &bIdx[weight.mVertexId * MAX_BONE_INFLUENCES];
+                    float*   vWgt = &bWgt[weight.mVertexId * MAX_BONE_INFLUENCES];
 
-                        // Insert weight in descending order, same as SetupBoneHierarchy.
-                        int32_t insert = 0;
-                        for (insert = 0; insert < MAX_BONE_INFLUENCES; ++insert)
+                    int32_t insert = 0;
+                    for (insert = 0; insert < MAX_BONE_INFLUENCES; ++insert)
+                    {
+                        if (vWgt[insert] == 0.0f || vWgt[insert] < weight.mWeight)
+                            break;
+                    }
+                    if (insert < MAX_BONE_INFLUENCES)
+                    {
+                        for (int32_t i = MAX_BONE_INFLUENCES - 1; i > insert; --i)
                         {
-                            if (vWgt[insert] == 0.0f || vWgt[insert] < weight.mWeight)
-                                break;
+                            vIdx[i] = vIdx[i - 1];
+                            vWgt[i] = vWgt[i - 1];
                         }
-                        if (insert < MAX_BONE_INFLUENCES)
-                        {
-                            for (int32_t i = MAX_BONE_INFLUENCES - 1; i > insert; --i)
-                            {
-                                vIdx[i] = vIdx[i - 1];
-                                vWgt[i] = vWgt[i - 1];
-                            }
-                            vIdx[insert] = (uint8_t)canonIdx;
-                            vWgt[insert] = weight.mWeight;
-                        }
+                        vIdx[insert] = (uint8_t)boneIdx;
+                        vWgt[insert] = weight.mWeight;
                     }
                 }
             }
         }
         else
         {
-            // Unskinned primitive — rigidly attach every vertex to root bone (index 0).
+            // Unskinned primitive — rigidly attach every vertex to root bone.
             for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
             {
                 bIdx[i * MAX_BONE_INFLUENCES + 0] = 0;
@@ -1204,6 +1369,23 @@ void SkeletalMesh::CreateCombined(const aiScene& scene,
             mIndices[iOffset + f * 3 + 1] = (IndexType)(faces[f].mIndices[1] + vOffset);
             mIndices[iOffset + f * 3 + 2] = (IndexType)(faces[f].mIndices[2] + vOffset);
         }
+
+        // Emit one section per source primitive. Material is left null —
+        // GetSectionMaterial falls back to the asset-default mMaterial until
+        // the editor / scene-import flow assigns one. Section name comes
+        // straight from the source aiMesh so importers and editor UI can
+        // address parts by their original DCC-tool names.
+        SkeletalMeshSection section;
+        section.mName = mesh->mName.C_Str();
+        if (section.mName.empty())
+        {
+            section.mName = "Section_" + std::to_string(mSections.size());
+        }
+        section.mFirstIndex = iOffset;
+        section.mIndexCount = mesh->mNumFaces * 3;
+        section.mBaseVertex = vOffset;
+        section.mVertexCount = mesh->mNumVertices;
+        mSections.push_back(section);
 
         vOffset += mesh->mNumVertices;
         iOffset += mesh->mNumFaces * 3;

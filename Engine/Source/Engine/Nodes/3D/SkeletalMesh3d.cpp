@@ -1,6 +1,7 @@
 #include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
 #include "Renderer.h"
 #include "AssetManager.h"
 #include "Log.h"
@@ -56,6 +57,13 @@ bool SkeletalMesh3D::HandlePropChange(Datum* datum, uint32_t index, const void* 
         meshComp->PlayAnimation(meshComp->mDefaultAnimation.c_str(), true, 1.0f, 1.0f, 0);
         success = true;
     }
+    else if (prop->mName == "Animation Assets")
+    {
+        // Vector property — framework will commit the new entry/order, we just
+        // need to drop the bind cache so the next FindAnimation rebuilds it.
+        meshComp->InvalidateAnimationBindings();
+        success = false; // Let the framework write the value itself.
+    }
 
     return success;
 }
@@ -105,6 +113,10 @@ void SkeletalMesh3D::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Integer, "Bone Influence Mode", this, &mBoneInfluenceMode, 1, nullptr, NULL_DATUM, (int32_t)BoneInfluenceMode::Num, sBoneInfluenceModeStrings));
     outProps.push_back(Property(DatumType::Integer, "Animation Update Mode", this, &mAnimationUpdateMode, 1, nullptr, NULL_DATUM, (int32_t)AnimationUpdateMode::Count, sAnimationUpdateModeStrings));
     outProps.push_back(Property(DatumType::Float, "Bounds Radius Override", this, &mBoundsRadiusOverride));
+    outProps.push_back(Property(DatumType::Asset, "Section Material Overrides", this, &mSectionMaterialOverrides, 1, nullptr,
+                                int32_t(Material::GetStaticType())).MakeVector());
+    outProps.push_back(Property(DatumType::Asset, "Animation Assets", this, &mAnimationAssets, 1, HandlePropChange,
+                                int32_t(SkeletalAnimationAsset::GetStaticType())).MakeVector());
 }
 
 void SkeletalMesh3D::Create()
@@ -163,6 +175,7 @@ void SkeletalMesh3D::SetSkeletalMesh(SkeletalMesh* skeletalMesh)
     if (mSkeletalMesh.Get() != skeletalMesh)
     {
         mSkeletalMesh = skeletalMesh;
+        InvalidateAnimationBindings();
 
         if (skeletalMesh != nullptr)
         {
@@ -881,6 +894,192 @@ Material* SkeletalMesh3D::GetMaterial()
     return mat;
 }
 
+uint32_t SkeletalMesh3D::GetNumMaterialSlots() const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+    if (mesh == nullptr)
+    {
+        return 0;
+    }
+    uint32_t numSections = mesh->GetNumSections();
+    // Legacy meshes still get treated as a single slot so callers can address
+    // the whole-mesh material as slot 0.
+    return numSections > 0 ? numSections : 1;
+}
+
+Material* SkeletalMesh3D::GetMaterialSlot(uint32_t slot) const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+
+    if (slot < mSectionMaterialOverrides.size())
+    {
+        Material* override = mSectionMaterialOverrides[slot].Get<Material>();
+        if (override != nullptr)
+        {
+            return override;
+        }
+    }
+
+    if (mesh != nullptr && slot < mesh->GetNumSections())
+    {
+        Material* sectionMat = mesh->GetSection(slot).mMaterial.Get<Material>();
+        if (sectionMat != nullptr)
+        {
+            return sectionMat;
+        }
+    }
+
+    Material* fallback = mMaterialOverride.Get<Material>();
+    if (fallback == nullptr && mesh != nullptr)
+    {
+        fallback = mesh->GetMaterial();
+    }
+    return fallback;
+}
+
+void SkeletalMesh3D::SetMaterialSlot(uint32_t slot, Material* material)
+{
+    if (slot >= mSectionMaterialOverrides.size())
+    {
+        mSectionMaterialOverrides.resize(slot + 1);
+    }
+    mSectionMaterialOverrides[slot] = material;
+}
+
+int32_t SkeletalMesh3D::FindMaterialSlot(const std::string& sectionName) const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+    if (mesh == nullptr)
+    {
+        return -1;
+    }
+    return mesh->FindSectionIndex(sectionName);
+}
+
+std::vector<SkeletalAnimationRef>& SkeletalMesh3D::GetAnimationAssetsMutable()
+{
+    InvalidateAnimationBindings();
+    return mAnimationAssets;
+}
+
+void SkeletalMesh3D::AddAnimationAsset(SkeletalAnimationAsset* asset)
+{
+    if (asset == nullptr)
+    {
+        return;
+    }
+    for (const SkeletalAnimationRef& ref : mAnimationAssets)
+    {
+        if (ref.Get() == asset)
+        {
+            return;
+        }
+    }
+    mAnimationAssets.push_back(SkeletalAnimationRef(asset));
+    InvalidateAnimationBindings();
+}
+
+void SkeletalMesh3D::RemoveAnimationAsset(SkeletalAnimationAsset* asset)
+{
+    for (auto it = mAnimationAssets.begin(); it != mAnimationAssets.end(); ++it)
+    {
+        if (it->Get() == asset)
+        {
+            mAnimationAssets.erase(it);
+            InvalidateAnimationBindings();
+            return;
+        }
+    }
+}
+
+void SkeletalMesh3D::InvalidateAnimationBindings()
+{
+    mBoundExternalAnims.clear();
+    mAnimBindingsValid = false;
+}
+
+const Animation* SkeletalMesh3D::FindAnimation(const char* animName)
+{
+    if (animName == nullptr || animName[0] == '\0')
+    {
+        return nullptr;
+    }
+
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+
+    // Embedded animations + the legacy animation-lookup-mesh chain take priority.
+    if (mesh != nullptr)
+    {
+        const Animation* anim = mesh->GetAnimation(animName);
+        if (anim != nullptr)
+        {
+            return anim;
+        }
+    }
+
+    // Build the external bind cache on demand. We synthesize an Animation per
+    // SkeletalAnimationAsset, with mChannels[i].mBoneIndex resolved against the
+    // current target mesh's bones. Channels whose source bone isn't present on
+    // the target mesh are dropped so the runtime can stay on the bone-index-
+    // keyed playback loop without extra branches.
+    if (!mAnimBindingsValid)
+    {
+        mBoundExternalAnims.clear();
+
+        if (mesh != nullptr)
+        {
+            mBoundExternalAnims.reserve(mAnimationAssets.size());
+            for (const SkeletalAnimationRef& ref : mAnimationAssets)
+            {
+                SkeletalAnimationAsset* asset = ref.Get<SkeletalAnimationAsset>();
+                if (asset == nullptr)
+                {
+                    continue;
+                }
+
+                Animation bound;
+                bound.mName = asset->GetClipName().empty() ? asset->GetName() : asset->GetClipName();
+                bound.mDuration = asset->GetDuration();
+                bound.mTicksPerSecond = asset->GetTicksPerSecond();
+                bound.mEventTracks = asset->GetEventTracks();
+
+                const std::vector<SkeletalAnimationChannel>& srcChannels = asset->GetChannels();
+                bound.mChannels.reserve(srcChannels.size());
+
+                for (const SkeletalAnimationChannel& src : srcChannels)
+                {
+                    int32_t targetBoneIdx = mesh->FindBoneIndex(src.mBoneName);
+                    if (targetBoneIdx < 0)
+                    {
+                        continue;
+                    }
+
+                    Channel dst;
+                    dst.mBoneIndex = targetBoneIdx;
+                    dst.mPositionKeys = src.mPositionKeys;
+                    dst.mRotationKeys = src.mRotationKeys;
+                    dst.mScaleKeys = src.mScaleKeys;
+                    bound.mChannels.push_back(std::move(dst));
+                }
+
+                mBoundExternalAnims.push_back(std::move(bound));
+            }
+        }
+
+        mAnimBindingsValid = true;
+    }
+
+    for (const Animation& bound : mBoundExternalAnims)
+    {
+        if (bound.mName == animName)
+        {
+            return &bound;
+        }
+    }
+
+    return nullptr;
+}
+
 void SkeletalMesh3D::Render()
 {
     GFX_DrawSkeletalMeshComp(this);
@@ -969,7 +1168,7 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
 
         for (int32_t i = 0; i < (int32_t)mActiveAnimations.size(); ++i)
         {
-            const Animation* anim = mesh->GetAnimation(mActiveAnimations[i].mName.c_str());
+            const Animation* anim = FindAnimation(mActiveAnimations[i].mName.c_str());
             bool animFinished = false;
 
             if (anim != nullptr)

@@ -1867,6 +1867,9 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             BindSkeletalMeshResource(mesh);
         }
 
+        const uint32_t numSections = mesh->GetNumSections();
+        const uint32_t totalIndices = mesh->GetNumIndices();
+
         // Shadow depth pass: caller has already set PipelineConfig::Shadow.
         // For GPU-skinned meshes we need to swap the vertex shader to
         // ShadowSkinned.vert (which reads bone indices/weights at locations 4/5
@@ -1889,8 +1892,10 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             GetVulkanContext()->CommitPipeline();
             BindGeometryDescriptorSet(skeletalMeshComp);
 
+            // Single depth draw covers all sections — material state doesn't
+            // matter for the depth pass and there's no per-section state to bind.
             vkCmdDrawIndexed(cb,
-                mesh->GetNumIndices(),
+                totalIndices,
                 1,
                 0,
                 0,
@@ -1898,28 +1903,61 @@ void DrawSkeletalMeshComp(SkeletalMesh3D* skeletalMeshComp)
             return;
         }
 
-        Material* material = nullptr;
-
+        // Forward / opaque pass: one draw per section so each can bind its own
+        // material. Legacy meshes load with a single "Default" section that
+        // covers the entire index range, so this loop also handles them.
+        Material* defaultMat = nullptr;
         if (GetVulkanContext()->AreMaterialsEnabled())
         {
-            material = skeletalMeshComp->GetMaterial();
-            material = material ? material : Renderer::Get()->GetDefaultMaterial();
+            defaultMat = skeletalMeshComp->GetMaterial();
+            defaultMat = defaultMat ? defaultMat : Renderer::Get()->GetDefaultMaterial();
         }
 
-        VertexType vertType = cpuSkin ? VertexType::Vertex : VertexType::VertexSkinned;
-        BindForwardVertexType(vertType, material);
-        BindMaterialResource(material);
-        GetVulkanContext()->CommitPipeline();
+        if (numSections == 0)
+        {
+            // Defensive — should never happen because SkeletalMesh::Create / LoadStream
+            // both inject a default section. Fall back to whole-mesh draw.
+            VertexType vertType = cpuSkin ? VertexType::Vertex : VertexType::VertexSkinned;
+            BindForwardVertexType(vertType, defaultMat);
+            BindMaterialResource(defaultMat);
+            GetVulkanContext()->CommitPipeline();
+            BindGeometryDescriptorSet(skeletalMeshComp);
+            BindMaterialDescriptorSet(defaultMat);
+            vkCmdDrawIndexed(cb, totalIndices, 1, 0, 0, 0);
+            return;
+        }
 
-        BindGeometryDescriptorSet(skeletalMeshComp);
-        BindMaterialDescriptorSet(material);
+        for (uint32_t s = 0; s < numSections; ++s)
+        {
+            const SkeletalMeshSection& section = mesh->GetSection(s);
+            if (section.mIndexCount == 0)
+            {
+                continue;
+            }
 
-        vkCmdDrawIndexed(cb,
-            mesh->GetNumIndices(),
-            1,
-            0,
-            0,
-            0);
+            Material* material = nullptr;
+            if (GetVulkanContext()->AreMaterialsEnabled())
+            {
+                material = skeletalMeshComp->GetMaterialSlot(s);
+                material = material ? material : defaultMat;
+                material = material ? material : Renderer::Get()->GetDefaultMaterial();
+            }
+
+            VertexType vertType = cpuSkin ? VertexType::Vertex : VertexType::VertexSkinned;
+            BindForwardVertexType(vertType, material);
+            BindMaterialResource(material);
+            GetVulkanContext()->CommitPipeline();
+
+            BindGeometryDescriptorSet(skeletalMeshComp);
+            BindMaterialDescriptorSet(material);
+
+            vkCmdDrawIndexed(cb,
+                section.mIndexCount,
+                1,
+                section.mFirstIndex,
+                0,
+                0);
+        }
     }
 }
 

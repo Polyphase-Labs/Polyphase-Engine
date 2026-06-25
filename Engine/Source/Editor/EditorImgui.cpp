@@ -6398,6 +6398,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 GetAnimationBrowser()->Open(skelMesh);
             }
         }
+
+        if (ImGui::Selectable("Extract Animations..."))
+        {
+            actMan->BeginExtractSkeletalAnimations(stub);
+        }
     }
 
     if (canInstantiate && ImGui::Selectable("Instantiate"))
@@ -8736,6 +8741,28 @@ static void DrawPropertiesPanel()
                 else if (obj->As<SkeletalMesh>())
                 {
                     SkeletalMesh* skelMesh = obj->As<SkeletalMesh>();
+
+                    const uint32_t numSections = skelMesh->GetNumSections();
+                    if (numSections > 0)
+                    {
+                        ImGui::Text("Sections (%u)", numSections);
+                        ImGui::Indent();
+                        for (uint32_t i = 0; i < numSections; ++i)
+                        {
+                            SkeletalMeshSection& s = skelMesh->GetSectionMutable(i);
+                            ImGui::PushID((int)i);
+                            ImGui::Text("[%u] %s  (%u tris)", i, s.mName.c_str(), s.mIndexCount / 3);
+                            AssetRef& matRef = s.mMaterial;
+                            if (Polyphase::AssetRefPicker("Material", matRef, Material::GetStaticType()))
+                            {
+                                skelMesh->SetDirtyFlag();
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::Unindent();
+                        ImGui::NewLine();
+                    }
+
                     ImGui::Text("Animations");
                     ImGui::Indent();
                     const std::vector<Animation>& animations = skelMesh->GetAnimations();
@@ -14140,6 +14167,7 @@ void EditorImguiDraw()
         GetPlayerInputEditor()->Draw();
         GetPlayerInputDebugger()->Draw();
         ActionManager::Get()->DrawBuildModal();
+        ActionManager::Get()->DrawExtractSkeletalAnimationsModal();
         GetProjectSelectWindow()->Draw();
         GetAddonsWindow()->Draw();
         GetThemeEditorWindow()->Draw();

@@ -377,6 +377,17 @@ protected:
     bool mBuildAutoScroll = true;
     bool mBuildPending = false;
 
+    // Extract-skeletal-animations modal state. Lives here because the modal
+    // body is drawn from the editor's per-frame loop via
+    // DrawExtractSkeletalAnimationsModal — same pattern as DrawBuildModal.
+    AssetStub* mExtractSkelAnimSourceStub = nullptr;
+    std::vector<uint8_t> mExtractSkelAnimSelections; // 1 byte per anim, 0/1
+    char mExtractSkelAnimPrefix[32] = "SA_";
+    bool mExtractSkelAnimOverwrite = false;
+    bool mExtractSkelAnimUnique = true;
+    bool mExtractSkelAnimRemoveEmbedded = false;
+    bool mShowExtractSkelAnimModal = false;
+
     void BuildPhase1();
     void BuildCompileThreadFunc();
     void FinalizeLocalBuild();
@@ -462,6 +473,23 @@ public:
     void BeginImportScene();
     void BeginReimportScene(AssetStub* sceneStub);
     void BeginReimportAssetWithNewFile(AssetStub* stub);
+
+    // Extract embedded animations from a SkeletalMesh asset into standalone
+    // SkeletalAnimationAsset files. BeginExtractSkeletalAnimations opens the
+    // selection modal; ExtractSkeletalAnimations runs the actual generation.
+    struct ExtractSkeletalAnimationsOptions
+    {
+        AssetStub* mSourceMeshStub = nullptr;
+        AssetDir* mTargetDir = nullptr;
+        std::vector<uint32_t> mAnimationIndices; // empty = all
+        std::string mPrefix = "SA_";
+        bool mOverwriteExisting = false;
+        bool mUniqueNames = true;
+        bool mRemoveEmbeddedAfterExtract = false;
+    };
+    void BeginExtractSkeletalAnimations(AssetStub* skeletalMeshStub);
+    bool ExtractSkeletalAnimations(const ExtractSkeletalAnimationsOptions& options);
+    void DrawExtractSkeletalAnimationsModal();
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);
     /**
