@@ -42,6 +42,8 @@
         * [ParticleSystemInstance](Assets/ParticleSystemInstance.md)
     * [Scene](Assets/Scene.md)
     * [SkeletalMesh](Assets/SkeletalMesh.md)
+    * [SkeletalAnimationAsset](Assets/SkeletalAnimationAsset.md)
+    * [HumanoidAvatarAsset](Assets/HumanoidAvatarAsset.md)
     * [SoundWave](Assets/SoundWave.md)
     * [SpriteAnimation](Assets/SpriteAnimation.md)
     * [StaticMesh](Assets/StaticMesh.md)

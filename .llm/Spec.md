@@ -59,6 +59,7 @@ polyphase-engine/
 | Controller Server | [ControlServer.md](ControlServer.md) | `Engine/Source/Editor/ControllerServer/` | REST API for remote editor control, Crow HTTP server, addon route hooks |
 | Serial I/O | [Serial.md](Serial.md) | `Engine/Source/Serial/` + `Engine/Source/Engine/SerialManager.h` | Cross-platform COM / USB-CDC serial ports: enumerate, connect, send, opt-in receive, script + graph-node callbacks |
 | Loading Menu | [LoadingMenu.md](LoadingMenu.md) | `Engine/Source/Engine/LoadingMenu.{h,cpp}` | Scene-overlay loading screen orchestrator: persistent menu node, queued root swap, `Loading.*` SignalBus channels, AppSettings min-display + timeout |
+| Skeletal Animation | [SkeletalAnimation.md](SkeletalAnimation.md) | `Engine/Source/Engine/Assets/SkeletalMesh.{h,cpp}`, `SkeletalAnimationAsset.{h,cpp}`, `HumanoidAvatarAsset.{h,cpp}` | Multi-section skinned meshes with per-section materials; reusable bone-animation clip assets; Mecanim-style humanoid avatars; tier-1 name-remap + tier-2 world-space retarget bake pipeline |
 
 ## Key Entry Points
 
@@ -117,7 +118,7 @@ Editor builds define `EDITOR=1`; game builds define `EDITOR=0`.
 
 ## Asset Versioning
 
-Current: `ASSET_VERSION_CURRENT = 16`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions). See [AssetSystem.md](AssetSystem.md).
+Current: `ASSET_VERSION_CURRENT = 36`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions), v35 (MaterialLite UV source), v36 (SkeletalMesh sections). See [AssetSystem.md](AssetSystem.md).
 
 ## Maintenance
 

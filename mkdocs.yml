@@ -44,6 +44,7 @@ nav:
       - Audio Visualizer: Development/AudioVisualizer.md
       - Loading Menu: Development/LoadingMenu.md
       - Mesh Instancing: Development/MeshInstancing.md
+      - Skeletal Animation: Development/SkeletalAnimation.md
       - Shadows: Development/Shadows.md
       - 3D Nodes:
           - Terrain3D: Development/Terrain3D.md
@@ -183,6 +184,8 @@ nav:
           - Particle System Instance: Lua/Assets/ParticleSystemInstance.md
           - Scene: Lua/Assets/Scene.md
           - Skeletal Mesh: Lua/Assets/SkeletalMesh.md
+          - Skeletal Animation Asset: Lua/Assets/SkeletalAnimationAsset.md
+          - Humanoid Avatar Asset: Lua/Assets/HumanoidAvatarAsset.md
           - Sound Wave: Lua/Assets/SoundWave.md
           - Sprite Animation: Lua/Assets/SpriteAnimation.md
           - Static Mesh: Lua/Assets/StaticMesh.md

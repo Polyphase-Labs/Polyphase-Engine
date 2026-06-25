@@ -69,3 +69,37 @@ Sig: `duration = SkeletalMesh:GetAnimationDuration(name)`
  - Arg: `string name` Animation name
  - Ret: `number duration` Animation duration
 ---
+### GetNumSections
+Get the number of named mesh sections. Legacy single-material meshes report 1 (a `"Default"` section spanning the whole index range).
+
+Sig: `num = SkeletalMesh:GetNumSections()`
+ - Ret: `integer num` Number of sections
+---
+### GetSectionName
+Get a section's name. Multi-part imports preserve the source primitive's name (e.g. `"Body"`, `"Cape"`).
+
+Sig: `name = SkeletalMesh:GetSectionName(index)`
+ - Arg: `integer index` Section index (Lua 1-indexed)
+ - Ret: `string name` Section name (`nil` if index out of range)
+---
+### GetSectionMaterial
+Get a section's material. Falls back to the mesh's default `mMaterial` when the section has no explicit material assigned.
+
+Sig: `material = SkeletalMesh:GetSectionMaterial(index)`
+ - Arg: `integer index` Section index (Lua 1-indexed)
+ - Ret: `Material material` Resolved section material (`nil` if neither slot nor default is set)
+---
+### SetSectionMaterial
+Assign a material to a section. Use `nil` to clear back to the default. Edits the **asset** — to override per-instance without dirtying the asset, use `SkeletalMesh3D:SetMaterialSlot` on the node.
+
+Sig: `SkeletalMesh:SetSectionMaterial(index, material)`
+ - Arg: `integer index` Section index (Lua 1-indexed)
+ - Arg: `Material material` New material (or `nil` to clear)
+---
+### FindSectionIndex
+Look up a section's index by name.
+
+Sig: `index = SkeletalMesh:FindSectionIndex(name)`
+ - Arg: `string name` Section name
+ - Ret: `integer index` Section index (Lua 1-indexed), or 0 if not found
+---

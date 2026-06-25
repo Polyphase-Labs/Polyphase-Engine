@@ -202,3 +202,42 @@ Get the overridden bounds radius.
 Sig: `radius = SkeletalMesh3D:GetBoundsRadiusOverride()`
  - Ret: `number radius` Override radius
 ---
+### GetNumMaterialSlots
+Number of per-section material slots on the assigned mesh. Equals `SkeletalMesh:GetNumSections()` when a mesh is assigned, or 1 (legacy single-material fallback) for older meshes.
+
+Sig: `count = SkeletalMesh3D:GetNumMaterialSlots()`
+ - Ret: `integer count` Number of slots
+---
+### GetMaterialSlot
+Resolve the material that will actually render the given section. Walks the lookup chain: component override → section's own material → legacy `mMaterialOverride` → asset-default `mMaterial` → renderer default. Accepts either a slot index or a section name.
+
+Sig: `material = SkeletalMesh3D:GetMaterialSlot(slotOrName)`
+ - Arg: `integer|string slotOrName` Slot index (Lua 1-indexed) or section name
+ - Ret: `Material material` Resolved material (never `nil` if a mesh is assigned)
+---
+### SetMaterialSlot
+Override one section's material on this instance only. Doesn't dirty the SkeletalMesh asset — the override lives on the node. Pass `nil` to clear the override and fall back through the lookup chain.
+
+Sig: `SkeletalMesh3D:SetMaterialSlot(slotOrName, material)`
+ - Arg: `integer|string slotOrName` Slot index (Lua 1-indexed) or section name
+ - Arg: `Material material` New material (or `nil` to clear)
+---
+### FindMaterialSlot
+Look up a section's slot index by name.
+
+Sig: `slot = SkeletalMesh3D:FindMaterialSlot(name)`
+ - Arg: `string name` Section name
+ - Ret: `integer slot` Slot index (Lua 1-indexed), or 0 if not found
+---
+
+## External animation clips
+
+`SkeletalMesh3D` accepts a list of [`SkeletalAnimationAsset`](../../Assets/SkeletalAnimationAsset.md) references on its **Animation Assets** vector property (editable in the inspector or via scripts attached to scenes loaded from disk). At runtime, `PlayAnimation(name)` resolves names in this order:
+
+1. Animations embedded in the assigned `SkeletalMesh`
+2. The mesh's legacy `mAnimationLookupMesh` chain
+3. External `Animation Assets` on this node — channel bone names are resolved into the target mesh's bone indices once per `(asset, mesh)` pair and cached
+
+So a retargeted Mixamo clip on a custom character "just works" with `node:PlayAnimation("Walk", true)` — same play handle as if the clip were embedded.
+
+The cache auto-invalidates when `SetSkeletalMesh` is called or when the Animation Assets property changes. There's no Lua API for the asset list itself yet (edit it through the inspector); the runtime resolution path is what scripts see.

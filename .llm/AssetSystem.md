@@ -51,7 +51,7 @@ class Asset : public Object {
 
 Macros: `DECLARE_ASSET(Class, Parent)` / `DEFINE_ASSET(Class)`.
 
-## Asset Types (15)
+## Asset Types
 
 All in `Engine/Source/Engine/Assets/`:
 
@@ -59,7 +59,9 @@ All in `Engine/Source/Engine/Assets/`:
 |------|------|-------------|
 | `Texture` | `Texture.h/.cpp` | Images with mipmaps, formats, filter/wrap modes |
 | `StaticMesh` | `StaticMesh.h/.cpp` | Static geometry with baked lighting support |
-| `SkeletalMesh` | `SkeletalMesh.h/.cpp` | Skinned mesh with skeleton/bones |
+| `SkeletalMesh` | `SkeletalMesh.h/.cpp` | Skinned mesh with skeleton/bones, multi-section material slots |
+| `SkeletalAnimationAsset` | `SkeletalAnimationAsset.h/.cpp` | Standalone bone-animation clip; bone-name keyed; supports tier-1 and tier-2 retarget bakes |
+| `HumanoidAvatarAsset` | `HumanoidAvatarAsset.h/.cpp` | Mecanim-style humanoid bone slot mapping; pair source + target for retargeting |
 | `Material` | `Material.h/.cpp` | Full material with shader parameters |
 | `MaterialBase` | `MaterialBase.h/.cpp` | Abstract material base |
 | `MaterialLite` | `MaterialLite.h/.cpp` | Lightweight runtime material |
@@ -69,6 +71,7 @@ All in `Engine/Source/Engine/Assets/`:
 | `SoundWave` | `SoundWave.h/.cpp` | Audio data (Vorbis compressed) |
 | `Scene` | `Scene.h/.cpp` | Serialized node hierarchy |
 | `Timeline` | `Timeline.h/.cpp` | Keyframe animation sequences |
+| `TransformAnimationAsset` | `TransformAnimationAsset.h/.cpp` | Non-bone transform keyframe clip |
 | `NodeGraphAsset` | `NodeGraphAsset.h/.cpp` | Visual scripting graphs |
 | `DataAsset` | `DataAsset.h/.cpp` | Lua-defined data containers (ScriptableObject equivalent) |
 
@@ -121,7 +124,7 @@ ref = LoadAsset("MyTexture");
 Texture* tex = ref.Get<Texture>();
 ```
 
-Typedefs: `TextureRef`, `StaticMeshRef`, `MaterialRef`, `SkeletalMeshRef`, `ParticleSystemRef`, `SoundWaveRef`, `FontRef`, `SceneRef`, `TimelineRef`, `DataAssetRef`.
+Typedefs: `TextureRef`, `StaticMeshRef`, `MaterialRef`, `SkeletalMeshRef`, `SkeletalAnimationRef`, `HumanoidAvatarRef`, `ParticleSystemRef`, `SoundWaveRef`, `FontRef`, `SceneRef`, `TimelineRef`, `TransformAnimationRef`, `DataAssetRef`, `SpriteAnimationRef`.
 
 ## AssetStub
 
@@ -182,8 +185,27 @@ struct AssetHeader {
 | 15 | `ASSET_VERSION_MATERIAL_LITE_NODE_GRAPH` | MaterialLite node graphs |
 | 16 | `ASSET_VERSION_NODE_GRAPH_FUNCTIONS` | Named function subgraphs |
 | 17 | `ASSET_VERSION_NODE_GRAPH_VARIABLES` | Local named variables, copy/paste/export |
+| 18 | `ASSET_VERSION_SCENE_ICON_OVERRIDE` | Scene icon override |
+| 19 | `ASSET_VERSION_SCENE_MENU_OVERRIDE` | Scene menu override |
+| 20 | `ASSET_VERSION_VOXEL3D` | Voxel3D asset support |
+| 21 | `ASSET_VERSION_VOXEL3D_ATLAS` | Voxel3D atlas |
+| 22 | `ASSET_VERSION_VOXEL3D_ATLAS_INT32` | Voxel3D atlas widened |
+| 23 | `ASSET_VERSION_TERRAIN3D` | Terrain3D asset |
+| 24 | `ASSET_VERSION_TERRAIN3D_MATSLOTS` | Terrain3D material slots |
+| 25 | `ASSET_VERSION_TERRAIN3D_ATLAS` | Terrain3D atlas |
+| 26 | `ASSET_VERSION_TERRAIN3D_BAKE` | Terrain3D bake |
+| 27 | `ASSET_VERSION_TERRAIN3D_BAKEDMAP` | Terrain3D baked map |
+| 28 | `ASSET_VERSION_TILESET_BASE` | TileSet base |
+| 29 | `ASSET_VERSION_TILEMAP_BASE` | TileMap base |
+| 30 | `ASSET_VERSION_TILESET_METADATA` | TileSet metadata |
+| 31 | `ASSET_VERSION_TILESET_AUTOTILE` | TileSet autotile |
+| 32 | `ASSET_VERSION_TRANSFORM_KEYFRAME_SIGNAL` | TransformKeyframe signal |
+| 33 | `ASSET_VERSION_INPUT_PROMPT_MAP` | InputPromptMap asset |
+| 34 | `ASSET_VERSION_INPUT_PROMPT_STYLE` | InputPromptStyle asset |
+| 35 | `ASSET_VERSION_MATERIAL_LITE_UV_SOURCE` | MaterialLite UV source |
+| 36 | `ASSET_VERSION_SKELETAL_MESH_SECTIONS` | SkeletalMesh per-section material slots |
 
-**Current:** `ASSET_VERSION_CURRENT = 17`
+**Current:** `ASSET_VERSION_CURRENT = 36`
 
 ## Async Loading
 
