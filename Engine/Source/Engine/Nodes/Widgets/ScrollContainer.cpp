@@ -481,6 +481,14 @@ void ScrollContainer::PreRender()
 
 Widget* ScrollContainer::GetContentWidget()
 {
+    // Explicit override wins. Validates the pointer is still a live child
+    // (Destroy() leaves the raw pointer dangling) before returning it; falls
+    // through to the legacy scan if the override is gone.
+    if (mContentOverride != nullptr && !mContentOverride->IsDestroyed())
+    {
+        return mContentOverride;
+    }
+
     uint32_t numChildren = GetNumChildren();
     for (uint32_t i = 0; i < numChildren; i++)
     {
@@ -491,6 +499,15 @@ Widget* ScrollContainer::GetContentWidget()
         }
     }
     return nullptr;
+}
+
+void ScrollContainer::SetContentWidget(Widget* widget)
+{
+    if (mContentOverride != widget)
+    {
+        mContentOverride = widget;
+        MarkDirty();
+    }
 }
 
 void ScrollContainer::UpdateContentPosition()

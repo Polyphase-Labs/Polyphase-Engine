@@ -111,29 +111,50 @@ void ListViewItemWidget::HandlePointerEvents()
 
     bool isHovered = ContainsMouse();
 
+    // The ListView callbacks below fire user Lua (OnItemClicked / OnItem*),
+    // which routinely rebuilds the list (e.g. directory navigation in a file
+    // browser) -- removing every ListViewItemWidget from its parent and
+    // dropping the SharedPtr that kept `this` alive. Snapshot a WeakPtr to
+    // self before each ListView call so we can detect the destruction and
+    // bail before EmitSignal / CallFunction / `mWasHovered = ...` dereferences
+    // freed memory or hits the lua_isuserdata assert in CallMethod.
+    NodePtrWeak selfWeak = GetSelfPtr();
+
     // Hover enter
     if (isHovered && !mWasHovered)
     {
         mHovered = true;
         mListView->OnItemHoverEnter(mIndex);
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
         EmitSignal("HoverEnter", { this });
         CallFunction("OnHoverEnter", { this });
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
     }
     // Hover exit
     else if (!isHovered && mWasHovered)
     {
         mHovered = false;
         mListView->OnItemHoverExit(mIndex);
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
         EmitSignal("HoverExit", { this });
         CallFunction("OnHoverExit", { this });
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
     }
 
     // Click - on pointer release while hovering
     if (isHovered && IsPointerJustUp(0))
     {
         mListView->OnItemClicked(mIndex);
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
         EmitSignal("Clicked", { this });
         CallFunction("OnClicked", { this });
+        if (!selfWeak.IsValid() || selfWeak->IsDestroyed())
+            return;
     }
 
     mWasHovered = isHovered;

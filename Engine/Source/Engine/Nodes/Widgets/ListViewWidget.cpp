@@ -79,6 +79,14 @@ void ListViewWidget::PreRender()
     Widget::PreRender();
 
     EnsureContainers();
+
+    // ListViewWidget's PreRender runs before ScrollContainer's (parent-first
+    // traversal), so resizing the ArrayWidget here makes the new size visible
+    // by the time ScrollContainer caches it for scrollbar/clamp decisions.
+    // Belt-and-suspenders backstop in addition to the per-mutator calls --
+    // catches item content changes that come from Lua callbacks
+    // (OnItemGenerate/OnItemUpdate) without going through a setter.
+    UpdateContentSize();
 }
 
 void ListViewWidget::GatherProperties(std::vector<Property>& props)
@@ -123,6 +131,11 @@ void ListViewWidget::EnsureContainers()
 #if EDITOR
     mArrayWidget->mHiddenInTree = true;
 #endif
+
+    // ScrollContainer::GetContentWidget() skips transient children by default,
+    // which would hide the ArrayWidget from its content-size calc and disable
+    // scrolling. Point the ScrollContainer's explicit override at it.
+    mScrollContainer->SetContentWidget(mArrayWidget);
 }
 
 // Template
@@ -179,6 +192,7 @@ void ListViewWidget::AddItem(const Datum& data, int32_t index)
         mSelectedIndex++;
     }
 
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -213,6 +227,7 @@ void ListViewWidget::RemoveItem(int32_t index)
         mSelectedIndex--;
     }
 
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -225,6 +240,10 @@ void ListViewWidget::UpdateItem(int32_t index, const Datum& data)
 
     mData[index] = data;
     FireItemUpdate(index, data, mItems[index]);
+
+    // OnItemUpdate Lua callback can resize the item content. Re-sum so the
+    // scroll range stays correct even if no item count change happened.
+    UpdateContentSize();
 }
 
 void ListViewWidget::Clear()
@@ -246,6 +265,7 @@ void ListViewWidget::Clear()
         FireSelectionChanged(-1);
     }
 
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -272,6 +292,7 @@ void ListViewWidget::SetSpacing(float spacing)
     {
         mArrayWidget->SetSpacing(mSpacing);
     }
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -299,6 +320,7 @@ void ListViewWidget::SetOrientation(ArrayOrientation orientation)
             mScrollContainer->SetScrollSizeMode(ScrollSizeMode::FitHeight);
         }
     }
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -317,6 +339,7 @@ void ListViewWidget::SetItemWidth(float width)
     {
         ApplyItemSize(item);
     }
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -333,6 +356,7 @@ void ListViewWidget::SetItemHeight(float height)
     {
         ApplyItemSize(item);
     }
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -485,6 +509,7 @@ void ListViewWidget::RebuildItems()
         mItems.push_back(item);
     }
 
+    UpdateContentSize();
     MarkDirty();
 }
 
@@ -554,6 +579,69 @@ void ListViewWidget::ApplyItemSize(ListViewItemWidget* item)
     if (mItemHeight > 0.0f)
     {
         item->SetHeight(mItemHeight);
+    }
+}
+
+void ListViewWidget::UpdateContentSize()
+{
+    EnsureContainers();
+    if (mArrayWidget == nullptr || mScrollContainer == nullptr)
+    {
+        return;
+    }
+
+    const bool vertical = (mOrientation == ArrayOrientation::Vertical);
+
+    // Sum the main-axis extent and track the largest cross-axis extent. Spacing
+    // is applied between items only, so it scales with (count - 1).
+    float totalMain = 0.0f;
+    float maxCross = 0.0f;
+    uint32_t childCount = mArrayWidget->GetNumChildren();
+    uint32_t visibleCount = 0;
+
+    for (uint32_t i = 0; i < childCount; ++i)
+    {
+        Widget* child = mArrayWidget->GetChildWidget(i);
+        if (child == nullptr)
+        {
+            continue;
+        }
+
+        if (vertical)
+        {
+            totalMain += child->GetHeight();
+            if (child->GetWidth() > maxCross) maxCross = child->GetWidth();
+        }
+        else
+        {
+            totalMain += child->GetWidth();
+            if (child->GetHeight() > maxCross) maxCross = child->GetHeight();
+        }
+        ++visibleCount;
+    }
+
+    if (visibleCount > 1)
+    {
+        totalMain += mSpacing * float(visibleCount - 1);
+    }
+
+    // ScrollContainer's FitWidth/FitHeight modes overwrite the cross-axis on
+    // its own PreRender, so the exact value we set there is mostly cosmetic.
+    // Default to the ScrollContainer viewport so the ArrayWidget at least
+    // matches the visible area when there are no items.
+    float crossFallback = vertical ? mScrollContainer->GetWidth() : mScrollContainer->GetHeight();
+    if (maxCross < crossFallback) maxCross = crossFallback;
+
+    float newWidth  = vertical ? maxCross  : totalMain;
+    float newHeight = vertical ? totalMain : maxCross;
+
+    if (mArrayWidget->GetWidth() != newWidth || mArrayWidget->GetHeight() != newHeight)
+    {
+        mArrayWidget->SetDimensions(newWidth, newHeight);
+        // ScrollContainer caches mCachedContentSize behind an IsDirty() gate.
+        // Force a re-cache so scrollbars/maxOffset reflect the new size on the
+        // next PreRender.
+        mScrollContainer->MarkDirty();
     }
 }
 

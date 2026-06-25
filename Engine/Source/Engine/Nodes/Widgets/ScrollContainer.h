@@ -80,6 +80,13 @@ public:
     // Content Access
     Widget* GetContentWidget();
 
+    // Explicit content override. Use this when the ScrollContainer's actual
+    // content child is marked transient (e.g. ListViewWidget's internal
+    // ArrayWidget) and would otherwise be skipped by the
+    // "first non-transient child" fallback. Setting nullptr restores the
+    // fallback behaviour. Caller owns the widget's lifecycle.
+    void SetContentWidget(Widget* widget);
+
     // Visual Customization - Colors
     void SetScrollbarColor(glm::vec4 color);
     glm::vec4 GetScrollbarColor() const;
@@ -183,6 +190,14 @@ protected:
 
     // Cached content size (updated during PreRender)
     glm::vec2 mCachedContentSize = glm::vec2(0.0f);
+
+    // Explicit content widget. When non-null, GetContentWidget() returns it
+    // instead of scanning children. Lets ListViewWidget point at its internal
+    // transient ArrayWidget without changing fallback behaviour for everyone
+    // else. Raw pointer matches the existing internal-widget convention; the
+    // ListViewWidget owns the lifecycle and clears it on teardown via the
+    // owning hierarchy.
+    Widget* mContentOverride = nullptr;
 
     // Transient child widgets - Scrollbars
     Quad* mHScrollbarTrack = nullptr;

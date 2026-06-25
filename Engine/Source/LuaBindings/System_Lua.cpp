@@ -102,6 +102,39 @@ int System_Lua::SetWindowTitle(lua_State* L)
     return 0;
 }
 
+int System_Lua::ListDirectory(lua_State* L)
+{
+    const char* path = CHECK_STRING(L, 1);
+
+    lua_newtable(L);
+    int tableIdx = lua_gettop(L);
+
+    DirEntry dirEntry = { };
+    SYS_OpenDirectory(path, dirEntry);
+
+    int32_t index = 1;
+    while (dirEntry.mValid)
+    {
+        lua_newtable(L);
+        int entryIdx = lua_gettop(L);
+
+        lua_pushstring(L, dirEntry.mFilename);
+        lua_setfield(L, entryIdx, "name");
+
+        lua_pushboolean(L, dirEntry.mDirectory);
+        lua_setfield(L, entryIdx, "isDirectory");
+
+        lua_rawseti(L, tableIdx, index);
+        ++index;
+
+        SYS_IterateDirectory(dirEntry);
+    }
+
+    SYS_CloseDirectory(dirEntry);
+
+    return 1;
+}
+
 void System_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -128,6 +161,8 @@ void System_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, IsFullscreen);
 
     REGISTER_TABLE_FUNC(L, tableIdx, SetWindowTitle);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, ListDirectory);
 
     lua_setglobal(L, "System");
 

@@ -34,3 +34,11 @@ function System.IsFullscreen() end
 
 ---@param value string
 function System.SetWindowTitle(value) end
+
+---@class DirEntry
+---@field name string
+---@field isDirectory boolean
+
+---@param path string
+---@return DirEntry[]
+function System.ListDirectory(path) end

@@ -65,6 +65,11 @@ protected:
 
     void EnsureContainers();
     void RebuildItems();
+    // Resize the internal ArrayWidget to span the total item content (sum of
+    // item sizes along the orientation + spacing) so ScrollContainer's cached
+    // content size becomes large enough to activate scrolling. Safe to call
+    // even before items exist; defers to EnsureContainers() first.
+    void UpdateContentSize();
     ListViewItemWidget* CreateItem(int32_t index, const Datum& data);
     void DestroyItem(int32_t index);
     void UpdateItemIndices();

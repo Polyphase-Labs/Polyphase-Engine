@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.polyphase.fpstest'
+    namespace 'com.polyphase.filebrowser'
     compileSdk 33
 
     defaultConfig {
-        applicationId "com.polyphase.fpstest"
+        applicationId "com.polyphase.filebrowser"
         minSdk 24
         targetSdk 33
         versionCode 1
