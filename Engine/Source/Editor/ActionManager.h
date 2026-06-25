@@ -388,6 +388,27 @@ protected:
     bool mExtractSkelAnimRemoveEmbedded = false;
     bool mShowExtractSkelAnimModal = false;
 
+    // Import-animations modal state (animation-only fbx/glb).
+    std::string mImportAnimSourcePath;
+    AssetDir* mImportAnimTargetDir = nullptr;
+    std::vector<std::string> mImportAnimNames;
+    std::vector<uint8_t> mImportAnimSelections;
+    char mImportAnimPrefix[32] = "SA_";
+    bool mImportAnimOverwrite = false;
+    bool mImportAnimUnique = true;
+    bool mShowImportAnimModal = false;
+
+    // Retarget-animation modal state.
+    AssetStub* mRetargetClipStub = nullptr;
+    AssetRef mRetargetSrcAvatar;
+    AssetRef mRetargetDstAvatar;
+    char mRetargetOutputName[128] = "";
+    int32_t mRetargetMode = 0;          // 0=NameRemap, 1=ReferencePose
+    bool mRetargetOverwrite = false;
+    bool mRetargetUnique = true;
+    bool mShowRetargetModal = false;
+    bool mRetargetModalJustOpened = false;
+
     void BuildPhase1();
     void BuildCompileThreadFunc();
     void FinalizeLocalBuild();
@@ -490,6 +511,39 @@ public:
     void BeginExtractSkeletalAnimations(AssetStub* skeletalMeshStub);
     bool ExtractSkeletalAnimations(const ExtractSkeletalAnimationsOptions& options);
     void DrawExtractSkeletalAnimationsModal();
+
+    // Import animations from an animation-only .fbx/.glb/.gltf/.dae file
+    // (or any model file the user picks — only the embedded clips are read).
+    struct ImportAnimationsOptions
+    {
+        std::string mSourcePath;
+        AssetDir* mTargetDir = nullptr;
+        std::vector<uint32_t> mAnimationIndices; // empty = all
+        std::string mPrefix = "SA_";
+        bool mOverwriteExisting = false;
+        bool mUniqueNames = true;
+    };
+    void BeginImportAnimations(AssetDir* targetDir = nullptr);
+    bool ImportAnimations(const ImportAnimationsOptions& options);
+    void DrawImportAnimationsModal();
+
+    // Bake a target-rig-compatible clip from a source SkeletalAnimationAsset
+    // and a pair of HumanoidAvatarAssets. The bake mode is the user-selected
+    // tier (name-only remap vs reference-pose-aware).
+    struct RetargetAnimationOptions
+    {
+        AssetStub* mSourceClipStub = nullptr;
+        AssetStub* mSourceAvatarStub = nullptr;
+        AssetStub* mTargetAvatarStub = nullptr;
+        AssetDir* mTargetDir = nullptr;
+        std::string mOutputName;     // empty = derive from src clip
+        int32_t mMode = 0;           // 0=NameRemap, 1=ReferencePose
+        bool mOverwriteExisting = false;
+        bool mUniqueNames = true;
+    };
+    void BeginRetargetAnimation(AssetStub* sourceClipStub);
+    bool RetargetAnimation(const RetargetAnimationOptions& options);
+    void DrawRetargetAnimationModal();
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);
     /**

@@ -81,3 +81,4 @@ typedef AssetRef TransformAnimationRef;
 typedef AssetRef DataAssetRef;
 typedef AssetRef SpriteAnimationRef;
 typedef AssetRef SkeletalAnimationRef;
+typedef AssetRef HumanoidAvatarRef;

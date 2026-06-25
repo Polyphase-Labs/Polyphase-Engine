@@ -10,6 +10,8 @@
 
 #include "Graphics/Graphics.h"
 
+#include <glm/gtx/matrix_decompose.hpp>
+
 static const char* sBoneInfluenceModeStrings[] =
 {
     "One Bone",
@@ -1059,6 +1061,44 @@ const Animation* SkeletalMesh3D::FindAnimation(const char* animName)
                     dst.mPositionKeys = src.mPositionKeys;
                     dst.mRotationKeys = src.mRotationKeys;
                     dst.mScaleKeys = src.mScaleKeys;
+
+                    // Runtime FindPosition/Rotation/ScaleIndex helpers assert
+                    // each track has >= 1 key. External assets from retarget
+                    // bakes (and older malformed embeddeds) can land here with
+                    // empty tracks; backfill a single bind-pose key from the
+                    // target mesh so playback stays alive. Cheap and only ever
+                    // runs once per (asset, mesh) bind.
+                    if (dst.mScaleKeys.empty())
+                    {
+                        ScaleKey sk;
+                        sk.mTime = 0.0f;
+                        sk.mValue = glm::vec3(1.0f);
+                        dst.mScaleKeys.push_back(sk);
+                    }
+                    if (dst.mPositionKeys.empty() || dst.mRotationKeys.empty())
+                    {
+                        glm::mat4 bind = mesh->GetBindPoseMatrix(targetBoneIdx);
+                        glm::vec3 bindPos(bind[3]);
+                        glm::vec3 sc; glm::quat rt; glm::vec3 tr; glm::vec3 sk; glm::vec4 pr;
+                        glm::decompose(bind, sc, rt, tr, sk, pr);
+                        glm::quat bindRot = glm::conjugate(rt);
+
+                        if (dst.mPositionKeys.empty())
+                        {
+                            PositionKey pk;
+                            pk.mTime = 0.0f;
+                            pk.mValue = bindPos;
+                            dst.mPositionKeys.push_back(pk);
+                        }
+                        if (dst.mRotationKeys.empty())
+                        {
+                            RotationKey rk;
+                            rk.mTime = 0.0f;
+                            rk.mValue = bindRot;
+                            dst.mRotationKeys.push_back(rk);
+                        }
+                    }
+
                     bound.mChannels.push_back(std::move(dst));
                 }
 

@@ -1059,6 +1059,7 @@
     <ClCompile Include="Source\Engine\Assets\ParticleSystem.cpp" />
     <ClCompile Include="Source\Engine\Assets\ParticleSystemInstance.cpp" />
     <ClCompile Include="Source\Engine\Assets\Scene.cpp" />
+    <ClCompile Include="Source\Engine\Assets\HumanoidAvatarAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalAnimationAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalMesh.cpp" />
     <ClCompile Include="Source\Engine\Assets\SoundWave.cpp" />
@@ -1623,6 +1624,7 @@
     <ClInclude Include="Source\Engine\Assets\ParticleSystem.h" />
     <ClInclude Include="Source\Engine\Assets\ParticleSystemInstance.h" />
     <ClInclude Include="Source\Engine\Assets\Scene.h" />
+    <ClInclude Include="Source\Engine\Assets\HumanoidAvatarAsset.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalAnimationAsset.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalMesh.h" />
     <ClInclude Include="Source\Engine\Assets\SoundWave.h" />

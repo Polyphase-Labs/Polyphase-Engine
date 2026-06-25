@@ -46,6 +46,8 @@
 #include "Assets/ParticleSystem.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
+#include "Assets/HumanoidAvatarAsset.h"
 #include "Assets/MaterialBase.h"
 #include "Assets/MaterialInstance.h"
 #include "Assets/MaterialLite.h"
@@ -6405,6 +6407,14 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
     }
 
+    if (stub && stub->mType == SkeletalAnimationAsset::GetStaticType())
+    {
+        if (ImGui::Selectable("Retarget..."))
+        {
+            actMan->BeginRetargetAnimation(stub);
+        }
+    }
+
     if (canInstantiate && ImGui::Selectable("Instantiate"))
     {
         if (stub->mAsset == nullptr)
@@ -6654,6 +6664,17 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             actMan->BeginImportScene();
         }
 
+        if (ImGui::Selectable("Import Animations"))
+        {
+            actMan->BeginImportAnimations(curDir);
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip(
+                "Import bone animations from an .fbx/.glb/.gltf/.dae file without\n"
+                "a render mesh. Each clip becomes a standalone SkeletalAnimationAsset.");
+        }
+
         if (ImGui::Selectable("Import TinyLLM Model"))
         {
             actMan->ImportTinyLLMModel();
@@ -6734,6 +6755,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Transform Animation", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = TransformAnimationAsset::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Humanoid Avatar", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = HumanoidAvatarAsset::GetStaticType();
                 showPopup = true;
             }
             if (ImGui::Selectable("Node Graph", false, ImGuiSelectableFlags_DontClosePopups))
@@ -8784,6 +8810,112 @@ static void DrawPropertiesPanel()
                     ImGui::Text("Num Channels: %d", soundWave->GetNumChannels());
                     ImGui::Text("Bits Per Sample: %d", soundWave->GetBitsPerSample());
                     ImGui::Text("Sample Rate: %d", soundWave->GetSampleRate());
+                }
+                else if (obj->As<SkeletalAnimationAsset>())
+                {
+                    SkeletalAnimationAsset* clip = obj->As<SkeletalAnimationAsset>();
+                    ImGui::Text("Source Rig: %s", clip->GetSourceRigName().c_str());
+                    ImGui::Text("Duration: %.2fs (%.0f ticks @ %.0f tps)",
+                                clip->GetDurationSeconds(),
+                                clip->GetDuration(),
+                                clip->GetTicksPerSecond());
+
+                    const auto& channels = clip->GetChannels();
+                    ImGui::Text("Channels (%zu)", channels.size());
+                    if (channels.empty())
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                           "  Empty - asset has no animation data.");
+                        ImGui::TextWrapped("  For retargeted assets this usually means the source/target avatar's slot mappings "
+                                           "didn't match either the source clip's bones or the target mesh's bones.");
+                    }
+                    else
+                    {
+                        ImGui::Indent();
+                        if (ImGui::TreeNode("Channel List"))
+                        {
+                            for (uint32_t i = 0; i < channels.size(); ++i)
+                            {
+                                const SkeletalAnimationChannel& ch = channels[i];
+                                ImGui::Text("[%u] %s  (pos %zu, rot %zu, scale %zu)",
+                                            i, ch.mBoneName.c_str(),
+                                            ch.mPositionKeys.size(),
+                                            ch.mRotationKeys.size(),
+                                            ch.mScaleKeys.size());
+                            }
+                            ImGui::TreePop();
+                        }
+                        ImGui::Unindent();
+                    }
+                }
+                else if (obj->As<HumanoidAvatarAsset>())
+                {
+                    HumanoidAvatarAsset* avatar = obj->As<HumanoidAvatarAsset>();
+                    SkeletalMesh* refMesh = avatar->GetReferenceMesh();
+
+                    ImGui::Text("Reference: %s", refMesh ? refMesh->GetName().c_str() : "<none>");
+
+                    if (ImGui::Button("Auto-map from Reference"))
+                    {
+                        uint32_t filled = avatar->AutoMap(false);
+                        avatar->SetDirtyFlag();
+                        LogDebug("HumanoidAvatar: auto-mapped %u slots.", filled);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear All"))
+                    {
+                        for (uint32_t s = 0; s < (uint32_t)HumanoidBone::Count; ++s)
+                        {
+                            avatar->SetBoneName((HumanoidBone)s, "");
+                        }
+                        avatar->SetDirtyFlag();
+                    }
+
+                    std::vector<HumanoidBone> missing;
+                    std::vector<std::string> unknown;
+                    bool ok = avatar->Validate(&missing, &unknown);
+                    if (!ok)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                           "Invalid: %zu bone(s) not in reference mesh",
+                                           unknown.size());
+                    }
+
+                    ImGui::Separator();
+                    ImGui::Text("Humanoid Slots");
+                    ImGui::Indent();
+                    for (uint32_t s = 0; s < (uint32_t)HumanoidBone::Count; ++s)
+                    {
+                        HumanoidBone slot = (HumanoidBone)s;
+                        const std::string& cur = avatar->GetBoneName(slot);
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "%s", cur.c_str());
+
+                        ImGui::PushID((int)s);
+                        ImGui::SetNextItemWidth(220.0f);
+                        if (ImGui::InputText(HumanoidBoneName(slot), buf, sizeof(buf)))
+                        {
+                            avatar->SetBoneName(slot, buf);
+                            avatar->SetDirtyFlag();
+                        }
+
+                        // Live validation indicator: missing (yellow) vs unknown (red) vs ok (green).
+                        ImGui::SameLine();
+                        if (cur.empty())
+                        {
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.4f, 1.0f), " unset");
+                        }
+                        else if (refMesh != nullptr && refMesh->FindBoneIndex(cur) < 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), " not in mesh");
+                        }
+                        else
+                        {
+                            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), " ok");
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::Unindent();
                 }
                 else if (obj->As<Voxel3D>())
                 {
@@ -14168,6 +14300,8 @@ void EditorImguiDraw()
         GetPlayerInputDebugger()->Draw();
         ActionManager::Get()->DrawBuildModal();
         ActionManager::Get()->DrawExtractSkeletalAnimationsModal();
+        ActionManager::Get()->DrawImportAnimationsModal();
+        ActionManager::Get()->DrawRetargetAnimationModal();
         GetProjectSelectWindow()->Draw();
         GetAddonsWindow()->Draw();
         GetThemeEditorWindow()->Draw();

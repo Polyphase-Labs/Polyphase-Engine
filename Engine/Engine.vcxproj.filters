@@ -596,6 +596,9 @@
     <ClCompile Include="Source\Engine\Assets\DataAsset.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Assets\HumanoidAvatarAsset.cpp">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Assets\SkeletalAnimationAsset.cpp">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClCompile>
@@ -1912,6 +1915,9 @@
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\DataAsset.h">
+      <Filter>Source Files\Engine\Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Assets\HumanoidAvatarAsset.h">
       <Filter>Source Files\Engine\Assets</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Assets\SkeletalAnimationAsset.h">

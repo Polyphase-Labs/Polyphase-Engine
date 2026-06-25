@@ -72,6 +72,45 @@ public:
     // the source skeleton metadata for later retargeting work.
     void CopyFromEmbedded(const Animation& embedded, const SkeletalMesh* sourceMesh);
 
+#if EDITOR
+    // Static convenience: parse animations from an .fbx/.glb/.gltf/.dae file
+    // without requiring a render mesh, producing one SkeletalAnimationAsset
+    // descriptor per aiAnimation in the scene. The caller decides whether to
+    // register each result as an asset (see ActionManager::ImportAnimations).
+    // Returns the number of clips populated into outAssets (matches outNames).
+    static uint32_t ParseAnimationsFromFile(
+        const std::string& path,
+        std::vector<SkeletalAnimationAsset>& outAssets,
+        std::vector<std::string>& outNames);
+
+    enum class RetargetMode : uint8_t
+    {
+        // Tier 1: pass keyframes through verbatim, just rename the channel's
+        // bone from src avatar's slot name to the target avatar's. Works for
+        // same/similar skeletons that only differ in naming convention
+        // (Mixamo-to-Mixamo, ARP-to-ARP-but-renamed).
+        NameRemap,
+
+        // Tier 2: rotations are projected through (source bind, target bind)
+        // so the resulting clip reproduces the source motion on a differently-
+        // proportioned target rig. Requires both avatars to have a reference
+        // mesh with a real bind pose; falls back to NameRemap behaviour for
+        // slots where bind pose isn't available.
+        ReferencePose,
+    };
+
+    // Bake a target-compatible clip from a source clip and a humanoid avatar
+    // pair. The returned clip is fully populated but NOT registered with
+    // AssetManager — caller does that. Pass nullptr for the optional outErr
+    // string if you don't need diagnostics.
+    static SkeletalAnimationAsset Retarget(
+        const SkeletalAnimationAsset& srcClip,
+        const class HumanoidAvatarAsset& srcAvatar,
+        const class HumanoidAvatarAsset& dstAvatar,
+        RetargetMode mode,
+        std::string* outDiagnostics = nullptr);
+#endif
+
 protected:
 
     std::string mClipName;
