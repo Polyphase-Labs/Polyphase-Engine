@@ -2998,7 +2998,12 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
     // input (clicks elsewhere) or starts editing again (text diverges from
     // lastInputText). Either is a clear "re-arm the dropdown" signal.
     if (committedInputId == inputId && (!isInputFocused || inputText != lastInputText))
+    {
+        LogDebug("[AC %s id=%u] LATCH CLEAR (focused=%d textChanged=%d last='%s' now='%s')",
+            dropdownId, (unsigned)inputId, isInputFocused ? 1 : 0,
+            (inputText != lastInputText) ? 1 : 0, lastInputText.c_str(), inputText.c_str());
         committedInputId = 0;
+    }
 
     // Always refresh filtered items so the bounds checks below see the actual
     // item count.
@@ -3031,11 +3036,25 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
 
     bool wantsOpen = (forceActive || isInputActive || isInputFocused) && !filteredItems.empty();
 
+    // Per-frame tick log, gated to pickers actually in play (idle pickers stay quiet).
+    if (isInputFocused || isInputActive || forceActive ||
+        activeDropdownId == inputId || committedInputId == inputId)
+    {
+        LogDebug("[AC %s id=%u] tick foc=%d act=%d force=%d txt='%s' items=%d wantsOpen=%d activeDD=%u commit=%u",
+            dropdownId, (unsigned)inputId,
+            isInputFocused ? 1 : 0, isInputActive ? 1 : 0, forceActive ? 1 : 0,
+            inputText.c_str(), (int)filteredItems.size(),
+            wantsOpen ? 1 : 0, (unsigned)activeDropdownId, (unsigned)committedInputId);
+    }
+
     // Focus-acquired edge: this picker just claimed input. Open its popup and
     // claim the singleton. The committedInputId latch keeps the popup closed
     // after a click/Enter commit until the user defocuses or types again.
     if (wantsOpen && activeDropdownId != inputId && committedInputId != inputId)
     {
+        LogDebug("[AC %s id=%u] OPEN POPUP (wantsOpen=1 activeDD=%u commit=%u txt='%s')",
+            dropdownId, (unsigned)inputId,
+            (unsigned)activeDropdownId, (unsigned)committedInputId, inputText.c_str());
         activeDropdownId = inputId;
         hasSelection = false;
         selectedIndex = 0;
@@ -3072,6 +3091,8 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
 
         if (ImGui::BeginPopup(popupId, flags))
         {
+            LogDebug("[AC %s id=%u] popup OPEN (BeginPopup=true) commit=%u",
+                dropdownId, (unsigned)inputId, (unsigned)committedInputId);
             bool upArrowPressed   = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_UpArrow));
             bool downArrowPressed = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_DownArrow));
             bool tabPressed       = ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab));
@@ -3116,12 +3137,16 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                     inputText = "null";
                     selectionMade = true;
                 }
+                LogDebug("[AC %s id=%u] ENTER COMMIT -> '%s' (latch set, CloseCurrentPopup)",
+                    dropdownId, (unsigned)inputId, inputText.c_str());
                 lastInputText    = inputText;     // suppress text-change clear next frame
                 committedInputId = inputId;       // suppress reopen until refocus or edit
                 ImGui::CloseCurrentPopup();
             }
             else if (escapePressed)
             {
+                LogDebug("[AC %s id=%u] ESCAPE (CloseCurrentPopup)",
+                    dropdownId, (unsigned)inputId);
                 ImGui::CloseCurrentPopup();
             }
 
@@ -3158,6 +3183,9 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 // check which fails when InputText holds ActiveId.
                 if (itemHovered && ImGui::IsMouseClicked(0))
                 {
+                    LogDebug("[AC %s id=%u] CLICK COMMIT -> '%s' (latch set, CloseCurrentPopup) focused=%d active=%d",
+                        dropdownId, (unsigned)inputId, filteredItems[i].c_str(),
+                        ImGui::IsItemFocused() ? 1 : 0, ImGui::IsItemActive() ? 1 : 0);
                     inputText        = filteredItems[i];
                     lastInputText    = inputText;
                     selectionMade    = true;
@@ -3179,6 +3207,8 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
             // Popup no longer open — release the singleton. The committedInputId
             // latch (independent of the singleton) is what stops the focused
             // InputText from immediately retriggering OpenPopup next frame.
+            LogDebug("[AC %s id=%u] SINGLETON RELEASE (BeginPopup false) commit=%u focused=%d",
+                dropdownId, (unsigned)inputId, (unsigned)committedInputId, isInputFocused ? 1 : 0);
             activeDropdownId = 0;
             hasSelection     = false;
             selectedIndex    = 0;

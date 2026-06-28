@@ -48,7 +48,13 @@ enum class MeshImportMode : uint8_t
 
 struct MeshImportOptions
 {
-    MeshImportMode mMode = MeshImportMode::AsMultipleObjects;
+    MeshImportMode  mMode = MeshImportMode::AsMultipleObjects;
+    bool            mPlaceInSubdirectory = true;
+    bool            mImportMaterials = true;
+    bool            mImportTextures = true;
+    std::string     mPrefix;
+    ShadingModel    mDefaultShadingModel = ShadingModel::Lit;
+    VertexColorMode mDefaultVertexColorMode = VertexColorMode::None;
 };
 
 struct CameraImportOptions
