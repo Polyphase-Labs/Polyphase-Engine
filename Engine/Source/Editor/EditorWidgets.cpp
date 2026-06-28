@@ -10,7 +10,6 @@
 #include "AssetManager.h"
 #include "AssetRef.h"
 #include "ActionManager.h"
-#include "Log.h"
 #include "EditorConstants.h"
 #include "EditorIcons.h"
 #include "EditorState.h"
@@ -290,15 +289,6 @@ namespace Polyphase
             inputRectMin     = ImGui::GetItemRectMin();
             inputRectMax     = ImGui::GetItemRectMax();
 
-            if (isInputFocused || isInputActivated || textActive)
-            {
-                LogDebug("[ARPicker '%s' id=%u] InputText foc=%d act=%d txtAct=%d sTemp='%s' asset='%s'",
-                    label, (unsigned)inputId,
-                    isInputFocused ? 1 : 0, isInputActivated ? 1 : 0, textActive ? 1 : 0,
-                    sTempString.c_str(),
-                    asset ? asset->GetName().c_str() : "(null)");
-            }
-
             // Reset temp string when not actively interacting (or when first
             // activating). The mouse-over-dropdown check preserves the filter
             // text while the user is clicking on an item.
@@ -313,15 +303,7 @@ namespace Polyphase
                                  mouse.y >= ddMin.y && mouse.y <= ddMax.y;
             if (isInputActivated || (!isInputFocused && !mouseOverDD))
             {
-                std::string before = sTempString;
                 sTempString = asset ? asset->GetName() : "";
-                if (before != sTempString)
-                {
-                    LogDebug("[ARPicker '%s' id=%u] sTempString RESET '%s' -> '%s' (act=%d foc=%d ovrDD=%d)",
-                        label, (unsigned)inputId,
-                        before.c_str(), sTempString.c_str(),
-                        isInputActivated ? 1 : 0, isInputFocused ? 1 : 0, mouseOverDD ? 1 : 0);
-                }
             }
         }
 
@@ -418,12 +400,8 @@ namespace Polyphase
                 inputRectMin,
                 inputRectMax);
 
-            bool deactEdit = ImGui::IsItemDeactivatedAfterEdit();
-            if (selectionMade || deactEdit)
+            if (selectionMade || ImGui::IsItemDeactivatedAfterEdit())
             {
-                LogDebug("[ARPicker '%s' id=%u] APPLY selMade=%d deactEdit=%d sTemp='%s'",
-                    label, (unsigned)inputId,
-                    selectionMade ? 1 : 0, deactEdit ? 1 : 0, sTempString.c_str());
                 if (sTempString == "null" || sTempString == "NULL" || sTempString == "Null")
                 {
                     ApplyAssetAssignment(ref, nullptr, undo);

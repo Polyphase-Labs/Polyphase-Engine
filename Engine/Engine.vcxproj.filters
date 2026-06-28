@@ -806,6 +806,9 @@
     <ClCompile Include="Source\Engine\Nodes\NodeGraphPlayer.cpp">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\PlayerInputRegistrar.cpp">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\TransformAnimationNode3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
@@ -2023,6 +2026,9 @@
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\NodeGraphPlayer.h">
+      <Filter>Source Files\Engine\Nodes</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\PlayerInputRegistrar.h">
       <Filter>Source Files\Engine\Nodes</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\SpriteAnimator.h">
