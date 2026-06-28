@@ -10713,16 +10713,19 @@ static void DrawMainMenuBar()
                 std::string sourcePath = clash.mSourcePath;
                 std::string newName = clash.mProposedName;
                 bool combined = clash.mCombined;
+                MeshImportOptions meshOpts = clash.mMeshOpts;
+                bool hasMeshOpts = clash.mHasMeshOpts;
                 clashQueue.erase(clashQueue.begin());
                 ImGui::CloseCurrentPopup();
 
+                const MeshImportOptions* meshOptsPtr = hasMeshOpts ? &meshOpts : nullptr;
                 if (combined)
                 {
-                    ActionManager::Get()->ImportAssetCombined(sourcePath, newName);
+                    ActionManager::Get()->ImportAssetCombined(sourcePath, newName, meshOptsPtr);
                 }
                 else
                 {
-                    ActionManager::Get()->ImportAsset(sourcePath, newName);
+                    ActionManager::Get()->ImportAsset(sourcePath, newName, meshOptsPtr);
                 }
             }
             if (importDisabled) ImGui::EndDisabled();
@@ -10801,6 +10804,32 @@ static void DrawMainMenuBar()
         ImGui::Indent(); ImGui::TextDisabled("Merge all primitives into one mesh. Skeletal if any primitive has bones."); ImGui::Unindent();
         sMeshImportOptions.mMode = (MeshImportMode)modeInt;
 
+        // Mesh-import-only options. Scene mode has its own follow-up dialog.
+        if (sMeshImportOptions.mMode != MeshImportMode::AsScene)
+        {
+            ImGui::Separator();
+            Polyphase::Checkbox("Place in subdirectory", &sMeshImportOptions.mPlaceInSubdirectory);
+            ImGui::Indent();
+            std::string subdirHint = paths.empty()
+                ? std::string("<file>")
+                : GetFileNameFromPath(paths.front());
+            ImGui::TextDisabled("Create '%s/' inside the current asset dir and put mesh + materials + textures there.",
+                subdirHint.c_str());
+            ImGui::Unindent();
+
+            ImGui::InputText("Prefix", &sMeshImportOptions.mPrefix);
+            Polyphase::Checkbox("Import Materials", &sMeshImportOptions.mImportMaterials);
+            Polyphase::Checkbox("Import Textures",  &sMeshImportOptions.mImportTextures);
+
+            int32_t smCount = int32_t(ShadingModel::Count);
+            ImGui::Combo("Shading Model", (int*)&sMeshImportOptions.mDefaultShadingModel,
+                gShadingModelStrings, smCount);
+
+            int32_t vcCount = int32_t(VertexColorMode::Count);
+            ImGui::Combo("Vertex Color Mode", (int*)&sMeshImportOptions.mDefaultVertexColorMode,
+                gVertexColorModeStrings, vcCount);
+        }
+
         if (ImGui::Button("Import"))
         {
             if (sMeshImportOptions.mMode == MeshImportMode::AsScene)
@@ -10813,14 +10842,14 @@ static void DrawMainMenuBar()
             {
                 for (const std::string& p : paths)
                 {
-                    am->ImportAsset(p);
+                    am->ImportAsset(p, "", &sMeshImportOptions);
                 }
             }
             else // AsSingleObject
             {
                 for (const std::string& p : paths)
                 {
-                    am->ImportAssetCombined(p);
+                    am->ImportAssetCombined(p, "", &sMeshImportOptions);
                 }
             }
             paths.clear();

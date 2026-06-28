@@ -477,8 +477,8 @@ public:
     void DeleteNode(Node* node);
     void RunScript();
     void ImportAsset();
-    Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "");
-    Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "");
+    Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
+    Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
 
     // Loose-file import: copies the user-picked file(s) into the current
     // AssetDir verbatim (no .oct conversion) and registers them with the

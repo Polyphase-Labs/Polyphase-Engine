@@ -120,6 +120,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/pbrmaterial.h>    // AI_MATKEY_GLTF_ALPHAMODE / GLTF_ALPHACUTOFF (vendored Assimp uses the old header name)
 
 #define SUB_SCENE_HIER_WARN_TEXT "Cannot modify sub-scene hierarchy. Must unlink scene first."
 
@@ -156,6 +157,276 @@ static void GatherMeshImportTypes(const char* path, std::vector<TypeId>& outImpo
     {
         LogWarning("File has collision meshes but more than one non-collision mesh. Simple collision importing will be ignored.");
     }
+}
+
+// Inputs for ImportSceneMaterials / ImportOrFetchMaterialTexture, decoupling the
+// helper from SceneImportOptions vs MeshImportOptions. mIsReimport / mReimportTextures
+// are scene-import-only knobs; mesh-asset import always passes them as false.
+struct MaterialImportContext
+{
+    AssetDir*       mTargetDir = nullptr;          // where M_/T_ assets land
+    std::string     mImportDir;                    // source-file dir (trailing slash)
+    std::string     mAssetNameStem;                // sceneName or mesh-file basename
+    std::string     mUserPrefix;                   // user's prefix, may be empty
+    ShadingModel    mDefaultShadingModel = ShadingModel::Lit;
+    VertexColorMode mDefaultVertexColorMode = VertexColorMode::None;
+    bool            mImportMaterials = true;
+    bool            mImportTextures = true;
+    bool            mIsReimport = false;
+    bool            mReimportTextures = false;
+};
+
+// Resolve a single aiTextureType_DIFFUSE slot reference (embedded "*N" or external
+// path) to a registered Texture asset. Caches via textureMap so repeated GLB slots
+// share assets. Returns nullptr when import disabled or the lookup fails.
+static Texture* ImportOrFetchMaterialTexture(
+    const aiScene* scene,
+    const std::string& texturePath,
+    const MaterialImportContext& ctx,
+    std::unordered_map<std::string, Texture*>& textureMap)
+{
+    auto cached = textureMap.find(texturePath);
+    if (cached != textureMap.end())
+    {
+        return cached->second;
+    }
+
+    if (!ctx.mImportTextures)
+    {
+        return nullptr;
+    }
+
+    std::string assetName;
+    if (texturePath.size() > 1 && texturePath[0] == '*')
+    {
+        assetName = "Texture" + texturePath.substr(1);
+    }
+    else
+    {
+        assetName = EditorGetAssetNameFromPath(texturePath);
+        if (assetName.size() >= 2 && (strncmp(assetName.c_str(), "T_", 2) == 0))
+        {
+            assetName = assetName.substr(2);
+        }
+    }
+    assetName = ctx.mUserPrefix + assetName;
+    assetName = std::string("T_") + ctx.mAssetNameStem + std::string("_") + assetName;
+
+    Texture* textureToAssign = nullptr;
+
+    AssetStub* existingStub = AssetManager::Get()->GetAssetStub(assetName);
+    if (existingStub && existingStub->mDirectory != ctx.mTargetDir)
+    {
+        textureToAssign = LoadAsset<Texture>(assetName);
+    }
+
+    if (ctx.mIsReimport && textureToAssign == nullptr)
+    {
+        if (ctx.mReimportTextures)
+        {
+            if (existingStub)
+            {
+                AssetManager::Get()->PurgeAsset(assetName.c_str());
+                existingStub = nullptr;
+            }
+        }
+        else
+        {
+            textureToAssign = LoadAsset<Texture>(assetName);
+        }
+    }
+
+    bool embeddedTexturePath = (texturePath.size() > 1 && texturePath[0] == '*');
+    std::string resolvedTexturePath;
+    bool tempFileCreated = false;
+
+    if (textureToAssign == nullptr && embeddedTexturePath)
+    {
+        // GLB embedded texture — extract to a temp file alongside the source.
+        int embIndex = std::atoi(texturePath.c_str() + 1);
+        if (embIndex >= 0 && (uint32_t)embIndex < scene->mNumTextures)
+        {
+            aiTexture* embTex = scene->mTextures[embIndex];
+            if (embTex->mHeight == 0)
+            {
+                std::string ext = ".";
+                ext += embTex->achFormatHint;
+                resolvedTexturePath = ctx.mImportDir + "__octave_emb_" + std::to_string(embIndex) + ext;
+
+                std::ofstream tmpFile(resolvedTexturePath, std::ios::binary);
+                if (tmpFile)
+                {
+                    tmpFile.write(reinterpret_cast<const char*>(embTex->pcData), embTex->mWidth);
+                    tmpFile.close();
+                    tempFileCreated = true;
+                }
+            }
+        }
+    }
+    else if (textureToAssign == nullptr)
+    {
+        resolvedTexturePath = ctx.mImportDir + texturePath;
+    }
+
+    if (textureToAssign == nullptr && !resolvedTexturePath.empty())
+    {
+        Asset* importedAsset = ActionManager::Get()->ImportAsset(resolvedTexturePath);
+        OCT_ASSERT(importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType());
+
+        if (importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType())
+        {
+            textureToAssign = (Texture*)importedAsset;
+        }
+
+        if (importedAsset != nullptr)
+        {
+            AssetManager::Get()->RenameAsset(importedAsset, assetName);
+            AssetManager::Get()->SaveAsset(assetName);
+        }
+    }
+
+    if (tempFileCreated)
+    {
+        std::remove(resolvedTexturePath.c_str());
+    }
+
+    if (textureToAssign != nullptr)
+    {
+        textureMap.insert({ texturePath, textureToAssign });
+    }
+
+    return textureToAssign;
+}
+
+// Walks scene->mMaterials and emits one MaterialLite asset per "needed" aiMaterial,
+// wiring up to 4 aiTextureType_DIFFUSE slots through ImportOrFetchMaterialTexture.
+// Returns a vector sized exactly to scene->mNumMaterials -- entries are nullptr
+// for indices NOT in neededIndices (pass an empty set to mean "all"), and also
+// nullptr when ctx.mImportMaterials is false. Saves+restores the editor's current
+// asset directory around the inner ImportAsset(...) calls so recursive texture
+// imports land in mTargetDir.
+static std::vector<MaterialLite*> ImportSceneMaterials(
+    const aiScene* scene,
+    const std::set<uint32_t>& neededIndices,
+    const MaterialImportContext& ctx,
+    std::unordered_map<std::string, Texture*>& textureMap)
+{
+    std::vector<MaterialLite*> materialList;
+
+    AssetDir* prevDir = nullptr;
+    if (ctx.mTargetDir != nullptr)
+    {
+        AssetDir* cur = GetEditorState()->GetAssetDirectory();
+        if (cur != ctx.mTargetDir)
+        {
+            prevDir = cur;
+            GetEditorState()->SetAssetDirectory(ctx.mTargetDir, false);
+        }
+    }
+
+    uint32_t numMaterials = scene->mNumMaterials;
+    for (uint32_t i = 0; i < numMaterials; ++i)
+    {
+        bool needed = neededIndices.empty() || neededIndices.find(i) != neededIndices.end();
+        if (!needed)
+        {
+            materialList.push_back(nullptr);
+            continue;
+        }
+
+        aiMaterial* aMaterial = scene->mMaterials[i];
+        std::string materialName = ctx.mUserPrefix + aMaterial->GetName().C_Str();
+
+        if (materialName.size() < 2 || (materialName.substr(0, 2) != "M_"))
+        {
+            materialName = std::string("M_") + ctx.mAssetNameStem + std::string("_") + materialName;
+        }
+
+        AssetStub* materialStub = nullptr;
+        MaterialLite* newMaterial = nullptr;
+        if (ctx.mImportMaterials)
+        {
+            if (ctx.mIsReimport)
+            {
+                AssetStub* existingStub = AssetManager::Get()->GetAssetStub(materialName);
+                if (existingStub && existingStub->mType == MaterialLite::GetStaticType())
+                {
+                    materialStub = existingStub;
+                    if (!existingStub->mAsset) AssetManager::Get()->LoadAsset(*existingStub);
+                    newMaterial = static_cast<MaterialLite*>(existingStub->mAsset);
+                }
+            }
+            if (materialStub == nullptr)
+            {
+                materialStub = EditorAddUniqueAsset(materialName.c_str(), ctx.mTargetDir, MaterialLite::GetStaticType(), true);
+                newMaterial = static_cast<MaterialLite*>(materialStub->mAsset);
+            }
+            newMaterial->SetShadingModel(ctx.mDefaultShadingModel);
+            newMaterial->SetVertexColorMode(ctx.mDefaultVertexColorMode);
+
+            // glTF alphaMode / alphaCutoff / doubleSided -> BlendMode + MaskCutoff + CullMode.
+            // For non-glTF formats Assimp may also set $mat.twosided via AI_MATKEY_TWOSIDED.
+            aiString alphaMode;
+            if (aMaterial->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode) == aiReturn_SUCCESS)
+            {
+                const char* mode = alphaMode.C_Str();
+                if (strcmp(mode, "MASK") == 0)        newMaterial->SetBlendMode(BlendMode::Masked);
+                else if (strcmp(mode, "BLEND") == 0)  newMaterial->SetBlendMode(BlendMode::Translucent);
+                else                                   newMaterial->SetBlendMode(BlendMode::Opaque); // "OPAQUE" or unknown
+            }
+
+            float alphaCutoff = 0.5f;
+            if (aMaterial->Get(AI_MATKEY_GLTF_ALPHACUTOFF, alphaCutoff) == aiReturn_SUCCESS)
+            {
+                newMaterial->SetMaskCutoff(alphaCutoff);
+            }
+
+            int twoSided = 0;
+            if (aMaterial->Get(AI_MATKEY_TWOSIDED, twoSided) == aiReturn_SUCCESS && twoSided != 0)
+            {
+                newMaterial->SetCullMode(CullMode::None);
+            }
+        }
+
+        uint32_t numBaseTextures = aMaterial->GetTextureCount(aiTextureType_DIFFUSE);
+        numBaseTextures = glm::clamp(numBaseTextures, 0u, 4u);
+
+        for (uint32_t t = 0; t < numBaseTextures; ++t)
+        {
+            aiString path;
+            aiReturn ret = aMaterial->GetTexture(aiTextureType::aiTextureType_DIFFUSE, t, &path);
+
+            if (ret == aiReturn_SUCCESS)
+            {
+                std::string texturePath = path.C_Str();
+                LogDebug("Scene Texture: %s", texturePath.c_str());
+
+                Texture* textureToAssign = ImportOrFetchMaterialTexture(scene, texturePath, ctx, textureMap);
+
+                if (newMaterial != nullptr && textureToAssign != nullptr)
+                {
+                    newMaterial->SetTexture(t, textureToAssign);
+                }
+            }
+        }
+
+        if (materialStub != nullptr)
+        {
+            AssetManager::Get()->SaveAsset(*materialStub);
+            materialList.push_back(newMaterial);
+        }
+        else
+        {
+            materialList.push_back(nullptr);
+        }
+    }
+
+    if (prevDir != nullptr)
+    {
+        GetEditorState()->SetAssetDirectory(prevDir, false);
+    }
+
+    return materialList;
 }
 
 void ActionManager::Create()
@@ -6293,7 +6564,7 @@ static std::string SuggestUnusedAssetBaseName(const std::string& baseName)
     return baseName;
 }
 
-Asset* ActionManager::ImportAsset(const std::string& path, const std::string& overrideBaseName)
+Asset* ActionManager::ImportAsset(const std::string& path, const std::string& overrideBaseName, const MeshImportOptions* meshOpts)
 {
     Asset* retAsset = nullptr;
 
@@ -6309,6 +6580,11 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
 
     int32_t dotIndex = int32_t(filename.find_last_of('.'));
     std::string extension = filename.substr(dotIndex, filename.size() - dotIndex);
+    std::string importDir;
+    {
+        size_t slashPos = path.find_last_of("/\\");
+        importDir = (slashPos != std::string::npos) ? path.substr(0, slashPos + 1) : std::string("./");
+    }
 
     if (extension == ".png" ||
         extension == ".bmp" ||
@@ -6373,8 +6649,58 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
             clash.mExistingTypeName = existingName ? existingName : "Asset";
             clash.mImportTypeName = importName ? importName : "Asset";
             clash.mCombined = false;
+            if (meshOpts != nullptr)
+            {
+                clash.mMeshOpts = *meshOpts;
+                clash.mHasMeshOpts = true;
+            }
             GetEditorState()->mPendingImportClashes.push_back(clash);
             return nullptr;
+        }
+    }
+
+    // Mesh-Import options path: optionally drop everything in a per-file subdir,
+    // and build the MaterialLite + Texture asset graph up front so the per-mesh
+    // SetMaterial wiring below can reference materialList[aMesh->mMaterialIndex].
+    AssetDir* baseDir = GetEditorState()->GetAssetDirectory();
+    AssetDir* targetDir = baseDir;
+    std::vector<MaterialLite*> materialList;
+    const aiScene* matScene = nullptr;
+    Assimp::Importer matImporter;
+    const bool meshMode = (meshOpts != nullptr) && !importTypes.empty() &&
+        (importTypes[0] == StaticMesh::GetStaticType() ||
+         importTypes[0] == SkeletalMesh::GetStaticType());
+    if (meshMode)
+    {
+        std::string stem = filename.substr(0, dotIndex);
+
+        if (meshOpts->mPlaceInSubdirectory && baseDir != nullptr)
+        {
+            targetDir = baseDir->CreateSubdirectory(stem);
+            if (targetDir == nullptr)
+            {
+                targetDir = baseDir;
+            }
+        }
+
+        if (meshOpts->mImportMaterials)
+        {
+            matScene = matImporter.ReadFile(path.c_str(), aiProcess_FlipUVs);
+            if (matScene != nullptr)
+            {
+                MaterialImportContext matCtx;
+                matCtx.mTargetDir              = targetDir;
+                matCtx.mImportDir              = importDir;
+                matCtx.mAssetNameStem          = stem;
+                matCtx.mUserPrefix             = meshOpts->mPrefix;
+                matCtx.mDefaultShadingModel    = meshOpts->mDefaultShadingModel;
+                matCtx.mDefaultVertexColorMode = meshOpts->mDefaultVertexColorMode;
+                matCtx.mImportMaterials        = true;
+                matCtx.mImportTextures         = meshOpts->mImportTextures;
+                std::unordered_map<std::string, Texture*> texCache;
+                std::set<uint32_t> allIndices;
+                materialList = ImportSceneMaterials(matScene, allIndices, matCtx, texCache);
+            }
         }
     }
 
@@ -6408,7 +6734,7 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
             // This happens when importing multiple meshes within the same file
             assetName = newAsset->GetName();
 
-            AssetDir* assetDir = GetEditorState()->GetAssetDirectory();
+            AssetDir* assetDir = meshMode ? targetDir : GetEditorState()->GetAssetDirectory();
             filename = assetName + ".oct";
 
             // Clear inspected asset if we are reimporting that same asset.
@@ -6441,6 +6767,26 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
             AssetStub* stub = AssetManager::Get()->RegisterAsset(filename, newAsset->GetType(), assetDir, nullptr, false);
             stub->mAsset = newAsset;
             newAsset->SetName(stub->mName);
+
+            // Auto-assign the material that the source aiMesh referenced. Runs
+            // before the explicit user-selected-Material override below so the
+            // user's manual pick still wins.
+            if (meshMode && meshOpts->mImportMaterials && matScene != nullptr && !materialList.empty() &&
+                (typeId == StaticMesh::GetStaticType() || typeId == SkeletalMesh::GetStaticType()))
+            {
+                int32_t mi = meshIndices[i];
+                if (mi >= 0 && (uint32_t)mi < matScene->mNumMeshes)
+                {
+                    uint32_t matIdx = matScene->mMeshes[mi]->mMaterialIndex;
+                    if (matIdx < materialList.size() && materialList[matIdx] != nullptr)
+                    {
+                        if (newAsset->Is(StaticMesh::ClassRuntimeId()))
+                            newAsset->As<StaticMesh>()->SetMaterial(materialList[matIdx]);
+                        else if (newAsset->Is(SkeletalMesh::ClassRuntimeId()))
+                            newAsset->As<SkeletalMesh>()->SetMaterial(materialList[matIdx]);
+                    }
+                }
+            }
 
             // If a StaticMesh/SkeletalMesh is being imported, and there is a selected material, then assign
             // the material to that static mesh.
@@ -6491,7 +6837,7 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
     return retAsset;
 }
 
-Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::string& overrideBaseName)
+Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::string& overrideBaseName, const MeshImportOptions* meshOpts)
 {
     // "As Single Object" import: collapse every non-collision primitive in the
     // file into ONE mesh asset. Skinned if any primitive has bones.
@@ -6518,6 +6864,12 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::st
     {
         LogError("ImportAssetCombined called with non-mesh file: %s", path.c_str());
         return nullptr;
+    }
+
+    std::string importDir;
+    {
+        size_t slashPos = path.find_last_of("/\\");
+        importDir = (slashPos != std::string::npos) ? path.substr(0, slashPos + 1) : std::string("./");
     }
 
     // Peek the scene once to decide skeletal-vs-static for the combined output.
@@ -6566,8 +6918,47 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::st
             clash.mExistingTypeName = existingName ? existingName : "Asset";
             clash.mImportTypeName = importName ? importName : "Asset";
             clash.mCombined = true;
+            if (meshOpts != nullptr)
+            {
+                clash.mMeshOpts = *meshOpts;
+                clash.mHasMeshOpts = true;
+            }
             GetEditorState()->mPendingImportClashes.push_back(clash);
             return nullptr;
+        }
+    }
+
+    // Mesh-Import options: subdir + pre-built MaterialLite/Texture asset graph.
+    AssetDir* baseDir = GetEditorState()->GetAssetDirectory();
+    AssetDir* targetDir = baseDir;
+    std::vector<MaterialLite*> materialList;
+    if (meshOpts != nullptr)
+    {
+        std::string stem = filename.substr(0, dotIndex);
+
+        if (meshOpts->mPlaceInSubdirectory && baseDir != nullptr)
+        {
+            targetDir = baseDir->CreateSubdirectory(stem);
+            if (targetDir == nullptr)
+            {
+                targetDir = baseDir;
+            }
+        }
+
+        if (meshOpts->mImportMaterials)
+        {
+            MaterialImportContext matCtx;
+            matCtx.mTargetDir              = targetDir;
+            matCtx.mImportDir              = importDir;
+            matCtx.mAssetNameStem          = stem;
+            matCtx.mUserPrefix             = meshOpts->mPrefix;
+            matCtx.mDefaultShadingModel    = meshOpts->mDefaultShadingModel;
+            matCtx.mDefaultVertexColorMode = meshOpts->mDefaultVertexColorMode;
+            matCtx.mImportMaterials        = true;
+            matCtx.mImportTextures         = meshOpts->mImportTextures;
+            std::unordered_map<std::string, Texture*> texCache;
+            std::set<uint32_t> allIndices;
+            materialList = ImportSceneMaterials(scene, allIndices, matCtx, texCache);
         }
     }
 
@@ -6585,7 +6976,7 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::st
     {
         assetName = newAsset->GetName();
 
-        AssetDir* assetDir = GetEditorState()->GetAssetDirectory();
+        AssetDir* assetDir = (meshOpts != nullptr) ? targetDir : GetEditorState()->GetAssetDirectory();
         std::string outFilename = assetName + ".oct";
 
         Asset* oldAsset = FetchAsset(assetName.c_str());
@@ -6613,6 +7004,52 @@ Asset* ActionManager::ImportAssetCombined(const std::string& path, const std::st
         AssetStub* stub = AssetManager::Get()->RegisterAsset(outFilename, newAsset->GetType(), assetDir, nullptr, false);
         stub->mAsset = newAsset;
         newAsset->SetName(stub->mName);
+
+        // Auto-bind the combined mesh's top-level material to the source aiMesh's
+        // material slot. "Largest non-collision mesh wins" because a combined
+        // StaticMesh has exactly one material slot; SkeletalMesh additionally
+        // gets per-section material wiring below.
+        if (meshOpts != nullptr && meshOpts->mImportMaterials && !materialList.empty())
+        {
+            int32_t bestMatIdx = -1;
+            uint32_t bestVerts = 0;
+            for (uint32_t m = 0; m < scene->mNumMeshes; ++m)
+            {
+                if (IsAiCollisionMesh(scene->mMeshes[m]))
+                    continue;
+                uint32_t v = scene->mMeshes[m]->mNumVertices;
+                if (v > bestVerts) { bestVerts = v; bestMatIdx = (int32_t)scene->mMeshes[m]->mMaterialIndex; }
+            }
+            if (bestMatIdx >= 0 && (uint32_t)bestMatIdx < materialList.size() && materialList[bestMatIdx] != nullptr)
+            {
+                if (newAsset->Is(StaticMesh::ClassRuntimeId()))
+                    newAsset->As<StaticMesh>()->SetMaterial(materialList[bestMatIdx]);
+                else if (newAsset->Is(SkeletalMesh::ClassRuntimeId()))
+                    newAsset->As<SkeletalMesh>()->SetMaterial(materialList[bestMatIdx]);
+            }
+
+            // SkeletalMesh::CreateCombined builds one section per usable renderable
+            // mesh, in source-scene order (collision-skip + zero-vert/face-skip).
+            // Re-derive that exact iteration here so per-section materials map 1:1.
+            if (newAsset->Is(SkeletalMesh::ClassRuntimeId()))
+            {
+                SkeletalMesh* skMesh = newAsset->As<SkeletalMesh>();
+                uint32_t sec = 0;
+                for (uint32_t m = 0; m < scene->mNumMeshes; ++m)
+                {
+                    const aiMesh* aMesh = scene->mMeshes[m];
+                    if (IsAiCollisionMesh(aMesh)) continue;
+                    if (aMesh->mNumVertices == 0 || aMesh->mNumFaces == 0) continue;
+                    if (sec >= skMesh->GetNumSections()) break;
+                    uint32_t mi = aMesh->mMaterialIndex;
+                    if (mi < materialList.size() && materialList[mi] != nullptr)
+                    {
+                        skMesh->SetSectionMaterial(sec, materialList[mi]);
+                    }
+                    ++sec;
+                }
+            }
+        }
 
         if (newAsset != nullptr &&
             (newAsset->Is(StaticMesh::ClassRuntimeId()) || newAsset->Is(SkeletalMesh::ClassRuntimeId())) &&
@@ -7620,191 +8057,25 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 neededMeshIndices.size(), scene->mNumMeshes,
                 neededMaterialIndices.size(), scene->mNumMaterials);
 
-            uint32_t numMaterials = scene->mNumMaterials;
-            for (uint32_t i = 0; i < numMaterials; ++i)
+            // Build MaterialLite + Texture assets for every material referenced
+            // by the needed meshes. Pure code-lift into ImportSceneMaterials --
+            // ImportAsset / ImportAssetCombined call this same helper so all three
+            // import modes produce the same M_/T_ asset graph.
             {
-                // Skip materials not needed by any mesh we're actually creating
-                if (neededMaterialIndices.find(i) == neededMaterialIndices.end())
-                {
-                    materialList.push_back(nullptr);
-                    continue;
-                }
+                MaterialImportContext matCtx;
+                matCtx.mTargetDir              = sceneDir;
+                matCtx.mImportDir              = importDir;
+                matCtx.mAssetNameStem          = sceneName;
+                matCtx.mUserPrefix             = options.mPrefix;
+                matCtx.mDefaultShadingModel    = options.mDefaultShadingModel;
+                matCtx.mDefaultVertexColorMode = options.mDefaultVertexColorMode;
+                matCtx.mImportMaterials        = options.mImportMaterials;
+                matCtx.mImportTextures         = options.mImportTextures;
+                matCtx.mIsReimport             = isReimport;
+                matCtx.mReimportTextures       = options.mReimportTextures;
 
-                aiMaterial* aMaterial = scene->mMaterials[i];
-                std::string materialName = options.mPrefix + aMaterial->GetName().C_Str();
-
-                if (materialName.size() < 2 || (materialName.substr(0, 2) != "M_"))
-                {
-                    materialName = std::string("M_") + sceneName + std::string("_") + materialName;
-                }
-
-                AssetStub* materialStub = nullptr;
-                MaterialLite* newMaterial = nullptr;
-                if (options.mImportMaterials)
-                {
-                    if (isReimport)
-                    {
-                        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(materialName);
-                        if (existingStub && existingStub->mType == MaterialLite::GetStaticType())
-                        {
-                            materialStub = existingStub;
-                            if (!existingStub->mAsset) AssetManager::Get()->LoadAsset(*existingStub);
-                            newMaterial = static_cast<MaterialLite*>(existingStub->mAsset);
-                        }
-                    }
-                    if (materialStub == nullptr)
-                    {
-                        materialStub = EditorAddUniqueAsset(materialName.c_str(), sceneDir, MaterialLite::GetStaticType(), true);
-                        newMaterial = static_cast<MaterialLite*>(materialStub->mAsset);
-                    }
-                    newMaterial->SetShadingModel(options.mDefaultShadingModel);
-                    newMaterial->SetVertexColorMode(options.mDefaultVertexColorMode);
-                }
-
-                uint32_t numBaseTextures = aMaterial->GetTextureCount(aiTextureType_DIFFUSE);
-                numBaseTextures = glm::clamp(numBaseTextures, 0u, 4u);
-
-                for (uint32_t t = 0; t < numBaseTextures; ++t)
-                {
-                    aiString path;
-                    aiReturn ret = aMaterial->GetTexture(aiTextureType::aiTextureType_DIFFUSE, t, &path);
-
-                    if (ret == aiReturn_SUCCESS)
-                    {
-                        std::string texturePath = path.C_Str();
-                        Texture* textureToAssign = nullptr;
-                        LogDebug("Scene Texture: %s", texturePath.c_str());
-
-                        if (textureMap.find(texturePath) != textureMap.end())
-                        {
-                            // Case 1 - Texture has already been loaded by a previous material
-                            textureToAssign = textureMap[texturePath];
-                        }
-                        else if (options.mImportTextures)
-                        {
-                            // Case 2 - Texture needs to be loaded.
-                            // To make texturing sharing simpler, we only import the texture if
-                            //  - There is no texture registered
-                            //  - There is a texture registered, and it resides in the current AssetDir
-
-                            bool importTexture = false;
-
-                            std::string assetName;
-                            if (texturePath.size() > 1 && texturePath[0] == '*')
-                            {
-                                assetName = "Texture" + texturePath.substr(1);
-                            }
-                            else
-                            {
-                                assetName = EditorGetAssetNameFromPath(texturePath);
-                                if (assetName.size() >= 2 && (strncmp(assetName.c_str(), "T_", 2) == 0))
-                                {
-                                    assetName = assetName.substr(2);
-                                }
-                            }
-
-                            assetName = options.mPrefix + assetName;
-
-                            // Add T_ and sceneName to texture name like we do for materials
-                            assetName = std::string("T_") + sceneName + std::string("_") + assetName;
-
-                            AssetStub* existingStub = AssetManager::Get()->GetAssetStub(assetName);
-                            if (existingStub && existingStub->mDirectory != sceneDir)
-                            {
-                                textureToAssign = LoadAsset<Texture>(assetName);
-                            }
-
-                            if (isReimport && textureToAssign == nullptr)
-                            {
-                                if (options.mReimportTextures)
-                                {
-                                    if (existingStub)
-                                    {
-                                        AssetManager::Get()->PurgeAsset(assetName.c_str());
-                                        existingStub = nullptr;
-                                    }
-                                }
-                                else
-                                {
-                                    textureToAssign = LoadAsset<Texture>(assetName);
-                                }
-                            }
-
-                            bool embeddedTexturePath = (texturePath.size() > 1 && texturePath[0] == '*');
-
-                            // Resolve the texture source to a file path
-                            std::string resolvedTexturePath;
-                            bool tempFileCreated = false;
-
-                            if (textureToAssign == nullptr && embeddedTexturePath)
-                            {
-                                // GLB embedded texture — extract to a temp file for import
-                                int embIndex = std::atoi(texturePath.c_str() + 1);
-                                if (embIndex >= 0 && (uint32_t)embIndex < scene->mNumTextures)
-                                {
-                                    aiTexture* embTex = scene->mTextures[embIndex];
-                                    if (embTex->mHeight == 0)
-                                    {
-                                        // Compressed format (PNG/JPG) — mWidth is the data size in bytes
-                                        std::string ext = ".";
-                                        ext += embTex->achFormatHint;
-                                        resolvedTexturePath = importDir + "__octave_emb_" + std::to_string(embIndex) + ext;
-
-                                        std::ofstream tmpFile(resolvedTexturePath, std::ios::binary);
-                                        if (tmpFile)
-                                        {
-                                            tmpFile.write(reinterpret_cast<const char*>(embTex->pcData), embTex->mWidth);
-                                            tmpFile.close();
-                                            tempFileCreated = true;
-                                        }
-                                    }
-                                }
-                            }
-                            else if (textureToAssign == nullptr)
-                            {
-                                resolvedTexturePath = importDir + texturePath;
-                            }
-
-                            if (textureToAssign == nullptr && !resolvedTexturePath.empty())
-                            {
-                                Asset* importedAsset = ImportAsset(resolvedTexturePath);
-                                OCT_ASSERT(importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType());
-
-                                if (importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType())
-                                {
-                                    textureToAssign = (Texture*)importedAsset;
-                                }
-
-                                if (importedAsset != nullptr)
-                                {
-                                    AssetManager::Get()->RenameAsset(importedAsset, assetName);
-                                    AssetManager::Get()->SaveAsset(assetName);
-                                }
-                            }
-
-                            if (tempFileCreated)
-                            {
-                                std::remove(resolvedTexturePath.c_str());
-                            }
-
-                            if (textureToAssign != nullptr)
-                            {
-                                textureMap.insert({ texturePath, textureToAssign });
-                            }
-                        }
-
-                        if (newMaterial != nullptr && textureToAssign != nullptr)
-                        {
-                            newMaterial->SetTexture(t, textureToAssign);
-                        }
-                    }
-                }
-
-                if (materialStub != nullptr)
-                {
-                    AssetManager::Get()->SaveAsset(*materialStub);
-                    materialList.push_back(newMaterial);
-                }
+                std::vector<MaterialLite*> matLite = ImportSceneMaterials(scene, neededMaterialIndices, matCtx, textureMap);
+                materialList.assign(matLite.begin(), matLite.end());
             }
 
             // Create static mesh assets (assign corresponding material)

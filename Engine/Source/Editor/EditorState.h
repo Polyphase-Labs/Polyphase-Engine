@@ -12,6 +12,7 @@
 #include "SmartPointer.h"
 #include "Property.h"
 #include "Enums.h"
+#include "EditorTypes.h"
 #include "Nodes/Widgets/Text.h"
 #include "imgui.h"
 #include "./ImGuizmo/ImGuizmo.h"
@@ -315,6 +316,8 @@ struct EditorState
         std::string mExistingTypeName;
         std::string mImportTypeName;
         bool mCombined = false;        // true if it came in via ImportAssetCombined
+        MeshImportOptions mMeshOpts;   // forwarded from the "Import Mesh Asset" modal so the re-driven import keeps Place-in-subdir / Import Materials / Shading Model / etc.
+        bool mHasMeshOpts = false;     // true when mMeshOpts was populated from a mesh-import flow
     };
     std::vector<PendingImportClash> mPendingImportClashes;
     AssetStub* mPendingReimportSceneStub = nullptr;
