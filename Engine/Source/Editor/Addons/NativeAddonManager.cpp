@@ -905,6 +905,25 @@ void NativeAddonManager::InitializeEngineAPI()
                        className ? className : "(null)");
         }
     };
+
+    // Asset-Panel "Create Asset" submenu categorization opt-in. Mirrors
+    // SetNodeCategory above — the bucket flows to Factory::mEditorCategory,
+    // which DrawAssetsContextPopup's per-bucket lambda reads to slot the
+    // addon's Asset type alongside the built-in entries.
+    mEngineAPI.SetAssetCategory = [](const char* className, const char* category) {
+        if (className == nullptr) return;
+        for (Factory* fac : Asset::GetFactoryList())
+        {
+            if (strcmp(fac->GetClassName(), className) == 0)
+            {
+                fac->SetCategory(category);
+                return;
+            }
+        }
+        LogWarning("SetAssetCategory: no factory registered for '%s' yet — "
+                   "call this from OnLoad AFTER the DEFINE_ASSET statics have run.",
+                   className);
+    };
 }
 
 void NativeAddonManager::DiscoverNativeAddons()

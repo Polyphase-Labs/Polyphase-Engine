@@ -509,6 +509,36 @@ struct PolyphaseEngineAPI
      */
     void (*SetNodeCategory)(const char* className, const char* category);
 
+    // ===== Editor — Asset Panel "Create Asset" categorization =====
+
+    /**
+     * @brief Pin an Asset type to a specific bucket in the editor's right-click
+     * "Create Asset" submenu.
+     *
+     * Without this, addon-registered Asset types appear via the slash-path
+     * hook (EditorUIHooks::AddCreateAssetItem(s)) below the built-in buckets,
+     * grouped under whatever folder tree the addon constructs itself.
+     *
+     * With this, the asset slots into the named built-in bucket alongside the
+     * engine's first-party entries:
+     *   - Recognized buckets: "Scene", "Material", "Animation", "Tilemap",
+     *                         "VFX", "UI", "Input", "Logic"
+     *   - Any other string creates a new top-level bucket with that name.
+     *
+     * The entry uses the asset's registered class name (DEFINE_ASSET) as its
+     * label and goes through the same "New Asset Name" popup + canonical
+     * CreateAndRegisterAsset path as every built-in entry.
+     *
+     * Call from OnLoad AFTER your DEFINE_ASSET statics have registered the
+     * type. A null/empty category clears any prior override.
+     *
+     * No-op in non-editor builds, and no-op if no factory matches `className`.
+     *
+     * @param className Class name as registered by DEFINE_ASSET (e.g. "MyAsset")
+     * @param category Bucket label, or null/empty to revert to no category
+     */
+    void (*SetAssetCategory)(const char* className, const char* category);
+
     // ==== Editor-side undo actions for native plugins ====
     //
     // Plugins push a custom action into the editor's ActionManager so the

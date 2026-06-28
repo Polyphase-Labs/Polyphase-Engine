@@ -6667,114 +6667,178 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         if (ImGui::BeginMenu("Create Asset"))
         {
             bool showPopup = false;
-
-            if (ImGui::Selectable("Material (Lite)", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = MaterialLite::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Material (Base)", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = MaterialBase::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Material (Instance)", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = MaterialInstance::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Skybox Material", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = MaterialLite::GetStaticType();
-                sNewAssetIsSkybox = true;
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Prototype Grid Material", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = MaterialLite::GetStaticType();
-                sNewAssetIsPrototypeGrid = true;
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Particle System", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = ParticleSystem::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Tile Set", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = TileSet::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Tile Map", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = TileMap::GetStaticType();
-                showPopup = true;
-            }
             bool showScenePopup = false;
-            if (ImGui::Selectable("Scene", false, ImGuiSelectableFlags_DontClosePopups))
+            bool showCssPopup = false;
+
+            // Append any addon-registered Asset factories that opted into this
+            // built-in bucket via PolyphaseEngineAPI::SetAssetCategory. Mirrors
+            // the Add-Node menu's DiscoverNodeClasses addon-gating at line 2037.
+            auto drawAddonAssetsInBucket = [&](const char* bucket)
             {
-                showScenePopup = true;
+                NativeAddonManager* addonMgr = NativeAddonManager::Get();
+                if (addonMgr == nullptr) return;
+                for (Factory* fac : Asset::GetFactoryList())
+                {
+                    if (addonMgr->FindAddonIdForFactory(fac) == nullptr) continue;
+                    if (fac->GetCategory() != bucket) continue;
+                    if (ImGui::Selectable(fac->GetClassName(), false,
+                                          ImGuiSelectableFlags_DontClosePopups))
+                    {
+                        sNewAssetType = fac->GetType();
+                        showPopup = true;
+                    }
+                }
+            };
+
+            if (ImGui::BeginMenu("Scene"))
+            {
+                if (ImGui::Selectable("Scene", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    showScenePopup = true;
+                }
+                drawAddonAssetsInBucket("Scene");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("Timeline", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("Material"))
             {
-                sNewAssetType = Timeline::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Material (Lite)", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = MaterialLite::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Material (Base)", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = MaterialBase::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Material (Instance)", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = MaterialInstance::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Skybox Material", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = MaterialLite::GetStaticType();
+                    sNewAssetIsSkybox = true;
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Prototype Grid Material", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = MaterialLite::GetStaticType();
+                    sNewAssetIsPrototypeGrid = true;
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("Material");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("Transform Animation", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("Animation"))
             {
-                sNewAssetType = TransformAnimationAsset::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Timeline", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = Timeline::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Transform Animation", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = TransformAnimationAsset::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = SpriteAnimation::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Humanoid Avatar", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = HumanoidAvatarAsset::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Bone Mask", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = BoneMaskAsset::GetStaticType();
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("Animation");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("Humanoid Avatar", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("Tilemap"))
             {
-                sNewAssetType = HumanoidAvatarAsset::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Tile Set", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = TileSet::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Tile Map", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = TileMap::GetStaticType();
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("Tilemap");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("Node Graph", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("VFX"))
             {
-                sNewAssetType = NodeGraphAsset::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Particle System", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = ParticleSystem::GetStaticType();
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("VFX");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("UI Document", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("UI"))
             {
-                sNewAssetType = UIDocument::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("UI Document", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = UIDocument::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("CSS Stylesheet", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    showCssPopup = true;
+                }
+                drawAddonAssetsInBucket("UI");
+                ImGui::EndMenu();
             }
-            //if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
-            //{
-            //    sNewAssetType = DataAsset::GetStaticType();
-            //    showPopup = true;
-            //}
-            if (ImGui::Selectable("Sprite Animation", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("Input"))
             {
-                sNewAssetType = SpriteAnimation::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Input Prompt Map", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = InputPromptMap::GetStaticType();
+                    showPopup = true;
+                }
+                if (ImGui::Selectable("Input Prompt Style", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = InputPromptStyle::GetStaticType();
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("Input");
+                ImGui::EndMenu();
             }
-            if (ImGui::Selectable("Input Prompt Map", false, ImGuiSelectableFlags_DontClosePopups))
+
+            if (ImGui::BeginMenu("Logic"))
             {
-                sNewAssetType = InputPromptMap::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Input Prompt Style", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = InputPromptStyle::GetStaticType();
-                showPopup = true;
-            }
-            if (ImGui::Selectable("Bone Mask", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                sNewAssetType = BoneMaskAsset::GetStaticType();
-                showPopup = true;
+                if (ImGui::Selectable("Node Graph", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = NodeGraphAsset::GetStaticType();
+                    showPopup = true;
+                }
+                drawAddonAssetsInBucket("Logic");
+                ImGui::EndMenu();
             }
 
             ImGui::Separator();
 
-            bool showCssPopup = false;
-            if (ImGui::Selectable("CSS Stylesheet", false, ImGuiSelectableFlags_DontClosePopups))
-            {
-                showCssPopup = true;
-            }
-
-            // Draw addon create asset items
+            // Addon-injected items via the slash-path hook
+            // (EditorUIHooks::AddCreateAssetItem(s)) — complementary to the
+            // built-in buckets above, which addons can also feed via
+            // PolyphaseEngineAPI::SetAssetCategory.
             {
                 EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
                 if (hookMgr != nullptr) hookMgr->DrawCreateAssetItems();
