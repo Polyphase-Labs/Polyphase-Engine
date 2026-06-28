@@ -55,6 +55,7 @@
 #include "LuaBindings/SoundWave_Lua.h"
 #include "LuaBindings/SkeletalMesh_Lua.h"
 #include "LuaBindings/SkeletalAnimationAsset_Lua.h"
+#include "LuaBindings/BoneMaskAsset_Lua.h"
 #include "LuaBindings/Texture_Lua.h"
 #include "LuaBindings/Font_Lua.h"
 #include "LuaBindings/Timeline_Lua.h"
@@ -181,6 +182,7 @@ void BindLuaInterface()
     SpriteAnimation_Lua::Bind();
     SkeletalMesh_Lua::Bind();
     SkeletalAnimationAsset_Lua::Bind();
+    BoneMaskAsset_Lua::Bind();
     Texture_Lua::Bind();
     Font_Lua::Bind();
     Timeline_Lua::Bind();

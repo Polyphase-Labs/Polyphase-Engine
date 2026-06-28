@@ -33,6 +33,7 @@
 #include "GamePreview/GamePreview.h"
 #include "ControllerServer/EditorScreenshot.h"
 #include "AnimationBrowser/AnimationBrowser.h"
+#include "BoneMaskEditor/BoneMaskEditor.h"
 #endif
 
 // TEMPORARY!
@@ -1593,6 +1594,11 @@ void Renderer::Render(World* world, int32_t screenIndex)
         if (GetAnimationBrowser()->IsEnabled())
         {
             GetAnimationBrowser()->Render();
+        }
+
+        if (GetBoneMaskEditor()->IsEnabled())
+        {
+            GetBoneMaskEditor()->Render();
         }
 
         // After secondary screen rendering, widget rects contain screen 1 coordinates.

@@ -155,6 +155,27 @@ public:
 
     void CopyBindPose(std::vector<glm::mat4>& outTransforms);
 
+    // Decomposed local-bind TRS, cached in InitBindPose. Used by
+    // SkeletalMesh3D's blend loop to seed bones from bind pose before
+    // accumulating animation layers, so masked-out bones in lower slots
+    // and unmasked bones in upper slots both blend against a known pose.
+    const glm::vec3& GetBindPosePos(int32_t boneIndex) const;
+    const glm::quat& GetBindPoseRot(int32_t boneIndex) const;
+    const glm::vec3& GetBindPoseScale(int32_t boneIndex) const;
+
+    // Mark every bone in [rootIndex, descendants...] in outBitset (size = numBones).
+    // Exploits the parent-before-child DFS order produced by SetupBoneHierarchy.
+    void GatherDescendants(int32_t rootIndex, std::vector<uint8_t>& outBitset, bool includeRoot = true) const;
+
+    // Resolve an include/exclude subtree spec into a per-bone bitset. Unknown
+    // bone names are skipped (caller logs). selfOnly = include only the named
+    // bones without recursing.
+    void GatherSubtreeBoneSet(
+        const std::vector<std::string>& includes,
+        const std::vector<std::string>& excludes,
+        bool selfOnly,
+        std::vector<uint8_t>& outBitset) const;
+
     Bounds GetBounds() const;
 
     const glm::mat4 GetBindPoseMatrix(int32_t boneIndex) const;
@@ -182,6 +203,11 @@ private:
 
     glm::mat4 mInvRootTransform;
     std::vector<glm::mat4> mBindPoseMatrices;
+    // Decomposed local-bind TRS, parallel to mBindPoseMatrices. Populated by
+    // InitBindPose. Zero-sized while bones haven't been initialised.
+    std::vector<glm::vec3> mBindPoseDecompPos;
+    std::vector<glm::quat> mBindPoseDecompRot;
+    std::vector<glm::vec3> mBindPoseDecompScale;
     std::vector<IndexType> mIndices;
 
     Bounds mBounds;

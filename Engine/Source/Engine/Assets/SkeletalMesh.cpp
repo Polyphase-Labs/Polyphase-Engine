@@ -7,6 +7,8 @@
 
 #include "Graphics/Graphics.h"
 
+#include <glm/gtx/matrix_decompose.hpp>
+
 #if EDITOR
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -697,6 +699,105 @@ const glm::mat4 SkeletalMesh::GetBindPoseMatrix(int32_t boneIndex) const
     return mBindPoseMatrices[boneIndex];
 }
 
+const glm::vec3& SkeletalMesh::GetBindPosePos(int32_t boneIndex) const
+{
+    return mBindPoseDecompPos[boneIndex];
+}
+
+const glm::quat& SkeletalMesh::GetBindPoseRot(int32_t boneIndex) const
+{
+    return mBindPoseDecompRot[boneIndex];
+}
+
+const glm::vec3& SkeletalMesh::GetBindPoseScale(int32_t boneIndex) const
+{
+    return mBindPoseDecompScale[boneIndex];
+}
+
+void SkeletalMesh::GatherDescendants(int32_t rootIndex, std::vector<uint8_t>& outBitset, bool includeRoot) const
+{
+    outBitset.assign(mBones.size(), 0);
+
+    if (rootIndex < 0 || rootIndex >= (int32_t)mBones.size())
+    {
+        return;
+    }
+
+    if (includeRoot)
+    {
+        outBitset[rootIndex] = 1;
+    }
+
+    // SetupBoneHierarchy emits bones in DFS pre-order so every parent index
+    // is strictly less than its children's indices. Single forward pass.
+    for (int32_t i = rootIndex + 1; i < (int32_t)mBones.size(); ++i)
+    {
+        int32_t parent = mBones[i].mParentIndex;
+        if (parent >= 0 && parent < (int32_t)mBones.size() && outBitset[parent])
+        {
+            outBitset[i] = 1;
+        }
+    }
+}
+
+void SkeletalMesh::GatherSubtreeBoneSet(
+    const std::vector<std::string>& includes,
+    const std::vector<std::string>& excludes,
+    bool selfOnly,
+    std::vector<uint8_t>& outBitset) const
+{
+    outBitset.assign(mBones.size(), 0);
+
+    std::vector<uint8_t> scratch;
+    scratch.resize(mBones.size(), 0);
+
+    for (const std::string& name : includes)
+    {
+        int32_t idx = FindBoneIndex(name);
+        if (idx < 0)
+        {
+            LogWarning("BoneMask include bone '%s' not found on rig", name.c_str());
+            continue;
+        }
+
+        if (selfOnly)
+        {
+            outBitset[idx] = 1;
+        }
+        else
+        {
+            GatherDescendants(idx, scratch, true);
+            for (size_t i = 0; i < scratch.size(); ++i)
+            {
+                if (scratch[i]) outBitset[i] = 1;
+            }
+        }
+    }
+
+    for (const std::string& name : excludes)
+    {
+        int32_t idx = FindBoneIndex(name);
+        if (idx < 0)
+        {
+            LogWarning("BoneMask exclude bone '%s' not found on rig", name.c_str());
+            continue;
+        }
+
+        if (selfOnly)
+        {
+            if (idx < (int32_t)outBitset.size()) outBitset[idx] = 0;
+        }
+        else
+        {
+            GatherDescendants(idx, scratch, true);
+            for (size_t i = 0; i < scratch.size(); ++i)
+            {
+                if (scratch[i]) outBitset[i] = 0;
+            }
+        }
+    }
+}
+
 SkeletalMesh* SkeletalMesh::GetAnimationLookupMesh()
 {
     return mAnimationLookupMesh.Get<SkeletalMesh>();
@@ -721,6 +822,22 @@ void SkeletalMesh::InitBindPose()
         {
             mBindPoseMatrices[i] = mBones[parentIndex].mOffsetMatrix * mBindPoseMatrices[i];
         }
+    }
+
+    mBindPoseDecompPos.assign(mBones.size(), glm::vec3(0.0f));
+    mBindPoseDecompRot.assign(mBones.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+    mBindPoseDecompScale.assign(mBones.size(), glm::vec3(1.0f));
+
+    for (uint32_t i = 0; i < mBones.size(); ++i)
+    {
+        glm::vec3 skew;
+        glm::vec4 persp;
+        glm::decompose(mBindPoseMatrices[i],
+            mBindPoseDecompScale[i],
+            mBindPoseDecompRot[i],
+            mBindPoseDecompPos[i],
+            skew,
+            persp);
     }
 
 #if 0

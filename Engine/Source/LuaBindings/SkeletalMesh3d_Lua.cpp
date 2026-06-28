@@ -8,6 +8,7 @@
 #include "Asset.h"
 #include "AssetManager.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/BoneMaskAsset.h"
 
 int SkeletalMesh3D_Lua::SetSkeletalMesh(lua_State* L)
 {
@@ -61,6 +62,106 @@ int SkeletalMesh3D_Lua::PlayAnimation(lua_State* L)
 
     comp->PlayAnimation(animName, loop, speed, weight, slot);
 
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::PlayAnimationMasked(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+    int32_t slot = CHECK_INTEGER(L, 3);
+
+    BoneMaskAsset* mask = nullptr;
+    if (!lua_isnil(L, 4))
+    {
+        Asset* asset = CHECK_ASSET(L, 4);
+        mask = asset ? asset->As<BoneMaskAsset>() : nullptr;
+    }
+
+    bool loop = false;
+    float speed = 1.0f;
+    float weight = 1.0f;
+    if (!lua_isnone(L, 5)) { loop = CHECK_BOOLEAN(L, 5); }
+    if (!lua_isnone(L, 6)) { speed = CHECK_NUMBER(L, 6); }
+    if (!lua_isnone(L, 7)) { weight = CHECK_NUMBER(L, 7); }
+
+    comp->PlayAnimationMasked(animName, slot, mask, loop, speed, weight);
+
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::PlayAnimationAdditive(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+    int32_t slot = CHECK_INTEGER(L, 3);
+
+    BoneMaskAsset* mask = nullptr;
+    if (!lua_isnil(L, 4))
+    {
+        Asset* asset = CHECK_ASSET(L, 4);
+        mask = asset ? asset->As<BoneMaskAsset>() : nullptr;
+    }
+
+    bool loop = false;
+    float speed = 1.0f;
+    float weight = 1.0f;
+    if (!lua_isnone(L, 5)) { loop = CHECK_BOOLEAN(L, 5); }
+    if (!lua_isnone(L, 6)) { speed = CHECK_NUMBER(L, 6); }
+    if (!lua_isnone(L, 7)) { weight = CHECK_NUMBER(L, 7); }
+
+    comp->PlayAnimationAdditive(animName, slot, mask, loop, speed, weight);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::SetSlotLayerMode(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = CHECK_INTEGER(L, 2);
+    int32_t modeInt = CHECK_INTEGER(L, 3);
+
+    AnimLayerMode mode = (modeInt == (int32_t)AnimLayerMode::Additive)
+        ? AnimLayerMode::Additive
+        : AnimLayerMode::Replace;
+
+    comp->SetSlotLayerMode(slot, mode);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::SetSlotMask(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = CHECK_INTEGER(L, 2);
+
+    BoneMaskAsset* mask = nullptr;
+    if (!lua_isnil(L, 3))
+    {
+        Asset* asset = CHECK_ASSET(L, 3);
+        mask = asset ? asset->As<BoneMaskAsset>() : nullptr;
+    }
+
+    comp->SetSlotMask(slot, mask);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::SetSlotWeight(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = CHECK_INTEGER(L, 2);
+    float weight = CHECK_NUMBER(L, 3);
+
+    comp->SetSlotWeight(slot, weight);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::FadeSlotWeight(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t slot = CHECK_INTEGER(L, 2);
+    float target = CHECK_NUMBER(L, 3);
+    float seconds = CHECK_NUMBER(L, 4);
+
+    comp->FadeSlotWeight(slot, target, seconds);
     return 0;
 }
 
@@ -421,6 +522,18 @@ void SkeletalMesh3D_Lua::Bind()
 
     REGISTER_TABLE_FUNC(L, mtIndex, PlayAnimation);
 
+    REGISTER_TABLE_FUNC(L, mtIndex, PlayAnimationMasked);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, PlayAnimationAdditive);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetSlotMask);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetSlotWeight);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetSlotLayerMode);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, FadeSlotWeight);
+
     REGISTER_TABLE_FUNC(L, mtIndex, StopAnimation);
 
     REGISTER_TABLE_FUNC(L, mtIndex, StopAllAnimations);
@@ -476,5 +589,15 @@ void SkeletalMesh3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, FindMaterialSlot);
 
     lua_pop(L, 1);
+
+    // Global enum table: AnimLayerMode.Replace / AnimLayerMode.Additive
+    lua_newtable(L);
+    int modeTbl = lua_gettop(L);
+    lua_pushinteger(L, (int)AnimLayerMode::Replace);
+    lua_setfield(L, modeTbl, "Replace");
+    lua_pushinteger(L, (int)AnimLayerMode::Additive);
+    lua_setfield(L, modeTbl, "Additive");
+    lua_setglobal(L, "AnimLayerMode");
+
     OCT_ASSERT(lua_gettop(L) == 0);
 }

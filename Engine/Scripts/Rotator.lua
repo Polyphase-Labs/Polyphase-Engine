@@ -2,7 +2,6 @@ Rotator = {}
 
 function Rotator:Create()
 
-    self.angularVelocity = Vec()
 
 end
 

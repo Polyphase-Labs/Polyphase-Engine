@@ -358,6 +358,8 @@ struct EditorState
 
     // Animation Browser Panel state
     bool mShowAnimationBrowser = false;
+    // Bone Mask Editor Panel state
+    bool mShowBoneMaskEditor = false;
     TimelineRef mEditedTimelineRef;
     TimelineInstance* mTimelinePreviewInstance = nullptr;
     float mTimelinePlayheadTime = 0.0f;

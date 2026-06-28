@@ -60,6 +60,7 @@ polyphase-engine/
 | Serial I/O | [Serial.md](Serial.md) | `Engine/Source/Serial/` + `Engine/Source/Engine/SerialManager.h` | Cross-platform COM / USB-CDC serial ports: enumerate, connect, send, opt-in receive, script + graph-node callbacks |
 | Loading Menu | [LoadingMenu.md](LoadingMenu.md) | `Engine/Source/Engine/LoadingMenu.{h,cpp}` | Scene-overlay loading screen orchestrator: persistent menu node, queued root swap, `Loading.*` SignalBus channels, AppSettings min-display + timeout |
 | Skeletal Animation | [SkeletalAnimation.md](SkeletalAnimation.md) | `Engine/Source/Engine/Assets/SkeletalMesh.{h,cpp}`, `SkeletalAnimationAsset.{h,cpp}`, `HumanoidAvatarAsset.{h,cpp}` | Multi-section skinned meshes with per-section materials; reusable bone-animation clip assets; Mecanim-style humanoid avatars; tier-1 name-remap + tier-2 world-space retarget bake pipeline |
+| Bone Mask Layering | [BoneMask.md](BoneMask.md) | `Engine/Source/Engine/Assets/BoneMaskAsset.{h,cpp}`, `Engine/Source/Engine/Nodes/3D/SkeletalMesh3d.{h,cpp}`, `Engine/Source/Editor/BoneMaskEditor/` | Per-bone subtree masks, 8-slot layered playback with Replace + Additive modes, smooth weight fades, editor bone-tree picker with live 3D preview |
 
 ## Key Entry Points
 

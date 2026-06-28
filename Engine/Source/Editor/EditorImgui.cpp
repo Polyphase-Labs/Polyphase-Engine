@@ -46,6 +46,7 @@
 #include "Assets/ParticleSystem.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/BoneMaskAsset.h"
 #include "Assets/SkeletalAnimationAsset.h"
 #include "Assets/HumanoidAvatarAsset.h"
 #include "Assets/MaterialBase.h"
@@ -176,6 +177,7 @@
 #include "SecondScreenPreview/SecondScreenPreview.h"
 #include "GamePreview/GamePreview.h"
 #include "AnimationBrowser/AnimationBrowser.h"
+#include "BoneMaskEditor/BoneMaskEditor.h"
 
 
 static const char* GetNodeIcon(Node* node)
@@ -788,6 +790,19 @@ static void DrawDockspace()
             animOpen && GetEditorState()->mShowAnimationBrowser;
     }
     ImGui::PopStyleColor();
+
+    {
+        bool maskOpen = GetEditorState()->mShowBoneMaskEditor;
+        if (maskOpen)
+        {
+            if (ImGui::BeginDock(ICON_SKELETON "  Bone Mask Editor", &maskOpen))
+            {
+                GetBoneMaskEditor()->DrawPanel();
+            }
+            ImGui::EndDock();
+        }
+        GetEditorState()->mShowBoneMaskEditor = maskOpen && GetEditorState()->mShowBoneMaskEditor;
+    }
 
     // --- Node Graph dock ---
     {
@@ -6345,6 +6360,21 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
     }
 
+    if (stub && stub->mType == BoneMaskAsset::GetStaticType())
+    {
+        if (ImGui::Selectable("Edit Bone Mask"))
+        {
+            if (stub->mAsset == nullptr)
+                AssetManager::Get()->LoadAsset(*stub);
+
+            BoneMaskAsset* mask = stub->mAsset ? stub->mAsset->As<BoneMaskAsset>() : nullptr;
+            if (mask != nullptr)
+            {
+                GetBoneMaskEditor()->Open(mask);
+            }
+        }
+    }
+
     if (stub && stub->mType == SkeletalAnimationAsset::GetStaticType())
     {
         if (ImGui::Selectable("Retarget..."))
@@ -6728,6 +6758,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             if (ImGui::Selectable("Input Prompt Style", false, ImGuiSelectableFlags_DontClosePopups))
             {
                 sNewAssetType = InputPromptStyle::GetStaticType();
+                showPopup = true;
+            }
+            if (ImGui::Selectable("Bone Mask", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = BoneMaskAsset::GetStaticType();
                 showPopup = true;
             }
 
@@ -7533,6 +7568,14 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                     if (map)
                     {
                         OpenInputPromptMapForEditing(map);
+                    }
+                }
+                else if (stub->mType == BoneMaskAsset::GetStaticType())
+                {
+                    BoneMaskAsset* mask = stub->mAsset ? stub->mAsset->As<BoneMaskAsset>() : nullptr;
+                    if (mask)
+                    {
+                        GetBoneMaskEditor()->Open(mask);
                     }
                 }
                 else if (stub->mType == UIDocument::GetStaticType())

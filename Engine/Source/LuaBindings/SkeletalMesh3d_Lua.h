@@ -20,6 +20,12 @@ struct SkeletalMesh3D_Lua
     static int SetSkeletalMesh(lua_State* L);
     static int GetSkeletalMesh(lua_State* L);
     static int PlayAnimation(lua_State* L);
+    static int PlayAnimationMasked(lua_State* L);
+    static int PlayAnimationAdditive(lua_State* L);
+    static int SetSlotMask(lua_State* L);
+    static int SetSlotWeight(lua_State* L);
+    static int SetSlotLayerMode(lua_State* L);
+    static int FadeSlotWeight(lua_State* L);
     static int StopAnimation(lua_State* L);
     static int StopAllAnimations(lua_State* L);
     static int IsAnimationPlaying(lua_State* L);

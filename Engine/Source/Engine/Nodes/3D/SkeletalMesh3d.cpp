@@ -2,6 +2,7 @@
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Assets/SkeletalMesh.h"
 #include "Assets/SkeletalAnimationAsset.h"
+#include "Assets/BoneMaskAsset.h"
 #include "Renderer.h"
 #include "AssetManager.h"
 #include "Log.h"
@@ -312,6 +313,105 @@ void SkeletalMesh3D::PlayAnimation(const char* animName, bool loop, float speed,
     if (anim != nullptr)
     {
         *anim = newAnimData;
+    }
+}
+
+void SkeletalMesh3D::PlayAnimationMasked(const char* animName, int32_t slot, BoneMaskAsset* mask,
+                                        bool loop, float speed, float weight)
+{
+    PlayAnimation(animName, loop, speed, weight, slot);
+
+    if (animName == nullptr || animName[0] == '\0')
+    {
+        return;
+    }
+
+    ActiveAnimation* anim = FindActiveAnimation(animName);
+    if (anim != nullptr)
+    {
+        anim->mBoneMask = mask;
+    }
+}
+
+void SkeletalMesh3D::PlayAnimationAdditive(const char* animName, int32_t slot, BoneMaskAsset* mask,
+                                          bool loop, float speed, float weight)
+{
+    PlayAnimation(animName, loop, speed, weight, slot);
+
+    if (animName == nullptr || animName[0] == '\0')
+    {
+        return;
+    }
+
+    ActiveAnimation* anim = FindActiveAnimation(animName);
+    if (anim != nullptr)
+    {
+        anim->mBoneMask = mask;
+        anim->mLayerMode = AnimLayerMode::Additive;
+    }
+}
+
+void SkeletalMesh3D::SetSlotMask(int32_t slot, BoneMaskAsset* mask)
+{
+    for (ActiveAnimation& active : mActiveAnimations)
+    {
+        if (active.mSlot == slot)
+        {
+            active.mBoneMask = mask;
+            return;
+        }
+    }
+}
+
+void SkeletalMesh3D::SetSlotLayerMode(int32_t slot, AnimLayerMode mode)
+{
+    for (ActiveAnimation& active : mActiveAnimations)
+    {
+        if (active.mSlot == slot)
+        {
+            active.mLayerMode = mode;
+            return;
+        }
+    }
+}
+
+void SkeletalMesh3D::SetSlotWeight(int32_t slot, float weight)
+{
+    weight = glm::clamp(weight, 0.0f, 1.0f);
+    for (ActiveAnimation& active : mActiveAnimations)
+    {
+        if (active.mSlot == slot)
+        {
+            active.mWeight = weight;
+            active.mWeightTarget = -1.0f;
+            active.mWeightFadeRate = 0.0f;
+            return;
+        }
+    }
+}
+
+void SkeletalMesh3D::FadeSlotWeight(int32_t slot, float targetWeight, float seconds)
+{
+    targetWeight = glm::clamp(targetWeight, 0.0f, 1.0f);
+
+    for (ActiveAnimation& active : mActiveAnimations)
+    {
+        if (active.mSlot == slot)
+        {
+            if (seconds <= 0.0f)
+            {
+                active.mWeight = targetWeight;
+                active.mWeightTarget = -1.0f;
+                active.mWeightFadeRate = 0.0f;
+            }
+            else
+            {
+                float delta = glm::abs(targetWeight - active.mWeight);
+                active.mWeightTarget = targetWeight;
+                active.mWeightFadeRate = delta / seconds;
+            }
+            return;
+        }
     }
 }
 
@@ -998,6 +1098,17 @@ void SkeletalMesh3D::InvalidateAnimationBindings()
 {
     mBoundExternalAnims.clear();
     mAnimBindingsValid = false;
+
+    // Bone-mask bitsets are keyed by mesh pointer; force re-resolve next frame
+    // so a mesh swap doesn't reuse a stale bitset sized for the previous rig.
+    for (ActiveAnimation& active : mActiveAnimations)
+    {
+        BoneMaskAsset* mask = active.mBoneMask.Get<BoneMaskAsset>();
+        if (mask != nullptr)
+        {
+            mask->InvalidateCache();
+        }
+    }
 }
 
 const Animation* SkeletalMesh3D::FindAnimation(const char* animName)
@@ -1206,19 +1317,60 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
 
         bool bonesUpdated = false;
 
+        // Per-bone seed flag for the new mask-aware blend. When a bone is
+        // first touched by any slot we seed sDecompTransforms[b] from the
+        // mesh's bind pose, then every subsequent contribution lerps against
+        // that seed. This makes masked layering correct regardless of slot
+        // order, and at full weight + no mask the math collapses to the
+        // previous "first writer wins" behaviour (mix(bind, anim, 1) == anim).
+        static std::vector<uint8_t> sBoneSeeded;
+        if (updateBones)
+        {
+            sBoneSeeded.assign(numBones, 0);
+        }
+        static const std::vector<uint8_t> kEmptyMask;
+
         for (int32_t i = 0; i < (int32_t)mActiveAnimations.size(); ++i)
         {
             const Animation* anim = FindAnimation(mActiveAnimations[i].mName.c_str());
             bool animFinished = false;
 
+            // Step weight fade before reading mWeight so a fade-to-0 frame
+            // contributes its final value before the slot self-removes.
+            ActiveAnimation& active = mActiveAnimations[i];
+            if (active.mWeightFadeRate > 0.0f && active.mWeightTarget >= 0.0f)
+            {
+                float step = active.mWeightFadeRate * deltaTime;
+                if (active.mWeight < active.mWeightTarget)
+                {
+                    active.mWeight = glm::min(active.mWeight + step, active.mWeightTarget);
+                }
+                else if (active.mWeight > active.mWeightTarget)
+                {
+                    active.mWeight = glm::max(active.mWeight - step, active.mWeightTarget);
+                }
+
+                if (glm::abs(active.mWeight - active.mWeightTarget) < 0.0001f)
+                {
+                    active.mWeight = active.mWeightTarget;
+                    bool fadedOut = (active.mWeightTarget <= 0.0f);
+                    active.mWeightTarget = -1.0f;
+                    active.mWeightFadeRate = 0.0f;
+                    if (fadedOut)
+                    {
+                        animFinished = true;
+                    }
+                }
+            }
+
             if (anim != nullptr)
             {
-                float prevAnimTime = mActiveAnimations[i].mTime;
-                float& animationTime = mActiveAnimations[i].mTime;
-                float animationSpeed = mActiveAnimations[i].mSpeed * mAnimationSpeed;
+                float prevAnimTime = active.mTime;
+                float& animationTime = active.mTime;
+                float animationSpeed = active.mSpeed * mAnimationSpeed;
                 animationTime += (deltaTime * animationSpeed);
 
-                float weight = mActiveAnimations[i].mWeight;
+                float weight = active.mWeight;
                 weight = glm::clamp(weight, 0.0f, 1.0f);
 
                 if (anim != nullptr)
@@ -1227,7 +1379,7 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
                     const float durationSeconds = anim->mDuration / anim->mTicksPerSecond;
                     const float prevTickTime = prevAnimTime * anim->mTicksPerSecond;
 
-                    if (mActiveAnimations[i].mLoop)
+                    if (active.mLoop)
                     {
                         if (animationSpeed > 0.0f &&
                             animationTime > durationSeconds)
@@ -1255,37 +1407,67 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
 
                         if (updateBones)
                         {
-                            // Go through all the channels, and update the relative transform 
+                            // Resolve mask once per slot per frame. Empty bitset
+                            // (no mask asset) means "full body": every channel
+                            // bone is in-scope.
+                            BoneMaskAsset* maskAsset = active.mBoneMask.Get<BoneMaskAsset>();
+                            const std::vector<uint8_t>& maskBitset =
+                                (maskAsset != nullptr) ? maskAsset->Resolve(mesh) : kEmptyMask;
+                            const bool masked = (maskBitset.size() == (size_t)numBones);
+
+                            // Go through all the channels, and update the relative transform
                             // for each bone that exists in the animation.
-                            for (uint32_t i = 0; i < anim->mChannels.size(); ++i)
+                            for (uint32_t ch = 0; ch < anim->mChannels.size(); ++ch)
                             {
-                                int32_t boneIndex = anim->mChannels[i].mBoneIndex;
-                                OCT_ASSERT(boneIndex != -1 &&
-                                    boneIndex >= 0 &&
-                                    boneIndex < (int32_t)mesh->GetBones().size());
-
-                                if (boneIndex != -1)
+                                int32_t boneIndex = anim->mChannels[ch].mBoneIndex;
+                                if (boneIndex < 0 || boneIndex >= (int32_t)numBones)
                                 {
-                                    glm::vec3 scale = InterpolateScale(tickTime, anim->mChannels[i]);
-                                    glm::quat rotation = InterpolateRotation(tickTime, anim->mChannels[i]);
-                                    glm::vec3 position = InterpolatePosition(tickTime, anim->mChannels[i]);
-
-                                    if (bonesUpdated)
-                                    {
-                                        sDecompTransforms[boneIndex].mPosition = glm::mix(sDecompTransforms[boneIndex].mPosition, position, weight);
-                                        sDecompTransforms[boneIndex].mRotation = glm::slerp(sDecompTransforms[boneIndex].mRotation, rotation, weight);
-                                        sDecompTransforms[boneIndex].mScale = glm::mix(sDecompTransforms[boneIndex].mScale, scale, weight);
-                                    }
-                                    else
-                                    {
-                                        // First animation doesn't need lerps.
-                                        sDecompTransforms[boneIndex].mPosition = position;
-                                        sDecompTransforms[boneIndex].mRotation = rotation;
-                                        sDecompTransforms[boneIndex].mScale = scale;
-                                    }
-
-                                    sDecompTransforms[boneIndex].mValid = true;
+                                    continue;
                                 }
+
+                                if (masked && !maskBitset[boneIndex])
+                                {
+                                    continue;
+                                }
+
+                                glm::vec3 scale = InterpolateScale(tickTime, anim->mChannels[ch]);
+                                glm::quat rotation = InterpolateRotation(tickTime, anim->mChannels[ch]);
+                                glm::vec3 position = InterpolatePosition(tickTime, anim->mChannels[ch]);
+
+                                if (!sBoneSeeded[boneIndex])
+                                {
+                                    // Seed from bind pose so this slot can blend in
+                                    // smoothly regardless of whether earlier slots
+                                    // contributed to this bone.
+                                    sDecompTransforms[boneIndex].mPosition = mesh->GetBindPosePos(boneIndex);
+                                    sDecompTransforms[boneIndex].mRotation = mesh->GetBindPoseRot(boneIndex);
+                                    sDecompTransforms[boneIndex].mScale    = mesh->GetBindPoseScale(boneIndex);
+                                    sBoneSeeded[boneIndex] = 1;
+                                }
+
+                                if (active.mLayerMode == AnimLayerMode::Additive)
+                                {
+                                    // Additive: scale (clip - bind) delta by weight and
+                                    // compose on top of the accumulator.
+                                    const glm::vec3& bindP = mesh->GetBindPosePos(boneIndex);
+                                    const glm::quat& bindR = mesh->GetBindPoseRot(boneIndex);
+                                    const glm::vec3& bindS = mesh->GetBindPoseScale(boneIndex);
+
+                                    sDecompTransforms[boneIndex].mPosition += (position - bindP) * weight;
+
+                                    glm::quat deltaR = rotation * glm::inverse(bindR);
+                                    glm::quat scaledDelta = glm::slerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), deltaR, weight);
+                                    sDecompTransforms[boneIndex].mRotation = scaledDelta * sDecompTransforms[boneIndex].mRotation;
+
+                                    sDecompTransforms[boneIndex].mScale += (scale - bindS) * weight;
+                                }
+                                else
+                                {
+                                    sDecompTransforms[boneIndex].mPosition = glm::mix(sDecompTransforms[boneIndex].mPosition, position, weight);
+                                    sDecompTransforms[boneIndex].mRotation = glm::slerp(sDecompTransforms[boneIndex].mRotation, rotation, weight);
+                                    sDecompTransforms[boneIndex].mScale    = glm::mix(sDecompTransforms[boneIndex].mScale,    scale,    weight);
+                                }
+                                sDecompTransforms[boneIndex].mValid = true;
                             }
                         }
 
@@ -1300,7 +1482,7 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
             }
             else
             {
-                LogWarning("Invalid animation name \"%s\" received in SkeletalMesh::AnimateBones()", mActiveAnimations[i].mName.c_str());
+                LogWarning("Invalid animation name \"%s\" received in SkeletalMesh::AnimateBones()", active.mName.c_str());
                 animFinished = true;
             }
 

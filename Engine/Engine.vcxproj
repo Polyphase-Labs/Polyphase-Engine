@@ -913,6 +913,7 @@
     <ClCompile Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.cpp" />
     <ClCompile Include="Source\Editor\GamePreview\GamePreview.cpp" />
     <ClCompile Include="Source\Editor\AnimationBrowser\AnimationBrowser.cpp" />
+    <ClCompile Include="Source\Editor\BoneMaskEditor\BoneMaskEditor.cpp" />
     <ClCompile Include="Source\Editor\EditorImgui.cpp" />
     <ClCompile Include="Source\Editor\EditorWidgets.cpp" />
     <ClCompile Include="Source\Editor\EditorMainMenu.cpp" />
@@ -1059,6 +1060,7 @@
     <ClCompile Include="Source\Engine\Assets\ParticleSystem.cpp" />
     <ClCompile Include="Source\Engine\Assets\ParticleSystemInstance.cpp" />
     <ClCompile Include="Source\Engine\Assets\Scene.cpp" />
+    <ClCompile Include="Source\Engine\Assets\BoneMaskAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\HumanoidAvatarAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalAnimationAsset.cpp" />
     <ClCompile Include="Source\Engine\Assets\SkeletalMesh.cpp" />
@@ -1338,6 +1340,7 @@
     <ClCompile Include="Source\LuaBindings\LoadingMenu_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SignalBus_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Signal_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\BoneMaskAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\SkeletalMesh_Lua.cpp" />
@@ -1480,6 +1483,7 @@
     <ClInclude Include="Source\Editor\SecondScreenPreview\SecondScreenPreview.h" />
     <ClInclude Include="Source\Editor\GamePreview\GamePreview.h" />
     <ClInclude Include="Source\Editor\AnimationBrowser\AnimationBrowser.h" />
+    <ClInclude Include="Source\Editor\BoneMaskEditor\BoneMaskEditor.h" />
     <ClInclude Include="Source\Editor\EditorConstants.h" />
     <ClInclude Include="Source\Editor\EditorIcons.h" />
     <ClInclude Include="Source\Editor\EditorIconRegistry.h" />
@@ -1624,6 +1628,7 @@
     <ClInclude Include="Source\Engine\Assets\ParticleSystem.h" />
     <ClInclude Include="Source\Engine\Assets\ParticleSystemInstance.h" />
     <ClInclude Include="Source\Engine\Assets\Scene.h" />
+    <ClInclude Include="Source\Engine\Assets\BoneMaskAsset.h" />
     <ClInclude Include="Source\Engine\Assets\HumanoidAvatarAsset.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalAnimationAsset.h" />
     <ClInclude Include="Source\Engine\Assets\SkeletalMesh.h" />
@@ -1911,6 +1916,7 @@
     <ClInclude Include="Source\LuaBindings\LoadingMenu_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SignalBus_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Signal_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\BoneMaskAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalAnimationAsset_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\SkeletalMesh_Lua.h" />

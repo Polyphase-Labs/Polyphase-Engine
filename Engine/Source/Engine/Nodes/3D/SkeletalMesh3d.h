@@ -8,6 +8,8 @@
 // rely on for AnimEvent / Channel / Animation.
 #include "Assets/SkeletalMesh.h"
 
+class BoneMaskAsset;
+
 enum class BoneInfluenceMode
 {
     One,
@@ -20,6 +22,20 @@ enum class AnimationUpdateMode
     AlwaysUpdateTimeAndBones,
     AlwaysUpdateTime,
     OnlyUpdateWhenRendered,
+
+    Count
+};
+
+// How a slot's animation contributes to the per-bone blend.
+// Replace : standard weighted lerp into the accumulator (default).
+// Additive: the slot's pose is interpreted as a delta from bind pose;
+//           that delta is scaled by mWeight and composed on top of the
+//           accumulator. Used for hit reactions, recoil, breathing,
+//           lean-into-turn — anything you want to layer on a base anim.
+enum class AnimLayerMode
+{
+    Replace,
+    Additive,
 
     Count
 };
@@ -37,6 +53,19 @@ struct ActiveAnimation
     float mWeight = 0.0f;
     int32_t mSlot = 0;
     bool mLoop = false;
+
+    // Optional bone mask. When valid, only bones marked in the mask's
+    // resolved bitset receive this slot's contribution; the rest stay at
+    // whatever the lower slots (or bind pose) provided.
+    AssetRef mBoneMask;
+
+    // Weight fade. Engaged when mWeightFadeRate != 0; on each tick mWeight
+    // advances toward mWeightTarget by mWeightFadeRate * dt and clamps. When
+    // the target is 0 and reached, the slot self-removes.
+    float mWeightTarget = -1.0f;
+    float mWeightFadeRate = 0.0f;
+
+    AnimLayerMode mLayerMode = AnimLayerMode::Replace;
 };
 
 struct QueuedAnimation
@@ -78,6 +107,28 @@ public:
     SkeletalMesh* GetSkeletalMesh();
 
     void PlayAnimation(const char* animName, bool loop, float speed = 1.0f, float weight = 1.0f, int32_t priority = -1);
+    // Start `animName` on `slot`, restricted to the bones marked by `mask`.
+    // mask=nullptr is equivalent to PlayAnimation (full body). The slot's
+    // weight is the maximum contribution against lower slots; weight=1 and
+    // mask=UpperBody means upper-body bones are 100% driven by this clip
+    // while lower bones stay on whatever slot 0 (or bind pose) provided.
+    void PlayAnimationMasked(const char* animName, int32_t slot, BoneMaskAsset* mask,
+                             bool loop, float speed = 1.0f, float weight = 1.0f);
+    // Start `animName` on `slot` as an additive layer — the slot's pose is
+    // interpreted as a delta from bind pose and composed on top of lower
+    // slots. Mask gates which bones receive the delta. Use for hit reactions,
+    // recoil, breathing, lean-into-turn over a base run/idle.
+    void PlayAnimationAdditive(const char* animName, int32_t slot, BoneMaskAsset* mask,
+                               bool loop, float speed = 1.0f, float weight = 1.0f);
+    // Replace the bone mask on an already-playing slot. Pass nullptr to clear.
+    void SetSlotMask(int32_t slot, BoneMaskAsset* mask);
+    void SetSlotLayerMode(int32_t slot, AnimLayerMode mode);
+    // Snap a slot's weight without easing. Clamped to [0, 1].
+    void SetSlotWeight(int32_t slot, float weight);
+    // Fade a slot's weight from its current value to `targetWeight` over
+    // `seconds` (linear). If targetWeight == 0 and the fade completes, the
+    // slot self-removes.
+    void FadeSlotWeight(int32_t slot, float targetWeight, float seconds);
     void QueueAnimation(const char* animName, bool loop, const char* targetAnim = nullptr, float speed = 1.0f, float weight = 1.0f, int32_t priority = -1);
     void StopAnimation(const char* animName, bool cancelQueued = false);
     void StopAllAnimations(bool cancelQueued = false);

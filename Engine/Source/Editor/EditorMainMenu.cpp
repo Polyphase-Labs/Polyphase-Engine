@@ -716,6 +716,8 @@ static void DrawViewMenu()
             GetEditorState()->mShowNodeGraphPanel = !GetEditorState()->mShowNodeGraphPanel;
         if (ImGui::MenuItem("Animation Browser"))
             GetEditorState()->mShowAnimationBrowser = !GetEditorState()->mShowAnimationBrowser;
+        if (ImGui::MenuItem("Bone Mask Editor"))
+            GetEditorState()->mShowBoneMaskEditor = !GetEditorState()->mShowBoneMaskEditor;
         if (ImGui::MenuItem("Profiling"))
             GetEditorState()->mShowProfilingPanel = !GetEditorState()->mShowProfilingPanel;
         if (ImGui::MenuItem("CLI Terminal"))
