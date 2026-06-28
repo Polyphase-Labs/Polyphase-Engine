@@ -492,10 +492,14 @@ struct PolyphaseEngineAPI
      * Without this, addon-registered nodes appear under
      *   3D     / Addons / <addonName> / <NodeName>      (Node3D-derived)
      *   Widget / Addons / <addonName> / <NodeName>      (Widget-derived)
+     *   Other  / Addons / <addonName> / <NodeName>      (Node-derived, neither)
      *
      * With this, the node moves into the named bucket:
-     *   - Recognized 3D buckets: "Environment", "Lighting", "VFX", "Generic"
-     *   - Recognized Widget buckets: "Containers", "Input", "Display", "Layout"
+     *   - Recognized 3D buckets: "Environment", "Lighting", "VFX", "Generic",
+     *                            "Animation"
+     *   - Recognized Widget buckets: "Containers", "Input", "Display",
+     *                                "Layout", "Animation"
+     *   - Recognized Other buckets: "Input", "Animation", "Logic", "Generic"
      *   - Any other string creates a new sub-submenu with that name.
      *
      * Call from OnLoad AFTER your DEFINE_NODE statics have registered the type.

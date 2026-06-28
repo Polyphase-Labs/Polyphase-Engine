@@ -307,12 +307,16 @@ static ImFont* sTerminalFont = nullptr;
 //                  that belong in that bucket.
 //   *AddonGrouped — keyed by addon id, value is the addon's uncategorized
 //                  nodes (rendered under "Addons / <id>" in the menu).
-//   Other         — unchanged flat list; not recategorized in this pass.
+//   Other         — same bucketed shape as 3D / Widget: Input / Animation /
+//                  Logic / Generic. Anything not matched by ClassifyOther
+//                  falls through to Generic, and addon-registered Other
+//                  nodes route to sNodeOtherAddonGrouped instead.
 static std::map<std::string, std::vector<std::string>> sNode3dCategorized;
 static std::map<std::string, std::vector<std::string>> sNode3dAddonGrouped;
 static std::map<std::string, std::vector<std::string>> sNodeWidgetCategorized;
 static std::map<std::string, std::vector<std::string>> sNodeWidgetAddonGrouped;
-static std::vector<std::string> sNodeOtherNames;
+static std::map<std::string, std::vector<std::string>> sNodeOtherCategorized;
+static std::map<std::string, std::vector<std::string>> sNodeOtherAddonGrouped;
 
 static ImTextureID sInspectTexId = 0;
 static Texture* sPrevInspectTexture = nullptr;
@@ -1999,13 +2003,35 @@ static const char* ClassifyWidget(const char* className)
     return "Display";
 }
 
+// Classify a Node-derived class (neither Node3D nor Widget) into one of the
+// four built-in "Other" buckets purely by class name. Returns "Generic" as
+// the catch-all — addon Other-nodes that resolve to Generic get rerouted to
+// "Addons / <addonId>" by DiscoverNodeClasses, same pattern as 3D / Widget.
+static const char* ClassifyOther(const char* className)
+{
+    if (strcmp(className, "PlayerInputRegistrar") == 0) return "Input";
+
+    if (strcmp(className, "TimelinePlayer") == 0 ||
+        strcmp(className, "SpriteAnimator") == 0 ||
+        strcmp(className, "TransformAnimationNode3D") == 0 ||
+        strcmp(className, "TransformAnimationWidget") == 0)
+    {
+        return "Animation";
+    }
+
+    if (strcmp(className, "NodeGraphPlayer") == 0) return "Logic";
+
+    return "Generic";
+}
+
 static void DiscoverNodeClasses()
 {
     sNode3dCategorized.clear();
     sNode3dAddonGrouped.clear();
     sNodeWidgetCategorized.clear();
     sNodeWidgetAddonGrouped.clear();
-    sNodeOtherNames.clear();
+    sNodeOtherCategorized.clear();
+    sNodeOtherAddonGrouped.clear();
 
     NativeAddonManager* addonMgr = NativeAddonManager::Get();
 
@@ -2085,7 +2111,39 @@ static void DiscoverNodeClasses()
         }
         else if (strcmp(className, "Node") != 0)
         {
-            sNodeOtherNames.push_back(className);
+            // Same three-step selection as the 3D / Widget branches above:
+            //   (1) explicit category via PolyphaseEngineAPI::SetNodeCategory
+            //   (2) name-driven ClassifyOther
+            //   (3) catch-all Generic from an addon DLL -> Addons/<id>
+            std::string bucket = fac->GetCategory();
+            const bool hasExplicit = !bucket.empty();
+            if (!hasExplicit) bucket = ClassifyOther(className);
+
+            if (!hasExplicit && bucket == "Generic" && addonMgr != nullptr)
+            {
+                const char* addonId = addonMgr->FindAddonIdForFactory(fac);
+                if (addonId != nullptr && *addonId != '\0')
+                {
+                    sNodeOtherAddonGrouped[addonId].push_back(className);
+                    delete probe;
+                    continue;
+                }
+            }
+
+            sNodeOtherCategorized[bucket].push_back(className);
+
+            // Cross-list TransformAnimation* into the matching 3D / Widget
+            // Animation bucket. These types inherit Node (their actual file
+            // home dictates the surface label users look for), so without
+            // this, "TransformAnimationNode3D" would be invisible under 3D.
+            if (strcmp(className, "TransformAnimationNode3D") == 0)
+            {
+                sNode3dCategorized["Animation"].push_back(className);
+            }
+            else if (strcmp(className, "TransformAnimationWidget") == 0)
+            {
+                sNodeWidgetCategorized["Animation"].push_back(className);
+            }
         }
 
         delete probe;
@@ -4367,7 +4425,7 @@ void DrawAddNodeMenu(Node* node)
 
     if (ImGui::BeginMenu("3D"))
     {
-        static const char* k3DOrder[] = { "Environment", "Generic", "Lighting", "VFX" };
+        static const char* k3DOrder[] = { "Environment", "Generic", "Lighting", "VFX", "Animation" };
         drawCategorizedInOrder(sNode3dCategorized, k3DOrder,
                                sizeof(k3DOrder) / sizeof(k3DOrder[0]));
         drawAddonGrouped(sNode3dAddonGrouped);
@@ -4406,7 +4464,7 @@ void DrawAddNodeMenu(Node* node)
 
     if (ImGui::BeginMenu("Widget"))
     {
-        static const char* kWidgetOrder[] = { "Containers", "Input", "Display", "Layout" };
+        static const char* kWidgetOrder[] = { "Containers", "Input", "Display", "Layout", "Animation" };
         drawCategorizedInOrder(sNodeWidgetCategorized, kWidgetOrder,
                                sizeof(kWidgetOrder) / sizeof(kWidgetOrder[0]));
         drawAddonGrouped(sNodeWidgetAddonGrouped);
@@ -4446,24 +4504,13 @@ void DrawAddNodeMenu(Node* node)
         ImGui::EndMenu();
     }
 
-    if (sNodeOtherNames.size() > 0 &&
+    if ((sNodeOtherCategorized.size() > 0 || sNodeOtherAddonGrouped.size() > 0) &&
         ImGui::BeginMenu("Other"))
     {
-        for (uint32_t i = 0; i < sNodeOtherNames.size(); ++i)
-        {
-            if (ImGui::MenuItem(sNodeOtherNames[i].c_str()))
-            {
-                const char* nodeName = sNodeOtherNames[i].c_str();
-                Node* newNode = am->EXE_SpawnNode(nodeName);
-
-                if (node)
-                    node->AddChild(newNode);
-                else
-                    GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
-
-                GetEditorState()->SetSelectedNode(newNode);
-            }
-        }
+        static const char* kOtherOrder[] = { "Input", "Animation", "Logic", "Generic" };
+        drawCategorizedInOrder(sNodeOtherCategorized, kOtherOrder,
+                               sizeof(kOtherOrder) / sizeof(kOtherOrder[0]));
+        drawAddonGrouped(sNodeOtherAddonGrouped);
 
         // Draw addon node menu items for "Other" category
         {
