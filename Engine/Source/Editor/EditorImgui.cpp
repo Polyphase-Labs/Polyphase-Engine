@@ -2984,7 +2984,7 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
     static bool hasSelection = false;
     static std::string lastInputText = "";
     static std::vector<std::string> filteredItems;
-    static bool selectionJustMade = false;
+    static ImGuiID committedInputId = 0;   // popup stays closed for this id until refocus or edit
 
     // Use overridden input identity/rect if provided (when other widgets are drawn between InputText and this call)
     bool hasOverride = (overrideInputId != 0);
@@ -2993,6 +2993,12 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
     bool isInputFocused = hasOverride ? forceActive : ImGui::IsItemFocused();
     ImVec2 inputRectMin = (overrideRectMax.x > overrideRectMin.x) ? overrideRectMin : ImGui::GetItemRectMin();
     ImVec2 inputRectMax = (overrideRectMax.x > overrideRectMin.x) ? overrideRectMax : ImGui::GetItemRectMax();
+
+    // Clear the post-commit suppression latch when the user defocuses the
+    // input (clicks elsewhere) or starts editing again (text diverges from
+    // lastInputText). Either is a clear "re-arm the dropdown" signal.
+    if (committedInputId == inputId && (!isInputFocused || inputText != lastInputText))
+        committedInputId = 0;
 
     // Always refresh filtered items so the bounds checks below see the actual
     // item count.
@@ -3026,13 +3032,9 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
     bool wantsOpen = (forceActive || isInputActive || isInputFocused) && !filteredItems.empty();
 
     // Focus-acquired edge: this picker just claimed input. Open its popup and
-    // claim the singleton. We DON'T re-open if we just committed via click
-    // (selectionJustMade is the one-frame suppression).
-    if (selectionJustMade)
-    {
-        selectionJustMade = false;
-    }
-    else if (wantsOpen && activeDropdownId != inputId)
+    // claim the singleton. The committedInputId latch keeps the popup closed
+    // after a click/Enter commit until the user defocuses or types again.
+    if (wantsOpen && activeDropdownId != inputId && committedInputId != inputId)
     {
         activeDropdownId = inputId;
         hasSelection = false;
@@ -3114,7 +3116,8 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                     inputText = "null";
                     selectionMade = true;
                 }
-                selectionJustMade = true;
+                lastInputText    = inputText;     // suppress text-change clear next frame
+                committedInputId = inputId;       // suppress reopen until refocus or edit
                 ImGui::CloseCurrentPopup();
             }
             else if (escapePressed)
@@ -3155,9 +3158,10 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
                 // check which fails when InputText holds ActiveId.
                 if (itemHovered && ImGui::IsMouseClicked(0))
                 {
-                    inputText = filteredItems[i];
-                    selectionMade = true;
-                    selectionJustMade = true;
+                    inputText        = filteredItems[i];
+                    lastInputText    = inputText;
+                    selectionMade    = true;
+                    committedInputId = inputId;
                     ImGui::CloseCurrentPopup();
                 }
 
@@ -3172,19 +3176,12 @@ bool DrawAutocompleteDropdown(const char* dropdownId,
         }
         else
         {
-            // Popup no longer open. Either the user clicked outside / pressed
-            // Escape / focused a different picker (ImGui auto-closed via the
-            // popup stack), or we just CloseCurrentPopup'd on a click-commit.
-            // Release the singleton only on user-driven dismissal; on commit,
-            // selectionJustMade is true and we keep activeDropdownId so the
-            // next-frame focus-edge check stays false and we don't immediately
-            // reopen on top of the freshly-set value.
-            if (!selectionJustMade)
-            {
-                activeDropdownId = 0;
-                hasSelection = false;
-                selectedIndex = 0;
-            }
+            // Popup no longer open — release the singleton. The committedInputId
+            // latch (independent of the singleton) is what stops the focused
+            // InputText from immediately retriggering OpenPopup next frame.
+            activeDropdownId = 0;
+            hasSelection     = false;
+            selectedIndex    = 0;
         }
 
         ImGui::PopStyleVar();

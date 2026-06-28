@@ -1157,9 +1157,26 @@ void PackagingWindow::OnBuild()
 
 bool PackagingWindow::IsAnyBuildInProgress() const
 {
+    ActionManager* am = ActionManager::Get();
+
     // Local: ActionManager owns the modal, the build thread, and the
-    // pending flag. IsBuildRunning() folds all three together.
-    if (ActionManager::Get() && ActionManager::Get()->IsBuildRunning())
+    // pending flag. IsBuildRunning() folds three of them together.
+    if (am && am->IsBuildRunning())
+    {
+        return true;
+    }
+
+    // Local: the build thread exits BEFORE FinalizeLocalBuild joins it.
+    // Between those two points the thread is still joinable, and starting
+    // a new build now reassigns mBuildThread on a joinable thread, which
+    // is a std::terminate condition. Wait for the join to land before
+    // kicking the next profile.
+    //
+    // Auto-finalize for success runs inside ActionManager::DrawBuildModal,
+    // which is called AFTER PackagingWindow::Draw in the same frame, so
+    // there is exactly one frame where IsBuildRunning() reports false but
+    // the thread is not yet joined. The joinable() check covers it.
+    if (am && am->GetBuildState().mBuildThread.joinable())
     {
         return true;
     }
@@ -1172,6 +1189,10 @@ bool PackagingWindow::IsAnyBuildInProgress() const
         return true;
     }
     if (mShowBuildModal && !mBuildState.mComplete.load())
+    {
+        return true;
+    }
+    if (mBuildState.mBuildThread.joinable())
     {
         return true;
     }
