@@ -365,3 +365,4 @@ polyphase-sdk-*.zip
 .claude/worktrees
 /PolyphaseEditor.dll
 /Standalone/Generated/AddonInject.mk
+/.claude/scheduled_tasks.lock
