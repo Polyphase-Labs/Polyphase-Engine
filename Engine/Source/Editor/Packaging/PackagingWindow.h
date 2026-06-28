@@ -142,6 +142,32 @@ private:
     void OnBuild();
 
     /**
+     * @brief Starts the Build All queue: every profile in display order,
+     * stops on the first failure.
+     */
+    void OnBuildAll();
+
+    /**
+     * @brief Cancels the Build All queue. The in-flight per-profile build
+     * keeps running and reports via its own modal; the queue simply does
+     * not advance to the next profile after it finishes.
+     */
+    void CancelBuildAll();
+
+    /**
+     * @brief Per-frame Build All queue tick. No-op when the queue is idle.
+     * Polls local + docker state; advances the queue when the current build
+     * has finished and kicks off the next profile, or stops on failure.
+     */
+    void TickBuildAllQueue();
+
+    /**
+     * @brief True if either the local (ActionManager) or docker build is
+     * currently active. Used as the queue's "wait for current build" gate.
+     */
+    bool IsAnyBuildInProgress() const;
+
+    /**
      * @brief Initiates a build and runs the result in emulator.
      */
     void OnBuildAndRun();
@@ -286,6 +312,33 @@ private:
 
     /** @brief Whether to force rebuild even if cache is up-to-date */
     bool mForceRebuild = false;
+
+    /** @brief Build All queue: true while sequentially building every profile. */
+    bool mBuildAllRunning = false;
+
+    /** @brief Index of the profile currently being built; -1 before first kick. */
+    int32_t mBuildAllIndex = -1;
+
+    /** @brief Index of the profile that failed; -1 if no failure to surface. */
+    int32_t mBuildAllFailedIndex = -1;
+
+    /** @brief Which state object to poll for the last-kicked build. */
+    bool mBuildAllLastWasDocker = false;
+
+    /** @brief Profile name captured at failure, used by the status line. */
+    std::string mBuildAllFailedName;
+
+    /**
+     * @brief mForceRebuild value at the moment Build All was kicked off.
+     *
+     * Build All forces a rebuild for every profile in the queue to bypass
+     * the build-cache short-circuit in `ActionManager::BuildData` — that
+     * path sets `mSuccess.store(false)` to prevent auto-finalize, which
+     * our queue would otherwise read as a real failure and abort.
+     *
+     * Restored when the queue completes (success, failure, or cancel).
+     */
+    bool mBuildAllSavedForceRebuild = false;
 };
 
 /**

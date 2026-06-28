@@ -160,6 +160,10 @@ void PackagingWindow::Close()
 
 void PackagingWindow::Draw()
 {
+    // The queue runner has to tick every frame, even when the window is
+    // closed, so an in-flight Build All survives a window close + reopen.
+    TickBuildAllQueue();
+
     if (!mIsOpen)
     {
         return;
@@ -760,13 +764,28 @@ void PackagingWindow::DrawBuildButtons()
     PackagingSettings* settings = PackagingSettings::Get();
     BuildProfile* profile = settings ? settings->GetSelectedProfile() : nullptr;
 
-    bool canBuild = (profile != nullptr) && !mBuildInProgress;
+    bool canBuild = (profile != nullptr) && !mBuildInProgress && !mBuildAllRunning;
+    bool canBuildAll = !mBuildInProgress && !mBuildAllRunning && !IsAnyBuildInProgress() &&
+                       PackagingSettings::Get() != nullptr &&
+                       !PackagingSettings::Get()->GetProfiles().empty();
 
-    // Force Rebuild checkbox
-    Polyphase::Checkbox("Force Rebuild", &mForceRebuild);
-    if (ImGui::IsItemHovered())
+    // Force Rebuild checkbox. Locked while Build All is running — the queue
+    // force-enables this for every iteration and restores the user's prior
+    // value when the queue ends.
+    if (mBuildAllRunning)
     {
-        ImGui::SetTooltip("Rebuild even if no files have changed");
+        ImGui::BeginDisabled();
+    }
+    Polyphase::Checkbox("Force Rebuild", &mForceRebuild);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip(mBuildAllRunning
+            ? "Locked during Build All (every profile rebuilds from scratch)."
+            : "Rebuild even if no files have changed");
+    }
+    if (mBuildAllRunning)
+    {
+        ImGui::EndDisabled();
     }
     ImGui::SameLine();
     ImGui::Spacing();
@@ -786,6 +805,35 @@ void PackagingWindow::DrawBuildButtons()
     if (ImGui::Button("Build", ImVec2(buttonWidth, 0)))
     {
         OnBuild();
+    }
+
+    // "Build All" sits next to "Build". It builds every profile in display
+    // order and stops on the first failure. Gated independently of canBuild
+    // — needs at least one profile to exist, and no other build in flight.
+    if (!canBuild)
+    {
+        ImGui::EndDisabled();
+    }
+    if (!canBuildAll)
+    {
+        ImGui::BeginDisabled();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Build All", ImVec2(buttonWidth, 0)))
+    {
+        OnBuildAll();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("Build every profile sequentially; stops on first failure.");
+    }
+    if (!canBuildAll)
+    {
+        ImGui::EndDisabled();
+    }
+    if (!canBuild)
+    {
+        ImGui::BeginDisabled();
     }
 
     ImGui::SameLine();
@@ -926,6 +974,38 @@ void PackagingWindow::DrawBuildButtons()
     {
         ImGui::SameLine();
         ImGui::TextDisabled("Building...");
+    }
+
+    // Build All queue status row. Shown only while the queue is active or
+    // there is a stored failure to surface; idle state draws nothing extra.
+    if (mBuildAllRunning)
+    {
+        std::vector<BuildProfile>& profiles = PackagingSettings::Get()->GetProfiles();
+        int total = (int)profiles.size();
+        int current = mBuildAllIndex + 1;
+        if (current < 1) current = 1;
+        if (current > total) current = total;
+        const char* name = (mBuildAllIndex >= 0 && mBuildAllIndex < total)
+            ? profiles[mBuildAllIndex].mName.c_str()
+            : "(starting)";
+        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.40f, 1.0f),
+                           "Build All: building %d of %d: %s", current, total, name);
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel All"))
+        {
+            CancelBuildAll();
+        }
+    }
+    else if (mBuildAllFailedIndex >= 0)
+    {
+        ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f),
+                           "Build All stopped: '%s' failed.", mBuildAllFailedName.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Dismiss"))
+        {
+            mBuildAllFailedIndex = -1;
+            mBuildAllFailedName.clear();
+        }
     }
 }
 
@@ -1073,6 +1153,135 @@ void PackagingWindow::OpenLauncherSettings()
 void PackagingWindow::OnBuild()
 {
     ExecuteBuild(false, false);
+}
+
+bool PackagingWindow::IsAnyBuildInProgress() const
+{
+    // Local: ActionManager owns the modal, the build thread, and the
+    // pending flag. IsBuildRunning() folds all three together.
+    if (ActionManager::Get() && ActionManager::Get()->IsBuildRunning())
+    {
+        return true;
+    }
+
+    // Docker: state lives on PackagingWindow. mRunning covers the worker
+    // thread; the modal-while-incomplete guard catches the brief window
+    // between thread exit and the modal noticing.
+    if (mBuildState.mRunning.load())
+    {
+        return true;
+    }
+    if (mShowBuildModal && !mBuildState.mComplete.load())
+    {
+        return true;
+    }
+
+    return false;
+}
+
+void PackagingWindow::OnBuildAll()
+{
+    PackagingSettings* settings = PackagingSettings::Get();
+    if (settings == nullptr)
+    {
+        return;
+    }
+
+    std::vector<BuildProfile>& profiles = settings->GetProfiles();
+    if (profiles.empty())
+    {
+        LogWarning("Build All: no build profiles to build.");
+        return;
+    }
+
+    if (IsAnyBuildInProgress())
+    {
+        LogWarning("Build All: a build is already running; ignoring.");
+        return;
+    }
+
+    // Force-rebuild every profile to bypass the cache-skip path in
+    // ActionManager::BuildData (which sets mSuccess=false). Restored on
+    // queue end so the user's Force Rebuild checkbox preference is preserved.
+    mBuildAllSavedForceRebuild = mForceRebuild;
+    mForceRebuild = true;
+
+    mBuildAllRunning = true;
+    mBuildAllIndex = -1;            // TickBuildAllQueue advances to 0 on first tick
+    mBuildAllFailedIndex = -1;
+    mBuildAllFailedName.clear();
+    mBuildAllLastWasDocker = false;
+}
+
+void PackagingWindow::CancelBuildAll()
+{
+    // Just stop the queue. The in-flight per-profile build keeps running and
+    // reports through its own modal (the user can cancel that build via the
+    // modal's own Cancel button). When it finishes, our tick sees the queue
+    // is no longer active and exits without kicking the next profile.
+    mBuildAllRunning = false;
+    mForceRebuild = mBuildAllSavedForceRebuild;
+}
+
+void PackagingWindow::TickBuildAllQueue()
+{
+    if (!mBuildAllRunning)
+    {
+        return;
+    }
+
+    if (IsAnyBuildInProgress())
+    {
+        return;
+    }
+
+    // First-ever tick: no prior build to inspect, fall through to "advance".
+    if (mBuildAllIndex >= 0)
+    {
+        const bool success = mBuildAllLastWasDocker
+            ? mBuildState.mSuccess.load()
+            : ActionManager::Get()->GetBuildState().mSuccess.load();
+
+        if (!success)
+        {
+            mBuildAllFailedIndex = mBuildAllIndex;
+            std::vector<BuildProfile>& profiles = PackagingSettings::Get()->GetProfiles();
+            if (mBuildAllIndex < (int32_t)profiles.size())
+            {
+                mBuildAllFailedName = profiles[mBuildAllIndex].mName;
+            }
+            mBuildAllRunning = false;
+            mForceRebuild = mBuildAllSavedForceRebuild;
+            LogError("Build All: profile '%s' failed; queue stopped.", mBuildAllFailedName.c_str());
+            return;
+        }
+    }
+
+    // Advance.
+    mBuildAllIndex++;
+    std::vector<BuildProfile>& profiles = PackagingSettings::Get()->GetProfiles();
+    if (mBuildAllIndex >= (int32_t)profiles.size())
+    {
+        mBuildAllRunning = false;
+        mForceRebuild = mBuildAllSavedForceRebuild;
+        LogDebug("Build All: queue completed successfully.");
+        return;
+    }
+
+    // Kick the next build directly via the same sub-paths the single-Build
+    // button uses, so docker / local dispatch and Force Rebuild forwarding
+    // stay identical. Bypass ExecuteBuild() so we don't depend on
+    // GetSelectedProfile() — the user's UI selection is preserved.
+    const BuildProfile& profile = profiles[mBuildAllIndex];
+    mBuildAllLastWasDocker = profile.mUseDocker;
+    if (profile.mUseDocker)
+    {
+        ExecuteDockerBuild(profile, false, false);
+    }
+    else
+    {
+        ExecuteLocalBuild(profile, false, false);
+    }
 }
 
 void PackagingWindow::OnBuildAndRun()
