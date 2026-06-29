@@ -8455,6 +8455,65 @@ static void DrawAssetsPanel()
 
                 if (!hasProject) ImGui::PopStyleVar();
 
+                // Quick-create cluster — `+` reuses the existing right-click
+                // "Null Context" menu (full Create Asset hierarchy) and the
+                // five icon buttons direct-create the most-used asset types
+                // with auto-unique default names via CreateNewAsset.
+                AssetDir* curDir = GetEditorState()->GetAssetDirectory();
+                bool canCreate = hasProject && curDir != nullptr &&
+                                 !curDir->mEngineDir && !curDir->mAddonDir;
+                if (!canCreate) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 2.0f);
+                if (ImGui::Button(ICON_MATERIAL_SYMBOLS_ADD "##AssetAdd"))
+                {
+                    if (canCreate) ImGui::OpenPopup("Null Context");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Asset...");
+
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_SCENE "##QSScene"))
+                {
+                    if (canCreate) CreateNewAsset(Scene::GetStaticType(), "SC_Scene");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Scene");
+
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_HUGEICONS_MATERIAL_AND_TEXTURE "##QSMaterial"))
+                {
+                    if (canCreate) CreateNewAsset(MaterialLite::GetStaticType(), "M_Material");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Material (Lite)");
+
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_BXS_GRID "##QSTileMap"))
+                {
+                    if (canCreate) CreateNewAsset(TileMap::GetStaticType(), "TM_TileMap");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Tile Map");
+
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_TIMELINE "##QSTimeline"))
+                {
+                    if (canCreate) CreateNewAsset(Timeline::GetStaticType(), "TL_Timeline");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Timeline");
+
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_MDI_ANIMATION "##QSTransformAnim"))
+                {
+                    if (canCreate) CreateNewAsset(TransformAnimationAsset::GetStaticType(), "TA_TransformAnim");
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Create Transform Animation");
+
+                if (!canCreate) ImGui::PopStyleVar();
+
                 // New Folder popup
                 static char sNewFolderBuffer[256] = "";
                 static bool sNewFolderFocus = false;
