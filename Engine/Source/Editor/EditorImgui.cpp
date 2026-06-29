@@ -10366,7 +10366,12 @@ static void DrawMainMenuBar()
             float playBtnWidth = ImGui::CalcTextSize(playBtnLabel).x + style.FramePadding.x * 2.0f;
             float arrowBtnWidth = ImGui::CalcTextSize(ICON_DASHICONS_ARROW_DOWN).x + style.FramePadding.x * 2.0f;
             float playGroupWidth = inPie ? playBtnWidth : (playBtnWidth + arrowBtnWidth);
-            float rightGroupWidth = buttonSize + spacing + playGroupWidth + 20.0f;
+            // Five new shortcut buttons sit left of the Hammer: Preferences,
+            // App Settings, PlayerInput Panel, Addons Manager, Build Profiles.
+            // Each is one buttonSize wide with a spacing gap.
+            const int kShortcutCount = 5;
+            float shortcutsWidth = kShortcutCount * (buttonSize + spacing);
+            float rightGroupWidth = shortcutsWidth + buttonSize + spacing + playGroupWidth + 20.0f;
             float targetX = ImGui::GetWindowWidth() - rightGroupWidth;
             float cursorX = ImGui::GetCursorPosX();
             if (targetX > cursorX)
@@ -10374,6 +10379,39 @@ static void DrawMainMenuBar()
 
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
+            // Shortcut buttons to the most-used editor windows. Kept to icons
+            // only (label-via-tooltip) so they fit inside the menu bar — full
+            // labels live in their respective Edit / File / Tools menus.
+            if (ImGui::Button(ICON_MATERIAL_SYMBOLS_SETTINGS "##OpenPreferences"))
+                GetPreferencesWindow()->Open();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Preferences");
+
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_MDI_MIXER_SETTINGS_VERTICAL "##OpenAppSettings"))
+                GetAppSettingsWindow()->Open();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("App Settings");
+
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FE_GAMEPAD "##OpenPlayerInput"))
+                GetPlayerInputEditor()->Open();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Player Input Panel");
+
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_IC_SHARP_EXTENSION "##OpenAddonsManager"))
+                GetAddonsWindow()->Open();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Addons Manager");
+
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_BX_PACKAGE "##OpenBuildProfiles"))
+                GetPackagingWindow()->Open();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Build Profiles");
+
+            ImGui::SameLine();
             // Hammer button — Lua-only refresh. Native addon reload is now
             // gated behind the project-restart chokepoint and lives in the
             // Edit > Reload Native Addons menu and the AddonsWindow row button.
