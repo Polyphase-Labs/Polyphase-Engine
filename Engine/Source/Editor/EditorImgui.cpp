@@ -4922,11 +4922,124 @@ static void DrawScenePanel()
     sDropZone = SceneDropZone::None;
     sDropTargetNode = nullptr;
 
+    // Quick-spawn toolbar. The "+" opens the full Add Node menu (same one
+    // as the right-click context). The remaining buttons spawn the most-used
+    // built-ins directly. Single-selection determines the parent (matching
+    // the right-click behaviour); anything else falls back to world root.
+    {
+        const std::vector<Node*>& selNodesQuick = GetEditorState()->GetSelectedNodes();
+        Node* parentForSpawn = nullptr;
+        if (selNodesQuick.size() == 1 && !selNodesQuick[0]->IsSceneLinked())
+        {
+            parentForSpawn = selNodesQuick[0];
+        }
+
+        auto attachAsChild = [&](Node* newNode)
+        {
+            if (newNode == nullptr) return;
+            if (parentForSpawn) parentForSpawn->AddChild(newNode);
+            else                GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
+            GetEditorState()->SetSelectedNode(newNode);
+        };
+
+        auto quickSpawnWidget = [&](const char* typeName)
+        {
+            attachAsChild(am->EXE_SpawnNode(typeName));
+        };
+
+        auto quickSpawnBasic = [&](const char* basicName)
+        {
+            am->SpawnBasicNode(basicName, parentForSpawn, nullptr, false, {});
+        };
+
+        // Modern uniform-grid look: square buttons sized to the font's frame
+        // height so icons of varying widths still produce an evenly-spaced
+        // row, and a tight ItemSpacing so the two rows read as a single tool
+        // strip rather than two scattered button clusters.
+        const float btnDim = ImGui::GetFrameHeight();
+        const ImVec2 btnSize(btnDim, btnDim);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+
+        auto toolbarButton = [&](const char* iconLabel, const char* tip) -> bool
+        {
+            bool clicked = ImGui::Button(iconLabel, btnSize);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+            return clicked;
+        };
+
+        // Row 1 — 3D primitives.
+        if (toolbarButton(ICON_PH_SPHERE              "##QSNode3D",       "Add Node3D"))             quickSpawnBasic(BASIC_NODE_3D);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_STATIC_MESH            "##QSStaticMesh",   "Add Static Mesh"))        quickSpawnBasic(BASIC_STATIC_MESH);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_SKELETON               "##QSSkeletalMesh", "Add Skeletal Mesh"))      quickSpawnBasic(BASIC_SKELETAL_MESH);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_INSTANCE_MESH          "##QSInstanced",    "Add Instanced Mesh"))     quickSpawnBasic(BASIC_INSTANCED_MESH);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_IX_VIDEO_CAMERA_FILLED "##QSCamera",       "Add Camera 3D"))          quickSpawnBasic(BASIC_CAMERA);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_RIVET_ICONS_AUDIO_SOLID"##QSAudio",        "Add Audio 3D"))           quickSpawnBasic(BASIC_AUDIO);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_SUN                    "##QSDirLight",     "Add Directional Light"))  quickSpawnBasic(BASIC_DIRECTIONAL_LIGHT);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_LIGHTBULB              "##QSPointLight",   "Add Point Light"))        quickSpawnBasic(BASIC_POINT_LIGHT);
+        ImGui::SameLine();
+        if (toolbarButton(ICON_FIREWORK               "##QSParticle",     "Add Particle 3D"))        quickSpawnBasic(BASIC_PARTICLE);
+
+        // Row 2 — Widgets + Timeline.
+        if (toolbarButton(ICON_CANVAS                 "##QSCanvas",       "Add Canvas"))             quickSpawnWidget("Canvas");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_RECTFILL               "##QSQuad",         "Add Quad"))               quickSpawnWidget("Quad");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_BUTTON                 "##QSButton",       "Add Button"))             quickSpawnWidget("Button");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_TEXTWIDGET             "##QSText",         "Add Text"))               quickSpawnWidget("Text");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_PH_CURSOR_TEXT_LIGHT   "##QSInputField",   "Add Input Field"))        quickSpawnWidget("InputField");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_LAYERS                 "##QSArrayWidget",  "Add Array Widget"))       quickSpawnWidget("ArrayWidget");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_RECT                   "##QSWindow",       "Add Window"))             quickSpawnWidget("Window");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_CLAPPERBOARD_CLOSE     "##QSTimeline",     "Add Timeline Player"))    quickSpawnWidget("TimelinePlayer");
+        ImGui::SameLine();
+        if (toolbarButton(ICON_IC_BASELINE_LINK       "##QSSpline",       "Add Spline"))             quickSpawnBasic(BASIC_SPLINE);
+
+        ImGui::PopStyleVar(2);
+
+        if (ImGui::BeginPopup("HierarchyAddNodePopup"))
+        {
+            DrawAddNodeMenu(parentForSpawn);
+            ImGui::EndPopup();
+        }
+    }
+
     static std::string sFilterStrTemp;
     static std::string sFilterStr;
     bool filterCleared = false;
 
-    if (ImGui::InputText(ICON_FILTER, &sFilterStrTemp, ImGuiInputTextFlags_EnterReturnsTrue))
+    // Header row: [+] [search filter] — `+` sits with the filter so it has a
+    // semantic home (the panel's primary "add" action paired with the panel's
+    // primary "find" action), instead of floating alone on the icon grid.
+    {
+        const float addBtnDim = ImGui::GetFrameHeight();
+        if (ImGui::Button(ICON_MATERIAL_SYMBOLS_ADD "##HierarchyAddNode",
+                          ImVec2(addBtnDim, addBtnDim)))
+        {
+            ImGui::OpenPopup("HierarchyAddNodePopup");
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add Node...");
+
+        ImGui::SameLine();
+        // Fill remaining width for the input, leaving room for the trailing
+        // ICON_FILTER label glyph so it doesn't clip past the panel edge.
+        const float labelW = ImGui::CalcTextSize(ICON_FILTER, nullptr, true).x;
+        const float innerSp = ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - labelW - innerSp);
+    }
+
+    if (ImGui::InputText(ICON_FILTER "##HierarchyFilter", &sFilterStrTemp, ImGuiInputTextFlags_EnterReturnsTrue))
     {
         sFilterStr = sFilterStrTemp;
         if (sFilterStr == "")
