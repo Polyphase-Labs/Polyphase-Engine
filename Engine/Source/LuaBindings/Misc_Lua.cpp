@@ -185,6 +185,15 @@ void BindAnchorMode()
     lua_pushinteger(L, (int)AnchorMode::FullStretch);
     lua_setfield(L, tableIdx, "FullStretch");
 
+    lua_pushinteger(L, (int)AnchorMode::Fill);
+    lua_setfield(L, tableIdx, "Fill");
+
+    lua_pushinteger(L, (int)AnchorMode::FillHorizontal);
+    lua_setfield(L, tableIdx, "FillHorizontal");
+
+    lua_pushinteger(L, (int)AnchorMode::FillVertical);
+    lua_setfield(L, tableIdx, "FillVertical");
+
     lua_setglobal(L, "AnchorMode");
 
     OCT_ASSERT(lua_gettop(L) == 0);

@@ -21,6 +21,9 @@
       <xs:enumeration value="center-h-stretch"/>
       <xs:enumeration value="center-v-stretch"/>
       <xs:enumeration value="full-stretch"/>
+      <xs:enumeration value="fill"/>
+      <xs:enumeration value="fill-horizontal"/>
+      <xs:enumeration value="fill-vertical"/>
     </xs:restriction>
   </xs:simpleType>
   <xs:simpleType name="booleanType">

@@ -1,5 +1,6 @@
 #include "ScriptUtils.h"
 #include "Script.h"
+#include "AssetManager.h"
 #include "System/System.h"
 #include "LuaBindings/Node_Lua.h"
 #include "Plugins/RuntimePluginManager.h"
@@ -223,18 +224,46 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
         fileNames.push_back(kv.second);
     }
 
-    // Also pick up any addon Lua files that haven't been loaded yet this session.
-    // Without this, a new .lua dropped into Packages/<Addon>/Scripts/ never shows
-    // up in the editor's "Reload All Scripts" sweep and the user has to restart
-    // to see it — which was the whole point of the manual reload action.
+    std::unordered_set<std::string> alreadyQueued(fileNames.begin(), fileNames.end());
+
+    // Also queue every script reachable from disk so the reload sweep covers
+    // any script that was loaded into Lua via a path that bypassed
+    // LoadScriptFile (notably Lua require()), AND so brand-new .lua files
+    // dropped under any of the three roots show up without a restart.
+    // Mirrors the three roots the asset picker (GetAvailableScriptFiles)
+    // walks: Engine scripts, project scripts, addon scripts.
+    auto queueFromRoot = [&](const std::string& root, const std::string& stripPrefix)
+    {
+        std::vector<std::string> found;
+        AssetManager::Get()->GatherScriptFiles(root, found);
+        for (std::string& f : found)
+        {
+            if (f.rfind(stripPrefix, 0) == 0)
+            {
+                f.erase(0, stripPrefix.size());
+            }
+            if (alreadyQueued.insert(f).second)
+            {
+                fileNames.push_back(f);
+            }
+        }
+    };
+
+    // Engine/Scripts/Foo.lua -> "Foo.lua"
+    queueFromRoot("Engine/Scripts/", "Engine/Scripts/");
+
     const std::string& projectDir = GetEngineState()->mProjectDirectory;
     if (!projectDir.empty())
     {
+        // <projectDir>/Scripts/Foo.lua -> "Foo.lua"
+        queueFromRoot(projectDir + "Scripts/", projectDir + "Scripts/");
+
+        // Packages/<addon>/Scripts/Foo.lua -> "Packages/<addon>/Foo" (no .lua suffix —
+        // matches the fileName format RunScript's Packages/ branch expects and
+        // that Script components serialize).
         std::string packagesDir = projectDir + "Packages/";
         DirEntry pkgEntry = {};
         SYS_OpenDirectory(packagesDir, pkgEntry);
-
-        std::unordered_set<std::string> alreadyQueued(fileNames.begin(), fileNames.end());
 
         while (pkgEntry.mValid)
         {

@@ -248,10 +248,12 @@ void ListViewWidget::UpdateItem(int32_t index, const Datum& data)
 
 void ListViewWidget::Clear()
 {
-    // Destroy all items
+    // Destroy all items. Skip destroyed entries: our ScrollContainer/
+    // ArrayWidget subtree can be torn down out-of-band (owner destruction,
+    // PIE teardown) and leave mItems holding raw pointers to freed nodes.
     for (auto* item : mItems)
     {
-        if (item != nullptr)
+        if (item != nullptr && !item->IsDestroyed())
         {
             item->Destroy();
         }
@@ -334,11 +336,7 @@ ArrayOrientation ListViewWidget::GetOrientation() const
 void ListViewWidget::SetItemWidth(float width)
 {
     mItemWidth = width;
-    // Apply to all existing items
-    for (auto* item : mItems)
-    {
-        ApplyItemSize(item);
-    }
+    ApplyItemSizeToAll();
     UpdateContentSize();
     MarkDirty();
 }
@@ -351,11 +349,7 @@ float ListViewWidget::GetItemWidth() const
 void ListViewWidget::SetItemHeight(float height)
 {
     mItemHeight = height;
-    // Apply to all existing items
-    for (auto* item : mItems)
-    {
-        ApplyItemSize(item);
-    }
+    ApplyItemSizeToAll();
     UpdateContentSize();
     MarkDirty();
 }
@@ -492,10 +486,11 @@ void ListViewWidget::RebuildItems()
 {
     EnsureContainers();
 
-    // Destroy all existing items
+    // Destroy all existing items. Skip already-destroyed entries -- same
+    // dangling-pointer window as Clear() above.
     for (auto* item : mItems)
     {
-        if (item != nullptr)
+        if (item != nullptr && !item->IsDestroyed())
         {
             item->Destroy();
         }
@@ -567,7 +562,12 @@ void ListViewWidget::UpdateItemIndices()
 
 void ListViewWidget::ApplyItemSize(ListViewItemWidget* item)
 {
-    if (item == nullptr)
+    // Nulls happen after RemoveItem (we erase from the vector but a mid-loop
+    // caller could still see the slot); a destroyed item can survive in
+    // mItems if the widget subtree was torn down out-of-band -- Node::Deleter
+    // frees ArrayWidget's children before our own Destroy() runs, so raw
+    // pointers here can outlive the pointee. Skip both.
+    if (item == nullptr || item->IsDestroyed())
     {
         return;
     }
@@ -579,6 +579,28 @@ void ListViewWidget::ApplyItemSize(ListViewItemWidget* item)
     if (mItemHeight > 0.0f)
     {
         item->SetHeight(mItemHeight);
+    }
+}
+
+void ListViewWidget::ApplyItemSizeToAll()
+{
+    // Don't touch children while we're being destroyed. Node::Deleter tears
+    // down our subtree BEFORE our Destroy() body runs, so a Lua binding that
+    // reaches us during that window (script Start firing on a widget mid-
+    // teardown) would iterate mItems entries that point at freed memory.
+    // Same guard pattern as Widget::MarkDirty (Widget.cpp:925).
+    if (IsDestroyed())
+    {
+        return;
+    }
+
+    // Index over size() rather than range-for: if a downstream MarkDirty
+    // ever reenters and mutates mItems, the range-for's cached end iterator
+    // would dangle. Cheap insurance; the vector is small.
+    const size_t count = mItems.size();
+    for (size_t i = 0; i < count && i < mItems.size(); ++i)
+    {
+        ApplyItemSize(mItems[i]);
     }
 }
 

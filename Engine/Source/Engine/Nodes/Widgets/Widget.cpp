@@ -38,9 +38,13 @@ const char* Widget::sAnchorModeStrings[] =
     "Mid Vertical Stretch",
     "Right Stretch",
 
-    "Full Stretch"
+    "Full Stretch",
+
+    "Fill",
+    "Fill Horizontal",
+    "Fill Vertical"
 };
-static_assert(int32_t(AnchorMode::Count) == 16, "Need to update string conversion table");
+static_assert(int32_t(AnchorMode::Count) == 19, "Need to update string conversion table");
 
 bool Widget::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 {
@@ -531,6 +535,33 @@ bool Widget::AnchorStretchesY(AnchorMode mode) const
         mode == AnchorMode::FullStretch;
 }
 
+bool Widget::AnchorFillsX(AnchorMode mode) const
+{
+    return
+        mode == AnchorMode::Fill ||
+        mode == AnchorMode::FillHorizontal;
+}
+
+bool Widget::AnchorFillsY(AnchorMode mode) const
+{
+    return
+        mode == AnchorMode::Fill ||
+        mode == AnchorMode::FillVertical;
+}
+
+void Widget::SetParentRectOverride(const Rect& rect)
+{
+    mParentRectOverride = rect;
+    mHasParentRectOverride = true;
+    MarkDirty();
+}
+
+void Widget::ClearParentRectOverride()
+{
+    mHasParentRectOverride = false;
+    MarkDirty();
+}
+
 glm::vec2 Widget::GetAnchorRatio() const
 {
     glm::vec2 ratio = { 0.0f, 0.0f };
@@ -557,6 +588,10 @@ glm::vec2 Widget::GetAnchorRatio() const
 
     case AnchorMode::FullStretch: ratio = { 0.5f, 0.5f }; break;
 
+    case AnchorMode::Fill: ratio = { 0.0f, 0.0f }; break;
+    case AnchorMode::FillHorizontal: ratio = { 0.0f, 0.0f }; break;
+    case AnchorMode::FillVertical: ratio = { 0.0f, 0.0f }; break;
+
     default: break;
     }
 
@@ -566,7 +601,11 @@ glm::vec2 Widget::GetAnchorRatio() const
 
 float Widget::GetX() const
 {
-    if (StretchX())
+    if (FillsX())
+    {
+        return 0.0f;
+    }
+    else if (StretchX())
     {
         return (mActiveMargins & MF_Left) ?
             mOffset.x :
@@ -580,7 +619,11 @@ float Widget::GetX() const
 
 float Widget::GetY() const
 {
-    if (StretchY())
+    if (FillsY())
+    {
+        return 0.0f;
+    }
+    else if (StretchY())
     {
         return (mActiveMargins & MF_Top) ?
             mOffset.y :
@@ -594,7 +637,11 @@ float Widget::GetY() const
 
 float Widget::GetWidth() const
 {
-    if (StretchX())
+    if (FillsX())
+    {
+        return GetParentWidth();
+    }
+    else if (StretchX())
     {
         return (mActiveMargins & MF_Right) ?
             GetParentWidth() - GetX() - mSize.x :
@@ -608,7 +655,11 @@ float Widget::GetWidth() const
 
 float Widget::GetHeight() const
 {
-    if (StretchY())
+    if (FillsY())
+    {
+        return GetParentHeight();
+    }
+    else if (StretchY())
     {
         return (mActiveMargins & MF_Bottom) ?
             GetParentHeight() - GetY() - mSize.y :
@@ -668,7 +719,17 @@ void Widget::UpdateRect()
         parentRect.mHeight = (float)vp.w;
     }
 
+    // Container-driven slot override — used as the effective parent rect.
+    // Persists until the container clears it or the widget's parent changes
+    // (see Widget::SetParent). Containers stamp it every time they lay out.
+    if (mHasParentRectOverride)
+    {
+        parentRect = mParentRectOverride;
+    }
+
     glm::vec2 anchorRatio = GetAnchorRatio();
+    const bool fillX = FillsX();
+    const bool fillY = FillsY();
     const bool stretchX = StretchX();
     const bool stretchY = StretchY();
 
@@ -686,7 +747,12 @@ void Widget::UpdateRect()
         mAbsoluteScale *= Renderer::Get()->GetGlobalUiScale();
     }
 
-    if (stretchX)
+    if (fillX)
+    {
+        mRect.mX = parentRect.mX;
+        mRect.mWidth = parentRect.mWidth;
+    }
+    else if (stretchX)
     {
         mRect.mX = (mActiveMargins & MF_Left) ?
             (parentRect.mX + mOffset.x) :
@@ -701,7 +767,12 @@ void Widget::UpdateRect()
         mRect.mWidth = mSize.x * mAbsoluteScale.x;
     }
 
-    if (stretchY)
+    if (fillY)
+    {
+        mRect.mY = parentRect.mY;
+        mRect.mHeight = parentRect.mHeight;
+    }
+    else if (stretchY)
     {
         mRect.mY = (mActiveMargins & MF_Top) ?
             (parentRect.mY + mOffset.y) :
@@ -1058,6 +1129,8 @@ bool Widget::GetUseGameResolution() const
 void Widget::SetParent(Node* parent)
 {
     Node::SetParent(parent);
+    // Any per-child slot from a previous container no longer applies.
+    mHasParentRectOverride = false;
     MarkDirty();
 }
 

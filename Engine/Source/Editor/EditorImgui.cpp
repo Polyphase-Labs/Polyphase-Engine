@@ -458,6 +458,17 @@ static std::string ReadFileToString(const char* path)
     return result;
 }
 
+// Set by the Ctrl+R handler so the next activation of the inspector's Script
+// picker walks the disk fresh instead of reusing its 2-second-debounced cache.
+// Without this, a script the reload sweep just (re)loaded can still be missing
+// from the dropdown until the debounce expires.
+static bool sScriptPickerCacheInvalidated = false;
+
+void InvalidateScriptPickerCache()
+{
+    sScriptPickerCacheInvalidated = true;
+}
+
 static void RefreshUIDocuments()
 {
     AssetManager* assetMgr = AssetManager::Get();
@@ -2238,6 +2249,9 @@ static const char* AnchorModeToCSS(AnchorMode mode)
     case AnchorMode::MidVerticalStretch:     return "center-v-stretch";
     case AnchorMode::RightStretch:           return "right-stretch";
     case AnchorMode::FullStretch:            return "full-stretch";
+    case AnchorMode::Fill:                   return "fill";
+    case AnchorMode::FillHorizontal:         return "fill-horizontal";
+    case AnchorMode::FillVertical:           return "fill-vertical";
     default:                                 return "top-left";
     }
 }
@@ -3804,11 +3818,16 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     // Capture activation for sOrigVal AFTER the dropdown
                     if (isInputActivated)
                     {
-                        // Refresh script list every 2 seconds
-                        if (scriptSuggestions.empty() || currentTime - lastUpdateTime > 2.0)
+                        // Refresh script list every 2 seconds, OR whenever Ctrl+R
+                        // forced an invalidation — the debounce alone would hide
+                        // a freshly-reloaded script behind a stale cache.
+                        if (scriptSuggestions.empty() ||
+                            currentTime - lastUpdateTime > 2.0 ||
+                            sScriptPickerCacheInvalidated)
                         {
                             scriptSuggestions = AssetManager::Get()->GetAvailableScriptFiles();
                             lastUpdateTime = currentTime;
+                            sScriptPickerCacheInvalidated = false;
                         }
                         sOrigVal = sTempString;
                     }
@@ -10418,6 +10437,7 @@ static void DrawMainMenuBar()
             if (ImGui::Button(ICON_ION_HAMMER_SHARP))
             {
                 GetEditorState()->RequestReloadAllScripts();
+                InvalidateScriptPickerCache();
             }
             if (ImGui::IsItemHovered())
             {
@@ -10570,6 +10590,11 @@ static void DrawMainMenuBar()
 
             // Sync UIDocument .xml <-> .oct files
             RefreshUIDocuments();
+
+            // Force the inspector's Script picker to walk the disk fresh on next
+            // activation — its 2-second debounce would otherwise hide scripts
+            // that the reload sweep just re-discovered (e.g. Engine/Scripts/*).
+            InvalidateScriptPickerCache();
         }
 
         // Hotkey Menus

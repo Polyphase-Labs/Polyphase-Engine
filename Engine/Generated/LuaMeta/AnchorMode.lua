@@ -17,5 +17,8 @@ AnchorMode = {
     LeftStretch = 0,
     MidVerticalStretch = 0,
     RightStretch = 0,
-    FullStretch = 0
+    FullStretch = 0,
+    Fill = 0,
+    FillHorizontal = 0,
+    FillVertical = 0
 }

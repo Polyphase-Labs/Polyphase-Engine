@@ -1239,7 +1239,23 @@ void Datum::PushBack(bool value)
 void Datum::PushBack(const std::string& value)
 {
     PrePushBack(DatumType::String);
-    new (mData.s + mCount) std::string(value);
+
+    // Reject garbage strings before the std::string copy ctor throws
+    // _Xlen_string and terminates the editor. Seen when GatherNonDefault
+    // Properties walked a subscene-linked node whose "Name" Datum pointed
+    // at a std::string whose internal size field was garbage (uninitialised /
+    // partially-constructed / freed Node). Any property Datum with a legit
+    // string value fits well under this cap.
+    if (value.size() > (1u << 20))
+    {
+        LogError("Datum::PushBack: rejecting corrupt string (reported size=%zu)",
+                 value.size());
+        new (mData.s + mCount) std::string();
+    }
+    else
+    {
+        new (mData.s + mCount) std::string(value);
+    }
     mCount++;
 }
 

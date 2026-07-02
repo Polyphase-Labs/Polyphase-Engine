@@ -32,6 +32,9 @@ static const char* AnchorModeToString(AnchorMode mode)
     case AnchorMode::MidVerticalStretch: return "MidVStretch";
     case AnchorMode::RightStretch: return "RightStretch";
     case AnchorMode::FullStretch: return "FullStretch";
+    case AnchorMode::Fill: return "Fill";
+    case AnchorMode::FillHorizontal: return "FillHorizontal";
+    case AnchorMode::FillVertical: return "FillVertical";
     default: return "Unknown";
     }
 }

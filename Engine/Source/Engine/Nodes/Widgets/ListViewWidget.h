@@ -74,6 +74,7 @@ protected:
     void DestroyItem(int32_t index);
     void UpdateItemIndices();
     void ApplyItemSize(ListViewItemWidget* item);
+    void ApplyItemSizeToAll();
 
     void FireItemGenerate(int32_t index, const Datum& data, ListViewItemWidget* item);
     void FireItemUpdate(int32_t index, const Datum& data, ListViewItemWidget* item);

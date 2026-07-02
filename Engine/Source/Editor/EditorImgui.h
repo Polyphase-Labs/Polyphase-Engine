@@ -62,6 +62,16 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
  */
 void InvalidateAddNodeMenuCache();
 
+/**
+ * Force the inspector's Script picker autocomplete cache to walk the disk on
+ * its next activation. Call this after any event that adds/removes/reloads
+ * .lua files the picker should see — most commonly the "Reload All Scripts"
+ * paths (Ctrl+R, the hammer toolbar button, the Edit > Reload All Scripts
+ * menu). Without this, the picker's 2-second debounce can hide a script that
+ * the reload sweep just (re)loaded.
+ */
+void InvalidateScriptPickerCache();
+
 // Animated progress modal for long-running editor operations (scene save,
 // asset save, enter/exit PIE, reload scripts). Long synchronous work in
 // these paths would otherwise freeze the UI; calling Pump() at safe

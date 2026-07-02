@@ -28,16 +28,11 @@ void ArrayWidget::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Bool, "Center", this, &mCenter));
 }
 
-void ArrayWidget::Tick(float deltaTime)
+void ArrayWidget::UpdateRect()
 {
-    Widget::Tick(deltaTime);
-    TickCommon(deltaTime);
-}
-
-void ArrayWidget::EditorTick(float deltaTime)
-{
-    Widget::EditorTick(deltaTime);
-    TickCommon(deltaTime);
+    // Compute our own rect first so LayoutChildren can slice it into slots.
+    Widget::UpdateRect();
+    LayoutChildren();
 }
 
 void ArrayWidget::SetCentered(bool center)
@@ -70,38 +65,101 @@ ArrayOrientation ArrayWidget::GetOrientation() const
     return mOrientation;
 }
 
-void ArrayWidget::TickCommon(float deltaTime)
+void ArrayWidget::LayoutChildren()
 {
-    float offset = 0.0f;
-    bool vertical = (mOrientation == ArrayOrientation::Vertical);
+    const bool vertical = (mOrientation == ArrayOrientation::Vertical);
+    const uint32_t numChildren = GetNumChildren();
 
-    uint32_t numChilden = GetNumChildren();
-
-    for (uint32_t i = 0; i < numChilden; ++i)
+    // Pass 1: total non-fill size along the array axis + count fill children.
+    float nonFillTotal = 0.0f;
+    uint32_t fillCount = 0;
+    uint32_t widgetChildCount = 0;
+    for (uint32_t i = 0; i < numChildren; ++i)
     {
         Widget* child = GetChildWidget(i);
+        if (child == nullptr)
+            continue;
+
+        widgetChildCount++;
+        const bool fillsAxis = vertical ? child->FillsY() : child->FillsX();
+        if (fillsAxis)
+        {
+            fillCount++;
+        }
+        else
+        {
+            nonFillTotal += vertical ? child->GetHeight() : child->GetWidth();
+        }
+    }
+
+    const float totalSpacing = widgetChildCount > 1 ? mSpacing * float(widgetChildCount - 1) : 0.0f;
+    const float axisTotal = vertical ? GetHeight() : GetWidth();
+    float fillSlot = 0.0f;
+    if (fillCount > 0)
+    {
+        fillSlot = axisTotal - nonFillTotal - totalSpacing;
+        if (fillSlot < 0.0f)
+            fillSlot = 0.0f;
+        fillSlot /= float(fillCount);
+    }
+
+    // Pass 2: position each child, stamping a slot rect for Fill children so
+    // their UpdateRect fills the flex-grow allocation instead of the full parent.
+    const Rect selfRect = GetRect();
+    float offset = 0.0f;
+    for (uint32_t i = 0; i < numChildren; ++i)
+    {
+        Widget* child = GetChildWidget(i);
+        if (child == nullptr)
+            continue;
+
+        const bool fillsAxis = vertical ? child->FillsY() : child->FillsX();
+        const float childAxisSize = fillsAxis
+            ? fillSlot
+            : (vertical ? child->GetHeight() : child->GetWidth());
+
+        if (fillsAxis)
+        {
+            // Slot rect in world/screen coords — matches how parent->GetRect()
+            // would be seen by the child. For Fill children, the slot IS the
+            // parent for layout purposes.
+            Rect slot = selfRect;
+            if (vertical)
+            {
+                slot.mY = selfRect.mY + offset;
+                slot.mHeight = childAxisSize;
+            }
+            else
+            {
+                slot.mX = selfRect.mX + offset;
+                slot.mWidth = childAxisSize;
+            }
+            child->SetParentRectOverride(slot);
+        }
 
         if (vertical)
         {
-            if (mCenter)
+            if (mCenter && !fillsAxis)
             {
                 float x = GetWidth() / 2.0f - child->GetWidth() / 2.0f;
                 child->SetX(x);
             }
 
-            child->SetY(offset);
-            offset += child->GetHeight() + mSpacing;
+            if (!fillsAxis)
+                child->SetY(offset);
         }
         else
         {
-            if (mCenter)
+            if (mCenter && !fillsAxis)
             {
                 float y = GetHeight() / 2.0f - child->GetHeight() / 2.0f;
                 child->SetY(y);
             }
 
-            child->SetX(offset);
-            offset += child->GetWidth() + mSpacing;
+            if (!fillsAxis)
+                child->SetX(offset);
         }
+
+        offset += childAxisSize + mSpacing;
     }
 }

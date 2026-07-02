@@ -962,6 +962,21 @@ struct DockContext
         }
         else if (dock_slot == ImGuiDockSlot_Tab)
         {
+            // Descend into containers to find a real tab. Containers have
+            // empty labels and would break the tabbar loop -- the incoming
+            // dock's prev_tab would walk back into the container, then
+            // tabbar's InvisibleButton(dock_tab->label, ...) trips ImGui's
+            // "empty ID at the root of a window" assertion (imgui.cpp
+            // ItemAdd, line 9510). Triggered by first-time BeginDock() of
+            // an addon-registered window ("AI Chat") when the layout root
+            // already contains a split, so getRootDock() returned the
+            // parent container instead of a leaf.
+            while (dest && dest->isContainer() && dest->children[0])
+            {
+                dest = &dest->children[0]->getFirstTab();
+            }
+            if (!dest) return;
+
             Dock* tmp = dest;
             while (tmp->next_tab) tmp = tmp->next_tab;
 

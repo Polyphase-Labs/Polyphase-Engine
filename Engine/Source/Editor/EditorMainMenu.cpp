@@ -1030,6 +1030,7 @@ static void DrawToolsMenu()
         // chokepoint and lives in the Edit > Reload Native Addons menu and
         // the AddonsWindow per-row Reload button.
         GetEditorState()->RequestReloadAllScripts();
+        InvalidateScriptPickerCache();
     }
 
     ImGui::Separator();

@@ -1833,6 +1833,7 @@ void CacheEditSceneLinkedProps(EditScene& editScene)
                 editScene.mLinkedSceneProps.push_back(LinkedSceneProps());
                 LinkedSceneProps& linkedSceneProps = editScene.mLinkedSceneProps.back();
                 linkedSceneProps.mNode = node;
+                LogDebug(node->RuntimeName());
                 GatherNonDefaultProperties(node, linkedSceneProps.mProps);
 
                 // Cache subscene overrides of child nodes

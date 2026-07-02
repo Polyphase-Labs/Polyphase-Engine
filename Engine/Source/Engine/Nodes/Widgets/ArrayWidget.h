@@ -23,8 +23,7 @@ public:
 
     virtual void Create() override;
     virtual void GatherProperties(std::vector<Property>& outProps) override;
-    virtual void Tick(float deltaTime) override;
-    virtual void EditorTick(float deltaTime) override;
+    virtual void UpdateRect() override;
 
     void SetCentered(bool center);
     bool IsCentered() const;
@@ -37,7 +36,7 @@ public:
 
 protected:
 
-    void TickCommon(float deltaTime);
+    void LayoutChildren();
 
     //static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
 

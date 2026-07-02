@@ -38,6 +38,10 @@ enum class AnchorMode : uint8_t
 
     FullStretch,
 
+    Fill,
+    FillHorizontal,
+    FillVertical,
+
     Count
 };
 
@@ -118,8 +122,12 @@ public:
     void SetAnchorMode(AnchorMode anchorMode);
     bool AnchorStretchesX(AnchorMode mode) const;
     bool AnchorStretchesY(AnchorMode mode) const;
+    bool AnchorFillsX(AnchorMode mode) const;
+    bool AnchorFillsY(AnchorMode mode) const;
     inline bool StretchX() const { return AnchorStretchesX(mAnchorMode); }
     inline bool StretchY() const { return AnchorStretchesY(mAnchorMode); }
+    inline bool FillsX() const { return AnchorFillsX(mAnchorMode); }
+    inline bool FillsY() const { return AnchorFillsY(mAnchorMode); }
     glm::vec2 GetAnchorRatio() const;
     void SetFullScreen();
     void Centered();
@@ -133,9 +141,17 @@ public:
     glm::vec2 GetPosition() const;
     glm::vec2 GetDimensions() const;
 
-    void UpdateRect();
+    virtual void UpdateRect();
     void UpdateColor();
     void FitInsideParent();
+
+    // Container-driven slot layout. When set, UpdateRect uses this rect
+    // (in parent-local coord space: mX/mY are absolute like parent->mRect)
+    // instead of the actual parent rect. Consumed on read — the container
+    // must re-set every tick, otherwise it clears itself.
+    void SetParentRectOverride(const Rect& rect);
+    void ClearParentRectOverride();
+    bool HasParentRectOverride() const { return mHasParentRectOverride; }
 
     float GetParentWidth() const;
     float GetParentHeight() const;
@@ -207,6 +223,7 @@ protected:
 
     Rect mRect; // The screen pos/dimensions that are computed on Update().
     Rect mScissorRect;
+    Rect mParentRectOverride;
     glm::mat3 mTransform;
     glm::vec4 mColor;
     glm::vec2 mOffset;
@@ -219,6 +236,7 @@ protected:
     uint8_t mActiveMargins;
     bool mUseScissor;
     bool mUseGameResolution = false;
+    bool mHasParentRectOverride = false;
     uint8_t mOpacity;
 
     // Tooltip

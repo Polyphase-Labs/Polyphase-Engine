@@ -232,6 +232,9 @@ Higher specificity wins. Inline `style=""` attribute always wins.
 | `center-h-stretch` | MidHorizontalStretch |
 | `center-v-stretch` | MidVerticalStretch |
 | `full-stretch` | FullStretch |
+| `fill` | Fill (zero-config: matches parent on both axes; `left/top/width/height` ignored) |
+| `fill-horizontal` | FillHorizontal (zero-config X; `top` / `height` still control Y as pixels from parent top) |
+| `fill-vertical` | FillVertical (zero-config Y; `left` / `width` still control X as pixels from parent left) |
 
 ### Visual Properties
 

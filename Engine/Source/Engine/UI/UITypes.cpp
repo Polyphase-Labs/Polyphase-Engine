@@ -379,6 +379,9 @@ static AnchorMode ParseAnchorMode(const std::string& str)
     if (str == "center-v-stretch")   return AnchorMode::MidVerticalStretch;
     if (str == "right-stretch")      return AnchorMode::RightStretch;
     if (str == "full-stretch")       return AnchorMode::FullStretch;
+    if (str == "fill")               return AnchorMode::Fill;
+    if (str == "fill-horizontal")    return AnchorMode::FillHorizontal;
+    if (str == "fill-vertical")      return AnchorMode::FillVertical;
     return AnchorMode::TopLeft;
 }
 

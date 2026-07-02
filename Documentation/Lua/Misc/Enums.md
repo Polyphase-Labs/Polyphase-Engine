@@ -43,6 +43,9 @@ Tables that act as enumerations.
  - `MidVerticalStretch`
  - `RightStretch`
  - `FullStretch`
+ - `Fill` - Zero-config: rect matches parent on both axes; `Offset` and `Size` are ignored.
+ - `FillHorizontal` - Zero-config on X (rect X = parent X, width = parent width). Y uses `Offset.y` (pixels from parent top) and `Size.y` (pixel height).
+ - `FillVertical` - Zero-config on Y (rect Y = parent Y, height = parent height). X uses `Offset.x` (pixels from parent left) and `Size.x` (pixel width).
 
 ## DatumType
  - `Integer`

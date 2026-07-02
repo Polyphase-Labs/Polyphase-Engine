@@ -34,6 +34,7 @@ ANCHOR_VALUES = [
     "left-stretch", "right-stretch",
     "center-h-stretch", "center-v-stretch",
     "full-stretch",
+    "fill", "fill-horizontal", "fill-vertical",
 ]
 
 BOOLEAN_VALUES = ["true", "false", "1", "0"]
