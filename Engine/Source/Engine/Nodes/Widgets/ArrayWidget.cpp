@@ -136,28 +136,44 @@ void ArrayWidget::LayoutChildren()
             }
             child->SetParentRectOverride(slot);
         }
-
-        if (vertical)
-        {
-            if (mCenter && !fillsAxis)
-            {
-                float x = GetWidth() / 2.0f - child->GetWidth() / 2.0f;
-                child->SetX(x);
-            }
-
-            if (!fillsAxis)
-                child->SetY(offset);
-        }
         else
         {
-            if (mCenter && !fillsAxis)
-            {
-                float y = GetHeight() / 2.0f - child->GetHeight() / 2.0f;
-                child->SetY(y);
-            }
+            // Non-Fill children still use the ArrayWidget's rect as their parent,
+            // so compensate the offset for their anchor ratio — a Right-anchored
+            // widget's origin is at parent.right, not parent.left. Only applies
+            // to non-stretched axes (stretch modes treat mOffset as a ratio).
+            const glm::vec2 childAnchorRatio = child->GetAnchorRatio();
 
-            if (!fillsAxis)
-                child->SetX(offset);
+            if (vertical)
+            {
+                const float axisPos = offset - childAnchorRatio.y * axisTotal;
+                if (!child->StretchY())
+                    child->SetY(axisPos);
+                else
+                    child->SetY(offset);
+
+                if (mCenter && !child->StretchX() && !child->FillsX())
+                {
+                    const float crossSize = child->GetWidth();
+                    const float crossPos = (GetWidth() - crossSize) * 0.5f - childAnchorRatio.x * GetWidth();
+                    child->SetX(crossPos);
+                }
+            }
+            else
+            {
+                const float axisPos = offset - childAnchorRatio.x * axisTotal;
+                if (!child->StretchX())
+                    child->SetX(axisPos);
+                else
+                    child->SetX(offset);
+
+                if (mCenter && !child->StretchY() && !child->FillsY())
+                {
+                    const float crossSize = child->GetHeight();
+                    const float crossPos = (GetHeight() - crossSize) * 0.5f - childAnchorRatio.y * GetHeight();
+                    child->SetY(crossPos);
+                }
+            }
         }
 
         offset += childAxisSize + mSpacing;

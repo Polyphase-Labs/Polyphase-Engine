@@ -55,7 +55,7 @@ bg:Attach(parentNode)
 
 ## The Anchor System
 
-The anchor mode controls how a widget is positioned and sized relative to its parent. There are 16 anchor modes defined in `AnchorMode`:
+The anchor mode controls how a widget is positioned and sized relative to its parent. There are 19 anchor modes defined in `AnchorMode` — 9 fixed-position, 7 stretch, and 3 zero-configuration fill modes:
 
 ### Corner and Edge Anchors (9 fixed-position modes)
 
@@ -94,6 +94,50 @@ These modes stretch the widget along one or both axes. Use `SetRatios()` to defi
 | `MidVerticalStretch` | Vertical | Fills parent height, centered horizontally |
 | `RightStretch` | Vertical | Fills parent height, anchored to right |
 | `FullStretch` | Both | Fills entire parent area |
+
+### Fill Anchors (3 zero-configuration modes)
+
+Fill modes are the "just make it fit" shortcut. Unlike stretch modes, they take **no parameters** — `Offset`, `Size`, and margins are ignored on the filled axis. The widget's rect exactly matches the parent's rect on that axis.
+
+| Mode | Fills | Description |
+|---|---|---|
+| `Fill` | Both axes | Rect matches parent's rect exactly. `Offset` / `Size` ignored on both axes. |
+| `FillHorizontal` | X-axis | Width matches parent. Y stays pixel-based: `Offset.y` from parent top, `Size.y` as pixel height. |
+| `FillVertical` | Y-axis | Height matches parent. X stays pixel-based: `Offset.x` from parent left, `Size.x` as pixel width. |
+
+**When to use Fill vs Stretch:**
+
+- Use `FullStretch` + `SetRatios()` when you want to fill a *fraction* of the parent, or need per-side pixel margins.
+- Use `Fill` when you want the widget to be *the parent's rect*, no math. Common cases: a `Quad` background inside a `Canvas`, a `Text` centered in a `Button`, a `ScrollContainer` filling a panel.
+
+```cpp
+// C++ — a background quad that always matches its parent's size
+Quad* bg = panel->CreateChild<Quad>("Background");
+bg->SetAnchorMode(AnchorMode::Fill);
+// no SetPosition, no SetDimensions, no SetRatios — done.
+```
+
+```lua
+-- Lua
+local bg = self:CreateChild("Quad")
+bg:SetAnchorMode(AnchorMode.Fill)
+```
+
+`FillHorizontal` and `FillVertical` are useful for strip layouts — a header bar that fills the parent width but is a fixed pixel height, or a sidebar that fills the parent height but is a fixed pixel width:
+
+```lua
+-- Header bar: full width, fixed 40px height, hugging the top
+header:SetAnchorMode(AnchorMode.FillHorizontal)
+header:SetOffset(0, 0)      -- Y offset from parent top (pixels)
+header:SetSize(0, 40)       -- Size.x ignored (X fills), Size.y = 40px
+
+-- Sidebar: full height, fixed 200px width, hugging the left
+sidebar:SetAnchorMode(AnchorMode.FillVertical)
+sidebar:SetOffset(0, 0)     -- X offset from parent left (pixels)
+sidebar:SetSize(200, 0)     -- Size.x = 200px, Size.y ignored (Y fills)
+```
+
+**Fill in `ArrayWidget`:** when a Fill child sits inside an `ArrayWidget`, the container treats it as **flex-grow** — the child expands to occupy the leftover space after the non-Fill siblings are laid out. See [BuildingUI.md — ArrayWidget](BuildingUI.md#arraywidget-c-only) for the layout rules.
 
 ### Using Anchors
 

@@ -420,6 +420,47 @@ ArrayWidget supports:
 - **Vertical** or **Horizontal** orientation (`ArrayOrientation` enum)
 - **Spacing** between children
 - **Centering** children within the widget bounds (`SetCentered(true)`)
+- **Flex-grow** — any child with a `Fill` anchor mode expands to consume leftover space
+
+### Flex-Grow with Fill Children
+
+When a child of an `ArrayWidget` uses `Fill`, `FillHorizontal`, or `FillVertical` on the array axis (X for horizontal, Y for vertical), the container treats it as **flex-grow**: it computes leftover space after all non-Fill siblings are placed and gives that space to the Fill children (divided evenly if there are more than one).
+
+```
+Horizontal ArrayWidget (width 1000):
+┌──────────┬───────────────────────────────┬──────────┐
+│  Left    │  Center (Fill)                │  Right   │
+│  300 px  │  ← takes 400 px (leftover) →  │  300 px  │
+└──────────┴───────────────────────────────┴──────────┘
+```
+
+```cpp
+ArrayWidget* row = parent->CreateChild<ArrayWidget>("Row");
+row->SetAnchorMode(AnchorMode::FullStretch);
+row->SetRatios(0.0f, 0.0f, 1.0f, 1.0f);
+row->SetOrientation(ArrayOrientation::Horizontal);
+
+// Fixed-width left panel
+Quad* left = row->CreateChild<Quad>("Left");
+left->SetAnchorMode(AnchorMode::LeftStretch);
+left->SetSize(300.0f, 1.0f);              // 300px wide, full array height
+
+// Flex-grow center — takes remaining space
+Quad* center = row->CreateChild<Quad>("Center");
+center->SetAnchorMode(AnchorMode::Fill);  // occupies arrayWidth - 300 - 300 - 2*spacing
+
+// Fixed-width right panel
+Quad* right = row->CreateChild<Quad>("Right");
+right->SetAnchorMode(AnchorMode::RightStretch);
+right->SetSize(300.0f, 1.0f);             // 300px wide, full array height
+```
+
+Two Fill children in the same ArrayWidget split the leftover space **equally** — a `1000px` array with a `200px` header and two Fill children gets two `400px` slots (minus spacing).
+
+**Notes:**
+- The array axis is X for `Horizontal`, Y for `Vertical`. On a horizontal array, `Fill` and `FillHorizontal` both trigger flex-grow (they both fill X); `FillVertical` does not — it fills the *cross axis* and consumes its intrinsic pixel width for the array-axis slot.
+- If total non-Fill size exceeds the array's size, `fillSlot` clamps to 0 — Fill children get no space rather than pushing siblings out.
+- `ArrayWidget` compensates each non-Fill child's `mOffset` for its anchor ratio, so right- and center-anchored children (`RightStretch`, `MidRight`, `Mid`, etc.) land at their computed slot without needing manual pivot or negative-offset workarounds.
 
 For Lua, arrange widgets manually using a loop with position offsets (as shown in the pause menu example above).
 
