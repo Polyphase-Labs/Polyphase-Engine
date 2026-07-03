@@ -24,6 +24,11 @@ public:
     virtual void Create() override;
     virtual void GatherProperties(std::vector<Property>& outProps) override;
     virtual void UpdateRect() override;
+    virtual void PreRender() override;
+
+#if EDITOR
+    virtual bool DrawCustomProperty(Property& prop) override;
+#endif
 
     void SetCentered(bool center);
     bool IsCentered() const;

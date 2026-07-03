@@ -481,40 +481,83 @@ void Widget::SetAnchorMode(AnchorMode anchorMode)
     if (mAnchorMode != anchorMode)
     {
         // When switching anchor mode, we must:
-        // (1) Convert between pixel/percent offsets and sizes if stretching behavior changes
-        // (2) Preserve position and dimensions on the screen?? Not sure about this one actually...
+        // (1) Convert between pixel/percent offsets and sizes if stretching behavior changes.
+        // (2) Handle Fill modes cleanly — Fill ignores mOffset/mSize on its filled axis, so
+        //     we zero those (otherwise a FullStretch→FillHorizontal transition leaves
+        //     mSize.x = parentWidth in pixels as a leftover ratio conversion, which is
+        //     confusing in the Inspector). On the non-filled axis a Fill mode uses pixel
+        //     semantics, so apply the standard ratio→pixel conversion.
+        // (3) When LEAVING a Fill mode to a non-Fill mode, mSize on the previously-filled
+        //     axis is 0 (invisible widget); restore it to a sensible value so the widget
+        //     survives the transition.
 
-        bool oldStretchX = AnchorStretchesX(mAnchorMode);
-        bool oldStretchY = AnchorStretchesY(mAnchorMode);
-        bool newStretchX = AnchorStretchesX(anchorMode);
-        bool newStretchY = AnchorStretchesY(anchorMode);
+        const bool oldStretchX = AnchorStretchesX(mAnchorMode);
+        const bool oldStretchY = AnchorStretchesY(mAnchorMode);
+        const bool newStretchX = AnchorStretchesX(anchorMode);
+        const bool newStretchY = AnchorStretchesY(anchorMode);
+        const bool oldFillsX = AnchorFillsX(mAnchorMode);
+        const bool oldFillsY = AnchorFillsY(mAnchorMode);
+        const bool newFillsX = AnchorFillsX(anchorMode);
+        const bool newFillsY = AnchorFillsY(anchorMode);
 
-        if (oldStretchX && !newStretchX)
+        // ------ X axis ------
+        // Standard pixel/ratio conversion only applies when neither side is Fill,
+        // and the stretch-encoding actually changes.
+        if (!oldFillsX && !newFillsX)
         {
-            mOffset.x = RatioToPixelsX(mOffset.x);
-            mSize.x = RatioToPixelsX(mSize.x);
-        }
-        else if (!oldStretchX && newStretchX)
-        {
-            mOffset.x = PixelsToRatioX(mOffset.x);
-            mSize.x = PixelsToRatioX(mSize.x);
+            if (oldStretchX && !newStretchX)
+            {
+                mOffset.x = RatioToPixelsX(mOffset.x);
+                mSize.x = RatioToPixelsX(mSize.x);
+            }
+            else if (!oldStretchX && newStretchX)
+            {
+                mOffset.x = PixelsToRatioX(mOffset.x);
+                mSize.x = PixelsToRatioX(mSize.x);
+            }
         }
 
-        if (oldStretchY && !newStretchY)
+        // Entering Fill on X: zero the ignored values.
+        if (newFillsX && !oldFillsX)
         {
-            mOffset.y = RatioToPixelsY(mOffset.y);
-            mSize.y = RatioToPixelsY(mSize.y);
+            mOffset.x = 0.0f;
+            mSize.x = 0.0f;
         }
-        else if (!oldStretchY && newStretchY)
+        // Leaving Fill on X: restore a sensible mSize.x for the new mode
+        // (the widget was visually filling parent width, so use that).
+        else if (oldFillsX && !newFillsX)
         {
-            mOffset.y = PixelsToRatioY(mOffset.y);
-            mSize.y = PixelsToRatioY(mSize.y);
+            mSize.x = newStretchX ? 1.0f : GetParentWidth();
+        }
+
+        // ------ Y axis ------ (symmetric)
+        if (!oldFillsY && !newFillsY)
+        {
+            if (oldStretchY && !newStretchY)
+            {
+                mOffset.y = RatioToPixelsY(mOffset.y);
+                mSize.y = RatioToPixelsY(mSize.y);
+            }
+            else if (!oldStretchY && newStretchY)
+            {
+                mOffset.y = PixelsToRatioY(mOffset.y);
+                mSize.y = PixelsToRatioY(mSize.y);
+            }
+        }
+
+        if (newFillsY && !oldFillsY)
+        {
+            mOffset.y = 0.0f;
+            mSize.y = 0.0f;
+        }
+        else if (oldFillsY && !newFillsY)
+        {
+            mSize.y = newStretchY ? 1.0f : GetParentHeight();
         }
 
         mAnchorMode = anchorMode;
         MarkDirty();
     }
-
 }
 
 bool Widget::AnchorStretchesX(AnchorMode mode) const

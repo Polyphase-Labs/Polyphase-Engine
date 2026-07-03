@@ -5,6 +5,7 @@
 #include "Maths.h"
 #include "Engine.h"
 #include "TableDatum.h"
+#include "AssetManager.h"
 #include "Assets/Scene.h"
 #include "Nodes/3D/StaticMesh3d.h"
 
@@ -601,12 +602,34 @@ void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePt
             // Vector-of-asset properties (e.g. SpriteAnimator's Animations) skip this check —
             // GetAsset() asserts when the vector is empty, and the transient-shortcut here is
             // only meaningful for single-asset slots like inline material overrides anyway.
+            //
+            // Both Asset pointers are validated via AssetManager::IsAssetLive before
+            // dereferencing. A subscene-linked node with a stale AssetRef pointing at
+            // freed memory would otherwise AV inside IsTransient() (Asset::mTransient
+            // read against a 0xDD-filled block). Same guard applies to the Datum
+            // inequality below because operator!= for Asset Datums compares pointers
+            // but downstream save code will still deref survivors — safer to treat
+            // dangling-vs-anything as "no override needed" and move on.
             if (extProps[i].mType == DatumType::Asset && defaultProp != nullptr
                 && !extProps[i].IsVector() && !defaultProp->IsVector()
                 && extProps[i].GetCount() > 0 && defaultProp->GetCount() > 0)
             {
                 Asset* curAsset = extProps[i].GetAsset();
                 Asset* defAsset = defaultProp->GetAsset();
+
+                AssetManager* am = AssetManager::Get();
+                bool curLive = (curAsset == nullptr) || (am && am->IsAssetLive(curAsset));
+                bool defLive = (defAsset == nullptr) || (am && am->IsAssetLive(defAsset));
+
+                if (!curLive || !defLive)
+                {
+                    LogWarning("GatherNonDefaultProperties: dangling Asset* on '%s' (%s%s); skipping",
+                               extProps[i].mName.c_str(),
+                               curLive ? "" : "cur ",
+                               defLive ? "" : "def");
+                    continue;
+                }
+
                 if (curAsset != nullptr && curAsset->IsTransient() &&
                     defAsset != nullptr && defAsset->IsTransient())
                 {
