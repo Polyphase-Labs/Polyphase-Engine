@@ -4626,6 +4626,131 @@ void DrawAddNodeMenu(Node* node)
     sScenesByCategory.clear();
 }
 
+// Look up a factory TypeId by class name. Returns INVALID_TYPE_ID if no match.
+static TypeId FindTypeIdByClassName(const std::string& className)
+{
+    const std::vector<Factory*>& factories = Node::GetFactoryList();
+    for (uint32_t i = 0; i < factories.size(); ++i)
+    {
+        if (factories[i] != nullptr &&
+            className == factories[i]->GetClassName())
+        {
+            return factories[i]->GetType();
+        }
+    }
+    return INVALID_TYPE_ID;
+}
+
+// Draws a "Replace With > Widget" submenu that mirrors the Widget branch of
+// DrawAddNodeMenu. Reuses the same sNodeWidgetCategorized / sNodeWidgetAddonGrouped
+// maps so the two menus stay in lockstep automatically. Picking a type swaps the
+// selected widget for a new one of that type via ActionManager::EXE_ReplaceNodeType,
+// which preserves the slot in the parent, transfers shared properties, moves all
+// children over, and keeps the persistent UUID.
+void DrawReplaceWithWidgetMenu(Widget* oldWidget)
+{
+    if (oldWidget == nullptr)
+        return;
+
+    if (!sNodesDiscovered)
+    {
+        DiscoverNodeClasses();
+        sNodesDiscovered = true;
+    }
+
+    ActionManager* am = ActionManager::Get();
+    const char* oldClassName = oldWidget->GetClassName();
+
+    auto tryReplace = [&](const std::string& newTypeName)
+    {
+        // No-op if user picked the same type.
+        if (newTypeName == oldClassName)
+            return;
+
+        TypeId newType = FindTypeIdByClassName(newTypeName);
+        if (newType == INVALID_TYPE_ID)
+        {
+            LogWarning("Replace With: no factory for '%s'", newTypeName.c_str());
+            return;
+        }
+        am->EXE_ReplaceNodeType(oldWidget, newType);
+    };
+
+    // Render a single categorized bucket. Skips the entry matching oldWidget's
+    // own class so users don't see "Replace Button with Button".
+    auto drawBucket = [&](const std::string& bucketLabel,
+                          const std::vector<std::string>& names)
+    {
+        // Count entries that aren't self.
+        uint32_t drawable = 0;
+        for (const std::string& nm : names)
+        {
+            if (nm != oldClassName) ++drawable;
+        }
+        if (drawable == 0) return;
+
+        if (ImGui::BeginMenu(bucketLabel.c_str()))
+        {
+            for (const std::string& nm : names)
+            {
+                if (nm == oldClassName) continue;
+                if (ImGui::MenuItem(nm.c_str())) tryReplace(nm);
+            }
+            ImGui::EndMenu();
+        }
+    };
+
+    auto drawCategorizedInOrder = [&](
+        const std::map<std::string, std::vector<std::string>>& categorized,
+        const char* const* preferredOrder, size_t preferredCount)
+    {
+        std::set<std::string> drawn;
+        for (size_t i = 0; i < preferredCount; ++i)
+        {
+            auto it = categorized.find(preferredOrder[i]);
+            if (it != categorized.end())
+            {
+                drawBucket(it->first, it->second);
+                drawn.insert(it->first);
+            }
+        }
+        for (const auto& pair : categorized)
+        {
+            if (drawn.count(pair.first) == 0)
+            {
+                drawBucket(pair.first, pair.second);
+            }
+        }
+    };
+
+    auto drawAddonGrouped = [&](
+        const std::map<std::string, std::vector<std::string>>& grouped)
+    {
+        if (grouped.empty()) return;
+        if (ImGui::BeginMenu("Addons"))
+        {
+            for (const auto& pair : grouped)
+            {
+                if (ImGui::BeginMenu(pair.first.c_str()))
+                {
+                    for (const std::string& nm : pair.second)
+                    {
+                        if (nm == oldClassName) continue;
+                        if (ImGui::MenuItem(nm.c_str())) tryReplace(nm);
+                    }
+                    ImGui::EndMenu();
+                }
+            }
+            ImGui::EndMenu();
+        }
+    };
+
+    static const char* kWidgetOrder[] = { "Containers", "Input", "Display", "Layout", "Animation" };
+    drawCategorizedInOrder(sNodeWidgetCategorized, kWidgetOrder,
+                           sizeof(kWidgetOrder) / sizeof(kWidgetOrder[0]));
+    drawAddonGrouped(sNodeWidgetAddonGrouped);
+}
+
 static void DrawImportMenu(Node* node)
 {
     ActionManager* am = ActionManager::Get();
@@ -5693,6 +5818,21 @@ static void DrawScenePanel()
                 if (node->As<Widget>())
                 {
                     ImGui::Separator();
+
+                    // "Replace With > Widget > *" — swap the selected widget for a new
+                    // type, preserving slot in parent, children, portable properties,
+                    // and persistent UUID. Gated the same way as Delete/Duplicate.
+                    if (!nodeSceneLinked && !inSubScene && node->GetParent() != nullptr &&
+                        ImGui::BeginMenu("Replace With"))
+                    {
+                        if (ImGui::BeginMenu("Widget"))
+                        {
+                            DrawReplaceWithWidgetMenu(node->As<Widget>());
+                            ImGui::EndMenu();
+                        }
+                        ImGui::EndMenu();
+                    }
+
                     if (ImGui::Selectable("Export XML..."))
                     {
                         std::string xml;
@@ -11559,6 +11699,65 @@ static void DrawDesignBounds()
     }
 }
 
+// Editor-only: draw a bright outline around the Viewport2D wrapper widget's rect
+// in Scene2D mode, so the user can see where the game view (GamePreview target
+// resolution) sits inside their editor viewport. Complements the "no scissor in
+// Scene2D" branch in Widget::UpdateRect — widgets outside this border still
+// render for editing, but the border makes the game-visible area unambiguous.
+static void DrawGameViewBorder()
+{
+    Viewport2D* vp2d = GetEditorState()->GetViewport2D();
+    if (vp2d == nullptr)
+        return;
+    Widget* wrapper = vp2d->GetWrapperWidget();
+    if (wrapper == nullptr)
+        return;
+
+    Rect rect = wrapper->GetRect();
+    if (rect.mWidth <= 0.0f || rect.mHeight <= 0.0f)
+        return;
+
+    // Use the background draw list so the border sits above the widget
+    // framebuffer content but underneath ImGui panels (inspector, hierarchy,
+    // etc.) — otherwise it draws on top of every docked panel.
+    ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+    glm::vec4 vp = Renderer::Get()->GetViewport(0);
+
+    // Clamp to the viewport so the border can't spill into adjacent panels
+    // when the wrapper is zoomed/panned past the viewport edge.
+    Rect viewportRect;
+    viewportRect.mX = 0.0f;
+    viewportRect.mY = 0.0f;
+    viewportRect.mWidth = vp.z;
+    viewportRect.mHeight = vp.w;
+    if (!rect.OverlapsRect(viewportRect))
+        return;
+    rect.Clamp(viewportRect);
+
+    float interfaceScale = GetEngineConfig()->mEditorInterfaceScale;
+    if (interfaceScale == 0.0f)
+        interfaceScale = 1.0f;
+    float invInterfaceScale = 1.0f / interfaceScale;
+
+    // Wrapper rect is in viewport-local pixel coords; convert to ImGui screen
+    // coords (which are inverse-scaled by mEditorInterfaceScale).
+    float x = invInterfaceScale * (rect.mX + vp.x);
+    float y = invInterfaceScale * (rect.mY + vp.y);
+    float w = invInterfaceScale * rect.mWidth;
+    float h = invInterfaceScale * rect.mHeight;
+
+    ImColor borderColor(0.4f, 0.9f, 1.0f, 0.9f);   // Cyan-ish; distinct from Canvas (orange) and selection (green).
+    ImColor shadowColor(0.0f, 0.0f, 0.0f, 0.6f);
+    float thickness = 2.0f;
+
+    // Draw a slightly-offset dark shadow underneath so the border reads on any
+    // background color, then the main cyan stroke on top.
+    drawList->AddRect(ImVec2(x - 1, y - 1), ImVec2(x + w + 1, y + h + 1),
+                      shadowColor, 0.0f, ImDrawFlags_None, thickness);
+    drawList->AddRect(ImVec2(x, y), ImVec2(x + w, y + h),
+                      borderColor, 0.0f, ImDrawFlags_None, thickness);
+}
+
 static void Draw2dSelections()
 {
     const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
@@ -14615,6 +14814,7 @@ void EditorImguiDraw()
 
         if (GetEditorState()->GetEditorMode() == EditorMode::Scene2D)
         {
+            DrawGameViewBorder();
             DrawDesignBounds();
             Draw2dSelections();
         }

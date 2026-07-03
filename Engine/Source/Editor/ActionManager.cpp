@@ -11477,6 +11477,152 @@ void ActionParentSelectedWith::Reverse()
 }
 
 // ---------------------------------------------------------------------------
+// ActionReplaceNodeType
+// ---------------------------------------------------------------------------
+
+ActionReplaceNodeType::ActionReplaceNodeType(Node* oldNode, TypeId newType)
+    : mOldNode(ResolvePtr(oldNode))
+    , mNewType(newType)
+{
+    OCT_ASSERT(oldNode != nullptr);
+    if (oldNode != nullptr)
+    {
+        mParent = ResolvePtr(oldNode->GetParent());
+        mChildIndex = oldNode->GetParent() ? oldNode->GetParent()->FindChildIndex(oldNode) : -1;
+        mSavedUuid = oldNode->GetPersistentUuid();
+    }
+}
+
+void ActionReplaceNodeType::Execute()
+{
+    Action::Execute();
+
+    if (mOldNode == nullptr || mParent == nullptr)
+        return;
+
+    if (mFirstExecute)
+    {
+        mFirstExecute = false;
+
+        // Create the new node.
+        mNewNode = Node::Construct(mNewType);
+        if (mNewNode == nullptr)
+        {
+            LogError("ActionReplaceNodeType: failed to construct new node type.");
+            return;
+        }
+
+        // Property-by-name copy from old to new. We cannot use Node::Copy because
+        // it asserts same type; instead mirror the loop at Node.cpp:359-397 which
+        // matches Property entries by (name, type) and silently drops anything the
+        // dst class doesn't publish — exactly what we want for a type morph.
+        std::vector<Property> srcProps;
+        mOldNode->GatherProperties(srcProps);
+        std::vector<Property> dstProps;
+        mNewNode->GatherProperties(dstProps);
+
+        for (uint32_t i = 0; i < srcProps.size(); ++i)
+        {
+            Property* srcProp = &srcProps[i];
+            Property* dstProp = nullptr;
+            for (uint32_t j = 0; j < dstProps.size(); ++j)
+            {
+                if (dstProps[j].mName == srcProp->mName &&
+                    dstProps[j].mType == srcProp->mType)
+                {
+                    dstProp = &dstProps[j];
+                    break;
+                }
+            }
+            if (dstProp != nullptr)
+            {
+                if (dstProp->IsVector())
+                {
+                    dstProp->ResizeVector(srcProp->GetCount());
+                }
+                else if (dstProp->mCount != srcProp->mCount)
+                {
+                    continue;
+                }
+                dstProp->SetValue(srcProp->mData.vp, 0, srcProp->mCount);
+            }
+            // Script prop can dynamically change gathered props — re-gather after.
+            if (srcProp->mName == "Script")
+            {
+                dstProps.clear();
+                mNewNode->GatherProperties(dstProps);
+            }
+        }
+
+        // Move all children from old to new, preserving order. Each iteration
+        // pops the current first child of mOldNode; captured pointers persist
+        // in mMovedChildren for undo.
+        mMovedChildren.clear();
+        const uint32_t numChildren = mOldNode->GetNumChildren();
+        for (uint32_t i = 0; i < numChildren; ++i)
+        {
+            NodePtr childPtr = ResolvePtr(mOldNode->GetChild(0));
+            Node* child = childPtr.Get();
+            if (child == nullptr) break;
+            child->Detach();
+            mNewNode->AddChild(child, -1);
+            mMovedChildren.push_back(childPtr);
+        }
+    }
+    else
+    {
+        // Re-execute after undo: restore new from exile and re-move children.
+        ActionManager::Get()->RestoreExiledNode(mNewNode);
+        for (uint32_t i = 0; i < mMovedChildren.size(); ++i)
+        {
+            if (mMovedChildren[i])
+            {
+                mMovedChildren[i]->Detach();
+                mNewNode->AddChild(mMovedChildren[i].Get(), -1);
+            }
+        }
+    }
+
+    // Detach old, transfer UUID (must be BEFORE add-child so world's uuid map
+    // sees the new node claim the id), insert new at old's slot, exile old.
+    mOldNode->Detach();
+    mOldNode->SetPersistentUuid(0);
+    mNewNode->SetPersistentUuid(mSavedUuid);
+    mParent->AddChild(mNewNode.Get(), mChildIndex);
+    ActionManager::Get()->ExileNode(mOldNode);
+
+    GetEditorState()->SetSelectedNode(mNewNode.Get());
+}
+
+void ActionReplaceNodeType::Reverse()
+{
+    Action::Reverse();
+
+    if (mOldNode == nullptr || mNewNode == nullptr || mParent == nullptr)
+        return;
+
+    // Move children back to old, in original order.
+    for (uint32_t i = 0; i < mMovedChildren.size(); ++i)
+    {
+        if (mMovedChildren[i])
+        {
+            mMovedChildren[i]->Detach();
+            mOldNode->AddChild(mMovedChildren[i].Get(), -1);
+        }
+    }
+
+    // Detach new, restore old at slot, transfer UUID back.
+    mNewNode->Detach();
+    mNewNode->SetPersistentUuid(0);
+    ActionManager::Get()->RestoreExiledNode(mOldNode);
+    mOldNode->SetPersistentUuid(mSavedUuid);
+    mParent->AddChild(mOldNode.Get(), mChildIndex);
+    ActionManager::Get()->ExileNode(mNewNode);
+
+    GetEditorState()->SetSelectedNode(mOldNode.Get());
+}
+
+// ---------------------------------------------------------------------------
 // EXE_ methods for replace actions
 // ---------------------------------------------------------------------------
 
@@ -11533,6 +11679,33 @@ void ActionManager::EXE_ParentSelectedWith(
 
     ActionParentSelectedWith* action = new ActionParentSelectedWith(
         nodes, parentType, arrayOrientation);
+    ActionManager::Get()->ExecuteAction(action);
+}
+
+void ActionManager::EXE_ReplaceNodeType(Node* oldNode, TypeId newType)
+{
+    if (oldNode == nullptr)
+    {
+        LogWarning("EXE_ReplaceNodeType: oldNode is null.");
+        return;
+    }
+    if (oldNode->GetType() == newType)
+    {
+        // Same type, no-op.
+        return;
+    }
+    if (oldNode->IsSceneLinkedChild())
+    {
+        LogError("Cannot replace a scene-linked node's type. Unlink the scene first.");
+        return;
+    }
+    if (oldNode->GetParent() == nullptr)
+    {
+        LogError("Cannot replace the root node's type.");
+        return;
+    }
+
+    ActionReplaceNodeType* action = new ActionReplaceNodeType(oldNode, newType);
     ActionManager::Get()->ExecuteAction(action);
 }
 

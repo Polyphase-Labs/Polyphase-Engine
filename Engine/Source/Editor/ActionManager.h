@@ -318,6 +318,14 @@ public:
     void EXE_ParentSelectedWith(const std::vector<Node*>& nodes, TypeId parentType,
         ArrayOrientation arrayOrientation = ArrayOrientation::Vertical);
 
+    /**
+     * @brief Replace a node with a new node of a different type, preserving position in parent,
+     *        transferring all shared properties (by name+type), and moving all children onto the new node.
+     * @param oldNode The node to replace.
+     * @param newType The type of node to create as replacement.
+     */
+    void EXE_ReplaceNodeType(Node* oldNode, TypeId newType);
+
     // Timeline actions
     void EXE_TimelineAddTrack(Timeline* timeline, TypeId trackType);
     void EXE_TimelineRemoveTrack(Timeline* timeline, int32_t trackIndex);
@@ -941,6 +949,29 @@ protected:
     int32_t mCreatedParentChildIndex = -1;
     TypeId mNewParentType;
     ArrayOrientation mArrayOrientation = ArrayOrientation::Vertical;
+    bool mFirstExecute = true;
+};
+
+/**
+ * @brief Action to replace a node with a new node of a different type. The new node keeps
+ *        the old node's slot in its parent, all children move over, portable properties
+ *        (matched by name + type) transfer, and the persistent UUID is preserved so
+ *        Timeline bindings and node-graph refs remain resolvable.
+ */
+class ActionReplaceNodeType : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(ReplaceNodeType);
+    ActionReplaceNodeType(Node* oldNode, TypeId newType);
+
+protected:
+    NodePtr mOldNode;
+    NodePtr mNewNode;
+    NodePtr mParent;
+    int32_t mChildIndex = -1;
+    std::vector<NodePtr> mMovedChildren;
+    TypeId mNewType;
+    uint64_t mSavedUuid = 0;
     bool mFirstExecute = true;
 };
 

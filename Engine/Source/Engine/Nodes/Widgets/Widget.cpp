@@ -925,10 +925,15 @@ void Widget::UpdateRect()
         // Default scissor is the raw viewport in framebuffer coords.
         glm::uvec4 scissorVp = vp;
 #if EDITOR
-        // For root widgets, when the letterbox is active, clip to the letterbox
-        // sub-region so widgets that overshoot the target-space are clipped
-        // exactly where GamePreview clips them.
-        if (parent == nullptr)
+        // For root widgets in the main Scene (3D) viewport, clip to the letterbox
+        // sub-region so widgets that overshoot the target-space are clipped exactly
+        // where GamePreview clips them (visual parity with the game).
+        //
+        // In Scene2D mode, the widget editor, we deliberately DO NOT clip — the user
+        // wants to see and edit widgets that extend past the game area. A visible
+        // border overlay (DrawGameViewBorder) shows where the game area is instead.
+        if (parent == nullptr &&
+            GetEditorState()->GetEditorMode() != EditorMode::Scene2D)
         {
             glm::uvec4 lbVp = { 0, 0, vp.z, vp.w };
             glm::vec2 unusedScale;
