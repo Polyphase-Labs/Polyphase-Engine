@@ -145,6 +145,15 @@ public:
     void UpdateColor();
     void FitInsideParent();
 
+#if EDITOR
+    // Editor helper: computes a letterboxed sub-region of the raw editor viewport
+    // that preserves the currently-selected GamePreview target aspect ratio.
+    // outVp is viewport-LOCAL (0-based within the raw viewport). Returns false
+    // when the letterbox doesn't apply (non-main screen, PIE-in-game-window,
+    // or no valid GamePreview preset).
+    static bool ComputeGamePreviewLetterbox(glm::uvec4& outVp, glm::vec2& outExtraScale);
+#endif
+
     // Container-driven slot layout. When set, UpdateRect uses this rect
     // (in parent-local coord space: mX/mY are absolute like parent->mRect)
     // instead of the actual parent rect. Consumed on read — the container

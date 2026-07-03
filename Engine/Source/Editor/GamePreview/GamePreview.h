@@ -31,6 +31,13 @@ public:
     uint32_t GetCurrentWidth() const { return mCurrentWidth; }
     uint32_t GetCurrentHeight() const { return mCurrentHeight; }
 
+    // Selected preset resolution — persists across Disable() (unlike
+    // GetCurrentWidth/Height, which track live render targets and reset to
+    // 0 when the panel is closed). Returns the currently-selected preset,
+    // or the current build profile's target platform, or a 640x480 default.
+    uint32_t GetSelectedPresetWidth();
+    uint32_t GetSelectedPresetHeight();
+
     // Capture the current color target into RGBA bytes (no disk write).
     // Returns false if the preview is not currently rendered (no color target).
     // Must be called from the main thread.

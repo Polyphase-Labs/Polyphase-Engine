@@ -681,6 +681,66 @@ glm::vec2 Widget::GetDimensions() const
     return { GetWidth(), GetHeight() };
 }
 
+#if EDITOR
+// Returns true and fills outVp with a letterboxed sub-region of the raw editor
+// viewport (viewport-local coords), sized to preserve GamePreview's current
+// target aspect ratio. Also returns the letterbox scale factor so callers can
+// multiply it into mAbsoluteScale for proportional pixel content scaling.
+//
+// Uses GamePreview::GetSelectedPreset{Width,Height}() rather than the live
+// mCurrentWidth/Height so the letterbox stays active even when the GamePreview
+// panel is closed. Cached per frame to avoid rebuilding the preset list once
+// per widget.
+bool Widget::ComputeGamePreviewLetterbox(glm::uvec4& outVp, glm::vec2& outExtraScale)
+{
+    EditorState* es = GetEditorState();
+    if (es == nullptr)
+        return false;
+    if (Renderer::Get()->GetScreenIndex() != 0)
+        return false;
+    if (IsPlayingInEditor() && es->mPlayInGameWindow)
+        return false;
+
+    GamePreview* gp = GetGamePreview();
+    if (gp == nullptr)
+        return false;
+
+    static uint32_t sCachedTgtW = 0;
+    static uint32_t sCachedTgtH = 0;
+    static uint32_t sCachedFrame = UINT32_MAX;
+    const uint32_t curFrame = GetEngineState() ? GetEngineState()->mFrameNumber : 0;
+    if (curFrame != sCachedFrame)
+    {
+        sCachedTgtW = gp->GetSelectedPresetWidth();
+        sCachedTgtH = gp->GetSelectedPresetHeight();
+        sCachedFrame = curFrame;
+    }
+    if (sCachedTgtW == 0 || sCachedTgtH == 0)
+        return false;
+
+    glm::uvec4 raw = Renderer::Get()->GetViewport();
+    const float rawW = (float)raw.z;
+    const float rawH = (float)raw.w;
+    if (rawW <= 0.0f || rawH <= 0.0f)
+        return false;
+
+    const float tgtW = (float)sCachedTgtW;
+    const float tgtH = (float)sCachedTgtH;
+    const float scale = glm::min(rawW / tgtW, rawH / tgtH);
+    const float boxW = tgtW * scale;
+    const float boxH = tgtH * scale;
+    const float offX = (rawW - boxW) * 0.5f;
+    const float offY = (rawH - boxH) * 0.5f;
+
+    outVp.x = (uint32_t)offX;
+    outVp.y = (uint32_t)offY;
+    outVp.z = (uint32_t)boxW;
+    outVp.w = (uint32_t)boxH;
+    outExtraScale = { scale, scale };
+    return true;
+}
+#endif
+
 void Widget::UpdateRect()
 {
     Rect parentRect;
@@ -713,10 +773,17 @@ void Widget::UpdateRect()
     }
     else
     {
-        parentRect.mX = 0.0f;
-        parentRect.mY = 0.0f;
-        parentRect.mWidth = (float)vp.z;
-        parentRect.mHeight = (float)vp.w;
+        // parentRect is in viewport-LOCAL coords: (0, 0, vp.z, vp.w) by default,
+        // or the letterbox sub-region within the viewport when GamePreview is active.
+        glm::uvec4 usedVp = { 0, 0, vp.z, vp.w };
+#if EDITOR
+        glm::vec2 unused;
+        ComputeGamePreviewLetterbox(usedVp, unused);
+#endif
+        parentRect.mX = (float)usedVp.x;
+        parentRect.mY = (float)usedVp.y;
+        parentRect.mWidth = (float)usedVp.z;
+        parentRect.mHeight = (float)usedVp.w;
     }
 
     // Container-driven slot override — used as the effective parent rect.
@@ -745,6 +812,18 @@ void Widget::UpdateRect()
     else
     {
         mAbsoluteScale *= Renderer::Get()->GetGlobalUiScale();
+#if EDITOR
+        // Scale fixed-pixel content (SetSize, text glyphs, sprite Quads) from
+        // GamePreview target-space to letterbox-space so a UI designed at
+        // 1920x1080 keeps its proportions in a smaller editor viewport. The
+        // multiply propagates to children via parent->mAbsoluteScale.
+        glm::uvec4 tmpVp;
+        glm::vec2 extraScale;
+        if (ComputeGamePreviewLetterbox(tmpVp, extraScale))
+        {
+            mAbsoluteScale *= extraScale;
+        }
+#endif
     }
 
     if (fillX)
@@ -843,7 +922,27 @@ void Widget::UpdateRect()
     }
     else
     {
-        mScissorRect = Rect((float)vp.x, (float)vp.y, (float)vp.z, (float)vp.w);
+        // Default scissor is the raw viewport in framebuffer coords.
+        glm::uvec4 scissorVp = vp;
+#if EDITOR
+        // For root widgets, when the letterbox is active, clip to the letterbox
+        // sub-region so widgets that overshoot the target-space are clipped
+        // exactly where GamePreview clips them.
+        if (parent == nullptr)
+        {
+            glm::uvec4 lbVp = { 0, 0, vp.z, vp.w };
+            glm::vec2 unusedScale;
+            if (ComputeGamePreviewLetterbox(lbVp, unusedScale))
+            {
+                scissorVp.x = vp.x + lbVp.x;
+                scissorVp.y = vp.y + lbVp.y;
+                scissorVp.z = lbVp.z;
+                scissorVp.w = lbVp.w;
+            }
+        }
+#endif
+        mScissorRect = Rect((float)scissorVp.x, (float)scissorVp.y,
+                            (float)scissorVp.z, (float)scissorVp.w);
     }
 
     if (parent)
@@ -903,12 +1002,17 @@ void Widget::FitInsideParent()
     }
     else
     {
-        // Fit to screen
+        // Fit to screen (or GamePreview letterbox sub-region when active).
         glm::uvec4 vp = Renderer::Get()->GetViewport();
-        parentRect.mX = 0.0f;
-        parentRect.mY = 0.0f;
-        parentRect.mWidth = (float)vp.z;
-        parentRect.mHeight = (float)vp.w;
+        glm::uvec4 usedVp = { 0, 0, vp.z, vp.w };
+#if EDITOR
+        glm::vec2 unused;
+        ComputeGamePreviewLetterbox(usedVp, unused);
+#endif
+        parentRect.mX = (float)usedVp.x;
+        parentRect.mY = (float)usedVp.y;
+        parentRect.mWidth = (float)usedVp.z;
+        parentRect.mHeight = (float)usedVp.w;
     }
 
     if (mRect.mX < parentRect.mX)
@@ -923,18 +1027,28 @@ void Widget::FitInsideParent()
 
 float Widget::GetParentWidth() const
 {
-    return
-        GetParentWidget() ?
-        GetParentWidget()->GetWidth() :
-        Renderer::Get()->GetScreenResolution().x;
+    if (GetParentWidget())
+        return GetParentWidget()->GetWidth();
+#if EDITOR
+    glm::uvec4 lbVp;
+    glm::vec2 unused;
+    if (ComputeGamePreviewLetterbox(lbVp, unused))
+        return (float)lbVp.z;
+#endif
+    return Renderer::Get()->GetScreenResolution().x;
 }
 
 float Widget::GetParentHeight() const
 {
-    return
-        GetParentWidget() ?
-        GetParentWidget()->GetHeight() :
-        Renderer::Get()->GetScreenResolution().y;
+    if (GetParentWidget())
+        return GetParentWidget()->GetHeight();
+#if EDITOR
+    glm::uvec4 lbVp;
+    glm::vec2 unused;
+    if (ComputeGamePreviewLetterbox(lbVp, unused))
+        return (float)lbVp.w;
+#endif
+    return Renderer::Get()->GetScreenResolution().y;
 }
 
 void Widget::SetColor(glm::vec4 color)

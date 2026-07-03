@@ -8,6 +8,8 @@
 #include "ActionManager.h"
 #include "Maths.h"
 #include "Renderer.h"
+#include "GamePreview/GamePreview.h"
+#include "Nodes/Widgets/Widget.h"
 
 #include "imgui.h"
 #include "./ImGuizmo/ImGuizmo.h"
@@ -35,7 +37,38 @@ void Viewport2D::Update(float deltaTime)
 
     mWrapperWidget->SetPosition(mRootOffset);
     mWrapperWidget->SetScale({ mZoom, mZoom });
-    mWrapperWidget->SetDimensions((float)renderer->GetViewportWidth(0), (float)renderer->GetViewportHeight(0));
+
+    // When GamePreview has a selected preset, size the Wrapper to that target
+    // resolution so children lay out at target-space coordinates. Widget::UpdateRect
+    // then multiplies Wrapper's mAbsoluteScale by the letterbox scale, producing
+    // a Wrapper mRect that exactly matches the letterbox area. Falls back to raw
+    // viewport dimensions when no GamePreview preset is active.
+    glm::uvec4 lbVp;
+    glm::vec2 lbScale;
+    if (Widget::ComputeGamePreviewLetterbox(lbVp, lbScale))
+    {
+        GamePreview* gp = GetGamePreview();
+        if (gp != nullptr)
+        {
+            const uint32_t tgtW = gp->GetSelectedPresetWidth();
+            const uint32_t tgtH = gp->GetSelectedPresetHeight();
+            if (tgtW > 0 && tgtH > 0)
+                mWrapperWidget->SetDimensions((float)tgtW, (float)tgtH);
+            else
+                mWrapperWidget->SetDimensions((float)renderer->GetViewportWidth(0),
+                                              (float)renderer->GetViewportHeight(0));
+        }
+        else
+        {
+            mWrapperWidget->SetDimensions((float)renderer->GetViewportWidth(0),
+                                          (float)renderer->GetViewportHeight(0));
+        }
+    }
+    else
+    {
+        mWrapperWidget->SetDimensions((float)renderer->GetViewportWidth(0),
+                                      (float)renderer->GetViewportHeight(0));
+    }
 
     Widget* selWidget = GetEditorState()->GetSelectedWidget();
     Widget* hoverWidget = nullptr;

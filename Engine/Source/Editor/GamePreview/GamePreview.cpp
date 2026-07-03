@@ -190,6 +190,16 @@ ResolutionPreset GamePreview::GetCurrentPreset()
     return { "Default  640x480", 640, 480 };
 }
 
+uint32_t GamePreview::GetSelectedPresetWidth()
+{
+    return GetCurrentPreset().mWidth;
+}
+
+uint32_t GamePreview::GetSelectedPresetHeight()
+{
+    return GetCurrentPreset().mHeight;
+}
+
 // Returns the canonical preview resolution for a target platform.
 void GamePreview::GetPlatformResolution(Platform platform, uint32_t& outWidth, uint32_t& outHeight, const char*& outName)
 {
