@@ -876,11 +876,16 @@ void Widget::UpdateRect()
     }
     else if (stretchX)
     {
+        // Margin arm: mOffset.x / mSize.x are authored pixel margins. parentRect
+        // is in rendered (scaled) space, so multiply the margin by mAbsoluteScale
+        // to land in the same space. Without this, margins render at authored
+        // pixel width regardless of viewport scale — LineEdit's title/input
+        // margins would look "locked" or "loose" depending on the letterbox.
         mRect.mX = (mActiveMargins & MF_Left) ?
-            (parentRect.mX + mOffset.x) :
+            (parentRect.mX + mOffset.x * mAbsoluteScale.x) :
             (parentRect.mX + parentRect.mWidth * mOffset.x);
         mRect.mWidth = (mActiveMargins & MF_Right) ?
-            (parentRect.mX + parentRect.mWidth - mRect.mX - mSize.x) :
+            (parentRect.mX + parentRect.mWidth - mRect.mX - mSize.x * mAbsoluteScale.x) :
             (parentRect.mWidth * mSize.x);
     }
     else
@@ -896,11 +901,13 @@ void Widget::UpdateRect()
     }
     else if (stretchY)
     {
+        // See the X-axis comment above — same authored→scaled conversion for
+        // MF_Top / MF_Bottom margins.
         mRect.mY = (mActiveMargins & MF_Top) ?
-            (parentRect.mY + mOffset.y) :
+            (parentRect.mY + mOffset.y * mAbsoluteScale.y) :
             (parentRect.mY + parentRect.mHeight * mOffset.y);
         mRect.mHeight = (mActiveMargins & MF_Bottom) ?
-            (parentRect.mY + parentRect.mHeight - mRect.mY - mSize.y) :
+            (parentRect.mY + parentRect.mHeight - mRect.mY - mSize.y * mAbsoluteScale.y) :
             (parentRect.mHeight * mSize.y);
     }
     else
@@ -1078,10 +1085,21 @@ float Widget::GetParentWidth() const
     if (GetParentWidget())
         return GetParentWidget()->GetWidth();
 #if EDITOR
-    glm::uvec4 lbVp;
-    glm::vec2 unused;
-    if (ComputeGamePreviewLetterbox(lbVp, unused))
-        return (float)lbVp.z;
+    // When the letterbox is active in editor, return the *authored* target
+    // width (e.g. 1920), not the scaled letterbox pixel width (e.g. 953).
+    // Callers use this for ratio/pixel conversions and layout margins that
+    // must live in authored coordinates — mAbsoluteScale bakes the scale in
+    // at render time. Returning scaled pixels here caused container widgets
+    // like LineEdit to see different "parent widths" between GamePreview
+    // (scale=1) and Scene2D (scale=letterbox_scale) and lay out inconsistently.
+    GamePreview* gp = GetGamePreview();
+    if (gp != nullptr)
+    {
+        glm::uvec4 lbVp;
+        glm::vec2 unused;
+        if (ComputeGamePreviewLetterbox(lbVp, unused))
+            return (float)gp->GetSelectedPresetWidth();
+    }
 #endif
     return Renderer::Get()->GetScreenResolution().x;
 }
@@ -1091,10 +1109,14 @@ float Widget::GetParentHeight() const
     if (GetParentWidget())
         return GetParentWidget()->GetHeight();
 #if EDITOR
-    glm::uvec4 lbVp;
-    glm::vec2 unused;
-    if (ComputeGamePreviewLetterbox(lbVp, unused))
-        return (float)lbVp.w;
+    GamePreview* gp = GetGamePreview();
+    if (gp != nullptr)
+    {
+        glm::uvec4 lbVp;
+        glm::vec2 unused;
+        if (ComputeGamePreviewLetterbox(lbVp, unused))
+            return (float)gp->GetSelectedPresetHeight();
+    }
 #endif
     return Renderer::Get()->GetScreenResolution().y;
 }
