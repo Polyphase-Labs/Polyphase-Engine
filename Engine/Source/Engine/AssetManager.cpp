@@ -1088,6 +1088,26 @@ void AssetManager::RegisterTransientAsset(Asset* asset)
     asset->SetTransient(true);
 }
 
+// Symmetric to RegisterTransientAsset. Removes the entry from mTransientAssets
+// without destroying or deleting it -- caller retains ownership. Needed by
+// addons (e.g. com.polyphase.formats.video's VideoPlayer3D) that own the
+// underlying Texture* and manage its lifetime themselves, but still want it
+// visible to IsAssetLive() so Quad::ResolveQuadTexture doesn't ClearDangling
+// it on the first PreRender.
+void AssetManager::UnregisterTransientAsset(Asset* asset)
+{
+    if (asset == nullptr) return;
+    for (int32_t i = int32_t(mTransientAssets.size()) - 1; i >= 0; --i)
+    {
+        if (mTransientAssets[i] == asset)
+        {
+            mTransientAssets.erase(mTransientAssets.begin() + i);
+            break;
+        }
+    }
+    asset->SetTransient(false);
+}
+
 Asset* AssetManager::ImportEngineAsset(TypeId type, AssetDir* dir, const std::string& filename, ImportOptions* options)
 {
     // Check if stub already exists (meaning .oct file was discovered)

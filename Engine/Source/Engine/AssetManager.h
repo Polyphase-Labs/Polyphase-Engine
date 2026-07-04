@@ -154,6 +154,7 @@ public:
     void LoadAll();
 
     POLYPHASE_API void RegisterTransientAsset(Asset* asset);
+    POLYPHASE_API void UnregisterTransientAsset(Asset* asset);
 
     Asset* ImportEngineAsset(TypeId assetType, AssetDir* dir, const std::string& filename, ImportOptions* options = nullptr);
     void ImportEngineAssets();

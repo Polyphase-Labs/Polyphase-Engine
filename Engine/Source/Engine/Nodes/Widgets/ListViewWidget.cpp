@@ -516,6 +516,26 @@ ListViewItemWidget* ListViewWidget::CreateItem(int32_t index, const Datum& data)
     item->SetIndex(index);
     item->SetListView(this);
 
+    // Item wrapper fills the ArrayWidget's cross axis by default so a
+    // full-width row (vertical list) or full-height column (horizontal list)
+    // works with the natural anchor mode instead of forcing users to hard-code
+    // a pixel width/height per item. Array-axis size still comes from
+    // mItemWidth/mItemHeight (or SetContentWidget auto-sizing).
+    //
+    // Backward compat: if the user set a fixed cross-axis size on the ListView
+    // (mItemWidth on a vertical list, mItemHeight on a horizontal list) they
+    // clearly want fixed-size items — leave the default TopLeft anchor. Users
+    // can also override the anchor from the OnItemGenerate script hook.
+    const bool crossAxisFixed = (mOrientation == ArrayOrientation::Vertical)
+        ? (mItemWidth > 0.0f)
+        : (mItemHeight > 0.0f);
+    if (!crossAxisFixed)
+    {
+        item->SetAnchorMode(mOrientation == ArrayOrientation::Vertical
+                            ? AnchorMode::FillHorizontal
+                            : AnchorMode::FillVertical);
+    }
+
     // Instantiate template if set
     Scene* scene = mItemTemplate.Get<Scene>();
     if (scene != nullptr)
@@ -572,11 +592,14 @@ void ListViewWidget::ApplyItemSize(ListViewItemWidget* item)
         return;
     }
 
-    if (mItemWidth > 0.0f)
+    // Don't force a pixel width on a Fill/Stretch X axis — Fill ignores mSize
+    // and Stretch converts mSize to a ratio, producing weird per-frame sizes
+    // when the ArrayWidget's own scale changes. Same for Y.
+    if (mItemWidth > 0.0f && !item->FillsX() && !item->StretchX())
     {
         item->SetWidth(mItemWidth);
     }
-    if (mItemHeight > 0.0f)
+    if (mItemHeight > 0.0f && !item->FillsY() && !item->StretchY())
     {
         item->SetHeight(mItemHeight);
     }

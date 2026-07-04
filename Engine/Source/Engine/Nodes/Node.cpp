@@ -829,7 +829,14 @@ void Node::ConnectSignal(const std::string& name, Node* listener, const ScriptFu
 
 void Node::DisconnectSignal(const std::string& name, Node* listener)
 {
-    mSignalMap[name].Disconnect(listener);
+    if (mSignalMap.size() > 0)
+    {
+        auto it = mSignalMap.find(name);
+        if (it != mSignalMap.end())
+        {
+            it->second.Disconnect(listener);
+        }
+    }
 }
 
 void Node::RenderShadow()

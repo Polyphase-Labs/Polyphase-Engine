@@ -33,6 +33,10 @@ void ArrayWidget::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Float, "Spacing", this, &mSpacing));
     outProps.push_back(Property(DatumType::Byte, "Orientation", this, &mOrientation, 1, nullptr, NULL_DATUM, int32_t(ArrayOrientation::Count), sArrayOrientationStrings));
     outProps.push_back(Property(DatumType::Bool, "Center", this, &mCenter));
+    outProps.push_back(Property(DatumType::Float, "Padding Left", this, &mPaddingLeft));
+    outProps.push_back(Property(DatumType::Float, "Padding Top", this, &mPaddingTop));
+    outProps.push_back(Property(DatumType::Float, "Padding Right", this, &mPaddingRight));
+    outProps.push_back(Property(DatumType::Float, "Padding Bottom", this, &mPaddingBottom));
     outProps.push_back(Property(DatumType::Bool, "Refresh Layout", this, &sArrayRefreshLayoutStub));
 }
 
@@ -159,10 +163,18 @@ void ArrayWidget::LayoutChildren()
         : glm::max(arrayScale.x, 0.0001f);
     const float axisTotal = (vertical ? selfRect.mHeight : selfRect.mWidth) / axisScale;
 
+    // Padding insets the layout area from all four sides. Naming per array axis:
+    //   axisPadBefore / axisPadAfter — leading and trailing insets on the array axis.
+    //   crossPadBefore / crossPadAfter — insets on the perpendicular axis.
+    const float axisPadBefore  = vertical ? mPaddingTop    : mPaddingLeft;
+    const float axisPadAfter   = vertical ? mPaddingBottom : mPaddingRight;
+    const float crossPadBefore = vertical ? mPaddingLeft   : mPaddingTop;
+    const float crossPadAfter  = vertical ? mPaddingRight  : mPaddingBottom;
+
     float fillSlot = 0.0f;
     if (fillCount > 0)
     {
-        fillSlot = axisTotal - nonFillTotal - totalSpacing;
+        fillSlot = axisTotal - axisPadBefore - axisPadAfter - nonFillTotal - totalSpacing;
         if (fillSlot < 0.0f)
             fillSlot = 0.0f;
         fillSlot /= float(fillCount);
@@ -170,7 +182,9 @@ void ArrayWidget::LayoutChildren()
 
     // Pass 2: position each child, stamping a slot rect for Fill children so
     // their UpdateRect fills the flex-grow allocation instead of the full parent.
-    float offset = 0.0f;
+    // Offset starts at the leading padding so the first child renders inside
+    // the padded area rather than flush against the ArrayWidget's edge.
+    float offset = axisPadBefore;
     for (uint32_t i = 0; i < numChildren; ++i)
     {
         Widget* child = GetChildWidget(i);
@@ -202,13 +216,21 @@ void ArrayWidget::LayoutChildren()
             Rect slot = selfRect;
             if (vertical)
             {
+                // Array axis (Y).
                 slot.mY = selfRect.mY + offset * arrayScale.y;
                 slot.mHeight = childAxisSize * arrayScale.y;
+                // Cross axis (X) inset by cross padding.
+                slot.mX = selfRect.mX + crossPadBefore * arrayScale.x;
+                slot.mWidth = selfRect.mWidth - (crossPadBefore + crossPadAfter) * arrayScale.x;
             }
             else
             {
+                // Array axis (X).
                 slot.mX = selfRect.mX + offset * arrayScale.x;
                 slot.mWidth = childAxisSize * arrayScale.x;
+                // Cross axis (Y) inset by cross padding.
+                slot.mY = selfRect.mY + crossPadBefore * arrayScale.y;
+                slot.mHeight = selfRect.mHeight - (crossPadBefore + crossPadAfter) * arrayScale.y;
             }
             child->SetParentRectOverride(slot);
         }
@@ -220,6 +242,32 @@ void ArrayWidget::LayoutChildren()
             // to non-stretched axes (stretch modes treat mOffset as a ratio).
             const glm::vec2 childAnchorRatio = child->GetAnchorRatio();
 
+            // Cross-axis Fill/Stretch children (e.g. FillHorizontal in a vertical
+            // array) run their own fill/stretch math against parentRect. Without
+            // a slot override they'd fill the ArrayWidget's ENTIRE cross axis and
+            // ignore Padding{Left,Right} (for vertical) or Padding{Top,Bottom}
+            // (for horizontal). Stamp a slot rect that pads the cross axis but
+            // keeps the array axis full, so array-axis anchor math still works
+            // via the SetX/SetY calls below.
+            const bool crossFillsOrStretches = vertical
+                ? (child->FillsX() || child->StretchX())
+                : (child->FillsY() || child->StretchY());
+            if (crossFillsOrStretches)
+            {
+                Rect slot = selfRect;
+                if (vertical)
+                {
+                    slot.mX = selfRect.mX + crossPadBefore * arrayScale.x;
+                    slot.mWidth = selfRect.mWidth - (crossPadBefore + crossPadAfter) * arrayScale.x;
+                }
+                else
+                {
+                    slot.mY = selfRect.mY + crossPadBefore * arrayScale.y;
+                    slot.mHeight = selfRect.mHeight - (crossPadBefore + crossPadAfter) * arrayScale.y;
+                }
+                child->SetParentRectOverride(slot);
+            }
+
             if (vertical)
             {
                 const float axisPos = offset - childAnchorRatio.y * axisTotal;
@@ -230,21 +278,23 @@ void ArrayWidget::LayoutChildren()
 
                 // Cross-axis (X). ArrayWidget always owns cross-axis
                 // positioning for pixel-mode children; when Center is off,
-                // snap to the parent-origin edge (anchor-compensated) instead
+                // snap to the padded top edge (anchor-compensated) instead
                 // of leaving stale offsets from a previous Center=on pass.
                 if (!child->StretchX() && !child->FillsX())
                 {
                     const float crossWidth = GetWidth();
+                    const float paddedWidth = crossWidth - crossPadBefore - crossPadAfter;
                     float crossPos;
                     if (mCenter)
                     {
                         const float crossSize = child->GetWidth();
-                        crossPos = (crossWidth - crossSize) * 0.5f - childAnchorRatio.x * crossWidth;
+                        crossPos = crossPadBefore + (paddedWidth - crossSize) * 0.5f
+                                   - childAnchorRatio.x * crossWidth;
                     }
                     else
                     {
-                        // Snap to parent's left edge, compensating for anchor.
-                        crossPos = -childAnchorRatio.x * crossWidth;
+                        // Snap to padded left edge, compensating for anchor.
+                        crossPos = crossPadBefore - childAnchorRatio.x * crossWidth;
                     }
                     child->SetX(crossPos);
                 }
@@ -261,16 +311,18 @@ void ArrayWidget::LayoutChildren()
                 if (!child->StretchY() && !child->FillsY())
                 {
                     const float crossHeight = GetHeight();
+                    const float paddedHeight = crossHeight - crossPadBefore - crossPadAfter;
                     float crossPos;
                     if (mCenter)
                     {
                         const float crossSize = child->GetHeight();
-                        crossPos = (crossHeight - crossSize) * 0.5f - childAnchorRatio.y * crossHeight;
+                        crossPos = crossPadBefore + (paddedHeight - crossSize) * 0.5f
+                                   - childAnchorRatio.y * crossHeight;
                     }
                     else
                     {
-                        // Snap to parent's top edge, compensating for anchor.
-                        crossPos = -childAnchorRatio.y * crossHeight;
+                        // Snap to padded top edge, compensating for anchor.
+                        crossPos = crossPadBefore - childAnchorRatio.y * crossHeight;
                     }
                     child->SetY(crossPos);
                 }

@@ -57,11 +57,15 @@ void ListViewItemWidget::SetContentWidget(Widget* widget)
             hasFixedHeight = mListView->GetItemHeight() > 0.0f;
         }
 
-        if (!hasFixedWidth)
+        // Skip auto-size on any axis where the item itself Fills or Stretches:
+        // Fill ignores mSize, Stretch treats it as a ratio — auto-writing the
+        // content's pixel width there produces broken layouts. The Fill/Stretch
+        // math already sizes the item from its parent.
+        if (!hasFixedWidth && !FillsX() && !StretchX())
         {
             SetWidth(mContentWidget->GetWidth());
         }
-        if (!hasFixedHeight)
+        if (!hasFixedHeight && !FillsY() && !StretchY())
         {
             SetHeight(mContentWidget->GetHeight());
         }

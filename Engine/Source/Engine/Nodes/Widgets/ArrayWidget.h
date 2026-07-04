@@ -46,6 +46,10 @@ protected:
     //static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
 
     float mSpacing = 0.0f;
+    float mPaddingLeft = 0.0f;
+    float mPaddingTop = 0.0f;
+    float mPaddingRight = 0.0f;
+    float mPaddingBottom = 0.0f;
     ArrayOrientation mOrientation = ArrayOrientation::Vertical;
     bool mCenter = false;
 };
