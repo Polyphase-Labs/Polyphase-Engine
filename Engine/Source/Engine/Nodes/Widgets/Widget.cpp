@@ -1180,16 +1180,44 @@ void Widget::MarkDirty()
     if (IsDestroyed())
         return;
 
+    // Depth guard against a cyclic widget tree. If a Widget's mChildren
+    // contains itself or one of its ancestors (seen after bad scene loads
+    // or a corrupted parent/child edit), this recursion never terminates
+    // and blows the stack -- Renderer::DirtyAllWidgets calls MarkDirty on
+    // the world root every frame, so a single cycle turns into a per-frame
+    // crash. Cap recursion depth per outer entry via a thread-local counter
+    // and bail with a log the first few times so the offending scene shows
+    // up in the log without spamming forever.
+    static thread_local uint32_t sMarkDirtyDepth = 0;
+    static thread_local uint32_t sCycleWarnCount = 0;
+    constexpr uint32_t kMarkDirtyDepthLimit = 512;
+
+    if (sMarkDirtyDepth >= kMarkDirtyDepthLimit)
+    {
+        if (sCycleWarnCount < 4)
+        {
+            LogError("Widget::MarkDirty: recursion depth exceeded %u on '%s' "
+                     "(cyclic mChildren?) -- bailing.",
+                     kMarkDirtyDepthLimit,
+                     GetName().c_str());
+            sCycleWarnCount++;
+        }
+        return;
+    }
+
+    ++sMarkDirtyDepth;
     for (uint32_t i = 0; i < mChildren.size(); ++i)
     {
         Node* child = mChildren[i].Get();
         if (child != nullptr &&
+            child != this &&
             !child->IsDestroyed() &&
             child->IsWidget())
         {
             static_cast<Widget*>(child)->MarkDirty();
         }
     }
+    --sMarkDirtyDepth;
 }
 
 void Widget::MarkClean()

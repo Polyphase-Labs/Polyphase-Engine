@@ -456,8 +456,11 @@ void CopyPropertyValues(std::vector<Property>& dstProps, const std::vector<Prope
 
             dstProp->SetValue(srcProp->mData.vp, 0, srcProp->mCount);
 
-            // Copy extra data (needed for node paths).
-            if (srcProp->mExtra)
+            // Copy extra data (needed for node paths). Require IsValid() to
+            // match the Property copy-ctor / DeepCopy / WriteStream guards --
+            // an allocated-but-empty mExtra can produce a Datum with mType ==
+            // Count that later serialization paths choke on.
+            if (srcProp->mExtra != nullptr && srcProp->mExtra->IsValid())
             {
                 dstProp->CreateExtraData();
                 *dstProp->mExtra = *srcProp->mExtra;

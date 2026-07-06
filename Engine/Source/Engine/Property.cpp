@@ -84,7 +84,9 @@ Property& Property::operator=(const Property& src)
 #if EDITOR
         mDisplayName = src.mDisplayName;
 #endif
-        // Note: Other members are handled by copy constructor or don't need copying in assignment
+        // Other Property-owned members (mExtra, mVector, mMinCount/Max,
+        // mIsVector, mEnumCount, mEnumStrings) are handled by Property::DeepCopy,
+        // which is reached via Datum::operator='s internal virtual dispatch.
     }
 
     return *this;
@@ -148,10 +150,15 @@ void Property::WriteStream(Stream& stream, bool net) const
 
 uint32_t Property::GetSerializationSize(bool net) const
 {
+    // Parens on the ternary matter: `A + B + C + cond ? x : 0` is parsed as
+    // `(A + B + C + cond) ? x : 0`, which (a) returns the wrong size and (b)
+    // dereferences mExtra even when it's null, since the sum-of-sizes is
+    // always truthy. Wrap the whole conditional so it's an addend, not the
+    // condition of the outer ternary.
     return Datum::GetSerializationSize(net) +
         GetStringSerializationSize(mName) +
         sizeof(uint8_t) + // Has extra?
-        (mExtra && mExtra->IsValid()) ? mExtra->GetSerializationSize(net) : 0;
+        ((mExtra && mExtra->IsValid()) ? mExtra->GetSerializationSize(net) : 0);
 }
 
 bool Property::IsProperty() const

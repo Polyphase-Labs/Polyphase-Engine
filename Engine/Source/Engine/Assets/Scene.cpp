@@ -10,6 +10,55 @@
 #include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/Widgets/Widget.h"
 
+#include <new>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#include <excpt.h>
+
+// Reset an already-constructed vector by re-constructing an empty one over its
+// storage, LEAKING the old buffer (and every element it owned) instead of
+// running destructors. Used as the SEH fallback when the normal clear() faults
+// because a Property inside had a wild mExtra pointer / bogus vtable and the
+// destructor call itself crashes.
+//
+// This is intentionally not RAII-clean: destroying the leaked buffer is what we
+// were trying to avoid in the first place. Callers must have already swapped
+// the vector into a location whose destruction we can suppress.
+static void LeakResetNodeDefsVector(std::vector<SceneNodeDef>* vec)
+{
+    // Placement-new the empty vector over the old header. The old data pointer
+    // and everything it owns is abandoned.
+    new (vec) std::vector<SceneNodeDef>();
+}
+
+// SEH bridge: wrap the potentially-faulting clear() in a __try/__except so we
+// can survive an access violation raised from inside a corrupted destructor.
+// Kept in its own free function because __try/__except is not allowed in
+// functions that contain C++ objects requiring unwind (e.g. the caller has a
+// std::string label around the scope).
+static bool TryClearNodeDefs(std::vector<SceneNodeDef>* vec) noexcept
+{
+    __try
+    {
+        vec->clear();
+        return true;
+    }
+    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION
+              ? EXCEPTION_EXECUTE_HANDLER
+              : EXCEPTION_CONTINUE_SEARCH)
+    {
+        return false;
+    }
+}
+#endif
+
 #if EDITOR
 #include "EditorState.h"
 #include "EditorIconRegistry.h"
@@ -80,7 +129,22 @@ Scene::Scene()
 
 Scene::~Scene()
 {
-
+    // Same defensive rationale as Scene::Capture: if a prior LoadStream left
+    // a Property with a corrupted mExtra (or any other invariant-breaking
+    // state) somewhere inside mNodeDefs, the automatic destruction that runs
+    // after this body will crash the process. Explicitly clear mNodeDefs
+    // FIRST, wrapped in SEH, so we can trap the fault and leak the buffer
+    // rather than take the whole process down at teardown / program exit.
+    //
+    // Intentionally no LogError() on the fault path here: this destructor may
+    // fire during static teardown after the logging singleton is already
+    // gone. Silent leak is the correct trade-off for a doomed process.
+#ifdef _WIN32
+    if (!TryClearNodeDefs(&mNodeDefs))
+    {
+        LeakResetNodeDefsVector(&mNodeDefs);
+    }
+#endif
 }
 
 void Scene::LoadStream(Stream& stream, Platform platform)
@@ -109,6 +173,17 @@ void Scene::LoadStream(Stream& stream, Platform platform)
         }
 
         uint32_t numProps = stream.ReadUint32();
+        // Same rationale as the SubSceneOverride guard below: a bogus prop
+        // count from a truncated / miscooked .oct will splash garbage into
+        // every Property slot and then crash later when the SceneNodeDef is
+        // destroyed. Cap here and lose the overrides for this node rather
+        // than take down the process on the next Capture / ~Scene.
+        if (numProps > 65535)
+        {
+            LogError("Scene::LoadStream: bogus property count %u for node "
+                     "'%s'; treating as 0.", numProps, def.mName.c_str());
+            numProps = 0;
+        }
         def.mProperties.resize(numProps);
         for (uint32_t p = 0; p < numProps; ++p)
         {
@@ -128,6 +203,19 @@ void Scene::LoadStream(Stream& stream, Platform platform)
         if (mVersion >= ASSET_VERSION_SCENE_SUB_SCENE_OVERRIDE)
         {
             uint32_t numOverrides = stream.ReadUint32();
+            // Bogus counts (typically from an .oct that was truncated / had
+            // its ExtraData length miscomputed) would resize to gigabytes,
+            // and even if the allocation fit, the subsequent read loop would
+            // splash garbage into every string/vector inside the fake
+            // SubSceneOverride entries. Those garbage vectors then crash when
+            // the SceneNodeDef is destroyed. Reject up front instead.
+            if (numOverrides > 65535)
+            {
+                LogError("Scene::LoadStream: bogus SubSceneOverride count %u "
+                         "for node '%s'; treating as 0.",
+                         numOverrides, def.mName.c_str());
+                numOverrides = 0;
+            }
             def.mSubSceneOverrides.resize(numOverrides);
             std::vector<SubSceneOverride>& overs = def.mSubSceneOverrides;
 
@@ -135,6 +223,13 @@ void Scene::LoadStream(Stream& stream, Platform platform)
             {
                 stream.ReadString(overs[o].mPath);
                 uint32_t numProps = stream.ReadUint32();
+                if (numProps > 65535)
+                {
+                    LogError("Scene::LoadStream: bogus SubSceneOverride prop "
+                             "count %u for override '%s'; treating as 0.",
+                             numProps, overs[o].mPath.c_str());
+                    numProps = 0;
+                }
                 overs[o].mProperties.resize(numProps);
 
                 for (uint32_t p = 0; p < overs[o].mProperties.size(); ++p)
@@ -382,7 +477,23 @@ void Scene::Capture(Node* root, Platform platform)
     // update the version here, then changes could be lost.
     mVersion = ASSET_VERSION_CURRENT;
 
+    // Clearing mNodeDefs can crash inside Property::~Property when a prior
+    // load left behind a Property whose mExtra pointer (or the Datum it
+    // points at) is corrupted -- typically an old .oct that made it past
+    // ReadStream but has an invalid extra-data blob. Capture is about to
+    // overwrite mNodeDefs anyway, so on Windows we wrap the clear() in SEH:
+    // if it faults, we abandon the old buffer (leaking it) and continue with
+    // a fresh empty vector so the save still succeeds.
+#ifdef _WIN32
+    if (!TryClearNodeDefs(&mNodeDefs))
+    {
+        LogError("Scene::Capture: mNodeDefs cleanup faulted for scene '%s'; "
+                 "leaking prior data and rebuilding.", GetName().c_str());
+        LeakResetNodeDefsVector(&mNodeDefs);
+    }
+#else
     mNodeDefs.clear();
+#endif
 
     if (root == nullptr)
         return;
@@ -577,7 +688,13 @@ NodePtr Scene::Instantiate()
 
                     for (const auto& prop : over.mProperties)
                     {
-                        if (IsNodeDatumType(prop.mType))
+                        // mExtra holds the recorded node-path strings; skip if
+                        // it wasn't populated (e.g. legacy override written
+                        // before GatherNonDefaultProperties learned to record
+                        // paths). Matches the guard in the direct-properties
+                        // loop just below, and prevents a null-deref if the
+                        // stored override omits the extra data.
+                        if (IsNodeDatumType(prop.mType) && prop.mExtra != nullptr)
                         {
                             Node* targ = ResolveNodePath(node, over.mPath);
 
