@@ -25,6 +25,7 @@
 #if EDITOR
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
+#include "EditorState.h"
 #include <sys/stat.h>
 #include <string>
 #include <fstream>
@@ -83,6 +84,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         INP_NotifyDeviceChange();
         break;
     case WM_CLOSE:
+#if EDITOR
+        // In Play Full Screen the editor UI is hidden and the window is running
+        // the game — the X button is the natural way to end PIE, not to quit
+        // the whole app. Route it to end PIE instead.
+        {
+            EditorState* es = GetEditorState();
+            if (es != nullptr && es->mPlayInEditor && !es->mPlayInGameWindow)
+            {
+                es->RequestEndPlayInEditor();
+                return 0;
+            }
+        }
+#endif
         // Do not post quit message, we want the editor to handle the unsaved check.
         // So simply set the quit flag.
         //PostQuitMessage(0);
@@ -1648,6 +1662,18 @@ void SYS_MaximizeWindow()
     if (system.mWindow != nullptr)
     {
         ShowWindow(system.mWindow, SW_MAXIMIZE);
+    }
+}
+
+void SYS_RestoreWindow()
+{
+    SystemState& system = GetEngineState()->mSystem;
+    if (system.mWindow != nullptr && IsZoomed(system.mWindow) != 0)
+    {
+        // SW_RESTORE clears WS_MAXIMIZE and synchronously dispatches WM_SIZE
+        // through our WndProc, so GetEngineState()->mWindowWidth/mWindowHeight
+        // are updated before this call returns.
+        ShowWindow(system.mWindow, SW_RESTORE);
     }
 }
 

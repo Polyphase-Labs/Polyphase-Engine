@@ -726,9 +726,12 @@ void EditorMain(int32_t argc, char** argv)
     PreferencesManager::Destroy();
     InputPromptResolver::Destroy();
     PlayerInputSystem::Destroy();
-    EditorHotkeyMap::Destroy();
     InputMap::Destroy();
     GetEditorState()->Shutdown();
+    // EditorHotkeyMap outlives EditorState::Shutdown because Shutdown may call
+    // EndPlayInEditor, which pumps ImGui frames via EditorProgress that in turn
+    // exercise DrawMainMenuBar's EditorHotkeyMap::Get()->IsActionJustTriggered.
+    EditorHotkeyMap::Destroy();
     Shutdown();
     // Worlds/nodes destroyed and Lua state closed — safe to FreeLibrary addon DLLs.
     NativeAddonManager::Destroy();

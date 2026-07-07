@@ -1140,6 +1140,16 @@ void EditorState::BeginPlayInEditor()
         GamePreview* gp = GetGamePreview();
         if (gp != nullptr && gp->GetCurrentWidth() > 0 && gp->GetCurrentHeight() > 0)
         {
+            // Un-maximize first so mSavedWindowRect (which SYS_GetWindowRect reads
+            // from rcNormalPosition on Windows) and mWindowWidth/mWindowHeight are
+            // in the same coordinate space. Otherwise chromeW/H = restoredOuter -
+            // maximizedClient collapses outerH to <= 0.
+            mSavedWindowMaximized = SYS_IsWindowMaximized();
+            if (mSavedWindowMaximized)
+            {
+                SYS_RestoreWindow();
+            }
+
             SYS_GetWindowRect(mSavedWindowRect[0], mSavedWindowRect[1], mSavedWindowRect[2], mSavedWindowRect[3]);
 
             int32_t chromeW = mSavedWindowRect[2] - (int32_t)GetEngineState()->mWindowWidth;
@@ -1258,6 +1268,11 @@ void EditorState::EndPlayInEditor()
         if (mSavedWindowRect[2] > 0 && mSavedWindowRect[3] > 0)
         {
             SYS_SetWindowRect(mSavedWindowRect[0], mSavedWindowRect[1], mSavedWindowRect[2], mSavedWindowRect[3]);
+        }
+        if (mSavedWindowMaximized)
+        {
+            SYS_MaximizeWindow();
+            mSavedWindowMaximized = false;
         }
     }
     Renderer::Get()->SetClearColor(mSavedEditorClearColor);

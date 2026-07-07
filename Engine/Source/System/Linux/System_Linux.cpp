@@ -1523,4 +1523,10 @@ void SYS_MaximizeWindow()
     // via SYS_SetWindowRect — only the maximize state is dropped on this platform.
 }
 
+void SYS_RestoreWindow()
+{
+    // TODO: send _NET_WM_STATE client message clearing MAXIMIZED_VERT/HORZ.
+    // Rect-based restore path already covers the un-maximize on Linux.
+}
+
 #endif
