@@ -247,7 +247,7 @@ void ProjectSelectWindow::DrawRecentProjects()
     // Buttons at bottom
     ImGui::Spacing();
 
-    if (ImGui::Button("Browse...", ImVec2(100, 0)))
+    if (ImGui::Button("Open Project", ImVec2(100, 0)))
     {
         OnBrowseProject();
     }
@@ -293,12 +293,12 @@ void ProjectSelectWindow::DrawCreateProject()
 
     ImGui::Spacing();
     ImGui::Separator();
-    ImGui::Spacing();
+    //ImGui::Spacing();
 
-    ImGui::Text("Project Type:");
-    ImGui::RadioButton("Lua", &mProjectType, 0);
-    ImGui::SameLine();
-    ImGui::RadioButton("C++", &mProjectType, 1);
+    //ImGui::Text("Project Type:");
+    //ImGui::RadioButton("Lua", &mProjectType, 0);
+    //ImGui::SameLine();
+    //ImGui::RadioButton("C++", &mProjectType, 1);
 
     ImGui::Spacing();
 
@@ -513,8 +513,8 @@ void ProjectSelectWindow::DrawCloneFromGit()
 
     ImGui::Text("Project Type:");
     ImGui::RadioButton("Lua##CloneType", &mCloneProjectType, 0);
-    ImGui::SameLine();
-    ImGui::RadioButton("C++##CloneType", &mCloneProjectType, 1);
+    //ImGui::SameLine();
+    //ImGui::RadioButton("C++##CloneType", &mCloneProjectType, 1);
 
     ImGui::Spacing();
 
