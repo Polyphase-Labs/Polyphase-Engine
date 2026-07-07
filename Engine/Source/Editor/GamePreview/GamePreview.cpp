@@ -190,6 +190,27 @@ ResolutionPreset GamePreview::GetCurrentPreset()
     return { "Default  640x480", 640, 480 };
 }
 
+void GamePreview::ApplyProjectDefaults()
+{
+    // Land on the top synthetic preset — Project Settings if we have one,
+    // otherwise Target Platform, otherwise the first built-in.
+    mSelectedPresetIndex = 0;
+
+    if (!mEnabled)
+        return;
+
+    ResolutionPreset preset = GetCurrentPreset();
+    if (preset.mWidth == 0 || preset.mHeight == 0)
+        return;
+
+    // Force-recreate render targets so the panel matches the newly-loaded project
+    // instead of the stale 640x480 lazy-created during editor startup before the
+    // project (and its build target) were available.
+    CreateRenderTargets(preset.mWidth, preset.mHeight);
+
+    LogDebug("Game Preview: applied project defaults (%ux%u)", preset.mWidth, preset.mHeight);
+}
+
 uint32_t GamePreview::GetSelectedPresetWidth()
 {
     return GetCurrentPreset().mWidth;
@@ -249,7 +270,28 @@ std::vector<ResolutionPreset> GamePreview::GetAllPresets()
 
     std::vector<ResolutionPreset> all;
 
-    // Add "Target Platform" preset at top if a current target is set
+    // Add "Project Settings" preset at the very top when a project is loaded —
+    // this reflects AppSettings' WindowWidth/Height/Fullscreen, which is the
+    // resolution the packaged game actually runs at.
+    const EngineConfig* config = GetEngineConfig();
+    if (config != nullptr && !config->mProjectPath.empty() &&
+        config->mWindowWidth > 0 && config->mWindowHeight > 0)
+    {
+        char presetName[128];
+        if (config->mFullscreen)
+        {
+            snprintf(presetName, sizeof(presetName), "* Project Settings  %dx%d (Fullscreen)",
+                     config->mWindowWidth, config->mWindowHeight);
+        }
+        else
+        {
+            snprintf(presetName, sizeof(presetName), "* Project Settings  %dx%d",
+                     config->mWindowWidth, config->mWindowHeight);
+        }
+        all.push_back({ presetName, (uint32_t)config->mWindowWidth, (uint32_t)config->mWindowHeight });
+    }
+
+    // Add "Target Platform" preset if a current build target is set
     PackagingSettings* pkgSettings = PackagingSettings::Get();
     if (pkgSettings != nullptr)
     {

@@ -27,6 +27,11 @@ public:
     void Render();
     void DrawPanel();
 
+    // Called after a project loads. Picks the preferred preset (Project Settings
+    // from EngineConfig, otherwise Build Target, otherwise built-in default) and
+    // rebuilds the render targets so the panel matches immediately.
+    void ApplyProjectDefaults();
+
     bool IsEnabled() const { return mEnabled; }
     uint32_t GetCurrentWidth() const { return mCurrentWidth; }
     uint32_t GetCurrentHeight() const { return mCurrentHeight; }

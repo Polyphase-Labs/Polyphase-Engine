@@ -5668,6 +5668,12 @@ void ActionManager::OpenProject(const char* path)
         PackagingSettings::Create();
         PackagingSettings::Get()->LoadSettings();
 
+        // Sync Game Preview to the newly loaded project (AppSettings dims,
+        // else build target platform, else default). Without this the panel
+        // keeps the 640x480 render target lazy-created before the project
+        // was loaded even though the combo label reads correctly.
+        GetGamePreview()->ApplyProjectDefaults();
+
         // Load player input actions for the new project
         if (PlayerInputSystem::Get() != nullptr)
         {

@@ -1135,32 +1135,40 @@ void EditorState::BeginPlayInEditor()
     {
         ShowEditorUi(false);
 
-        // Resize the window to match the Game Preview resolution so UI widgets
-        // render at the correct size regardless of the editor window dimensions.
-        GamePreview* gp = GetGamePreview();
-        if (gp != nullptr && gp->GetCurrentWidth() > 0 && gp->GetCurrentHeight() > 0)
+        // Un-maximize first so all rects/sizes are in the same coordinate space
+        // regardless of whether we resize the window or switch it to fullscreen.
+        mSavedWindowMaximized = SYS_IsWindowMaximized();
+        if (mSavedWindowMaximized)
         {
-            // Un-maximize first so mSavedWindowRect (which SYS_GetWindowRect reads
-            // from rcNormalPosition on Windows) and mWindowWidth/mWindowHeight are
-            // in the same coordinate space. Otherwise chromeW/H = restoredOuter -
-            // maximizedClient collapses outerH to <= 0.
-            mSavedWindowMaximized = SYS_IsWindowMaximized();
-            if (mSavedWindowMaximized)
+            SYS_RestoreWindow();
+        }
+
+        SYS_GetWindowRect(mSavedWindowRect[0], mSavedWindowRect[1], mSavedWindowRect[2], mSavedWindowRect[3]);
+
+        if (GetEngineConfig()->mFullscreen)
+        {
+            // AppSettings requests fullscreen — Play Full Screen should behave
+            // like the packaged game would when started.
+            mSavedFullscreenForPie = true;
+            SYS_SetFullscreen(true);
+        }
+        else
+        {
+            // Resize the window to match the Game Preview resolution so UI widgets
+            // render at the correct size regardless of the editor window dimensions.
+            GamePreview* gp = GetGamePreview();
+            if (gp != nullptr && gp->GetCurrentWidth() > 0 && gp->GetCurrentHeight() > 0)
             {
-                SYS_RestoreWindow();
+                int32_t chromeW = mSavedWindowRect[2] - (int32_t)GetEngineState()->mWindowWidth;
+                int32_t chromeH = mSavedWindowRect[3] - (int32_t)GetEngineState()->mWindowHeight;
+                int32_t outerW = (int32_t)gp->GetCurrentWidth() + chromeW;
+                int32_t outerH = (int32_t)gp->GetCurrentHeight() + chromeH;
+
+                // Center on the previous window position
+                int32_t cx = mSavedWindowRect[0] + mSavedWindowRect[2] / 2;
+                int32_t cy = mSavedWindowRect[1] + mSavedWindowRect[3] / 2;
+                SYS_SetWindowRect(cx - outerW / 2, cy - outerH / 2, outerW, outerH);
             }
-
-            SYS_GetWindowRect(mSavedWindowRect[0], mSavedWindowRect[1], mSavedWindowRect[2], mSavedWindowRect[3]);
-
-            int32_t chromeW = mSavedWindowRect[2] - (int32_t)GetEngineState()->mWindowWidth;
-            int32_t chromeH = mSavedWindowRect[3] - (int32_t)GetEngineState()->mWindowHeight;
-            int32_t outerW = (int32_t)gp->GetCurrentWidth() + chromeW;
-            int32_t outerH = (int32_t)gp->GetCurrentHeight() + chromeH;
-
-            // Center on the previous window position
-            int32_t cx = mSavedWindowRect[0] + mSavedWindowRect[2] / 2;
-            int32_t cy = mSavedWindowRect[1] + mSavedWindowRect[3] / 2;
-            SYS_SetWindowRect(cx - outerW / 2, cy - outerH / 2, outerW, outerH);
         }
     }
 
@@ -1264,6 +1272,13 @@ void EditorState::EndPlayInEditor()
     {
         ShowEditorUi(true);
 
+        // If BeginPie put us in fullscreen for AppSettings.Fullscreen, drop
+        // out of fullscreen before touching the window rect.
+        if (mSavedFullscreenForPie)
+        {
+            SYS_SetFullscreen(false);
+            mSavedFullscreenForPie = false;
+        }
         // Restore the window to its original size
         if (mSavedWindowRect[2] > 0 && mSavedWindowRect[3] > 0)
         {
