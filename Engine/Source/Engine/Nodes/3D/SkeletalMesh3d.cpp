@@ -33,13 +33,11 @@ DEFINE_NODE(SkeletalMesh3D, Mesh3D);
 
 #define NUM_ANIMATION_SLOTS 8
 
-struct DecompTransform
-{
-    glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
-    glm::quat mRotation = { 0.0f, 0.0f, 0.0f, 1.0f };
-    glm::vec3 mScale = { 1.0f, 1.0f, 1.0f };
-    bool mValid = false;
-};
+// The decomposed local pose type now lives in the public header as
+// SkeletalLocalPoseTransform so native addons can see it through
+// ISkeletalPoseModifier. Keep the file-local name as an alias so the blend
+// loop below is unchanged.
+using DecompTransform = SkeletalLocalPoseTransform;
 
 bool SkeletalMesh3D::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 {
@@ -136,9 +134,43 @@ void SkeletalMesh3D::Create()
 
 void SkeletalMesh3D::Destroy()
 {
+    // Drop any procedural pose modifiers (spring bones, etc). They only hold a
+    // raw back-pointer here; owners are expected to unregister on their own
+    // destruction, this is just a safety net if the mesh outlives that contract.
+    mPoseModifiers.clear();
+
     GFX_DestroySkeletalMeshCompResource(this);
 
     Mesh3D::Destroy();
+}
+
+void SkeletalMesh3D::RegisterPoseModifier(ISkeletalPoseModifier* modifier)
+{
+    if (modifier == nullptr)
+    {
+        return;
+    }
+
+    for (ISkeletalPoseModifier* existing : mPoseModifiers)
+    {
+        if (existing == modifier)
+        {
+            return;
+        }
+    }
+
+    mPoseModifiers.push_back(modifier);
+}
+
+void SkeletalMesh3D::UnregisterPoseModifier(ISkeletalPoseModifier* modifier)
+{
+    for (int32_t i = int32_t(mPoseModifiers.size()) - 1; i >= 0; --i)
+    {
+        if (mPoseModifiers[i] == modifier)
+        {
+            mPoseModifiers.erase(mPoseModifiers.begin() + i);
+        }
+    }
 }
 
 SkeletalMeshCompResource* SkeletalMesh3D::GetResource()
@@ -1305,7 +1337,10 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
     if (mesh != nullptr &&
         !mAnimationPaused && 
         !inheritPose && 
-        (mActiveAnimations.size() > 0 || mRevertToBindPose))
+        // A registered pose modifier (spring / jiggle bones) must be able to run
+        // and settle even when no animation is currently playing, so keep the
+        // blend path alive whenever one is present.
+        (mActiveAnimations.size() > 0 || mRevertToBindPose || !mPoseModifiers.empty()))
     {
         uint32_t numBones = GetNumBones();
         sDecompTransforms.resize(numBones);
@@ -1513,6 +1548,40 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
 
         if (updateBones)
         {
+            // Procedural pose layer: after all animation blending / masking /
+            // additive layering, let registered modifiers (spring / jiggle
+            // bones, spline IK, ...) mutate the decomposed LOCAL pose before it
+            // is composed into bone matrices. Does nothing when no modifier is
+            // registered, so the default animation path is unchanged.
+            if (!mPoseModifiers.empty())
+            {
+                // Give every bone a valid local pose first — bones the current
+                // animation never touched fall back to bind pose — so modifiers
+                // see a complete, stable skeleton regardless of masks, additive
+                // layers, or missing channels.
+                for (uint32_t boneIndex = 0; boneIndex < numBones; ++boneIndex)
+                {
+                    if (!sDecompTransforms[boneIndex].mValid)
+                    {
+                        sDecompTransforms[boneIndex].mPosition = mesh->GetBindPosePos(boneIndex);
+                        sDecompTransforms[boneIndex].mRotation = mesh->GetBindPoseRot(boneIndex);
+                        sDecompTransforms[boneIndex].mScale    = mesh->GetBindPoseScale(boneIndex);
+                        sDecompTransforms[boneIndex].mValid    = true;
+                    }
+                }
+
+                for (ISkeletalPoseModifier* modifier : mPoseModifiers)
+                {
+                    if (modifier != nullptr)
+                    {
+                        modifier->ModifySkeletalPose(this, mesh, sDecompTransforms, deltaTime);
+                    }
+                }
+
+                // Rebuild every bone matrix below from the modifier-adjusted pose.
+                bonesUpdated = true;
+            }
+
             // Unless no animations were computed, create bone matrices for all the bones
             // from the decomposed parts (position / rotation / scale);
             if (bonesUpdated)

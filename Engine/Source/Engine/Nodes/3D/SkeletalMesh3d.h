@@ -81,6 +81,37 @@ struct QueuedAnimation
 
 typedef void(*AnimEventHandlerFP)(const AnimEvent& animEvent);
 
+// Local, decomposed (TRS) bone pose shared between SkeletalMesh3D's animation
+// blend loop and any registered ISkeletalPoseModifier. Kept in the public header
+// so native addons (e.g. the procedural-rig / jiggle-bones addon) can read and
+// mutate the animated local pose after blending and before it is composed into
+// bone matrices. Field layout must stay in sync with the file-local
+// DecompTransform alias in SkeletalMesh3d.cpp.
+struct SkeletalLocalPoseTransform
+{
+    glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
+    glm::quat mRotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+    glm::vec3 mScale = { 1.0f, 1.0f, 1.0f };
+    bool mValid = false;
+};
+
+// Hook for procedural pose layers (spring / jiggle bones, spline IK, ...) that
+// run AFTER animation blending / masking / additive layering and BEFORE the
+// local pose is finalized into bone matrices. Implementers modify the decomposed
+// local pose in place; they must never touch finalized skinning matrices.
+// Register/unregister on the target mesh via SkeletalMesh3D::RegisterPoseModifier.
+class POLYPHASE_API ISkeletalPoseModifier
+{
+public:
+    virtual ~ISkeletalPoseModifier() = default;
+
+    virtual void ModifySkeletalPose(
+        class SkeletalMesh3D* component,
+        class SkeletalMesh* mesh,
+        std::vector<SkeletalLocalPoseTransform>& localPose,
+        float deltaTime) = 0;
+};
+
 class POLYPHASE_API SkeletalMesh3D : public Mesh3D
 {
 public:
@@ -207,6 +238,14 @@ public:
     AnimEventHandlerFP GetAnimEventHandler();
     void SetScriptAnimEventHandler(const ScriptFunc& func);
 
+    // Procedural pose modifiers (spring / jiggle bones, spline IK, ...).
+    // Registered modifiers run each animation update after blending and before
+    // the local decomposed pose is composed into bone matrices. Registration is
+    // idempotent; unregister on modifier destruction / addon hot-reload to avoid
+    // a dangling pointer. See ISkeletalPoseModifier.
+    void RegisterPoseModifier(ISkeletalPoseModifier* modifier);
+    void UnregisterPoseModifier(ISkeletalPoseModifier* modifier);
+
 protected:
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
@@ -246,6 +285,7 @@ protected:
 
     SkeletalMeshRef mSkeletalMesh;
     std::vector<glm::mat4> mBoneMatrices;
+    std::vector<ISkeletalPoseModifier*> mPoseModifiers;
     std::vector<Vertex> mSkinnedVertices; // Used by CPU skinning only.
     std::vector<MaterialRef> mSectionMaterialOverrides;
     std::vector<SkeletalAnimationRef> mAnimationAssets;

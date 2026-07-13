@@ -16,6 +16,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <set>
 
 // ===== Datum type names for the combo (excluding Table/Function) =====
 
@@ -51,6 +52,45 @@ static const char* sDatumTypeLuaNames[] =
     "DatumType.Short"
 };
 
+// ===== Node reaction (signal) callbacks =====
+// Type-specific Lua callbacks the engine invokes on an attached script. mParams is the explicit
+// argument list ("" = none; self is supplied implicitly by ScriptUtils::CallMethod).
+
+struct NodeReaction { const char* mName; const char* mParams; };
+struct NodeReactionSet { const char* mClass; std::vector<NodeReaction> mCallbacks; };
+
+static const std::vector<NodeReactionSet> sNodeReactions =
+{
+    { "Button",             { {"OnActivated",""}, {"OnStateChanged",""} } },
+    { "CheckBox",           { {"OnToggled",""} } },
+    { "Slider",             { {"OnValueChanged",""}, {"OnDragStarted",""}, {"OnDragEnded",""} } },
+    { "SpinBox",            { {"OnValueChanged",""} } },
+    { "ComboBox",           { {"OnSelectionChanged",""} } },
+    { "ProgressBar",        { {"OnValueChanged",""} } },
+    { "InputField",         { {"OnTextSubmitted",""}, {"OnTextChanged",""}, {"OnFocusChanged",""} } },
+    { "ScrollContainer",    { {"OnScrollDragStarted",""}, {"OnScrollDragEnded",""}, {"OnScrollChanged",""} } },
+    { "ListViewWidget",     { {"OnItemGenerate","index, data, item"}, {"OnItemUpdate","index, data, item"},
+                              {"OnSelectionChanged","index, data"}, {"OnItemClicked","index, data"},
+                              {"OnItemHoverEnter","index, data"}, {"OnItemHoverExit","index, data"} } },
+    { "ListViewItemWidget", { {"OnSelected",""}, {"OnDeselected",""}, {"OnHoverEnter",""},
+                              {"OnHoverExit",""}, {"OnClicked",""} } },
+    { "Window",             { {"OnShow",""}, {"OnHide",""}, {"OnClose",""}, {"OnDragStart",""},
+                              {"OnDragEnd",""}, {"OnResizeStart",""}, {"OnResized",""}, {"OnResizeEnd",""} } },
+    { "DialogWindow",       { {"OnConfirm",""}, {"OnReject",""}, {"OnShow",""}, {"OnHide",""}, {"OnClose",""} } },
+    { "TimelinePlayer",     { {"OnStarted",""}, {"OnStopped",""}, {"OnFinished",""}, {"OnStateChanged",""} } },
+    { "Audio3D",            { {"OnFinished",""} } },
+};
+
+static const NodeReactionSet* FindReactionSet(const char* cls)
+{
+    for (const NodeReactionSet& set : sNodeReactions)
+    {
+        if (strcmp(cls, set.mClass) == 0)
+            return &set;
+    }
+    return nullptr;
+}
+
 // ===== Script Property Entry =====
 
 struct ScriptPropertyEntry
@@ -85,6 +125,10 @@ static bool sIncludeTick = true;
 static bool sIncludeDestroy = false;
 static bool sIncludeBeginOverlap = false;
 static bool sIncludeEndOverlap = false;
+static bool sSingleton = false;
+static bool sPersistAcrossScenes = false;
+static char sReactNodeType[64] = {};        // "" = None; else a reaction-capable class name
+static std::set<std::string> sSelectedReactions;
 static std::string sScriptError;
 static std::string sScriptSuccess;
 
@@ -149,19 +193,19 @@ static std::string FormatDefaultValue(const ScriptPropertyEntry& prop)
     case 4: // Vector2D
     {
         std::ostringstream oss;
-        oss << "Vec2.New(" << prop.mVec2[0] << ", " << prop.mVec2[1] << ")";
+        oss << "Vector.Create(" << prop.mVec2[0] << ", " << prop.mVec2[1] << ")";
         return oss.str();
     }
     case 5: // Vector
     {
         std::ostringstream oss;
-        oss << "Vec.New(" << prop.mVec3[0] << ", " << prop.mVec3[1] << ", " << prop.mVec3[2] << ")";
+        oss << "Vector.Create(" << prop.mVec3[0] << ", " << prop.mVec3[1] << ", " << prop.mVec3[2] << ")";
         return oss.str();
     }
     case 6: // Color
     {
         std::ostringstream oss;
-        oss << "Vec4.New(" << prop.mVec4[0] << ", " << prop.mVec4[1] << ", " << prop.mVec4[2] << ", " << prop.mVec4[3] << ")";
+        oss << "Vector.Create(" << prop.mVec4[0] << ", " << prop.mVec4[1] << ", " << prop.mVec4[2] << ", " << prop.mVec4[3] << ")";
         return oss.str();
     }
     case 7: // Asset
@@ -191,6 +235,8 @@ static std::string GenerateLuaScript()
 
     // Class table
     ss << cls << " = {}\n";
+    if (sSingleton)
+        ss << cls << ".Instance = nil\n";
 
     // Extend/Inherit
     if (sExtendEnabled)
@@ -220,7 +266,8 @@ static std::string GenerateLuaScript()
     {
         if (prop.mName[0] != '\0')
         {
-            ss << "    self." << prop.mName << " = " << FormatDefaultValue(prop) << "\n";
+            ss << "    if self." << prop.mName << " == nil then self." << prop.mName
+               << " = " << FormatDefaultValue(prop) << " end\n";
         }
     }
     ss << "end\n\n";
@@ -254,6 +301,25 @@ static std::string GenerateLuaScript()
         }
     }
 
+    // Start() - emitted when singleton and/or scene-persistence is requested
+    if (sSingleton || sPersistAcrossScenes)
+    {
+        ss << "function " << cls << ":Start()\n";
+        if (sSingleton)
+        {
+            ss << "    if " << cls << ".Instance ~= nil and " << cls << ".Instance ~= self then\n";
+            ss << "        self:Destroy()\n";
+            ss << "        return\n";
+            ss << "    end\n";
+            ss << "    " << cls << ".Instance = self\n";
+        }
+        if (sPersistAcrossScenes)
+            ss << "    self:SetPersistent(true)\n";
+        if (hasLuaParent)
+            ss << "    " << parent << ".Start(self)\n";
+        ss << "end\n\n";
+    }
+
     // Optional stubs
     if (sIncludeTick)
     {
@@ -263,9 +329,15 @@ static std::string GenerateLuaScript()
         ss << "end\n\n";
     }
 
-    if (sIncludeDestroy)
+    if (sIncludeDestroy || sSingleton)
     {
         ss << "function " << cls << ":Destroy()\n";
+        if (sSingleton)
+        {
+            ss << "    if " << cls << ".Instance == self then\n";
+            ss << "        " << cls << ".Instance = nil\n";
+            ss << "    end\n";
+        }
         if (hasLuaParent)
             ss << "    " << parent << ".Destroy(self)\n";
         ss << "end\n\n";
@@ -285,6 +357,24 @@ static std::string GenerateLuaScript()
         if (hasLuaParent)
             ss << "    " << parent << ".EndOverlap(self, other)\n";
         ss << "end\n\n";
+    }
+
+    // Node reaction (signal) handler stubs
+    if (sReactNodeType[0] && !sSelectedReactions.empty())
+    {
+        const NodeReactionSet* rset = FindReactionSet(sReactNodeType);
+        if (rset)
+        {
+            // Iterate the set (stable declared order), not the std::set of names.
+            for (const NodeReaction& cb : rset->mCallbacks)
+            {
+                if (sSelectedReactions.count(cb.mName))
+                {
+                    ss << "function " << cls << ":" << cb.mName << "(" << cb.mParams << ")\n";
+                    ss << "end\n\n";
+                }
+            }
+        }
     }
 
     return ss.str();
@@ -508,6 +598,55 @@ static void DrawCreateScriptDialog()
     Polyphase::Checkbox("BeginOverlap", &sIncludeBeginOverlap);
     ImGui::SameLine();
     Polyphase::Checkbox("EndOverlap", &sIncludeEndOverlap);
+
+    // Lifecycle
+    ImGui::Text("Lifecycle:");
+    Polyphase::Checkbox("Singleton", &sSingleton);
+    ImGui::SameLine();
+    Polyphase::Checkbox("Persist across scenes (DontDestroyOnLoad)", &sPersistAcrossScenes);
+
+    // Node Reactions - pick a node/widget type to scaffold its signal callbacks
+    ImGui::Text("Node Reactions:");
+    ImGui::SetNextItemWidth(-1);
+    const char* reactLabel = sReactNodeType[0] ? sReactNodeType : "None";
+    if (ImGui::BeginCombo("##ReactNodeCombo", reactLabel))
+    {
+        if (ImGui::Selectable("None", sReactNodeType[0] == '\0'))
+        {
+            sReactNodeType[0] = '\0';
+            sSelectedReactions.clear();
+        }
+        for (const NodeReactionSet& set : sNodeReactions)
+        {
+            bool sel = strcmp(sReactNodeType, set.mClass) == 0;
+            if (ImGui::Selectable(set.mClass, sel))
+            {
+                strncpy(sReactNodeType, set.mClass, sizeof(sReactNodeType) - 1);
+                sReactNodeType[sizeof(sReactNodeType) - 1] = '\0';
+                sSelectedReactions.clear();   // type changed -> drop stale picks
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    if (sReactNodeType[0])
+    {
+        const NodeReactionSet* rset = FindReactionSet(sReactNodeType);
+        if (rset)
+        {
+            ImGui::Indent(20.0f);
+            for (const NodeReaction& cb : rset->mCallbacks)
+            {
+                bool on = sSelectedReactions.count(cb.mName) != 0;
+                if (Polyphase::Checkbox(cb.mName, &on))
+                {
+                    if (on) sSelectedReactions.insert(cb.mName);
+                    else    sSelectedReactions.erase(cb.mName);
+                }
+            }
+            ImGui::Unindent(20.0f);
+        }
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -846,6 +985,10 @@ void OpenCreateScriptDialog()
     sIncludeDestroy = false;
     sIncludeBeginOverlap = false;
     sIncludeEndOverlap = false;
+    sSingleton = false;
+    sPersistAcrossScenes = false;
+    sReactNodeType[0] = '\0';
+    sSelectedReactions.clear();
     sScriptError.clear();
     sScriptSuccess.clear();
 }
