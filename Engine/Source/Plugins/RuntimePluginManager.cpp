@@ -8,6 +8,8 @@
 #include "Engine/Clock.h"
 #include "Engine/Nodes/Node.h"
 #include "Engine/Nodes/3D/Node3d.h"
+#include "Engine/Nodes/3D/SkeletalMesh3d.h"
+#include "Engine/Assets/SkeletalMesh.h"
 #include "Engine/Assets/TinyLLMAsset.h"
 #include "Input/Input.h"
 #include "Log.h"
@@ -224,6 +226,58 @@ static void PluginUnloadAsset(const char* name)
     {
         UnloadAsset(name);
     }
+}
+
+// ===== Skeletal Mesh — bone introspection =====
+
+static int32_t PluginSkeletalMesh_GetNumBones(Asset* skeletalMesh)
+{
+    SkeletalMesh* mesh = skeletalMesh ? skeletalMesh->As<SkeletalMesh>() : nullptr;
+    return mesh ? (int32_t)mesh->GetNumBones() : 0;
+}
+
+static const char* PluginSkeletalMesh_GetBoneName(Asset* skeletalMesh, int32_t boneIndex)
+{
+    SkeletalMesh* mesh = skeletalMesh ? skeletalMesh->As<SkeletalMesh>() : nullptr;
+    if (mesh == nullptr || boneIndex < 0 || boneIndex >= (int32_t)mesh->GetNumBones())
+    {
+        return nullptr;
+    }
+    return mesh->GetBone(boneIndex).mName.c_str();
+}
+
+static int32_t PluginSkeletalMesh_GetBoneParentIndex(Asset* skeletalMesh, int32_t boneIndex)
+{
+    SkeletalMesh* mesh = skeletalMesh ? skeletalMesh->As<SkeletalMesh>() : nullptr;
+    if (mesh == nullptr || boneIndex < 0 || boneIndex >= (int32_t)mesh->GetNumBones())
+    {
+        return -1;
+    }
+    return mesh->GetBone(boneIndex).mParentIndex;
+}
+
+static int32_t PluginSkeletalMesh_FindBoneIndex(Asset* skeletalMesh, const char* boneName)
+{
+    SkeletalMesh* mesh = skeletalMesh ? skeletalMesh->As<SkeletalMesh>() : nullptr;
+    if (mesh == nullptr || boneName == nullptr)
+    {
+        return -1;
+    }
+    const std::vector<Bone>& bones = mesh->GetBones();
+    for (int32_t i = 0; i < (int32_t)bones.size(); ++i)
+    {
+        if (bones[i].mName == boneName)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static Asset* PluginNode_GetSkeletalMesh(Node* node)
+{
+    SkeletalMesh3D* skelNode = node ? node->As<SkeletalMesh3D>() : nullptr;
+    return skelNode ? skelNode->GetSkeletalMesh() : nullptr;
 }
 
 // ===== TinyLLM =====
@@ -586,6 +640,13 @@ void RuntimePluginManager::InitializeEngineAPI()
     mEngineAPI.LoadAsset = PluginLoadAsset;
     mEngineAPI.FetchAsset = PluginFetchAsset;
     mEngineAPI.UnloadAsset = PluginUnloadAsset;
+
+    // Skeletal Mesh bone introspection
+    mEngineAPI.SkeletalMesh_GetNumBones        = PluginSkeletalMesh_GetNumBones;
+    mEngineAPI.SkeletalMesh_GetBoneName        = PluginSkeletalMesh_GetBoneName;
+    mEngineAPI.SkeletalMesh_GetBoneParentIndex = PluginSkeletalMesh_GetBoneParentIndex;
+    mEngineAPI.SkeletalMesh_FindBoneIndex      = PluginSkeletalMesh_FindBoneIndex;
+    mEngineAPI.Node_GetSkeletalMesh            = PluginNode_GetSkeletalMesh;
 
     // TinyLLM
     mEngineAPI.TinyLLM_Encode = PluginTinyLLM_Encode;

@@ -42,15 +42,21 @@ void Signal::Emit(const std::vector<Datum>& args)
 
     mEmitting = false;
 
-    // Handle any pending connects/disconnects
+    // Handle any pending connects/disconnects.
+    // These vectors MUST be cleared after draining — otherwise every subsequent
+    // Emit replays the same pending ops (see SignalBusChannel::Emit for the
+    // correct pattern this was missing).
     for (uint32_t i = 0; i < mPendingDisconnects.size(); ++i)
     {
         mConnectionMap.erase(mPendingDisconnects[i]);
     }
+    mPendingDisconnects.clear();
+
     for (uint32_t i = 0; i < mPendingConnects.size(); ++i)
     {
         mConnectionMap.insert({ mPendingConnects[i] });
     }
+    mPendingConnects.clear();
 }
 
 void Signal::Connect(Node* node, SignalHandlerFP func)

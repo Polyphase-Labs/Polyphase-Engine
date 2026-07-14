@@ -580,4 +580,37 @@ struct PolyphaseEngineAPI
                               void* userData);
     void (*EditorAction_BeginGroup)(const char* name);
     void (*EditorAction_EndGroup)();
+
+    // ===== Skeletal Mesh — bone introspection =====
+    //
+    // Read-only access to a SkeletalMesh's skeleton so addons can build bone
+    // selectors / dropdowns without linking the engine's asset types. Every
+    // call takes the opaque Asset* returned by LoadAsset/FetchAsset (or by
+    // Node_GetSkeletalMesh below); a null or non-SkeletalMesh asset is treated
+    // as a zero-bone skeleton.
+    //
+    // Bone indices are stable [0, GetNumBones). Names and parent indices match
+    // the skeleton's authored hierarchy (a bone with parent index -1 is a root).
+    // The const char* returned by GetBoneName points at engine-owned storage
+    // valid until the mesh is unloaded; copy it if you need to retain it.
+
+    /** @brief Number of bones in a SkeletalMesh asset (0 if not a skeletal mesh). */
+    int32_t (*SkeletalMesh_GetNumBones)(Asset* skeletalMesh);
+
+    /** @brief Bone name by index, or nullptr if the asset/index is invalid. */
+    const char* (*SkeletalMesh_GetBoneName)(Asset* skeletalMesh, int32_t boneIndex);
+
+    /** @brief Parent bone index (-1 for a root or on any error). */
+    int32_t (*SkeletalMesh_GetBoneParentIndex)(Asset* skeletalMesh, int32_t boneIndex);
+
+    /** @brief Index of the bone named `boneName`, or -1 if not found. */
+    int32_t (*SkeletalMesh_FindBoneIndex)(Asset* skeletalMesh, const char* boneName);
+
+    /**
+     * @brief Get the SkeletalMesh asset assigned to a SkeletalMesh3D node.
+     * @return The mesh asset as an opaque Asset*, or nullptr if the node is not
+     *         a SkeletalMesh3D or has no mesh assigned. Feed the result to the
+     *         SkeletalMesh_* queries above.
+     */
+    Asset* (*Node_GetSkeletalMesh)(Node* node);
 };

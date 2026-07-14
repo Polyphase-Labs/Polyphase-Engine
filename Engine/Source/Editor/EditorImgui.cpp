@@ -9012,6 +9012,35 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
     }
 }
 
+// Recursive bone-hierarchy row for the SkeletalMesh inspector. Mirrors the
+// tree layout used by the Bone Mask editor so the skeleton reads the same way
+// in both places.
+static void DrawSkeletalBoneRow(const std::vector<Bone>& bones,
+                                const std::vector<std::vector<int32_t>>& children,
+                                int32_t boneIndex)
+{
+    if (boneIndex < 0 || boneIndex >= (int32_t)bones.size())
+        return;
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (children[boneIndex].empty())
+    {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+
+    bool open = ImGui::TreeNodeEx((void*)(intptr_t)boneIndex, flags,
+                                  "[%d] %s", boneIndex, bones[boneIndex].mName.c_str());
+
+    if (open && !children[boneIndex].empty())
+    {
+        for (int32_t child : children[boneIndex])
+        {
+            DrawSkeletalBoneRow(bones, children, child);
+        }
+        ImGui::TreePop();
+    }
+}
+
 static void DrawPropertiesPanel()
 {
     sObjectTabOpen = false;
@@ -9165,6 +9194,15 @@ static void DrawPropertiesPanel()
 
                 DrawPropertyList(obj, props);
 
+                // Let native addons extend the inspector for this object's type
+                // via EditorUIHooks::RegisterInspector (matched on the runtime
+                // class name). Drawn right after the reflected property rows;
+                // no-op when no addon registered an inspector for this type.
+                if (EditorUIHookManager* addonInspectorHooks = EditorUIHookManager::Get())
+                {
+                    addonInspectorHooks->DrawInspector(obj->RuntimeName(), obj);
+                }
+
                 // Custom imgui drawing
                 if (obj->As<Material>())
                 {
@@ -9210,6 +9248,33 @@ static void DrawPropertiesPanel()
                                 skelMesh->SetDirtyFlag();
                             }
                             ImGui::PopID();
+                        }
+                        ImGui::Unindent();
+                        ImGui::NewLine();
+                    }
+
+                    const std::vector<Bone>& bones = skelMesh->GetBones();
+                    ImGui::Text("Bones (%zu)", bones.size());
+                    if (!bones.empty())
+                    {
+                        ImGui::Indent();
+                        if (ImGui::TreeNode("Bone Hierarchy"))
+                        {
+                            std::vector<std::vector<int32_t>> children(bones.size());
+                            std::vector<int32_t> roots;
+                            for (int32_t i = 0; i < (int32_t)bones.size(); ++i)
+                            {
+                                int32_t parent = bones[i].mParentIndex;
+                                if (parent >= 0 && parent < (int32_t)bones.size())
+                                    children[parent].push_back(i);
+                                else
+                                    roots.push_back(i);
+                            }
+                            for (int32_t root : roots)
+                            {
+                                DrawSkeletalBoneRow(bones, children, root);
+                            }
+                            ImGui::TreePop();
                         }
                         ImGui::Unindent();
                         ImGui::NewLine();
