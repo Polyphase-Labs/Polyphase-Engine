@@ -4873,6 +4873,149 @@ static void DrawSpawnBasicWidgetMenu(Node* node)
     }
 }
 
+static void AppendJsonEscapedString(std::string& out, const std::string& s)
+{
+    out += "\"";
+    for (char c : s)
+    {
+        switch (c)
+        {
+        case '\"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:   out += c; break;
+        }
+    }
+    out += "\"";
+}
+
+// Append a single script Datum value at `index` as a JSON value. Mirrors the
+// type coverage of ControllerServerRoutes.cpp's DatumToJson so the copied
+// hierarchy matches what the controller REST API reports.
+static void AppendDatumJsonValue(std::string& out, const Datum& datum, uint32_t index)
+{
+    char buf[128];
+    switch (datum.GetType())
+    {
+    case DatumType::Integer:
+        snprintf(buf, sizeof(buf), "%d", datum.GetInteger(index));
+        out += buf;
+        break;
+    case DatumType::Short:
+        snprintf(buf, sizeof(buf), "%d", (int32_t)datum.GetShort(index));
+        out += buf;
+        break;
+    case DatumType::Byte:
+        snprintf(buf, sizeof(buf), "%d", (int32_t)datum.GetByte(index));
+        out += buf;
+        break;
+    case DatumType::Float:
+        snprintf(buf, sizeof(buf), "%g", datum.GetFloat(index));
+        out += buf;
+        break;
+    case DatumType::Bool:
+        out += datum.GetBool(index) ? "true" : "false";
+        break;
+    case DatumType::String:
+        AppendJsonEscapedString(out, datum.GetString(index));
+        break;
+    case DatumType::Vector2D:
+    {
+        const glm::vec2& v = datum.GetVector2D(index);
+        snprintf(buf, sizeof(buf), "[%g, %g]", v.x, v.y);
+        out += buf;
+        break;
+    }
+    case DatumType::Vector:
+    {
+        const glm::vec3& v = datum.GetVector(index);
+        snprintf(buf, sizeof(buf), "[%g, %g, %g]", v.x, v.y, v.z);
+        out += buf;
+        break;
+    }
+    case DatumType::Color:
+    {
+        const glm::vec4& c = datum.GetColor(index);
+        snprintf(buf, sizeof(buf), "[%g, %g, %g, %g]", c.r, c.g, c.b, c.a);
+        out += buf;
+        break;
+    }
+    case DatumType::Asset:
+    case DatumType::Scene:
+    case DatumType::Material:
+    case DatumType::TileSet:
+    case DatumType::TileMap:
+    case DatumType::Timeline:
+    case DatumType::NodeGraphAsset:
+    {
+        Asset* a = datum.GetAsset(index);
+        AppendJsonEscapedString(out, a ? a->GetName() : "");
+        break;
+    }
+    default:
+        out += "null";
+        break;
+    }
+}
+
+static void AppendIndent(std::string& out, int depth)
+{
+    for (int i = 0; i < depth; ++i)
+        out += "  ";
+}
+
+// Emit a { "PropName": value, ... } JSON object for a property vector, one
+// entry per property. Array properties (GetCount() > 1) become JSON arrays.
+// Properties whose name is in `skipNames` are omitted (used to avoid emitting
+// the script's exposed fields twice). The opening/closing braces are indented
+// so the object nests under a key already written at `depth`.
+static void AppendPropertiesJson(std::string& out, const std::vector<Property>& props,
+                                 int depth, const std::set<std::string>* skipNames)
+{
+    out += "{";
+
+    bool any = false;
+    for (uint32_t p = 0; p < props.size(); ++p)
+    {
+        const Property& prop = props[p];
+        if (skipNames != nullptr && skipNames->count(prop.mName) > 0)
+            continue;
+
+        out += any ? ",\n" : "\n";
+        any = true;
+
+        AppendIndent(out, depth + 1);
+        AppendJsonEscapedString(out, prop.mName);
+        out += ": ";
+
+        uint32_t count = prop.GetCount();
+        if (count == 1)
+        {
+            AppendDatumJsonValue(out, prop, 0);
+        }
+        else
+        {
+            out += "[";
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                AppendDatumJsonValue(out, prop, i);
+                if (i < count - 1)
+                    out += ", ";
+            }
+            out += "]";
+        }
+    }
+
+    if (any)
+    {
+        out += "\n";
+        AppendIndent(out, depth);
+    }
+    out += "}";
+}
+
 static void BuildHierarchyJson(Node* node, std::string& out, int depth)
 {
     if (node == nullptr)
@@ -4895,11 +5038,12 @@ static void BuildHierarchyJson(Node* node, std::string& out, int depth)
     // Type
     indent(depth + 1);
     out += "\"type\": \"";
-    out += node->GetTypeName();
+    out += node->GetClassName();
     out += "\"";
 
     // Script (if any)
     Script* script = node->GetScript();
+    std::set<std::string> scriptPropNames;
     if (script != nullptr && !script->GetFile().empty())
     {
         out += ",\n";
@@ -4907,6 +5051,35 @@ static void BuildHierarchyJson(Node* node, std::string& out, int depth)
         out += "\"script\": \"";
         out += script->GetFile();
         out += "\"";
+
+        // Script-exposed properties (if any)
+        const std::vector<Property>& scriptProps = script->GetScriptProperties();
+        if (!scriptProps.empty())
+        {
+            for (const Property& sp : scriptProps)
+                scriptPropNames.insert(sp.mName);
+
+            out += ",\n";
+            indent(depth + 1);
+            out += "\"scriptProperties\": ";
+            AppendPropertiesJson(out, scriptProps, depth + 1, nullptr);
+        }
+    }
+
+    // Full inspector state: transform (Position/Rotation/Scale), widget
+    // (Size/Anchor/Color/Opacity/Pivot/Scale/Rotation), Texture, Material, etc.
+    // Sourced from GatherProperties so every node type (and addon type) is
+    // covered automatically. Script-exposed fields are skipped here since they
+    // were already emitted under "scriptProperties".
+    {
+        std::vector<Property> props;
+        node->GatherProperties(props);
+
+        out += ",\n";
+        indent(depth + 1);
+        out += "\"properties\": ";
+        AppendPropertiesJson(out, props, depth + 1,
+                             scriptPropNames.empty() ? nullptr : &scriptPropNames);
     }
 
     // Scene reference (if linked)

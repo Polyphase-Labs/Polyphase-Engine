@@ -119,7 +119,9 @@ void Mesh3D::LoadStream(Stream& stream, Platform platform, uint32_t version)
         skyMat->SetCullMode(CullMode::Front);
         skyMat->SetDepthTestDisabled(true);
         skyMat->SetSortPriority(-1000);
-        skyMat->SetApplyFog(false);
+        // Enable fog so the sky receives horizon fog (Unlit + depthless + negative
+        // priority is the sky discriminator; see WriteMaterialLiteUniformData / ApplyFogSky).
+        skyMat->SetApplyFog(true);
         mMaterialOverride = skyMat;
     }
 }

@@ -2,7 +2,23 @@
 
 #include "Assets/StaticMesh.h"
 #include "Assets/Material.h"
+#include "Assets/MaterialLite.h"
+#include "Assets/MaterialBase.h"
 #include "AssetManager.h"
+
+// Enable fog on a skybox material regardless of its concrete type. The sky is detected in
+// the renderer by its render state (Unlit + depthless + negative sort priority) and given
+// horizon fog rather than distance fog, so simply turning fog on here is sufficient.
+static void EnableSkyboxFog(Material* skyMat)
+{
+    if (skyMat == nullptr)
+        return;
+
+    if (skyMat->IsLite())
+        static_cast<MaterialLite*>(skyMat)->SetApplyFog(true);
+    else if (skyMat->IsBase())
+        static_cast<MaterialBase*>(skyMat)->SetApplyFog(true);
+}
 
 FORCE_LINK_DEF(Skybox3D);
 DEFINE_NODE(Skybox3D, StaticMesh3D);
@@ -48,6 +64,7 @@ void Skybox3D::Create()
     if (skyMat != nullptr)
     {
         SetMaterialOverride(skyMat);
+        EnableSkyboxFog(skyMat);
     }
 
     EnableCollision(false);

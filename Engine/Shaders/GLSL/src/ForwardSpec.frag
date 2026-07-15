@@ -253,7 +253,15 @@ void main()
 
     if (kHasFog)
     {
-        ApplyFog(outColor, inPosition, global);
+        // mApplyFog: 1 = distance fog, 2 = sky/horizon fog (skybox).
+        if (material.mApplyFog == 2)
+        {
+            ApplyFogSky(outColor, inPosition, global);
+        }
+        else
+        {
+            ApplyFog(outColor, inPosition, global);
+        }
     }
 
     if (kBlendMode == BLEND_MODE_TRANSLUCENT ||

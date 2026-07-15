@@ -999,7 +999,18 @@ void WriteMaterialLiteUniformData(MaterialData& outData, MaterialLite* material)
     outData.mShininess = material->GetShininess();
     outData.mFresnelEnabled = static_cast<uint32_t>(material->IsFresnelEnabled());
     outData.mVertexColorMode = static_cast<uint32_t>(material->GetVertexColorMode());
-    outData.mApplyFog = static_cast<uint32_t>(material->ShouldApplyFog());
+    // Tri-state fog mode: 0 = off, 1 = distance fog, 2 = sky/horizon fog. The skybox is
+    // uniquely Unlit + depth-test disabled + negative sort priority, which lets the sky get
+    // horizon fog (ApplyFogSky) instead of radial-distance fog without a per-material flag.
+    uint32_t fogMode = 0;
+    if (material->ShouldApplyFog())
+    {
+        bool isSky = material->GetShadingModel() == ShadingModel::Unlit
+                  && material->IsDepthTestDisabled()
+                  && material->GetSortPriority() < 0;
+        fogMode = isSky ? 2u : 1u;
+    }
+    outData.mApplyFog = fogMode;
     outData.mEmission = material->GetEmission();
     outData.mWrapLighting = material->GetWrapLighting();
     outData.mUvMaps[0] = material->GetUvMap(0);

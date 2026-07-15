@@ -230,7 +230,15 @@ void main()
 
     if (material.mApplyFog != 0)
     {
-        ApplyFog(outColor, inPosition, global);
+        // mApplyFog: 1 = distance fog, 2 = sky/horizon fog (skybox).
+        if (material.mApplyFog == 2)
+        {
+            ApplyFogSky(outColor, inPosition, global);
+        }
+        else
+        {
+            ApplyFog(outColor, inPosition, global);
+        }
     }
 
     outColor.a = inColor.a * diffuse.a * material.mOpacity;

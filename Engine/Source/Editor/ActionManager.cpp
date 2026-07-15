@@ -4541,6 +4541,13 @@ static void ConfigureSkyboxNode(StaticMesh3D* skyNode, Material* srcMaterial = n
     if (skyMat != nullptr)
     {
         skyNode->SetMaterialOverride(skyMat);
+
+        // Enable fog so the sky receives horizon fog (see WriteMaterialLiteUniformData /
+        // ApplyFogSky). The sky is detected by its render state, so this is all that's needed.
+        if (skyMat->IsLite())
+            static_cast<MaterialLite*>(skyMat)->SetApplyFog(true);
+        else if (skyMat->IsBase())
+            static_cast<MaterialBase*>(skyMat)->SetApplyFog(true);
     }
 
     skyNode->EnableCollision(false);
