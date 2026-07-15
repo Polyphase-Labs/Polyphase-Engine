@@ -194,6 +194,21 @@ void CookTexture(
             }
         }
 
+        // Never cook below the console GPU minimum. tex3ds (3DS) rejects textures smaller
+        // than 8x8 and such a texture comes through black on-device (Wii/GameCube merely
+        // show it as a flat tint). Clamp up so a heavily-downsampled or already-tiny source
+        // (e.g. a small gradient with a high Downsample Factor) still renders as a valid
+        // low-res texture instead of black. The resize below resamples the source to fit.
+        const int32_t hardwareMin = 8;
+        if (texWidth < hardwareMin || texHeight < hardwareMin)
+        {
+            LogWarning("Texture '%s' cooked to %dx%d (below the %dpx console minimum); clamping up. "
+                       "Lower its Downsample Factor or enable Force High Quality for full resolution.",
+                       texture->GetName().c_str(), texWidth, texHeight, hardwareMin);
+            texWidth = glm::max(texWidth, hardwareMin);
+            texHeight = glm::max(texHeight, hardwareMin);
+        }
+
         // TODO: Resize to a power-of-two?
 
         // Resize texture if downsampled for LQ, or non-power-of-two
