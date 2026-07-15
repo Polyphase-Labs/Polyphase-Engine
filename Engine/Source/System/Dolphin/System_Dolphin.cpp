@@ -418,9 +418,12 @@ bool SYS_CopyDirectoryRecursive(const std::string& sourceDir,
     return false;
 }
 
-void SYS_CopyFile(const char* sourcePath, const char* destPath)
+bool SYS_CopyFile(const char* sourcePath, const char* destPath)
 {
-
+    // No-op on GameCube/Wii runtime (packaging happens on the host editor).
+    (void)sourcePath;
+    (void)destPath;
+    return true;
 }
 
 void SYS_MoveDirectory(const char* sourceDir, const char* destDir)

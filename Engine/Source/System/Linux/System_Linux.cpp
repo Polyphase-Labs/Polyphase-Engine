@@ -23,6 +23,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #if API_VULKAN
@@ -974,10 +975,15 @@ void SYS_CopyDirectory(const char* sourceDir, const char* destDir)
     SYS_Exec(cmd.c_str());
 }
 
-void SYS_CopyFile(const char* sourcePath, const char* destPath)
+bool SYS_CopyFile(const char* sourcePath, const char* destPath)
 {
     std::string cmd = std::string("cp \"") + sourcePath + "\" \"" + destPath + "\"";
     SYS_Exec(cmd.c_str());
+
+    // Confirm the copy landed; a failed cp (e.g. unwritable destination dir)
+    // must be reported so packaging can abort instead of shipping a broken build.
+    struct stat info;
+    return (stat(destPath, &info) == 0) && !S_ISDIR(info.st_mode);
 }
 
 void SYS_MoveDirectory(const char* sourceDir, const char* destDir)

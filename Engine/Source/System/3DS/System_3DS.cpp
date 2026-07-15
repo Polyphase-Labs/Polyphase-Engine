@@ -456,9 +456,12 @@ bool SYS_CopyDirectoryRecursive(const std::string& sourceDir,
     return false;
 }
 
-void SYS_CopyFile(const char* sourcePath, const char* destPath)
+bool SYS_CopyFile(const char* sourcePath, const char* destPath)
 {
-
+    // No-op on 3DS runtime (packaging happens on the host editor, not here).
+    (void)sourcePath;
+    (void)destPath;
+    return true;
 }
 
 void SYS_MoveDirectory(const char* sourceDir, const char* destDir)

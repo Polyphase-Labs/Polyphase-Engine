@@ -59,7 +59,12 @@ void ProjectSelectWindow::Open()
     const char* userProfile = getenv("USERPROFILE");
     if (userProfile != nullptr)
     {
-        defaultPath = std::string(userProfile) + "/Documents/PolyphaseProjects";
+        // Deliberately NOT under Documents: OneDrive Known-Folder-Move /
+        // Windows Controlled Folder Access frequently make %USERPROFILE%\Documents
+        // unwritable by the editor, which silently breaks packaging (cooked assets
+        // fail to write -> truncated embedded build -> black screen on consoles).
+        // The user-profile root is not redirected by OneDrive, so it's writable.
+        defaultPath = std::string(userProfile) + "/PolyphaseProjects";
     }
 #else
     const char* home = getenv("HOME");

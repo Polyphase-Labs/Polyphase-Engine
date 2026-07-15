@@ -17,6 +17,7 @@
 #include <cstring>
 #include <assert.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 #if API_VULKAN
 #include "Graphics/Vulkan/VramAllocator.h"
@@ -816,10 +817,13 @@ void SYS_CopyDirectory(const char* sourceDir, const char* destDir)
     SYS_Exec(cmd.c_str());
 }
 
-void SYS_CopyFile(const char* sourcePath, const char* destPath)
+bool SYS_CopyFile(const char* sourcePath, const char* destPath)
 {
     std::string cmd = std::string("cp \"") + sourcePath + "\" \"" + destPath + "\"";
     SYS_Exec(cmd.c_str());
+
+    struct stat info;
+    return (stat(destPath, &info) == 0) && !S_ISDIR(info.st_mode);
 }
 
 void SYS_MoveDirectory(const char* sourceDir, const char* destDir)

@@ -965,7 +965,7 @@ void SYS_CopyDirectory(const char* sourceDir, const char* destDir)
     SYS_Exec(cmd.c_str());
 }
 
-void SYS_CopyFile(const char* sourcePath, const char* destPath)
+bool SYS_CopyFile(const char* sourcePath, const char* destPath)
 {
     std::string source = sourcePath;
     std::string dest = destPath;
@@ -985,6 +985,11 @@ void SYS_CopyFile(const char* sourcePath, const char* destPath)
     }
     std::string cmd = std::string("copy \"") + source + "\" \"" + dest + "\" /Y";
     SYS_Exec(cmd.c_str());
+
+    // `copy` is a CMD intrinsic and its exit code doesn't reliably surface, so
+    // confirm success by checking the destination actually exists afterwards.
+    struct stat info;
+    return (stat(destPath, &info) == 0) && !(info.st_mode & S_IFDIR);
 }
 
 void SYS_MoveDirectory(const char* sourceDir, const char* destDir)

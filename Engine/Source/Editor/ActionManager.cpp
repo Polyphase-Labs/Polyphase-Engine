@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
+#include <cerrno>
 #include <sys/stat.h>
 
 #include <vector>
@@ -1443,6 +1445,53 @@ void ActionManager::BuildData(const std::string& targetId, bool embedded)
     BuildData(static_cast<Platform>(target->mDesc.basePlatform), embedded);
 }
 
+// Verifies the build can actually create + write files under `dir`. Catches
+// permission-denied output locations (e.g. a project under OneDrive-managed
+// %USERPROFILE%\Documents, where Controlled Folder Access blocks the editor
+// from writing) BEFORE the cook runs — otherwise the pipeline silently produces
+// a truncated package with empty embedded assets, which then boots to a black
+// screen on consoles (embedded mode, no filesystem fallback). Returns true on
+// success; on failure fills outError with an actionable message.
+static bool VerifyBuildDirWritable(const std::string& dir, std::string& outError)
+{
+    if (!DoesDirExist(dir.c_str()))
+    {
+        CreateDir(dir.c_str());
+    }
+    if (!DoesDirExist(dir.c_str()))
+    {
+        outError = "Cannot create directory: " + dir;
+        return false;
+    }
+
+    std::string probePath = dir;
+    if (!probePath.empty() && probePath.back() != '/' && probePath.back() != '\\')
+    {
+        probePath += "/";
+    }
+    probePath += ".polyphase_write_test";
+
+    FILE* probe = fopen(probePath.c_str(), "wb");
+    if (probe == nullptr)
+    {
+        outError = "Cannot write to: " + dir + " (" + strerror(errno) + ")";
+        return false;
+    }
+    const char kByte = 'P';
+    size_t written = fwrite(&kByte, 1, 1, probe);
+    fclose(probe);
+
+    if (written != 1)
+    {
+        SYS_RemoveFile(probePath.c_str());
+        outError = "Write failed in: " + dir;
+        return false;
+    }
+
+    SYS_RemoveFile(probePath.c_str());
+    return true;
+}
+
 void ActionManager::BuildData(Platform platform, bool embedded)
 {
     if (IsBuildRunning())
@@ -1798,6 +1847,32 @@ void ActionManager::BuildPhase1()
 
     CreateDir(packagedDir.c_str());
     mBuildState.mPackagedDir = packagedDir;
+
+    // Writability preflight — abort BEFORE the cook if the output or Intermediate
+    // directories can't be written. This is the guard against permission-denied
+    // project locations (OneDrive Known-Folder-Move / Windows Controlled Folder
+    // Access on %USERPROFILE%\Documents) silently producing a truncated build
+    // that boots to a black screen on GameCube/Wii (embedded mode, no filesystem
+    // fallback). See VerifyBuildDirWritable above.
+    {
+        std::string writeError;
+        const std::string intermediateDir = projectDir + "Intermediate/";
+        if (!VerifyBuildDirWritable(packagedDir, writeError) ||
+            !VerifyBuildDirWritable(intermediateDir, writeError))
+        {
+            std::string msg =
+                "Build failed: " + writeError + "\n"
+                "This location is not writable. It is often caused by the project living "
+                "under OneDrive / Windows Controlled Folder Access (e.g. your Documents "
+                "folder). Move the project to a writable drive (for example M:\\), or allow "
+                "the Polyphase editor through Controlled Folder Access, then rebuild.\n";
+            LogError("%s", msg.c_str());
+            AppendBuildOutput(("ERROR: " + msg).c_str());
+            mBuildState.mComplete.store(true);
+            mBuildState.mSuccess.store(false);
+            return;
+        }
+    }
 
     // (2) Cook assets
     AppendBuildOutput("Cooking assets...\n");
@@ -2249,8 +2324,9 @@ void ActionManager::BuildPhase1()
         // Root-level copies — unchanged from original behaviour. Config.ini here is
         // mandatory for the first read; the .octp is kept for any external tooling
         // that might reference it.
-        SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (packagedDir + projectName + ".octp").c_str());
-        SYS_CopyFile((projectDir + "Config.ini").c_str(), (packagedDir + "Config.ini").c_str());
+        bool copyOk = true;
+        copyOk &= SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (packagedDir + projectName + ".octp").c_str());
+        copyOk &= SYS_CopyFile((projectDir + "Config.ini").c_str(), (packagedDir + "Config.ini").c_str());
 
         // Project-subdirectory copies — what the standalone LoadProject() call at
         // Engine.cpp:431 actually opens. Required for shipped exe to boot its project.
@@ -2259,8 +2335,23 @@ void ActionManager::BuildPhase1()
         {
             CreateDir(projSubdir.c_str());
         }
-        SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (projSubdir + projectName + ".octp").c_str());
-        SYS_CopyFile((projectDir + "Config.ini").c_str(), (projSubdir + "Config.ini").c_str());
+        copyOk &= SYS_CopyFile((projectDir + projectName + ".octp").c_str(), (projSubdir + projectName + ".octp").c_str());
+        copyOk &= SYS_CopyFile((projectDir + "Config.ini").c_str(), (projSubdir + "Config.ini").c_str());
+
+        // These are the files the shipped runtime opens at boot. If any failed to
+        // copy the build is unbootable, so abort loudly rather than ship it.
+        if (!copyOk)
+        {
+            std::string msg =
+                "Build failed: could not stage Config.ini / " + projectName + ".octp into "
+                + packagedDir + " (destination not writable). Move the project off a "
+                "OneDrive / Controlled-Folder-Access location and rebuild.\n";
+            LogError("%s", msg.c_str());
+            AppendBuildOutput(("ERROR: " + msg).c_str());
+            mBuildState.mComplete.store(true);
+            mBuildState.mSuccess.store(false);
+            return;
+        }
     }
 
     // Copy custom icon for Windows packaging
