@@ -359,7 +359,9 @@ glm::mat4 GFX_MakeOrthographicMatrix(float left, float right, float bottom, floa
 
 void GFX_SetFog(const FogSettings& fogSettings)
 {
-    // TODO: Fog isn't really working as expected... I don't understand the fog lut format.
+    // The 3DS fog LUT is depth-indexed and stores per-sample "clarity" (built below):
+    // C3D_FogGasMode(GPU_FOG, GPU_DEPTH_DENSITY) blends fragColor toward the fog color as
+    // clarity drops from 1 (near) to 0 (far).
     if (fogSettings.mEnabled)
     {
         Camera3D* camera = gC3dContext.mWorld->GetActiveCamera();
@@ -379,43 +381,48 @@ void GFX_SetFog(const FogSettings& fogSettings)
             gC3dContext.mFogFar = fogSettings.mFar;
             gC3dContext.mFogDensityFunc = fogSettings.mDensityFunc;
 
-            if (false/*fogSettings.mDensityFunc == FogDensityFunc::Exponential*/)
-            {
-                FogLut_Exp(&gC3dContext.mFogLut, 0.05f, 1.5f, camNearZ, camFarZ);
-            }
-            else
-            {
-                float data[256];
+            // Build the fog LUT. The 3DS fog LUT stores a per-depth "clarity" value where
+            // 1.0 = fully visible (no fog) and 0.0 = full fog color. data[0..127] hold the
+            // sample values and data[128..255] hold the deltas between consecutive samples,
+            // which is exactly the layout Citro3D's FogLut_FromArray expects (mirroring how
+            // its FogLut_Exp helper fills the array). The previous version forced data[0]=0,
+            // which made the nearest depth read as fully fogged and corrupted the whole curve.
+            const bool exponential = (fogSettings.mDensityFunc == FogDensityFunc::Exponential);
+            const float maxFog = glm::clamp(fogSettings.mColor.a, 0.0f, 1.0f);
+            const float fogRange = (farZ - nearZ);
 
-                for (uint32_t i = 0; i <= 128; ++i)
+            float data[256];
+            for (uint32_t i = 0; i <= 128; ++i)
+            {
+                // Eye-space distance this LUT slot corresponds to.
+                float x = FogLut_CalcZ(i / 128.0f, camNearZ, camFarZ);
+
+                // Linear fog ramp in [0,1]: 0 at/inside near, 1 at/beyond far. Apply the
+                // fog color's alpha as a max-fog cap here, matching Fog.glsl's ordering.
+                float fogAlpha = (fogRange != 0.0f) ? glm::clamp((x - nearZ) / fogRange, 0.0f, 1.0f) : 0.0f;
+                fogAlpha *= maxFog;
+
+                float fogFactor = fogAlpha;
+                if (exponential)
                 {
-                    float x = FogLut_CalcZ(i / 128.0f, camNearZ, camFarZ);
-
-                    //LogDebug("%d: x = %.2f n = % .2f f = %.2f", i, x, nearZ, farZ);
-
-                    float val = glm::clamp(((x - nearZ) / (farZ - nearZ)), 0.0f, 1.0f);
-                    val = 1.0f - val;
-
-                    //LogDebug("val: %f", val);
-
-                    if (i == 0)
-                    {
-                        data[i] = 0.0f;
-                    }
-                    else
-                    {
-                        if (i < 128)
-                        {
-                            data[i] = val;
-                        }
-
-                        data[i + 127] = val - data[i - 1];
-
-                    }
+                    // Match the desktop/Vulkan exponential approximation in Fog.glsl.
+                    fogFactor = 1.0f - glm::clamp(powf(20.0f, -fogAlpha), 0.0f, 1.0f);
                 }
 
-                FogLut_FromArray(&gC3dContext.mFogLut, data);
+                // The LUT stores clarity = 1 - fog amount.
+                float val = 1.0f - fogFactor;
+
+                if (i < 128)
+                {
+                    data[i] = val;
+                }
+                if (i > 0)
+                {
+                    data[i + 127] = val - data[i - 1];
+                }
             }
+
+            FogLut_FromArray(&gC3dContext.mFogLut, data);
         }
 
         C3D_FogGasMode(GPU_FOG, GPU_DEPTH_DENSITY, false);

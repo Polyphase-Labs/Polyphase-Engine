@@ -470,7 +470,7 @@ void BindMaterial(MaterialLite* material, Primitive3D* primitive, bool useVertex
     }
 
     bool matApplyFog = material->ShouldApplyFog();
-    if (gGxContext.mFogType != GX_FOG_NONE && 
+    if (gGxContext.mFogType != GX_FOG_NONE &&
         gGxContext.mApplyFog != matApplyFog)
     {
         gGxContext.mApplyFog = matApplyFog;
