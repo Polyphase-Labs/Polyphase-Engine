@@ -1922,10 +1922,23 @@ void ReadEngineConfig(std::string path)
         }
 
         // On consoles, force UseAssetRegistry=true for faster loading performance.
-        if (GetPlatform() == Platform::Android ||
+        bool forceAssetRegistry =
+            GetPlatform() == Platform::Android ||
             GetPlatform() == Platform::GameCube ||
             GetPlatform() == Platform::Wii ||
-            GetPlatform() == Platform::N3DS)
+            GetPlatform() == Platform::N3DS;
+
+        // Addon-target console builds (PSP, PS2, Dreamcast, ...) must also use the
+        // registry. They are POLYPHASE_PLATFORM_ADDON builds that don't map to a
+        // Platform enum above, and on PSP directory scanning is not just slow —
+        // sceIoDread silently drops entries when file I/O is interleaved, so some
+        // assets never register (symptom: the configured default scene isn't found
+        // and it falls back to SC_Default). The registry avoids the scan entirely.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+        forceAssetRegistry = true;
+#endif
+
+        if (forceAssetRegistry)
         {
             // Use the asset registry to make loading faster. On consoles, scanning the SD card directories
             // can be extremely slow. Android used to require the asset registry, but I did add support for
