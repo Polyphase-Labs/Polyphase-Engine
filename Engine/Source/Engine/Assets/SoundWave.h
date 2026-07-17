@@ -40,6 +40,14 @@ public:
 
     uint8_t* GetWaveData() const;
     uint32_t GetWaveDataSize() const;
+
+    // Streaming (long BGM): when set, LoadStream does NOT decode the whole PCM into
+    // RAM. Instead it records where the PCM lives in the .oct so AudioManager can
+    // stream it from disk in chunks. GetWaveData() returns nullptr for these.
+    bool IsStreaming() const { return mStreaming; }
+    uint64_t GetStreamPcmOffset() const { return mStreamPcmOffset; }
+    uint32_t GetStreamPcmSize() const { return mStreamPcmSize; }
+
     uint32_t GetNumChannels() const;
     uint32_t GetBitsPerSample() const;
     uint32_t GetSampleRate() const;
@@ -65,6 +73,12 @@ protected:
     int8_t mAudioClass = 0;
     bool mCompress = false;
     bool mCompressInternal = false;
+    bool mStreaming = false;
+
+    // Streaming metadata (valid when mStreaming): where the raw PCM lives in the
+    // .oct file, so it can be re-opened and read in chunks instead of resident.
+    uint64_t mStreamPcmOffset = 0;
+    uint32_t mStreamPcmSize = 0;
 
     // Soundwave Format
     uint32_t mNumChannels = 1;

@@ -477,3 +477,47 @@ const char* SYS_LookupEmbeddedRawAsset(const char* path, uint32_t& outSize)
     }
     return nullptr;
 }
+
+// ============================================================================
+//  Seekable, handle-based file reading (see System.h). Implemented once here so
+//  every platform links it (shared System source, compiled everywhere). SysFile*
+//  is an opaque alias for FILE*. Used to stream large assets (e.g. background
+//  music) from disk in chunks instead of holding the whole file resident.
+//
+//  Path resolution: try the raw path first (works where the CWD is already the
+//  asset root — Windows/Linux), then fall back to SYS_GetAbsolutePath, which each
+//  platform implements to add its device prefix (e.g. "host:" on PS2). Embedded
+//  (in-exe/romfs) assets that fopen can't open just return nullptr → the caller
+//  degrades gracefully (streaming silently no-ops there).
+// ============================================================================
+SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
+{
+    if (path == nullptr) return nullptr;
+
+    FILE* file = fopen(path, "rb");
+    if (file == nullptr)
+    {
+        const std::string resolved = SYS_GetAbsolutePath(path);
+        file = fopen(resolved.c_str(), "rb");
+    }
+    return reinterpret_cast<SysFile*>(file);
+}
+
+uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
+{
+    if (file == nullptr || dst == nullptr || bytes == 0) return 0;
+    return (uint32_t)fread(dst, 1, bytes, reinterpret_cast<FILE*>(file));
+}
+
+bool SYS_FileSeek(SysFile* file, uint64_t absoluteOffset)
+{
+    if (file == nullptr) return false;
+    // Music/asset files are well under 2 GB, so a `long` offset is sufficient and
+    // portable across the 32-bit console newlibs (avoids _fseeki64/fseeko split).
+    return fseek(reinterpret_cast<FILE*>(file), (long)absoluteOffset, SEEK_SET) == 0;
+}
+
+void SYS_FileClose(SysFile* file)
+{
+    if (file != nullptr) fclose(reinterpret_cast<FILE*>(file));
+}

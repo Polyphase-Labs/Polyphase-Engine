@@ -59,6 +59,7 @@ void SoundWave::LoadStream(Stream& stream, Platform platform)
     mAudioClass = stream.ReadInt8();
     mCompress = stream.ReadBool();
     mCompressInternal = stream.ReadBool();
+    mStreaming = (mVersion >= ASSET_VERSION_SOUNDWAVE_STREAMING) ? stream.ReadBool() : false;
 
     // Waveform Format
     mNumChannels = stream.ReadUint32();
@@ -106,6 +107,28 @@ void SoundWave::LoadStream(Stream& stream, Platform platform)
     {
         // Waveform
         mWaveDataSize = stream.ReadUint32();
+
+        // Streaming: don't decode the whole PCM into RAM. Record where it lives in
+        // the .oct (the current stream position IS the file byte offset, since the
+        // whole file was loaded into this Stream) and its size, then bail — the
+        // AudioManager streaming pump re-opens the file and reads it in chunks.
+        //
+        // ONLY at runtime. In the editor the asset must fully load its PCM: packaging
+        // re-serializes this in-memory SoundWave via SaveStream, and a skipped load
+        // would write waveDataSize=0 — shipping a streaming .oct with no audio (the
+        // "0 PCM bytes" bug). The RAM win only matters on the memory-tight console
+        // runtime anyway; the editor host has room to spare.
+#if !EDITOR
+        if (mStreaming && mWaveDataSize > 0)
+        {
+            mStreamPcmOffset = (uint64_t)stream.GetPos();
+            mStreamPcmSize   = mWaveDataSize;
+            mWaveData        = nullptr;
+            mWaveDataSize    = 0;
+            return;   // skip the resident allocation + AUD_ProcessWaveBuffer
+        }
+#endif
+
         mWaveData = AUD_AllocWaveBuffer(mWaveDataSize);
         if (mWaveData != nullptr)
         {
@@ -140,6 +163,7 @@ void SoundWave::SaveStream(Stream& stream, Platform platform)
     stream.WriteInt8(mAudioClass);
     stream.WriteBool(mCompress);
     stream.WriteBool(mCompressInternal);
+    stream.WriteBool(mStreaming);   // ASSET_VERSION_SOUNDWAVE_STREAMING
 
     uint32_t numChannels = mNumChannels;
     uint32_t bitsPerSample = mBitsPerSample;
@@ -280,6 +304,13 @@ void SoundWave::SaveStream(Stream& stream, Platform platform)
         // hardware with disk space to spare, and the runtime cost of
         // Vorbis-decode-at-load is a startup-time stutter even when it
         // works. Storage > load time = good trade for all non-Windows.
+        compress = false;
+    }
+
+    // Streaming reads raw PCM from disk in chunks, so it must be stored uncompressed
+    // (there's no per-chunk Vorbis decode). Force it regardless of the compress flags.
+    if (mStreaming)
+    {
         compress = false;
     }
 
@@ -572,6 +603,7 @@ void SoundWave::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Byte, "Audio Class", this, &mAudioClass, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Bool, "Compress", this, &mCompress, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Bool, "Compress Internal", this, &mCompressInternal, 1, HandlePropChange));
+    outProps.push_back(Property(DatumType::Bool, "Streaming", this, &mStreaming, 1, HandlePropChange));
 }
 
 glm::vec4 SoundWave::GetTypeColor()

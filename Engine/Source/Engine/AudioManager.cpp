@@ -1,7 +1,12 @@
 #include "AudioManager.h"
 #include "Assets/SoundWave.h"
 #include "Asset.h"
+#include "AssetManager.h"
+#include "AssetRef.h"
+#include "System/System.h"
 #include "Log.h"
+
+#include <vector>
 #include "Maths.h"
 #include "Engine.h"
 #include "World.h"
@@ -101,6 +106,293 @@ static AudioClassData sAudioClassData[MAX_AUDIO_CLASSES];
 static AudioSource sAudioSources[MAX_AUDIO_SOURCES];
 static float sMasterVolume = 1.0f;
 static float sMasterPitch = 1.0f;
+
+// ============================================================================
+//  Streaming sources — disk-streamed long audio (background music).
+//  Separate from the 8 static voice slots: these feed the push-PCM stream API
+//  (AUD_OpenStream/SubmitStreamBuffer) from a file read in small chunks, so the
+//  whole track never sits resident in RAM (the point on tight-memory consoles).
+//  Pumped every frame from Update(). Modelled on the VideoPlayer addon's proven
+//  pattern: retry-stash a rejected chunk, prebuffer before unpausing, loop by
+//  seeking, and never drop a chunk (drops become audible gaps). 2D only.
+// ============================================================================
+static constexpr uint32_t kMaxStreamingSources = 4;
+static constexpr uint32_t kStreamChunkBytes    = 16 * 1024; // per-frame read size
+static constexpr float    kStreamPrebufferSec  = 0.15f;     // buffer before unpausing
+
+struct StreamingSource
+{
+    SoundWaveRef mSoundWave;
+    Audio3D*     mComponent    = nullptr; // owning Audio3D node (null for 2D/Lua plays)
+    uint32_t     mStreamId     = 0;      // AUD_OpenStream id; 0 = slot free
+    SysFile*     mFile         = nullptr;
+    uint64_t     mPcmOffset    = 0;      // file byte offset of PCM start
+    uint64_t     mPcmSize      = 0;      // total SOURCE PCM bytes (on disk)
+    uint64_t     mReadPos      = 0;      // SOURCE PCM bytes read so far (0..mPcmSize)
+    uint32_t     mSrcFrameBytes = 2;     // channels * (srcBits/8) — on-disk frame size
+    uint32_t     mFrameBytes   = 4;      // channels * 2 — SUBMIT (always-16-bit) frame size
+    bool         mExpand8to16  = false;  // source is 8-bit unsigned; widen to s16 before submit
+    float        mSampleRate   = 44100.0f;
+    bool         mLoop         = false;
+    bool         mUnpaused     = false;
+    float        mSubmittedSec = 0.0f;   // seconds submitted so far (prebuffer gate)
+    std::vector<uint8_t> mChunk;         // reusable SOURCE read buffer
+    std::vector<uint8_t> mSubmit;        // reusable submit buffer (== mChunk, or widened)
+    std::vector<uint8_t> mPending;       // stashed submit bytes when the queue was full
+    bool         mPendingValid = false;
+};
+static StreamingSource sStreamingSources[kMaxStreamingSources];
+
+static inline float StreamBytesToSec(const StreamingSource& s, uint32_t bytes)
+{
+    const float denom = s.mSampleRate * (float)s.mFrameBytes;
+    return denom > 0.0f ? (float)bytes / denom : 0.0f;
+}
+
+static void CloseStreamingSlot(StreamingSource& s)
+{
+    if (s.mStreamId != 0) { AUD_CloseStream(s.mStreamId); s.mStreamId = 0; }
+    if (s.mFile != nullptr) { SYS_FileClose(s.mFile); s.mFile = nullptr; }
+    if (s.mComponent != nullptr) { s.mComponent->NotifyAudible(false); s.mComponent = nullptr; }
+    s.mSoundWave = nullptr;
+    s.mPcmOffset = s.mPcmSize = s.mReadPos = 0;
+    s.mUnpaused = false;
+    s.mSubmittedSec = 0.0f;
+    s.mPendingValid = false;
+    s.mPending.clear();
+}
+
+static bool IsStreamingPlaying(SoundWave* sw)
+{
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+        if (sStreamingSources[i].mStreamId != 0 && sStreamingSources[i].mSoundWave.Get() == sw)
+            return true;
+    return false;
+}
+
+static void StopStreamingBySound(SoundWave* sw)
+{
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+        if (sStreamingSources[i].mSoundWave.Get() == sw)
+            CloseStreamingSlot(sStreamingSources[i]);
+}
+
+static void StopAllStreaming()
+{
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+        CloseStreamingSlot(sStreamingSources[i]);
+}
+
+// Begin streaming a SoundWave marked mStreaming from disk. `component` is the
+// owning Audio3D node (nullptr for 2D / Lua plays); when set, it's marked audible
+// so the auto-start loop doesn't re-trigger it, and un-marked when the stream ends.
+// Returns false (and falls through to silence) if there's no free slot, the file
+// can't be opened, or the platform has no streaming backend (AUD_OpenStream = 0).
+static bool StartStreamingMusic(SoundWave* sw, Audio3D* component, float volumeMult, bool loop)
+{
+    // No PCM to stream (e.g. an asset packaged before the streaming fix, or a bad
+    // cook). Reject up front — otherwise the pump would open a stream, immediately
+    // hit "fully played" (readPos 0 >= size 0), close it, un-mark the node audible,
+    // and the auto-start loop would re-trigger it every frame forever.
+    if (sw == nullptr || sw->GetStreamPcmSize() == 0)
+    {
+        LogWarning("AudioManager: streaming '%s' has 0 PCM bytes (repackage needed?) — skipping",
+                   sw != nullptr ? sw->GetName().c_str() : "<null>");
+        return false;
+    }
+
+    StreamingSource* slot = nullptr;
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+    {
+        if (sStreamingSources[i].mStreamId == 0 && sStreamingSources[i].mSoundWave.Get() == nullptr)
+        {
+            slot = &sStreamingSources[i];
+            break;
+        }
+    }
+    if (slot == nullptr)
+    {
+        LogWarning("AudioManager: no free streaming slot for '%s'", sw->GetName().c_str());
+        return false;
+    }
+
+    // Resolve the .oct path from the asset stub so we can re-open it for reading.
+    AssetStub* stub = AssetManager::Get()->GetAssetStubByUuid(sw->GetUuid());
+    if (stub == nullptr) stub = AssetManager::Get()->GetAssetStub(sw->GetName());
+    if (stub == nullptr || stub->mPath.empty())
+    {
+        LogWarning("AudioManager: streaming '%s' has no on-disk path (embedded?)", sw->GetName().c_str());
+        return false;
+    }
+
+    SysFile* file = SYS_FileOpenRead(stub->mPath.c_str(), true);
+    if (file == nullptr)
+    {
+        LogWarning("AudioManager: streaming can't open '%s'", stub->mPath.c_str());
+        return false;
+    }
+
+    const uint32_t channels = (sw->GetNumChannels() > 0) ? sw->GetNumChannels() : 1;
+    const uint32_t rate     = sw->GetSampleRate();
+    const uint32_t srcBits  = (sw->GetBitsPerSample() == 8) ? 8u : 16u;
+
+    // The streaming backends are all 16-bit only. If the asset is 8-bit unsigned PCM,
+    // the pump widens each byte to s16 (mExpand8to16) before submitting — so the
+    // backend always sees 16-bit and we don't need per-platform 8-bit stream support.
+    const uint32_t streamId = AUD_OpenStream(rate, channels, 16);
+    if (streamId == 0)
+    {
+        SYS_FileClose(file);
+        LogWarning("AudioManager: AUD_OpenStream failed for '%s' (streaming unavailable on this platform)",
+                   sw->GetName().c_str());
+        return false;
+    }
+
+    SYS_FileSeek(file, sw->GetStreamPcmOffset());
+
+    slot->mSoundWave     = sw;
+    slot->mComponent     = component;
+    slot->mStreamId      = streamId;
+    slot->mFile          = file;
+    slot->mPcmOffset     = sw->GetStreamPcmOffset();
+    slot->mPcmSize       = sw->GetStreamPcmSize();
+    slot->mReadPos       = 0;
+    slot->mSrcFrameBytes = channels * (srcBits / 8);   // on-disk frame size (2 or 4, or 1/2 for 8-bit)
+    slot->mFrameBytes    = channels * 2;               // submit frame size (always 16-bit)
+    slot->mExpand8to16   = (srcBits == 8);
+    slot->mSampleRate    = (float)rate;
+    slot->mLoop          = loop;
+    slot->mUnpaused      = false;
+    slot->mSubmittedSec  = 0.0f;
+    slot->mPendingValid  = false;
+    if (slot->mChunk.size()  < kStreamChunkBytes)     slot->mChunk.resize(kStreamChunkBytes);
+    if (slot->mSubmit.size() < kStreamChunkBytes * 2) slot->mSubmit.resize(kStreamChunkBytes * 2); // 8→16 doubles
+
+    const int8_t cls = glm::clamp<int8_t>(sw->GetAudioClass(), 0, MAX_AUDIO_CLASSES - 1);
+    const float volume = volumeMult * sw->GetVolumeMultiplier() * sAudioClassData[cls].mVolume * sMasterVolume;
+    AUD_SetStreamVolume(streamId, volume);
+    AUD_SetStreamPaused(streamId, true);   // stays paused until the prebuffer fills (pump)
+
+    if (component != nullptr)
+    {
+        component->NotifyAudible(true);    // so the auto-start loop treats it as playing
+    }
+
+    LogDebug("AudioManager: streaming '%s' (%u Hz, %u ch, %u-bit%s, %llu PCM bytes, loop=%d)",
+             sw->GetName().c_str(), rate, channels, srcBits, slot->mExpand8to16 ? "->16" : "",
+             (unsigned long long)slot->mPcmSize, (int)loop);
+    return true;
+}
+
+// Per-frame pump: keep each streaming voice's queue fed from disk. Runs on the
+// MAIN thread (file I/O must never happen on the audio mixer thread).
+static void UpdateStreamingSources()
+{
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+    {
+        StreamingSource& s = sStreamingSources[i];
+        if (s.mStreamId == 0) continue;
+
+        // 0) If an owning Audio3D node stopped playing (user called Stop, went out of
+        //    range, etc.), tear the stream down — CloseStreamingSlot clears NotifyAudible.
+        if (s.mComponent != nullptr && !s.mComponent->IsPlaying())
+        {
+            CloseStreamingSlot(s);
+            continue;
+        }
+
+        // 1) Resubmit a stashed chunk first — never drop it. The backend may accept
+        //    only part of it (a chunk can exceed the ring's free space), so consume
+        //    exactly what it took and keep the rest pending.
+        if (s.mPendingValid)
+        {
+            const uint32_t pend = (uint32_t)s.mPending.size();
+            const int32_t  acc  = AUD_SubmitStreamBuffer(s.mStreamId, s.mPending.data(), pend);
+            if (acc <= 0) continue;                       // queue still full — retry next frame
+            s.mSubmittedSec += StreamBytesToSec(s, (uint32_t)acc);
+            if ((uint32_t)acc < pend)
+            {
+                s.mPending.erase(s.mPending.begin(), s.mPending.begin() + acc);
+                continue;                                 // remainder still pending
+            }
+            s.mPendingValid = false;
+            s.mPending.clear();
+        }
+
+        // 2) Read + submit chunks until the queue fills or we reach end-of-stream.
+        while (!s.mPendingValid)
+        {
+            uint64_t remaining = s.mPcmSize - s.mReadPos;
+            if (remaining < s.mSrcFrameBytes)   // no full source frame left (incl. odd tail)
+            {
+                if (s.mLoop) { SYS_FileSeek(s.mFile, s.mPcmOffset); s.mReadPos = 0; remaining = s.mPcmSize; }
+                else { s.mReadPos = s.mPcmSize; break; }   // consume tail so step 4 can end it
+            }
+
+            uint32_t want = (uint32_t)((remaining < (uint64_t)kStreamChunkBytes) ? remaining : kStreamChunkBytes);
+            want -= (s.mSrcFrameBytes > 0 ? (want % s.mSrcFrameBytes) : 0);   // whole SOURCE frames only
+            if (want == 0) break;
+
+            const uint32_t got = SYS_FileRead(s.mFile, s.mChunk.data(), want);
+            if (got == 0) break;   // read error / short read
+            s.mReadPos += got;
+
+            // Widen 8-bit unsigned → s16 if needed; the backend only takes 16-bit.
+            const uint8_t* submitData;
+            uint32_t       submitBytes;
+            if (s.mExpand8to16)
+            {
+                int16_t* dst = reinterpret_cast<int16_t*>(s.mSubmit.data());
+                for (uint32_t b = 0; b < got; ++b)
+                {
+                    dst[b] = (int16_t)(((int32_t)s.mChunk[b] - 128) << 8);
+                }
+                submitData  = s.mSubmit.data();
+                submitBytes = got * 2;
+            }
+            else
+            {
+                submitData  = s.mChunk.data();
+                submitBytes = got;
+            }
+
+            const int32_t acc = AUD_SubmitStreamBuffer(s.mStreamId, submitData, submitBytes);
+            if (acc <= 0)
+            {
+                // Queue full — stash the whole chunk for next frame.
+                s.mPending.assign(submitData, submitData + submitBytes);
+                s.mPendingValid = true;
+                break;
+            }
+            s.mSubmittedSec += StreamBytesToSec(s, (uint32_t)acc);
+            if ((uint32_t)acc < submitBytes)
+            {
+                // Partial accept (chunk exceeded ring free space) — stash the remainder.
+                s.mPending.assign(submitData + acc, submitData + submitBytes);
+                s.mPendingValid = true;
+                break;
+            }
+        }
+
+        // 3) Prebuffer gate — unpause once enough is queued.
+        if (!s.mUnpaused && s.mSubmittedSec >= kStreamPrebufferSec)
+        {
+            AUD_SetStreamPaused(s.mStreamId, false);
+            s.mUnpaused = true;
+        }
+
+        // 4) One-shot end: close after the backend has played everything out.
+        //    Frame counts are in SOURCE frames (AUD_GetStreamPlayedSamples returns the
+        //    stream's source-rate frame cursor), so divide by mSrcFrameBytes not the
+        //    16-bit submit frame size.
+        if (!s.mLoop && !s.mPendingValid && s.mPcmSize > 0 && s.mReadPos >= s.mPcmSize && s.mSrcFrameBytes > 0)
+        {
+            const uint64_t playedFrames = AUD_GetStreamPlayedSamples(s.mStreamId);
+            const uint64_t totalFrames  = s.mPcmSize / s.mSrcFrameBytes;
+            if (playedFrames >= totalFrames) CloseStreamingSlot(s);
+        }
+    }
+}
 
 float CalcVolumeAttenuation(AttenuationFunc func, float innerRadius, float outerRadius, float distance)
 {
@@ -280,12 +572,15 @@ void AudioManager::Initialize()
 
 void AudioManager::Shutdown()
 {
-
+    StopAllStreaming();
 }
 
 void AudioManager::Update(float deltaTime)
 {
     SCOPED_FRAME_STAT("Audio");
+
+    // Feed disk-streamed music voices (background music). Main thread only.
+    UpdateStreamingSources();
 
     // TODO:
     // (1) -- Update Active Sources --
@@ -483,6 +778,17 @@ void AudioManager::Update(float deltaTime)
 
                 if (dist < outerRadius)
                 {
+                    // Streaming assets (long BGM) never enter the static voice pool — they
+                    // feed the push-PCM stream API from disk. StartStreamingMusic marks the
+                    // node audible on success so this loop stops re-triggering it, and clears
+                    // that when the stream ends or the node stops.
+                    SoundWave* streamWave = node->GetSoundWave();
+                    if (streamWave != nullptr && streamWave->IsStreaming() && streamWave->GetStreamPcmSize() > 0)
+                    {
+                        StartStreamingMusic(streamWave, node, node->GetVolume(), node->GetLoop());
+                        continue;
+                    }
+
                     // It should be audible, so attempt to add it as a sound source.
                     uint32_t sourceIndex = FindAvailableAudioSourceIndex(node->GetPriority());
 
@@ -524,9 +830,20 @@ void AudioManager::PlaySound2D(
     bool loop,
     int32_t priority)
 {
+    // Streaming assets (long BGM) don't use the static voice pool — they feed the
+    // push-PCM stream API from disk. Re-playing restarts the track. GetStreamPcmSize()
+    // is only populated on the memory-tight console runtime; in the editor a Streaming
+    // asset full-loads into mWaveData (size stays 0), so fall through to resident play.
+    if (soundWave != nullptr && soundWave->IsStreaming() && soundWave->GetStreamPcmSize() > 0)
+    {
+        StopStreamingBySound(soundWave);
+        StartStreamingMusic(soundWave, nullptr, volumeMult, loop);
+        return;
+    }
+
     uint32_t sourceIndex = FindAvailableAudioSourceIndex(priority);
 
-    if (soundWave != nullptr && 
+    if (soundWave != nullptr &&
         sourceIndex < MAX_AUDIO_SOURCES)
     {
         PlayAudio(
@@ -559,9 +876,18 @@ void AudioManager::PlaySound3D(
     bool loop,
     int32_t priority)
 {
+    // Streaming assets play non-spatially (2D). Route to the streaming path — but only
+    // when stream metadata exists (console runtime); the editor full-loads it (size 0).
+    if (soundWave != nullptr && soundWave->IsStreaming() && soundWave->GetStreamPcmSize() > 0)
+    {
+        StopStreamingBySound(soundWave);
+        StartStreamingMusic(soundWave, nullptr, volumeMult, loop);
+        return;
+    }
+
     uint32_t sourceIndex = FindAvailableAudioSourceIndex(priority);
 
-    if (soundWave != nullptr && 
+    if (soundWave != nullptr &&
         sourceIndex != MAX_AUDIO_SOURCES)
     {
         PlayAudio(
@@ -651,6 +977,18 @@ void AudioManager::StopComponent(Audio3D* comp)
             break;
         }
     }
+
+    // Also tear down a streaming voice this node owns (streaming BGM never enters
+    // the static pool above). Needed when the node is destroyed or stopped.
+    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
+    {
+        if (sStreamingSources[i].mStreamId != 0 &&
+            sStreamingSources[i].mComponent == comp)
+        {
+            CloseStreamingSlot(sStreamingSources[i]);
+            break;
+        }
+    }
 }
 
 void AudioManager::StopSounds(SoundWave* soundWave)
@@ -665,6 +1003,8 @@ void AudioManager::StopSounds(SoundWave* soundWave)
             StopAudio(i);
         }
     }
+
+    StopStreamingBySound(soundWave);   // also stop it if it's a streaming source
 }
 
 void AudioManager::StopSound(const std::string& name)
@@ -689,6 +1029,8 @@ void AudioManager::StopAllSounds()
             StopAudio(i);
         }
     }
+
+    StopAllStreaming();
 }
 
 bool AudioManager::IsSoundPlaying(SoundWave* soundWave)
@@ -705,6 +1047,11 @@ bool AudioManager::IsSoundPlaying(SoundWave* soundWave)
                 LogDebug("Sound %s is playing at voice %d", soundWave->GetName().c_str(), i);
                 break;
             }
+        }
+
+        if (!playing && IsStreamingPlaying(soundWave))
+        {
+            playing = true;
         }
     }
 

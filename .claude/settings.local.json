@@ -223,7 +223,13 @@
       "Bash(ls Engine/Engine.vcxproj)",
       "Bash(command -v msbuild)",
       "Bash(command -v MSBuild.exe)",
-      "Bash(which cl *)"
+      "Bash(which cl *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(echo \"=== total lines ===\")",
+      "Bash(wc -l)",
+      "Bash(echo \"=== bufPerSec/filled/queued progression \\(dedup\\) ===\")",
+      "Bash(awk '!seen[$1]++')",
+      "Bash(timeout 60 bash -c '\nD=\"M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PS2/Packages/com.polyphase.build.target.ps2/Runtime/PS2/Graphics_PS2GS\"\necho \"=== texture upload / TexManager bind pattern ===\"\ngrep -rnE \"gsKit_TexManager_bind|gsKit_texture_upload|gsKit_TexManager_invalidate|TexManager|Vram|->Vram|gsKit_setup_tbw|CreateTextureResource\" \"$D\"/*.cpp 2>/dev/null | head -25')"
     ]
   }
 }

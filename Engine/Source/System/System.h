@@ -46,6 +46,19 @@ std::string SYS_SaveFileDialog();
 std::string SYS_SelectFolderDialog();
 std::string SYS_GetFileName(const std::string& path);
 
+// Seekable, handle-based file reading. Unlike SYS_AcquireFileData (whole-file),
+// this opens a file once and reads/seeks it in chunks — used to stream large
+// assets (e.g. background music) from disk instead of holding them resident.
+// Returns nullptr on failure (missing file, or a platform that doesn't implement
+// it — callers must handle that and degrade gracefully). `isAsset` uses the same
+// asset-path resolution as SYS_AcquireFileData. Not backed by the embedded VFS —
+// streaming requires a real on-disk file.
+struct SysFile;
+SysFile* SYS_FileOpenRead(const char* path, bool isAsset);
+uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes);  // bytes actually read
+bool     SYS_FileSeek(SysFile* file, uint64_t absoluteOffset);    // offset from file start
+void     SYS_FileClose(SysFile* file);
+
 // Pulls any files the OS has dropped on the editor window since the last call
 // and moves them into outPaths. Empty on non-editor builds (DragAcceptFiles is
 // not registered) and on platforms whose windowing layer doesn't have drop

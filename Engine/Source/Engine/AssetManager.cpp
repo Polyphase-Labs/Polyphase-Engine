@@ -8,6 +8,7 @@
 #include "Utilities.h"
 #include "EmbeddedFile.h"
 #include "Renderer.h"
+#include "InputDevices.h"   // IsControlDown / IsShiftDown -- Ctrl+Shift override for engine-asset save
 
 #include "Assets/Scene.h"
 #include "Assets/Texture.h"
@@ -35,6 +36,8 @@
 #include "stringbuffer.h"
 #include "writer.h"
 #include "prettywriter.h"
+//#include <EditorWidgets.cpp>
+
 #endif
 
 #define ASYNC_REQUEUE_LIMIT 30
@@ -1571,7 +1574,12 @@ void AssetManager::SaveAsset(AssetStub& stub)
     // the save is refused at the manager chokepoint regardless of caller.
     // Clear the dirty flag so the unsaved-changes prompt on quit doesn't
     // re-pester the user about an asset they're not allowed to write.
-    if (stub.mEngineAsset)
+    // Power-user escape hatch: holding Ctrl+Shift while saving deliberately
+    // overrides the guard so the source-of-truth engine asset can be updated.
+    const bool allowEngineAssetSave = true;
+    //const bool allowEngineAssetSave = IsControlDown() && IsShiftDown();
+
+    if (stub.mEngineAsset && !allowEngineAssetSave)
     {
         LogWarning("Refusing to save engine asset '%s' (Engine/Assets is read-only).",
                    stub.mAsset ? stub.mAsset->GetName().c_str() : stub.mPath.c_str());
@@ -1580,6 +1588,12 @@ void AssetManager::SaveAsset(AssetStub& stub)
             stub.mAsset->ClearDirtyFlag();
         }
         return;
+    }
+
+    if (stub.mEngineAsset && allowEngineAssetSave)
+    {
+        LogWarning("Ctrl+Shift override: writing engine asset '%s' (Engine/Assets source-of-truth).",
+                   stub.mAsset ? stub.mAsset->GetName().c_str() : stub.mPath.c_str());
     }
 
     // Don't attempt to save an unloaded asset.
