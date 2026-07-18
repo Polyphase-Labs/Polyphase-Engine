@@ -581,7 +581,19 @@ bool ContactAddedHandler(btManifoldPoint& cp,
 // lines per second for what is in practice the same data issue.
 // ---------------------------------------------------------------------------
 static std::unordered_set<uint64_t> sLoggedDegenerateTriangles;
-static std::mutex sLoggedDegenerateTrianglesMutex;
+// Addon/console libstdc++ (PSL1GHT, m68k, ...) is built without gthreads, so
+// std::mutex doesn't exist there. Mirror the NavCacheMutex stub above — that
+// one lives in an anonymous namespace that already closed, so it isn't visible
+// here. This lock only dedups degenerate-triangle log spam, so a no-op guard on
+// those builds is acceptable (same trade-off the NavCache accepts).
+#if defined(POLYPHASE_PLATFORM_ADDON)
+struct DegenTriMutex { void lock() {} void unlock() {} };
+struct DegenTriLockGuard { DegenTriLockGuard(DegenTriMutex&) {} };
+#else
+using DegenTriMutex = std::mutex;
+using DegenTriLockGuard = std::lock_guard<std::mutex>;
+#endif
+static DegenTriMutex sLoggedDegenerateTrianglesMutex;
 
 static void EngineReportDegenerateTriangle(const void* triBodyUserPointer, int partId, int triangleIndex)
 {
@@ -594,7 +606,7 @@ static void EngineReportDegenerateTriangle(const void* triBodyUserPointer, int p
     uint64_t key = (uint64_t(ptrHash) << 32) | uint64_t(triKey);
 
     {
-        std::lock_guard<std::mutex> lock(sLoggedDegenerateTrianglesMutex);
+        DegenTriLockGuard lock(sLoggedDegenerateTrianglesMutex);
         if (!sLoggedDegenerateTriangles.insert(key).second)
         {
             return; // already reported this exact triangle
@@ -623,7 +635,7 @@ void InstallBulletReporters()
 
 void ResetBulletReporterDedup()
 {
-    std::lock_guard<std::mutex> lock(sLoggedDegenerateTrianglesMutex);
+    DegenTriLockGuard lock(sLoggedDegenerateTrianglesMutex);
     sLoggedDegenerateTriangles.clear();
 }
 

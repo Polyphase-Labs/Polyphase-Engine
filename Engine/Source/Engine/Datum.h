@@ -181,12 +181,15 @@ public:
 
     // Conversion constructors
     Datum(int32_t value);
-#if PLATFORM_3DS || defined(POLYPHASE_PLATFORM_ADDON)
+#if PLATFORM_3DS || (defined(POLYPHASE_PLATFORM_ADDON) && !defined(POLYPHASE_ADDON_INT32_IS_INT))
     // Toolchains where `int` and `int32_t` are distinct types (devkitARM/3DS,
     // PSPSDK psp-gcc which makes int32_t a `long`, mips64-elf-gcc -mabi=o64
     // which does the same) need an explicit Datum(int) overload so call
     // sites like `Datum(0)` resolve unambiguously. On Windows/Linux/Android
     // they're the same underlying type and the int32_t overload covers both.
+    // Addon toolchains where int32_t IS `int` (e.g. PS3 powerpc64-ps3-elf)
+    // define POLYPHASE_ADDON_INT32_IS_INT to opt out — the extra overload
+    // would otherwise collide with Datum(int32_t).
     Datum(int value);
 #endif
     Datum(uint32_t value);

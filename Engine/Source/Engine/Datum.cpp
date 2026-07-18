@@ -64,7 +64,7 @@ Datum::Datum(int32_t value)
     PushBack(value);
 }
 
-#if PLATFORM_3DS || defined(POLYPHASE_PLATFORM_ADDON)
+#if PLATFORM_3DS || (defined(POLYPHASE_PLATFORM_ADDON) && !defined(POLYPHASE_ADDON_INT32_IS_INT))
 Datum::Datum(int value)
 {
     Reset();
