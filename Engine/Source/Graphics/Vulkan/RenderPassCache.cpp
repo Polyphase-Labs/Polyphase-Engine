@@ -150,6 +150,8 @@ VkRenderPass RenderPassCache::ResolveRenderPass(const RenderPassConfig& config)
     {
         LogError("Failed to create render pass");
         OCT_ASSERT(0);
+        // Don't cache the null handle (see ResolveFramebuffer) — retry next frame.
+        return VK_NULL_HANDLE;
     }
 
     SetDebugObjectName(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)renderPass, config.mDebugName);
@@ -208,6 +210,10 @@ VkFramebuffer RenderPassCache::ResolveFramebuffer(const FramebufferConfig& confi
     {
         LogError("Failed to create framebuffer.");
         OCT_ASSERT(0);
+        // Don't cache the null handle — that would poison the cache and crash
+        // vkCmdBeginRenderPass every subsequent frame. Return null so the caller
+        // skips the pass and we retry creation next frame.
+        return VK_NULL_HANDLE;
     }
 
     SetDebugObjectName(VK_OBJECT_TYPE_FRAMEBUFFER, (uint64_t)framebuffer, config.mDebugName);

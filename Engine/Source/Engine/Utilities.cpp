@@ -694,11 +694,12 @@ static bool BuildDescendantPath(Node* current, Node* target, std::string& outPat
 
 void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs)
 {
-    OCT_ASSERT(node && sceneRoot);
-    OCT_ASSERT(node != sceneRoot);
+    OCT_ASSERT(sceneRoot);
 
     if (node == nullptr)
         return;
+
+    OCT_ASSERT(node != sceneRoot);
 
     SubSceneOverride over;
     over.mPath = FindRelativeNodePath(sceneRoot, node);

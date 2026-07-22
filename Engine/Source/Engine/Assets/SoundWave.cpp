@@ -129,6 +129,20 @@ void SoundWave::LoadStream(Stream& stream, Platform platform)
         }
 #endif
 
+        // A capped LoadFile (GetLoadByteCap) can hand us a truncated stream. That's
+        // harmless for the streaming path above (it never reads the PCM), but a
+        // non-streaming clip whose PCM didn't fully load would run Stream::Read off
+        // the end and assert. Detect the shortfall and disable the sound gracefully.
+        if ((uint64_t)stream.GetPos() + (uint64_t)mWaveDataSize > (uint64_t)stream.GetSize())
+        {
+            LogWarning("SoundWave::LoadStream: '%s' PCM (%u bytes) exceeds the load cap and is not "
+                       "marked streaming; sound disabled. Mark large audio as streaming.",
+                       GetName().c_str(), mWaveDataSize);
+            mWaveData = nullptr;
+            mWaveDataSize = 0;
+            return;
+        }
+
         mWaveData = AUD_AllocWaveBuffer(mWaveDataSize);
         if (mWaveData != nullptr)
         {

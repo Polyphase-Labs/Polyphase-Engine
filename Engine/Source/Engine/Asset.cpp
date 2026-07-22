@@ -182,9 +182,26 @@ void Asset::LoadFile(const char* path, AsyncLoadRequest* request)
     if (IsLoaded())
         return;
 
+    // Load-byte cap: on the memory-tight console runtime, don't pull a whole
+    // multi-MB .oct into RAM just to parse it. A streaming SoundWave only needs its
+    // header resident — LoadStream records the PCM's on-disk offset and the
+    // AudioManager pump streams the rest in chunks — and non-streaming SFX are small.
+    // Keyed off RuntimeName() (an existing virtual) rather than a new virtual on
+    // Asset so we don't perturb the vtable ABI. LoadStream's non-streaming path
+    // bounds-checks the (possibly truncated) stream and disables the sound gracefully
+    // if a non-streaming clip ever exceeds the cap. Editor/desktop read the whole
+    // file (cap 0) so packaging re-serialization stays intact.
+    int32_t loadCap = 0;
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    if (strcmp(RuntimeName(), "SoundWave") == 0)
+    {
+        loadCap = 512 * 1024;
+    }
+#endif
+
     Stream stream;
     stream.SetAsyncRequest(request);
-    if (!stream.ReadFile(path, true))
+    if (!stream.ReadFile(path, true, loadCap))
     {
         // ReadFile already logs the underlying error. Bail before LoadStream
         // so we don't trip the Stream::Read assert in ReadHeader on an empty

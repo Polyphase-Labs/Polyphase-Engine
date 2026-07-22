@@ -1794,43 +1794,51 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
         clearColor.a = 1.0f;
         GetVulkanContext()->BeginVkRenderPass(rpSetup, true, clearColor);
 
-        if (GetDebugMode() != DEBUG_WIREFRAME)
+        // Only record draws if the pass actually began — BeginVkRenderPass skips
+        // (leaving no active pass) when its render pass/framebuffer can't be
+        // created, e.g. a Game Preview resolution that exhausts VRAM. Issuing
+        // draws outside a render pass would crash the driver.
+        if (GetVulkanContext()->IsVkRenderPassActive())
         {
-            GFX_EnableMaterials(true);
-
-            GFX_SetPipelineState(PipelineConfig::Forward);
-            RenderDraws(mOpaqueDraws);
-            RenderDraws(mSimpleShadowDraws);
-            GFX_SetPipelineState(PipelineConfig::Forward);
-            RenderDraws(mPostShadowOpaqueDraws);
-            RenderDraws(mTranslucentDraws);
-            if (drawAccumulatedDebugDraws)
+            if (GetDebugMode() != DEBUG_WIREFRAME)
             {
-                RenderDebugDraws(mDebugDraws);
-                RenderDebugDraws(Gizmos::GetSolidDraws());
+                GFX_EnableMaterials(true);
+
+                GFX_SetPipelineState(PipelineConfig::Forward);
+                RenderDraws(mOpaqueDraws);
+                RenderDraws(mSimpleShadowDraws);
+                GFX_SetPipelineState(PipelineConfig::Forward);
+                RenderDraws(mPostShadowOpaqueDraws);
+                RenderDraws(mTranslucentDraws);
+                if (drawAccumulatedDebugDraws)
+                {
+                    RenderDebugDraws(mDebugDraws);
+                    RenderDebugDraws(Gizmos::GetSolidDraws());
+                }
+
+                GFX_EnableMaterials(false);
             }
 
-            GFX_EnableMaterials(false);
+            RenderDraws(mWireframeDraws, PipelineConfig::Wireframe);
+            if (drawAccumulatedDebugDraws)
+            {
+                RenderDebugDraws(mDebugDraws, PipelineConfig::Wireframe);
+                RenderDebugDraws(Gizmos::GetWireDraws(), PipelineConfig::Wireframe);
+            }
+
+            // Native-addon custom render passes — same hook as in the main
+            // Render() path, so addons (the Gaussian Splat renderer in particular)
+            // appear in the Game Preview / Second Screen panel using THAT panel's
+            // camera, not just the editor viewport.
+            RunCustomRenderPasses();
+
+            GFX_DrawLines(world->GetLines());
+            GFX_DrawLines(Gizmos::GetLines());
         }
-
-        RenderDraws(mWireframeDraws, PipelineConfig::Wireframe);
-        if (drawAccumulatedDebugDraws)
-        {
-            RenderDebugDraws(mDebugDraws, PipelineConfig::Wireframe);
-            RenderDebugDraws(Gizmos::GetWireDraws(), PipelineConfig::Wireframe);
-        }
-
-        // Native-addon custom render passes — same hook as in the main
-        // Render() path, so addons (the Gaussian Splat renderer in particular)
-        // appear in the Game Preview / Second Screen panel using THAT panel's
-        // camera, not just the editor viewport.
-        RunCustomRenderPasses();
-
-        GFX_DrawLines(world->GetLines());
-        GFX_DrawLines(Gizmos::GetLines());
 
         // End render pass directly — GFX_EndRenderPass() requires mCurrentRenderPassId
         // to be set via BeginRenderPass(RenderPassId), but we used BeginVkRenderPass().
+        // No-ops if the pass above was skipped.
         GetVulkanContext()->EndVkRenderPass();
     }
 
@@ -1849,9 +1857,12 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
 
         GetVulkanContext()->BeginVkRenderPass(rpSetup, true);
 
-        GFX_SetViewport(0, 0, width, height, false);
-        GFX_SetScissor(0, 0, width, height, false);
-        RenderDraws(mWidgetDraws);
+        if (GetVulkanContext()->IsVkRenderPassActive())
+        {
+            GFX_SetViewport(0, 0, width, height, false);
+            GFX_SetScissor(0, 0, width, height, false);
+            RenderDraws(mWidgetDraws);
+        }
 
         GetVulkanContext()->EndVkRenderPass();
 

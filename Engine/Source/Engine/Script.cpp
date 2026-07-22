@@ -2158,15 +2158,12 @@ void Script::CreateScriptInstance()
             // Is calling Create() here causing issues? It used to be called after gathering properties.
             // If this causes a problem, consider calling a separate function like PreCreate() or Init() or something.
             CallFunction("Create");
-            
             // Process any auto properties that were detected (for future implementation)
             Property_Lua::ProcessPendingAutoProperties(this);
-            
+
             // Clear the current initializing script
             Property_Lua::SetCurrentInitializingScript(nullptr);
-
             UploadScriptProperties();
-            
             // Gather traditional properties first, then auto properties
             GatherScriptProperties();
             GatherAutoProperties();

@@ -607,6 +607,11 @@ bool Initialize()
 #endif
     }
 
+    // AudioManager::Update() runs every frame regardless of headless mode, and it
+    // locks sStreamMutex — which only exists after Initialize(). Create it here
+    // unconditionally so the first Update() doesn't dereference a null mutex.
+    AudioManager::Initialize();
+
     {
         SCOPED_STAT("NET_Initialize");
         NET_Initialize();
@@ -1079,6 +1084,7 @@ void Shutdown()
 
     Http::Shutdown();
     NET_Shutdown();
+    AudioManager::Shutdown();
     if (!IsHeadless())
     {
         AUD_Shutdown();
@@ -1818,8 +1824,8 @@ void ReadEngineConfig(std::string path)
         const std::string& projPath = sEngineConfig.mProjectPath;
         std::string projDir = projPath.substr(0, projPath.find_last_of("/\\") + 1);
         std::string projIni = projDir + "Config.ini";
-
-        if (SYS_DoesFileExist(projIni.c_str(), true))
+        const bool projIniExists = SYS_DoesFileExist(projIni.c_str(), true);
+        if (projIniExists)
         {
             path = projIni;
         }

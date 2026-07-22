@@ -575,12 +575,26 @@ void VulkanContext::BeginVkRenderPass(const RenderPassSetup& rpSetup, bool inser
     renderPassInfo.renderPass = renderPass;
 
     FramebufferConfig fbConfig;
-    memcpy(fbConfig.mColorImages, rpSetup.mColorImages, sizeof(Image*));
+    memcpy(fbConfig.mColorImages, rpSetup.mColorImages, sizeof(fbConfig.mColorImages));
     fbConfig.mDepthImage = rpSetup.mDepthImage;
     fbConfig.mDebugName = rpSetup.mDebugName;
     fbConfig.mRenderPass = renderPass;
     VkFramebuffer framebuffer = mRenderPassCache.ResolveFramebuffer(fbConfig);
     renderPassInfo.framebuffer = framebuffer;
+
+    // Render pass / framebuffer creation can fail (e.g. a very large Game Preview
+    // resolution that exhausts VRAM or exceeds device framebuffer limits). In a
+    // release build OCT_ASSERT is compiled out, so ResolveRenderPass/Framebuffer
+    // would hand a VK_NULL_HANDLE straight to vkCmdBeginRenderPass and crash the
+    // driver. Skip the pass instead — mVkRenderPassActive stays false so the
+    // matching EndVkRenderPass() and any caller-side draws no-op.
+    if (renderPass == VK_NULL_HANDLE || framebuffer == VK_NULL_HANDLE)
+    {
+        LogError("BeginVkRenderPass: could not resolve render pass/framebuffer for '%s'; skipping pass.",
+                 rpSetup.mDebugName ? rpSetup.mDebugName : "unnamed");
+        mVkRenderPassActive = false;
+        return;
+    }
 
     uint32_t width = rpSetup.mDepthImage ? rpSetup.mDepthImage->GetWidth() : rpSetup.mColorImages[0]->GetWidth();
     uint32_t height = rpSetup.mDepthImage ? rpSetup.mDepthImage->GetHeight() : rpSetup.mColorImages[0]->GetHeight();
@@ -610,6 +624,7 @@ void VulkanContext::BeginVkRenderPass(const RenderPassSetup& rpSetup, bool inser
     vkCmdBeginRenderPass(mCommandBuffers[mFrameIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     mPipelineState.mRenderPass = renderPassInfo.renderPass;
+    mVkRenderPassActive = true;
 }
 
 void VulkanContext::EndRenderPass()
@@ -673,7 +688,14 @@ void VulkanContext::EndRenderPass()
 
 void VulkanContext::EndVkRenderPass()
 {
+    // Balance a BeginVkRenderPass() that skipped due to a null render pass/
+    // framebuffer — calling vkCmdEndRenderPass without an active pass is invalid
+    // and crashes the driver.
+    if (!mVkRenderPassActive)
+        return;
+
     vkCmdEndRenderPass(mCommandBuffers[mFrameIndex]);
+    mVkRenderPassActive = false;
 }
 
 void VulkanContext::CommitPipeline()

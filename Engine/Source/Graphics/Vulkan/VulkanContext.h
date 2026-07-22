@@ -75,6 +75,7 @@ public:
     void BeginVkRenderPass(const RenderPassSetup& rpSetup, bool insertBarrier, glm::vec4 clearColor = {});
     void EndRenderPass();
     void EndVkRenderPass();
+    bool IsVkRenderPassActive() const { return mVkRenderPassActive; }
     void CommitPipeline();
     void DrawLines(const std::vector<Line>& lines);
     void DrawSplats(const struct GaussianSplatInstance* instances, uint32_t count,
@@ -331,6 +332,7 @@ private:
     int32_t mFrameNumber = 0;
     uint32_t mSwapchainImageIndex = 0;
     RenderPassId mCurrentRenderPassId = RenderPassId::Count;
+    bool mVkRenderPassActive = false;
     int32_t mNumLinesAllocated = 0;
     Buffer* mLineVertexBuffer = nullptr;
     int32_t mNumSplatsAllocated = 0;

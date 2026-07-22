@@ -776,8 +776,49 @@ int32_t Stream::Scan(const char* format, ...)
         std::string line = GetLine();
         if (line != "")
         {
+#if defined(POLYPHASE_PLATFORM_ADDON)
+            // PS3's newlib vsscanf mishandles the "%[...]" scanset conversion
+            // (it faults writing through a bad pointer). Both Scan call sites in
+            // the engine use exactly the "key=value" format below (Config.ini and
+            // .octp parsing), so parse that shape by hand and only fall back to
+            // vsscanf for any other format. Behaviourally identical to
+            // sscanf("%[^=]=%[^\n]") for well-formed lines.
+            if (strcmp(format, "%[^=]=%[^\n]") == 0)
+            {
+                char* keyOut = va_arg(argptr, char*);
+                char* valOut = va_arg(argptr, char*);
+                const size_t eq = line.find('=');
+                if (eq != std::string::npos && eq > 0)
+                {
+                    std::string k = line.substr(0, eq);
+                    std::string v = line.substr(eq + 1);
+                    while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
+                    strcpy(keyOut, k.c_str());
+                    if (!v.empty())
+                    {
+                        strcpy(valOut, v.c_str());
+                        ret = 2;
+                    }
+                    else
+                    {
+                        ret = 1;
+                    }
+                }
+                else
+                {
+                    ret = 0;
+                }
+            }
+            else
+            {
+                ret = vsscanf(line.data(), format, argptr);
+            }
+#else
             ret = vsscanf(line.data(), format, argptr);
+#endif
         }
+
+        va_end(argptr);
     }
 
     return ret;

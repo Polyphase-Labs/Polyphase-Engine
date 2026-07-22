@@ -475,7 +475,8 @@ bool UILoader::Load(
                     {
                         std::string includeDir = GetDirectory(includePath);
                         UILoadResult includeResult;
-                        if (UILoader::Load(includeSource, includeDir, includeResult))
+                        bool incOk = UILoader::Load(includeSource, includeDir, includeResult);
+                        if (incOk)
                         {
                             if (includeResult.mRootWidget)
                             {

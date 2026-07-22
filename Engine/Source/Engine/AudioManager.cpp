@@ -117,7 +117,18 @@ static float sMasterPitch = 1.0f;
 //  seeking, and never drop a chunk (drops become audible gaps). 2D only.
 // ============================================================================
 static constexpr uint32_t kMaxStreamingSources = 4;
-static constexpr uint32_t kStreamChunkBytes    = 16 * 1024; // per-frame read size
+// Per read size. On slow-media consoles (Dreamcast GD-ROM) each blocking fs read
+// carries a large fixed command latency (~150 ms in emulation, which models it as
+// a whole-machine stall). Read in big, rare chunks so the render hitch is
+// infrequent — 128 KB ≈ one read per ~6 s of this 22 kHz audio. (Aligning reads to
+// engage KOS's continuous streaming DMA is faster but flycast/RetroArch don't
+// emulate that GD-ROM command — it produced silence — so we stick with per-read
+// DMA + big chunks.) Desktop I/O is fast; keep 16 KB.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+static constexpr uint32_t kStreamChunkBytes    = 128 * 1024;
+#else
+static constexpr uint32_t kStreamChunkBytes    = 16 * 1024;
+#endif
 static constexpr float    kStreamPrebufferSec  = 0.15f;     // buffer before unpausing
 
 struct StreamingSource
@@ -143,6 +154,17 @@ struct StreamingSource
 };
 static StreamingSource sStreamingSources[kMaxStreamingSources];
 
+// Streaming pump threading. On slow-media consoles the per-chunk disc read
+// (~150 ms) would freeze the render frame if pumped from Update(). Instead a
+// dedicated I/O thread runs the pump; sStreamMutex guards sStreamingSources so
+// the (rare) main-thread start/stop calls don't race the pump. The render frame
+// no longer touches streaming at all. Desktop keeps the fast main-thread pump.
+static MutexObject* sStreamMutex = nullptr;
+#if defined(POLYPHASE_PLATFORM_ADDON)
+static ThreadObject* sStreamThread    = nullptr;
+static volatile bool sStreamThreadRun = false;
+#endif
+
 static inline float StreamBytesToSec(const StreamingSource& s, uint32_t bytes)
 {
     const float denom = s.mSampleRate * (float)s.mFrameBytes;
@@ -164,6 +186,7 @@ static void CloseStreamingSlot(StreamingSource& s)
 
 static bool IsStreamingPlaying(SoundWave* sw)
 {
+    SCOPED_LOCK(sStreamMutex);   // guards vs the streaming I/O thread (console)
     for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
         if (sStreamingSources[i].mStreamId != 0 && sStreamingSources[i].mSoundWave.Get() == sw)
             return true;
@@ -172,6 +195,7 @@ static bool IsStreamingPlaying(SoundWave* sw)
 
 static void StopStreamingBySound(SoundWave* sw)
 {
+    SCOPED_LOCK(sStreamMutex);
     for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
         if (sStreamingSources[i].mSoundWave.Get() == sw)
             CloseStreamingSlot(sStreamingSources[i]);
@@ -179,6 +203,7 @@ static void StopStreamingBySound(SoundWave* sw)
 
 static void StopAllStreaming()
 {
+    SCOPED_LOCK(sStreamMutex);
     for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
         CloseStreamingSlot(sStreamingSources[i]);
 }
@@ -190,6 +215,8 @@ static void StopAllStreaming()
 // can't be opened, or the platform has no streaming backend (AUD_OpenStream = 0).
 static bool StartStreamingMusic(SoundWave* sw, Audio3D* component, float volumeMult, bool loop)
 {
+    SCOPED_LOCK(sStreamMutex);   // guards vs the streaming I/O thread (console)
+
     // No PCM to stream (e.g. an asset packaged before the streaming fix, or a bad
     // cook). Reject up front — otherwise the pump would open a stream, immediately
     // hit "fully played" (readPos 0 >= size 0), close it, un-mark the node audible,
@@ -394,6 +421,25 @@ static void UpdateStreamingSources()
     }
 }
 
+#if defined(POLYPHASE_PLATFORM_ADDON)
+// Dedicated streaming I/O thread (console): runs the pump — including the slow
+// blocking disc read — off the render thread, so the frame never stalls. Holds
+// sStreamMutex during the read; only the rare main-thread start/stop calls
+// contend for it (never the render loop).
+static ThreadFuncRet StreamingIOThread(void* /*arg*/)
+{
+    while (sStreamThreadRun)
+    {
+        {
+            SCOPED_LOCK(sStreamMutex);
+            UpdateStreamingSources();
+        }
+        SYS_Sleep(5);   // ~200 Hz; ring + SPU buffer comfortably cover the gap
+    }
+    THREAD_RETURN();
+}
+#endif
+
 float CalcVolumeAttenuation(AttenuationFunc func, float innerRadius, float outerRadius, float distance)
 {
     float ret = 1.0f;
@@ -567,20 +613,47 @@ uint32_t FindAvailableAudioSourceIndex(int32_t inPriority)
 
 void AudioManager::Initialize()
 {
-
+    sStreamMutex = SYS_CreateMutex();
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    // NOTE: a dedicated streaming I/O thread (StreamingIOThread) is available but
+    // left DISABLED — on the emulated GD-ROM each fs read command blocks the whole
+    // machine (~150 ms), so moving it to a thread doesn't unblock the render frame.
+    // Real hardware may benefit; flip sStreamThreadRun on to try. The practical
+    // mitigation is a large read chunk (fewer reads) — see kStreamChunkBytes.
+    sStreamThreadRun = false;
+    (void)&StreamingIOThread;
+#endif
 }
 
 void AudioManager::Shutdown()
 {
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    sStreamThreadRun = false;
+    if (sStreamThread != nullptr)
+    {
+        SYS_JoinThread(sStreamThread);
+        SYS_DestroyThread(sStreamThread);
+        sStreamThread = nullptr;
+    }
+#endif
     StopAllStreaming();
+    if (sStreamMutex != nullptr) { SYS_DestroyMutex(sStreamMutex); sStreamMutex = nullptr; }
 }
 
 void AudioManager::Update(float deltaTime)
 {
     SCOPED_FRAME_STAT("Audio");
 
-    // Feed disk-streamed music voices (background music). Main thread only.
-    UpdateStreamingSources();
+    // Feed disk-streamed music voices (background music). On console the pump
+    // runs on the dedicated I/O thread (StreamingIOThread) so the slow disc read
+    // never stalls the frame; only pump here when that thread isn't running.
+#if defined(POLYPHASE_PLATFORM_ADDON)
+    if (!sStreamThreadRun)
+#endif
+    {
+        SCOPED_LOCK(sStreamMutex);
+        UpdateStreamingSources();
+    }
 
     // TODO:
     // (1) -- Update Active Sources --
@@ -980,13 +1053,16 @@ void AudioManager::StopComponent(Audio3D* comp)
 
     // Also tear down a streaming voice this node owns (streaming BGM never enters
     // the static pool above). Needed when the node is destroyed or stopped.
-    for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
     {
-        if (sStreamingSources[i].mStreamId != 0 &&
-            sStreamingSources[i].mComponent == comp)
+        SCOPED_LOCK(sStreamMutex);   // guards vs the streaming I/O thread (console)
+        for (uint32_t i = 0; i < kMaxStreamingSources; ++i)
         {
-            CloseStreamingSlot(sStreamingSources[i]);
-            break;
+            if (sStreamingSources[i].mStreamId != 0 &&
+                sStreamingSources[i].mComponent == comp)
+            {
+                CloseStreamingSlot(sStreamingSources[i]);
+                break;
+            }
         }
     }
 }

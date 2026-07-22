@@ -790,49 +790,43 @@ void SkeletalMesh3D::DetectTriggeredAnimEvents(
     }
 }
 
+// Keyframes are stored time-sorted, so find the segment [i, i+1] containing
+// `time` with a binary search instead of a linear scan from 0. The old linear
+// scan cost grew with how far into the clip we were — worst on the last frames
+// before a loop, which showed up as a per-loop hitch on slow targets (Dreamcast).
+// Binary search flattens that: same result, O(log n) regardless of clip position.
+// keyTimes must be the sorted key array; returns the segment-start index in
+// [0, numKeys-2] (the largest index whose time is <= `time`).
+template<typename KeyT>
+static uint32_t FindKeySegment(float time, const std::vector<KeyT>& keys)
+{
+    const uint32_t numKeys = (uint32_t)keys.size();
+    if (numKeys < 2) return 0;
+    uint32_t lo = 0, hi = numKeys - 1;
+    while (lo < hi)
+    {
+        const uint32_t mid = (lo + hi + 1) >> 1;
+        if (keys[mid].mTime <= time) lo = mid; else hi = mid - 1;
+    }
+    return (lo > numKeys - 2) ? (numKeys - 2) : lo;
+}
+
 uint32_t SkeletalMesh3D::FindScaleIndex(float time, const Channel& channel)
 {
     OCT_ASSERT(channel.mScaleKeys.size() > 0);
-
-    for (uint32_t i = 0; i < channel.mScaleKeys.size() - 1; ++i)
-    {
-        if (time < channel.mScaleKeys[i + 1].mTime)
-        {
-            return i;
-        }
-    }
-
-    return uint32_t(channel.mScaleKeys.size() - 2);
+    return FindKeySegment(time, channel.mScaleKeys);
 }
 
 uint32_t SkeletalMesh3D::FindRotationIndex(float time, const Channel& channel)
 {
     OCT_ASSERT(channel.mRotationKeys.size() > 0);
-
-    for (uint32_t i = 0; i < channel.mRotationKeys.size() - 1; ++i)
-    {
-        if (time < channel.mRotationKeys[i + 1].mTime)
-        {
-            return i;
-        }
-    }
-
-    return uint32_t(channel.mRotationKeys.size() - 2);
+    return FindKeySegment(time, channel.mRotationKeys);
 }
 
 uint32_t SkeletalMesh3D::FindPositionIndex(float time, const Channel& channel)
 {
     OCT_ASSERT(channel.mPositionKeys.size() > 0);
-
-    for (uint32_t i = 0; i < channel.mPositionKeys.size() - 1; ++i)
-    {
-        if (time < channel.mPositionKeys[i + 1].mTime)
-        {
-            return i;
-        }
-    }
-
-    return uint32_t(channel.mPositionKeys.size() - 2);
+    return FindKeySegment(time, channel.mPositionKeys);
 }
 
 glm::mat4 SkeletalMesh3D::GetBoneTransform(const std::string& name) const
