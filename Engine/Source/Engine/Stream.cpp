@@ -3,6 +3,7 @@
 #include "AssetRef.h"
 #include "AssetManager.h"
 #include "ContentObfuscation.h"
+#include "ContentPak.h"
 #include "Log.h"
 #include "Maths.h"
 
@@ -136,17 +137,26 @@ bool Stream::ReadFile(const char* path, bool isAsset, int32_t maxSize)
         mSize = 0;
         mCapacity = 0;
     }
-    // A capped read must also pull the obfuscation container header, or a Static
-    // build hands the caller fewer plaintext bytes than it asked for. The 21-byte
-    // asset-header reads in AssetManager::DiscoverDirectory would otherwise land
-    // entirely inside the header and register every asset with a garbage type.
-    int32_t acquireSize = maxSize;
-    if (acquireSize > 0)
+    // Content.pak first. Sitting above the SYS layer means every platform gets
+    // the archive for free, including the ones whose SYS_AcquireFileData lives in
+    // an out-of-tree build target addon. A miss falls through to loose files, so
+    // partially-packed and dev builds keep working.
+    if (!ContentPak::Read(path, maxSize, mData, mSize))
     {
-        acquireSize += ContentObfuscation::kReadHeadroom;
+        // A capped read must also pull the obfuscation container header, or a
+        // Static build hands the caller fewer plaintext bytes than it asked for.
+        // The 21-byte asset-header reads in AssetManager::DiscoverDirectory would
+        // otherwise land entirely inside the header and register every asset with
+        // a garbage type.
+        int32_t acquireSize = maxSize;
+        if (acquireSize > 0)
+        {
+            acquireSize += ContentObfuscation::kReadHeadroom;
+        }
+
+        SYS_AcquireFileData(path, isAsset, acquireSize, mData, mSize);
     }
 
-    SYS_AcquireFileData(path, isAsset, acquireSize, mData, mSize);
     mCapacity = mSize;
     mPos = 0;
 

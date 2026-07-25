@@ -63,6 +63,16 @@ struct BuildProfile
     bool mStaticContent = false;
 
     /**
+     * @brief Fold shipped content into a single obfuscated Content.pak.
+     *
+     * Requires mStaticContent. Assets, scripts and the asset registry are packed
+     * and their loose copies removed, so neither the files nor their names ship.
+     * The index is obfuscated too and only it is resident at runtime -- entries
+     * are read and decoded on demand, so console memory behaviour is unchanged.
+     */
+    bool mContentPak = false;
+
+    /**
      * @brief Custom output directory override.
      * If empty, defaults to {ProjectDir}/Packaged/{Platform}/
      */

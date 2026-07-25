@@ -76,6 +76,9 @@ struct LocalBuildState
      */
     bool mStaticContent{false};
 
+    /** @brief Pack shipped content into Content.pak. Requires mStaticContent. */
+    bool mContentPak{false};
+
     std::string mPackagedDir;
     std::string mBuildProjDir;
     std::string mProjectDir;
@@ -129,6 +132,7 @@ struct LocalBuildState
         mTargetOptions.clear();
         mEmbedded = false;
         mStaticContent = false;
+        mContentPak = false;
         mPackagedDir.clear();
         mBuildProjDir.clear();
         mProjectDir.clear();
@@ -360,6 +364,16 @@ public:
      * readable on purpose.
      */
     void ObfuscatePackagedContent(const std::string& packagedDir);
+
+    /**
+     * @brief Content Pak: fold shipped content into a single Content.pak.
+     *
+     * Packs every .oct, .lua and AssetRegistry.txt under the staging dir, then
+     * deletes the loose originals so the shipped tree carries neither the files
+     * nor their names. Raw assets, Config.ini, the .octp and shaders stay loose.
+     * On any failure nothing is pruned and the build falls back to loose content.
+     */
+    bool PackPackagedContent(const std::string& packagedDir, const std::string& projectName);
 
 protected:
 

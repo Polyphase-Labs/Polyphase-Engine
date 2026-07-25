@@ -53,6 +53,11 @@ void BuildProfile::LoadFromJson(const rapidjson::Value& value)
         mStaticContent = value["staticContent"].GetBool();
     }
 
+    if (value.HasMember("contentPak") && value["contentPak"].IsBool())
+    {
+        mContentPak = value["contentPak"].GetBool();
+    }
+
     if (value.HasMember("outputDirectory") && value["outputDirectory"].IsString())
     {
         mOutputDirectory = value["outputDirectory"].GetString();
@@ -94,6 +99,7 @@ void BuildProfile::SaveToJson(rapidjson::Document& doc, rapidjson::Value& value)
     }
     value.AddMember("embedded", mEmbedded, allocator);
     value.AddMember("staticContent", mStaticContent, allocator);
+    value.AddMember("contentPak", mContentPak, allocator);
     value.AddMember("outputDirectory", rapidjson::Value(mOutputDirectory.c_str(), allocator), allocator);
     value.AddMember("useDocker", mUseDocker, allocator);
     value.AddMember("openDirectoryOnFinish", mOpenDirectoryOnFinish, allocator);

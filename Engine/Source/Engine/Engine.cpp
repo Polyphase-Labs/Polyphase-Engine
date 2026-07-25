@@ -42,6 +42,7 @@
 #include "Nodes/TimelinePlayer.h"
 #include "Nodes/NodeGraphPlayer.h"
 #include "AssetManager.h"
+#include "ContentPak.h"
 #include "NetworkManager.h"
 #include "Network/Http/HttpClient.h"
 #include "SerialManager.h"
@@ -511,6 +512,13 @@ std::string GetEngineContentDir(const char* subDir)
     // Embedded builds hide this because engine assets live in the executable.
     std::string rootRelative = std::string("Engine/") + subDir;
 
+    // Packed builds have no engine directory on disk at all -- the pak index is
+    // keyed on the canonical root-relative form, so hand that back untouched.
+    if (ContentPak::IsMounted())
+    {
+        return rootRelative;
+    }
+
     if (DirectoryExists(rootRelative))
     {
         return rootRelative;
@@ -573,6 +581,39 @@ bool Initialize()
 
     AssetManager::Get()->Initialize();
 
+#if !EDITOR
+    // Mount Content.pak before LoadProject, so asset discovery is already routed
+    // through the archive by the time anything reads content. Root-relative
+    // first, then beside the project -- the same two layouts GetEngineContentDir
+    // handles, because console packages are routinely deployed into a per-project
+    // folder on an SD card. No pak just leaves everything on the loose path.
+    {
+        bool mounted = ContentPak::Mount("Content.pak");
+
+        if (!mounted && sEngineConfig.mProjectPath != "")
+        {
+            const std::string& projPath = sEngineConfig.mProjectPath;
+            const std::string projDir = projPath.substr(0, projPath.find_last_of("/\\") + 1);
+            mounted = ContentPak::Mount((projDir + "Content.pak").c_str());
+        }
+
+        if (!mounted && sEngineConfig.mProjectName != "")
+        {
+            mounted = ContentPak::Mount((sEngineConfig.mProjectName + "/Content.pak").c_str());
+        }
+
+        if (mounted)
+        {
+            // Packed builds have no loose asset tree to walk, so directory
+            // discovery would come up empty. The registry is the manifest the
+            // pak is built against -- force it on rather than depending on a
+            // Config.ini flag, which on a per-project console deploy is read
+            // from the embedded copy and can't be rewritten at package time.
+            sEngineConfig.mUseAssetRegistry = true;
+        }
+    }
+#endif
+
     if (sEngineConfig.mProjectPath != "")
     {
 #if EDITOR
@@ -594,6 +635,16 @@ bool Initialize()
     }
 
 #if !EDITOR
+    // Re-assert after LoadProject: it re-reads <project>/Config.ini (see
+    // LoadProject), which puts mUseAssetRegistry back to the value the project
+    // was authored with -- typically 0. A packed build has no loose asset tree
+    // left to discover, so without this the registry step is skipped and nothing
+    // registers at all: "No default scene found" on a black screen.
+    if (ContentPak::IsMounted())
+    {
+        sEngineConfig.mUseAssetRegistry = true;
+    }
+
     if (GetEngineState()->mProjectDirectory != "" &&
         sEngineConfig.mUseAssetRegistry)
     {

@@ -2,6 +2,7 @@
 #include "Script.h"
 #include "AssetManager.h"
 #include "ContentObfuscation.h"
+#include "ContentPak.h"
 #include "System/System.h"
 #include "LuaBindings/Node_Lua.h"
 #include "Plugins/RuntimePluginManager.h"
@@ -444,6 +445,14 @@ EmbeddedFile* ScriptUtils::FindEmbeddedScript(const std::string& className)
     return retFile;
 }
 
+// Scripts may be packed into Content.pak, in which case there is nothing on disk
+// to stat. Check the archive first, then fall back to the filesystem so loose and
+// packed builds both resolve.
+static bool ScriptFileExists(const std::string& path)
+{
+    return ContentPak::Exists(path.c_str()) || SYS_DoesFileExist(path.c_str(), true);
+}
+
 bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
 {
     bool successful = false;
@@ -469,7 +478,7 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
 
     if (!fileExists)
     {
-        fileExists = SYS_DoesFileExist(fullFileName.c_str(), true);
+        fileExists = ScriptFileExists(fullFileName);
     }
 
     // Check for Packages/{packageName}/{scriptName} path format
@@ -495,7 +504,7 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
 
             // Build the full path: {projectDir}/Packages/{packageName}/Scripts/{scriptName}.lua
             fullFileName = projectDir + "Packages/" + packageName + "/Scripts/" + scriptName;
-            fileExists = SYS_DoesFileExist(fullFileName.c_str(), true);
+            fileExists = ScriptFileExists(fullFileName);
 
             // Tolerant fallback: a scene may carry a legacy package name (e.g. the addon
             // was renamed since the scene was authored). Scan every Packages/* dir for
@@ -510,7 +519,7 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
                     {
                         std::string candidate = projectDir + "Packages/" + pkgDir.mFilename
                                               + "/Scripts/" + scriptName;
-                        if (SYS_DoesFileExist(candidate.c_str(), true))
+                        if (ScriptFileExists(candidate))
                         {
                             fullFileName = candidate;
                             fileExists = true;
@@ -530,7 +539,7 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
         // the console case where the package was deployed into a per-project
         // folder, so Engine/ sits beside the project rather than at the root.
         fullFileName = GetEngineContentDir("Scripts/") + relativeFileName;
-        fileExists = SYS_DoesFileExist(fullFileName.c_str(), true);
+        fileExists = ScriptFileExists(fullFileName);
     }
 
     if (fileExists)

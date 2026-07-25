@@ -3,6 +3,7 @@
 #include "Log.h"
 #include "EmbeddedFile.h"
 #include "ContentObfuscation.h"
+#include "ContentPak.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -511,24 +512,46 @@ SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
 {
     if (path == nullptr) return nullptr;
 
-    FILE* file = fopen(path, "rb");
+    FILE* file = nullptr;
+    uint32_t entryBase = 0;
+
+    // A packed asset lives at an offset inside Content.pak. Open an independent
+    // handle on the archive rather than sharing the one ContentPak::Read uses --
+    // streaming holds its handle for the life of the sound and seeks freely, so
+    // sharing would mean fighting for the file position on every chunk.
+    uint32_t pakOffset = 0;
+    uint32_t pakSize = 0;
+    if (ContentPak::FindEntry(path, pakOffset, pakSize))
+    {
+        file = fopen(ContentPak::GetPakPath(), "rb");
+        entryBase = pakOffset;
+    }
+
     if (file == nullptr)
     {
-        const std::string resolved = SYS_GetAbsolutePath(path);
-        file = fopen(resolved.c_str(), "rb");
+        entryBase = 0;
+        file = fopen(path, "rb");
+
+        if (file == nullptr)
+        {
+            const std::string resolved = SYS_GetAbsolutePath(path);
+            file = fopen(resolved.c_str(), "rb");
+        }
     }
 
     if (file == nullptr) return nullptr;
 
     SysFile* handle = new SysFile();
     handle->mFile = file;
+    handle->mPayloadBase = entryBase;
 
     char header[ContentObfuscation::kHeaderSize];
-    if (fread(header, 1, sizeof(header), file) == sizeof(header) &&
+    if (fseek(file, (long)entryBase, SEEK_SET) == 0 &&
+        fread(header, 1, sizeof(header), file) == sizeof(header) &&
         ContentObfuscation::IsContainer(header, (uint32_t)sizeof(header)))
     {
         handle->mObfuscated = true;
-        handle->mPayloadBase = ContentObfuscation::kHeaderSize;
+        handle->mPayloadBase = entryBase + ContentObfuscation::kHeaderSize;
         handle->mSalt = ContentObfuscation::GetSalt(header);
     }
 

@@ -22,6 +22,7 @@ struct BuildManifest
     Platform mPlatform = Platform::Windows;
     bool mEmbedded = false;
     bool mStaticContent = false;
+    bool mContentPak = false;
     int64_t mBuildTime = 0;
     std::string mProjectName;
     std::string mOutputDirectory;
@@ -52,14 +53,14 @@ public:
     // a Static package of the same content are different outputs, so they must not
     // share a manifest or flipping the checkbox reports "up to date" and ships the
     // previous, unobfuscated build.
-    BuildCacheResult CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent);
+    BuildCacheResult CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent, bool contentPak);
     std::string GetRebuildReason() const { return mRebuildReason; }
 
-    void BuildCurrentManifest(Platform platform, bool embedded, bool staticContent);
+    void BuildCurrentManifest(Platform platform, bool embedded, bool staticContent, bool contentPak);
     bool SaveManifest();
-    bool LoadManifest(Platform platform, bool embedded, bool staticContent);
+    bool LoadManifest(Platform platform, bool embedded, bool staticContent, bool contentPak);
 
-    std::string GetManifestPath(Platform platform, bool embedded, bool staticContent) const;
+    std::string GetManifestPath(Platform platform, bool embedded, bool staticContent, bool contentPak) const;
 
 private:
     BuildCache();

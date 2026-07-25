@@ -96,6 +96,7 @@ namespace
         sProfileValueClipboard.mTargetPlatform        = src.mTargetPlatform;
         sProfileValueClipboard.mEmbedded              = src.mEmbedded;
         sProfileValueClipboard.mStaticContent         = src.mStaticContent;
+        sProfileValueClipboard.mContentPak            = src.mContentPak;
         sProfileValueClipboard.mOutputDirectory       = src.mOutputDirectory;
         sProfileValueClipboard.mUseDocker             = src.mUseDocker;
         sProfileValueClipboard.mOpenDirectoryOnFinish = src.mOpenDirectoryOnFinish;
@@ -109,6 +110,7 @@ namespace
         dst.mTargetPlatform        = sProfileValueClipboard.mTargetPlatform;
         dst.mEmbedded              = sProfileValueClipboard.mEmbedded;
         dst.mStaticContent         = sProfileValueClipboard.mStaticContent;
+        dst.mContentPak            = sProfileValueClipboard.mContentPak;
         dst.mOutputDirectory       = sProfileValueClipboard.mOutputDirectory;
         dst.mUseDocker             = sProfileValueClipboard.mUseDocker;
         dst.mOpenDirectoryOnFinish = sProfileValueClipboard.mOpenDirectoryOnFinish;
@@ -347,6 +349,7 @@ void PackagingWindow::DrawProfileList()
                     newProfile->mTargetPlatform        = srcSnapshot.mTargetPlatform;
                     newProfile->mEmbedded              = srcSnapshot.mEmbedded;
                     newProfile->mStaticContent         = srcSnapshot.mStaticContent;
+                    newProfile->mContentPak            = srcSnapshot.mContentPak;
                     newProfile->mOutputDirectory       = srcSnapshot.mOutputDirectory;
                     newProfile->mUseDocker             = srcSnapshot.mUseDocker;
                     newProfile->mOpenDirectoryOnFinish = srcSnapshot.mOpenDirectoryOnFinish;
@@ -720,6 +723,28 @@ void PackagingWindow::DrawProfileSettings()
                           "This is protection/obfuscation, NOT DRM -- the key ships inside\n"
                           "the game. It stops casual editing and asset ripping, not a\n"
                           "determined attacker with a disassembler.");
+    }
+
+    // Content Pak builds on top of Static -- there is no point packing content
+    // that isn't obfuscated, and the pak index reuses the same container.
+    if (profile->mStaticContent)
+    {
+        ImGui::Indent();
+        if (Polyphase::Checkbox("Content Pak", &profile->mContentPak))
+        {
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Pack assets, scripts and the asset registry into a single\n"
+                              "obfuscated Content.pak and remove the loose copies.\n\n"
+                              "Hides filenames and the folder tree as well as file contents.\n"
+                              "Only the index is held in memory; entries are decoded on demand,\n"
+                              "so console memory behaviour is unchanged.\n\n"
+                              "Raw assets (.png/.json/.mp4) stay loose -- addon code opens\n"
+                              "those with its own file I/O.");
+        }
+        ImGui::Unindent();
     }
 
     ImGui::Spacing();
@@ -1449,6 +1474,7 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         // build-target callbacks can read them via ctx->GetProfileSetting.
         am->GetBuildState().mTargetOptions = profile.mTargetOptions;
         am->GetBuildState().mStaticContent = profile.mStaticContent;
+        am->GetBuildState().mContentPak = profile.mContentPak;
         // Prefer the registry-resolved target id when present so addon-
         // provided targets dispatch through their descriptor callbacks. Falls
         // back to legacy Platform-only build when mTargetId is empty (old
@@ -1467,6 +1493,7 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         am->GetBuildState().mTargetOptions = profile.mTargetOptions;
         am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
         am->GetBuildState().mStaticContent = profile.mStaticContent;
+        am->GetBuildState().mContentPak = profile.mContentPak;
     }
 
     mBuildInProgress = false;
