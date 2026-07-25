@@ -1,6 +1,7 @@
 #include "ScriptUtils.h"
 #include "Script.h"
 #include "AssetManager.h"
+#include "ContentObfuscation.h"
 #include "System/System.h"
 #include "LuaBindings/Node_Lua.h"
 #include "Plugins/RuntimePluginManager.h"
@@ -525,8 +526,10 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
 
     if (!fileExists)
     {
-        // Fall back to Engine script directory
-        fullFileName = std::string("Engine/Scripts/") + relativeFileName;
+        // Fall back to Engine script directory. GetEngineContentDir also handles
+        // the console case where the package was deployed into a per-project
+        // folder, so Engine/ sits beside the project rather than at the root.
+        fullFileName = GetEngineContentDir("Scripts/") + relativeFileName;
         fileExists = SYS_DoesFileExist(fullFileName.c_str(), true);
     }
 
@@ -539,6 +542,22 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
         if (embeddedScript != nullptr)
         {
             luaString.assign(embeddedScript->mData, embeddedScript->mSize);
+
+            // A Static build obfuscates the embedded script table too. luaString
+            // is already a copy of the rodata bytes, so it decodes in place.
+            // The disk branch below needs nothing -- Stream::ReadFile decodes.
+            if (ContentObfuscation::IsContainer(luaString.data(), uint32_t(luaString.size())))
+            {
+                uint32_t decodedSize = 0;
+
+                if (!ContentObfuscation::DecodeInPlace(&luaString[0], uint32_t(luaString.size()), &decodedSize, nullptr))
+                {
+                    LogError("Failed to decode obfuscated script: %s", className.c_str());
+                    return false;
+                }
+
+                luaString.resize(decodedSize);
+            }
         }
         else
         {

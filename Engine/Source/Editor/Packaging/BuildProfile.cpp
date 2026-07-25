@@ -46,6 +46,13 @@ void BuildProfile::LoadFromJson(const rapidjson::Value& value)
         mEmbedded = value["embedded"].GetBool();
     }
 
+    // Absent in profiles saved before Static Content existed -- those keep
+    // building Moddable, which is the pre-existing behaviour.
+    if (value.HasMember("staticContent") && value["staticContent"].IsBool())
+    {
+        mStaticContent = value["staticContent"].GetBool();
+    }
+
     if (value.HasMember("outputDirectory") && value["outputDirectory"].IsString())
     {
         mOutputDirectory = value["outputDirectory"].GetString();
@@ -86,6 +93,7 @@ void BuildProfile::SaveToJson(rapidjson::Document& doc, rapidjson::Value& value)
         value.AddMember("targetOptions", opts, allocator);
     }
     value.AddMember("embedded", mEmbedded, allocator);
+    value.AddMember("staticContent", mStaticContent, allocator);
     value.AddMember("outputDirectory", rapidjson::Value(mOutputDirectory.c_str(), allocator), allocator);
     value.AddMember("useDocker", mUseDocker, allocator);
     value.AddMember("openDirectoryOnFinish", mOpenDirectoryOnFinish, allocator);

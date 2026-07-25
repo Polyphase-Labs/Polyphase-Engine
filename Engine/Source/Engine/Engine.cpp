@@ -489,6 +489,49 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
     }
 }
 
+static bool DirectoryExists(const std::string& path)
+{
+    DirEntry entry = { };
+    SYS_OpenDirectory(path, entry);
+    const bool valid = entry.mValid;
+    SYS_CloseDirectory(entry);
+    return valid;
+}
+
+std::string GetEngineContentDir(const char* subDir)
+{
+    // Shipped engine content normally sits next to the project folder, so
+    // "Engine/<sub>" resolves against the working directory.
+    //
+    // Console packages are routinely deployed into a per-project folder instead
+    // (an SD card holding several games has sd:/<Game>/ per title), which puts
+    // Engine/ inside the project folder while the working directory stays at the
+    // card root. The root-relative lookup then misses every engine asset and the
+    // game boots with no default textures, materials or fonts -- so no UI.
+    // Embedded builds hide this because engine assets live in the executable.
+    std::string rootRelative = std::string("Engine/") + subDir;
+
+    if (DirectoryExists(rootRelative))
+    {
+        return rootRelative;
+    }
+
+    const std::string& projectDir = sEngineState.mProjectDirectory;
+
+    if (!projectDir.empty())
+    {
+        std::string projectRelative = projectDir + "Engine/" + subDir;
+
+        if (DirectoryExists(projectRelative))
+        {
+            LogDebug("Engine content resolved next to the project: %s", projectRelative.c_str());
+            return projectRelative;
+        }
+    }
+
+    return rootRelative;
+}
+
 bool Initialize()
 {
     InitializeLog();
@@ -576,13 +619,13 @@ bool Initialize()
     // Building Data (Ctrl+B) in editor will regenerate .oct files from the source data.
     if (!sEngineConfig.mUseAssetRegistry)
     {
-        AssetManager::Get()->Discover("Engine", "Engine/Assets/");
+        AssetManager::Get()->Discover("Engine", GetEngineContentDir("Assets/").c_str());
     }
 #else
     // In headless mode, we need to discover engine assets for cooking
     if (IsHeadless() && !sEngineConfig.mUseAssetRegistry)
     {
-        AssetManager::Get()->Discover("Engine", "Engine/Assets/");
+        AssetManager::Get()->Discover("Engine", GetEngineContentDir("Assets/").c_str());
     }
 #endif
 

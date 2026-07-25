@@ -1078,6 +1078,7 @@
     <ClCompile Include="Source\Engine\Assets\NodeGraphAsset.cpp" />
     <ClCompile Include="Source\Engine\AudioManager.cpp" />
     <ClCompile Include="Source\Engine\Clock.cpp" />
+    <ClCompile Include="Source\Engine\ContentObfuscation.cpp" />
     <ClCompile Include="Source\Engine\Datum.cpp" />
     <ClCompile Include="Source\Engine\Engine.cpp" />
     <ClCompile Include="Source\Engine\OctHookAutoRegister.cpp" />
@@ -1649,6 +1650,7 @@
     <ClInclude Include="Source\Engine\CameraFrustum.h" />
     <ClInclude Include="Source\Engine\Clock.h" />
     <ClInclude Include="Source\Engine\Constants.h" />
+    <ClInclude Include="Source\Engine\ContentObfuscation.h" />
     <ClInclude Include="Source\Engine\PolyphaseAbi.h" />
     <ClInclude Include="Source\Engine\Datum.h" />
     <ClInclude Include="Source\Engine\EmbeddedFile.h" />

@@ -92,6 +92,11 @@ private:
     void Grow(uint32_t newSize);
     void Reserve(uint32_t capacity);
 
+    // Unwraps a ContentObfuscation container in mData if one is present.
+    // Returns false only on a genuine decode failure, in which case the stream
+    // has been emptied.
+    bool DecodeObfuscatedData(const char* path);
+
     template<typename T>
     void Read(T& dst)
     {

@@ -2,6 +2,7 @@
 #include "System.h"
 #include "Log.h"
 #include "EmbeddedFile.h"
+#include "ContentObfuscation.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -480,16 +481,32 @@ const char* SYS_LookupEmbeddedRawAsset(const char* path, uint32_t& outSize)
 
 // ============================================================================
 //  Seekable, handle-based file reading (see System.h). Implemented once here so
-//  every platform links it (shared System source, compiled everywhere). SysFile*
-//  is an opaque alias for FILE*. Used to stream large assets (e.g. background
-//  music) from disk in chunks instead of holding the whole file resident.
+//  every platform links it (shared System source, compiled everywhere). Used to
+//  stream large assets (e.g. background music) from disk in chunks instead of
+//  holding the whole file resident.
 //
 //  Path resolution: try the raw path first (works where the CWD is already the
 //  asset root — Windows/Linux), then fall back to SYS_GetAbsolutePath, which each
 //  platform implements to add its device prefix (e.g. "host:" on PS2). Embedded
 //  (in-exe/romfs) assets that fopen can't open just return nullptr → the caller
 //  degrades gracefully (streaming silently no-ops there).
+//
+//  Static builds wrap shipped .oct files in a ContentObfuscation container, and
+//  SoundWave records its PCM offset in *decoded* space (SoundWave::LoadStream
+//  stores stream.GetPos()). So the handle carries the payload base and salt, maps
+//  logical offsets onto physical ones on seek, and decodes each chunk as it is
+//  read. Doing it here rather than per-platform is what keeps streaming audio
+//  working on GameCube, 3DS and the out-of-tree addon targets with no extra work.
 // ============================================================================
+struct SysFile
+{
+    FILE* mFile = nullptr;
+    uint32_t mPayloadBase = 0;   // physical offset of decoded byte 0
+    uint32_t mDecodedPos = 0;    // logical read cursor, in decoded space
+    uint32_t mSalt = 0;
+    bool mObfuscated = false;
+};
+
 SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
 {
     if (path == nullptr) return nullptr;
@@ -500,24 +517,55 @@ SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
         const std::string resolved = SYS_GetAbsolutePath(path);
         file = fopen(resolved.c_str(), "rb");
     }
-    return reinterpret_cast<SysFile*>(file);
+
+    if (file == nullptr) return nullptr;
+
+    SysFile* handle = new SysFile();
+    handle->mFile = file;
+
+    char header[ContentObfuscation::kHeaderSize];
+    if (fread(header, 1, sizeof(header), file) == sizeof(header) &&
+        ContentObfuscation::IsContainer(header, (uint32_t)sizeof(header)))
+    {
+        handle->mObfuscated = true;
+        handle->mPayloadBase = ContentObfuscation::kHeaderSize;
+        handle->mSalt = ContentObfuscation::GetSalt(header);
+    }
+
+    fseek(file, (long)handle->mPayloadBase, SEEK_SET);
+    return handle;
 }
 
 uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
 {
-    if (file == nullptr || dst == nullptr || bytes == 0) return 0;
-    return (uint32_t)fread(dst, 1, bytes, reinterpret_cast<FILE*>(file));
+    if (file == nullptr || file->mFile == nullptr || dst == nullptr || bytes == 0) return 0;
+
+    const uint32_t read = (uint32_t)fread(dst, 1, bytes, file->mFile);
+
+    if (file->mObfuscated && read > 0)
+    {
+        ContentObfuscation::DecodeRange(dst, read, file->mDecodedPos, file->mSalt);
+    }
+
+    file->mDecodedPos += read;
+    return read;
 }
 
 bool SYS_FileSeek(SysFile* file, uint64_t absoluteOffset)
 {
-    if (file == nullptr) return false;
+    if (file == nullptr || file->mFile == nullptr) return false;
+
+    file->mDecodedPos = (uint32_t)absoluteOffset;
+
     // Music/asset files are well under 2 GB, so a `long` offset is sufficient and
     // portable across the 32-bit console newlibs (avoids _fseeki64/fseeko split).
-    return fseek(reinterpret_cast<FILE*>(file), (long)absoluteOffset, SEEK_SET) == 0;
+    return fseek(file->mFile, (long)(file->mPayloadBase + absoluteOffset), SEEK_SET) == 0;
 }
 
 void SYS_FileClose(SysFile* file)
 {
-    if (file != nullptr) fclose(reinterpret_cast<FILE*>(file));
+    if (file == nullptr) return;
+
+    if (file->mFile != nullptr) fclose(file->mFile);
+    delete file;
 }

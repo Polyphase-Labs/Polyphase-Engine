@@ -51,6 +51,12 @@ POLYPHASE_API class World* GetWorld(int32_t index);
 POLYPHASE_API int32_t GetNumWorlds();
 POLYPHASE_API class SignalBus* GetSignalBus();
 
+// Resolves shipped engine content ("Assets/", "Scripts/") to a readable path.
+// Prefers the root-relative "Engine/<subDir>" and falls back to
+// "<projectDir>Engine/<subDir>", which is where console packages end up when
+// they're deployed into a per-project folder on an SD card.
+POLYPHASE_API std::string GetEngineContentDir(const char* subDir);
+
 POLYPHASE_API struct EngineState* GetEngineState();
 POLYPHASE_API const struct EngineConfig* GetEngineConfig();
 POLYPHASE_API struct EngineConfig* GetMutableEngineConfig();

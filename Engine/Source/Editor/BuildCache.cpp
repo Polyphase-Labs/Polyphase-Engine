@@ -58,7 +58,7 @@ int64_t BuildCache::GetFileModTime(const std::string& path) const
     return static_cast<int64_t>(info.st_mtime);
 }
 
-std::string BuildCache::GetManifestPath(Platform platform, bool embedded) const
+std::string BuildCache::GetManifestPath(Platform platform, bool embedded, bool staticContent) const
 {
     const EngineState* engineState = GetEngineState();
     std::string projectDir = engineState->mProjectDirectory;
@@ -70,6 +70,10 @@ std::string BuildCache::GetManifestPath(Platform platform, bool embedded) const
     }
 
     std::string mode = embedded ? "Embedded" : "External";
+    if (staticContent)
+    {
+        mode += "_Static";
+    }
     return intermediateDir + "BuildManifest_" + GetPlatformString(platform) + "_" + mode + ".json";
 }
 
@@ -168,12 +172,13 @@ void BuildCache::GatherConfigFiles(std::vector<FileEntry>& outConfigs)
     }
 }
 
-void BuildCache::BuildCurrentManifest(Platform platform, bool embedded)
+void BuildCache::BuildCurrentManifest(Platform platform, bool embedded, bool staticContent)
 {
     mCurrentManifest = BuildManifest();
     mCurrentManifest.mVersion = BuildManifest::kCurrentVersion;
     mCurrentManifest.mPlatform = platform;
     mCurrentManifest.mEmbedded = embedded;
+    mCurrentManifest.mStaticContent = staticContent;
     mCurrentManifest.mBuildTime = static_cast<int64_t>(time(nullptr));
     mCurrentManifest.mProjectName = GetEngineState()->mProjectName;
 
@@ -194,6 +199,7 @@ bool BuildCache::SaveManifest()
     doc.AddMember("version", mCurrentManifest.mVersion, alloc);
     doc.AddMember("platform", rapidjson::Value(GetPlatformString(mCurrentManifest.mPlatform), alloc), alloc);
     doc.AddMember("embedded", mCurrentManifest.mEmbedded, alloc);
+    doc.AddMember("staticContent", mCurrentManifest.mStaticContent, alloc);
     doc.AddMember("buildTime", mCurrentManifest.mBuildTime, alloc);
     doc.AddMember("projectName", rapidjson::Value(mCurrentManifest.mProjectName.c_str(), alloc), alloc);
     doc.AddMember("outputDirectory", rapidjson::Value(mCurrentManifest.mOutputDirectory.c_str(), alloc), alloc);
@@ -219,7 +225,7 @@ bool BuildCache::SaveManifest()
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     doc.Accept(writer);
 
-    std::string path = GetManifestPath(mCurrentManifest.mPlatform, mCurrentManifest.mEmbedded);
+    std::string path = GetManifestPath(mCurrentManifest.mPlatform, mCurrentManifest.mEmbedded, mCurrentManifest.mStaticContent);
     Stream outStream(buffer.GetString(), (uint32_t)buffer.GetSize());
     outStream.WriteFile(path.c_str());
 
@@ -227,9 +233,9 @@ bool BuildCache::SaveManifest()
     return true;
 }
 
-bool BuildCache::LoadManifest(Platform platform, bool embedded)
+bool BuildCache::LoadManifest(Platform platform, bool embedded, bool staticContent)
 {
-    std::string path = GetManifestPath(platform, embedded);
+    std::string path = GetManifestPath(platform, embedded, staticContent);
     if (!SYS_DoesFileExist(path.c_str(), false))
     {
         return false;
@@ -395,10 +401,10 @@ bool BuildCache::VerifyOutputDirectory() const
     return true;
 }
 
-BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded)
+BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent)
 {
     // Load saved manifest
-    if (!LoadManifest(platform, embedded))
+    if (!LoadManifest(platform, embedded, staticContent))
     {
         mRebuildReason = "No previous build manifest found";
         return BuildCacheResult::ManifestMissing;
@@ -412,7 +418,7 @@ BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded
     }
 
     // Build current manifest for comparison
-    BuildCurrentManifest(platform, embedded);
+    BuildCurrentManifest(platform, embedded, staticContent);
 
     // Compare
     if (!CompareManifests(mCurrentManifest, mSavedManifest))
