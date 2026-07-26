@@ -327,9 +327,19 @@ declaring the same values. Nothing in that field distinguishes them.
 So a non-Vulkan addon target should opt in explicitly:
 
 ```cpp
-// In DrawProfileOptions, or wherever the target initialises its profile settings.
-ctx->SetProfileSetting(POLYPHASE_OPT_HIDE_CONTENT_PAK, "1");
+// In DrawProfileOptions(const PolyphaseBuildContext* ctx) -- the only callback
+// whose context can write profile settings (Validate takes just outReason).
+char buf[8] = {0};
+if (!ctx->GetProfileSetting("polyphase.hideContentPak", buf, sizeof(buf)))
+{
+    ctx->SetProfileSetting("polyphase.hideContentPak", "1");
+}
 ```
+
+The engine only calls `DrawProfileOptions` while the "Target Options" collapsing
+header is expanded, so the flag lands the first time a user opens it and persists
+in `BuildProfiles.json` thereafter. It can also be set there by hand. Purely
+cosmetic either way.
 
 | Key | Value | Effect |
 |---|---|---|

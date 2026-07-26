@@ -236,12 +236,22 @@ targets.
 Non-Vulkan targets should therefore opt in explicitly:
 
 ```cpp
-ctx->SetProfileSetting(POLYPHASE_OPT_HIDE_CONTENT_PAK, "1");   // "polyphase.hideContentPak"
+// In DrawProfileOptions — the only callback whose context can write settings.
+char buf[8] = {0};
+if (!ctx->GetProfileSetting("polyphase.hideContentPak", buf, sizeof(buf)))
+{
+    ctx->SetProfileSetting("polyphase.hideContentPak", "1");
+}
 ```
 
 This rides the existing `mTargetOptions` map, so it needs no
 `POLYPHASE_BUILD_TARGET_API_VERSION` bump and no descriptor change. Omitting it
 is harmless; the checkbox merely appears where it isn't useful.
+
+Note the engine only calls `DrawProfileOptions` while the "Target Options"
+collapsing header is expanded, so the flag lands the first time a user opens it
+and persists in `BuildProfiles.json` thereafter. Users can equally set
+`"polyphase.hideContentPak": "1"` under `targetOptions` by hand.
 
 If your **runtime** reads content directly, use `Stream::ReadFile` for whole
 files or `SYS_FileOpenRead`/`SYS_FileRead`/`SYS_FileSeek` for chunked reads — a

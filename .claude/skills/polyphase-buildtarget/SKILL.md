@@ -227,22 +227,34 @@ through `BuildProfile::mTargetOptions` — a flat `std::unordered_map<string,
 string>`. Read them back from build callbacks via
 `ctx->GetProfileSetting("key", buf, sizeof(buf))`.
 
+The signature takes the build context, **not** a `BuildProfile*` — the addon
+never touches `BuildProfile` directly, which is what keeps the ABI a pure C
+surface (`PolyphaseBuildTargetAPI.h`):
+
 ```cpp
-static void Dreamcast_DrawProfileOptions(void* profilePtr)
+static void Dreamcast_DrawProfileOptions(const PolyphaseBuildContext* ctx)
 {
-    auto* profile = static_cast<BuildProfile*>(profilePtr);
-    auto it = profile->mTargetOptions.find("region");
     static const char* regions[] = { "NTSC-U", "NTSC-J", "PAL" };
+
+    char buf[16] = {0};
+    ctx->GetProfileSetting("region", buf, sizeof(buf));
+
     int sel = 0;
-    if (it != profile->mTargetOptions.end()) {
-        for (int i = 0; i < 3; ++i) if (it->second == regions[i]) sel = i;
-    }
+    for (int i = 0; i < 3; ++i) if (strcmp(buf, regions[i]) == 0) sel = i;
+
     if (ImGui::Combo("Region", &sel, regions, 3))
     {
-        profile->mTargetOptions["region"] = regions[sel];
+        ctx->SetProfileSetting("region", regions[sel]);
     }
 }
 ```
+
+**`DrawProfileOptions` is the only callback that can write profile settings** —
+`Validate` receives just `char* outReason`. The engine calls it only while the
+"Target Options" collapsing header is expanded, so anything you write there lands
+the first time a user opens that header and persists in `BuildProfiles.json`
+thereafter. Don't rely on it for anything that must be set before the first
+build.
 
 ### Static Content / Content Pak — nothing to implement, one flag to set
 
@@ -267,9 +279,18 @@ backends compile theirs in. The engine can't infer this:
 So if your target has no runtime shader files (i.e. it isn't Vulkan), opt in:
 
 ```cpp
-// Anywhere the target initialises its profile settings — e.g. DrawProfileOptions.
-ctx->SetProfileSetting(POLYPHASE_OPT_HIDE_CONTENT_PAK, "1");   // "polyphase.hideContentPak"
+// In DrawProfileOptions — the only callback with a settings-capable context.
+char buf[8] = {0};
+if (!ctx->GetProfileSetting("polyphase.hideContentPak", buf, sizeof(buf)))
+{
+    ctx->SetProfileSetting("polyphase.hideContentPak", "1");
+}
 ```
+
+Because `DrawProfileOptions` only runs while the "Target Options" header is
+expanded, the flag lands the first time a user opens it and persists from then
+on. Users can equally set `"polyphase.hideContentPak": "1"` under `targetOptions`
+in `BuildProfiles.json`. It's cosmetic either way — nothing breaks if unset.
 
 It rides the existing `mTargetOptions` map, so there's **no
 `POLYPHASE_BUILD_TARGET_API_VERSION` bump** and no descriptor change. Omitting it
