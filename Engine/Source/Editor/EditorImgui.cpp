@@ -13,6 +13,8 @@
 #include "AssetDir.h"
 #include "Grid.h"
 #include "Script.h"
+#include "ScriptUtils.h"
+#include "Stream.h"
 #include "PaintManager.h"
 #include "NodePath.h"
 #include "FeatureFlags.h"
@@ -140,6 +142,7 @@
 
 #include <functional>
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -9703,6 +9706,17 @@ struct ScriptFileEntry
     std::string mOrigin;     // "Engine", "Project", or package name
 };
 
+// File operations triggered from the script context menu. The tree walk holds
+// ScriptFileEntry pointers into the cached vector, so the menu only records the
+// request and the work happens after the tree is done drawing.
+enum class ScriptFileAction
+{
+    None,
+    Rename,
+    Duplicate,
+    Delete
+};
+
 struct CppAddonEntry
 {
     std::string mAddonId;
@@ -9711,6 +9725,68 @@ struct CppAddonEntry
     std::string mVcxprojPath;
     std::vector<std::string> mSourceFiles; // full paths
 };
+
+static std::string GetScriptDir(const std::string& fullPath)
+{
+    size_t lastSlash = fullPath.find_last_of("/\\");
+    if (lastSlash == std::string::npos)
+        return "";
+    return fullPath.substr(0, lastSlash + 1);
+}
+
+// Script file names double as Lua class names, so the same identifier rules
+// the script creator enforces apply here (ScriptCreatorDialog.cpp).
+static bool IsValidScriptName(const char* name)
+{
+    if (!name || name[0] == '\0')
+        return false;
+    if (!std::isalpha((unsigned char)name[0]) && name[0] != '_')
+        return false;
+    for (int i = 1; name[i] != '\0'; ++i)
+    {
+        if (!std::isalnum((unsigned char)name[i]) && name[i] != '_')
+            return false;
+    }
+    return true;
+}
+
+// Replace whole-identifier occurrences of oldName with newName. Used after a
+// rename so the class table declared inside the file matches the new file name.
+static std::string ReplaceScriptClassName(const std::string& body, const std::string& oldName, const std::string& newName)
+{
+    if (oldName.empty() || oldName == newName)
+        return body;
+
+    auto isIdentChar = [](char c) { return std::isalnum((unsigned char)c) != 0 || c == '_'; };
+
+    std::string result;
+    result.reserve(body.size());
+
+    size_t pos = 0;
+    while (pos < body.size())
+    {
+        size_t found = body.find(oldName, pos);
+        if (found == std::string::npos)
+        {
+            result.append(body, pos, std::string::npos);
+            break;
+        }
+
+        bool boundaryBefore = (found == 0) || !isIdentChar(body[found - 1]);
+        size_t after = found + oldName.size();
+        bool boundaryAfter = (after >= body.size()) || !isIdentChar(body[after]);
+
+        result.append(body, pos, found - pos);
+        if (boundaryBefore && boundaryAfter)
+            result += newName;
+        else
+            result += oldName;
+
+        pos = after;
+    }
+
+    return result;
+}
 
 static void GatherCppSourceFiles(const std::string& dir, std::vector<std::string>& outFiles)
 {
@@ -9766,6 +9842,14 @@ static void DrawScriptsPanel()
     // --- Script reveal state ---
     static std::set<std::string> sRevealExpandPaths;
     static std::string sSelectedScript = "";
+
+    // --- Deferred file operations (recorded by the context menu, run after the tree draws) ---
+    static ScriptFileAction sPendingScriptAction = ScriptFileAction::None;
+    static bool sOpenScriptActionPopup = false;
+    static std::string sScriptActionPath;
+    static std::string sScriptActionDisplayName;
+    static char sScriptActionNameBuffer[128] = "";
+    static std::string sScriptActionError;
 
     double currentTime = ImGui::GetTime();
 
@@ -10123,8 +10207,9 @@ static void DrawScriptsPanel()
                     ImGui::TreeNodeEx(labelWithIcon.c_str(), leafFlags);
                     AlternatingRowBackground();
 
-                    // Handle click to select
-                    if (ImGui::IsItemClicked(0))
+                    // Handle click to select. Right-click selects too so the highlight
+                    // always matches the file the context menu is about to act on.
+                    if (ImGui::IsItemClicked(0) || ImGui::IsItemClicked(1))
                     {
                         sSelectedScript = entry->mDisplayName;
                     }
@@ -10148,6 +10233,67 @@ static void DrawScriptsPanel()
                     // Context menu for script file
                     if (ImGui::BeginPopupContextItem())
                     {
+                        // Engine scripts ship with the engine and are not editable from here.
+                        const bool readOnly = (entry->mOrigin == "Engine");
+
+                        PreferencesModule* prefMod = PreferencesManager::Get()->FindModule("External/Editors");
+                        EditorsModule* ctxEditors = static_cast<EditorsModule*>(prefMod);
+                        bool editorConfigured = ctxEditors && ctxEditors->IsLuaEditorConfigured();
+
+                        ImGui::BeginDisabled(!editorConfigured);
+                        if (ImGui::Selectable("Open in External Editor"))
+                        {
+                            ctxEditors->OpenLuaScript(entry->mFullPath);
+                        }
+                        ImGui::EndDisabled();
+
+                        if (ImGui::Selectable("Open in Script Editor"))
+                        {
+                            GetScriptEditorWindow()->OpenFile(entry->mFullPath);
+                        }
+
+                        if (!readOnly)
+                        {
+                            ImGui::Separator();
+
+                            if (ImGui::Selectable("Rename..."))
+                            {
+                                sPendingScriptAction = ScriptFileAction::Rename;
+                                sScriptActionPath = entry->mFullPath;
+                                sScriptActionDisplayName = entry->mDisplayName;
+                                sScriptActionError.clear();
+                                sOpenScriptActionPopup = true;
+
+                                std::string stem = SYS_GetFileName(entry->mFullPath);
+                                strncpy(sScriptActionNameBuffer, stem.c_str(), sizeof(sScriptActionNameBuffer) - 1);
+                                sScriptActionNameBuffer[sizeof(sScriptActionNameBuffer) - 1] = '\0';
+                            }
+
+                            if (ImGui::Selectable("Duplicate..."))
+                            {
+                                sPendingScriptAction = ScriptFileAction::Duplicate;
+                                sScriptActionPath = entry->mFullPath;
+                                sScriptActionDisplayName = entry->mDisplayName;
+                                sScriptActionError.clear();
+                                sOpenScriptActionPopup = true;
+
+                                std::string stem = SYS_GetFileName(entry->mFullPath) + "_00";
+                                strncpy(sScriptActionNameBuffer, stem.c_str(), sizeof(sScriptActionNameBuffer) - 1);
+                                sScriptActionNameBuffer[sizeof(sScriptActionNameBuffer) - 1] = '\0';
+                            }
+
+                            if (ImGui::Selectable("Delete"))
+                            {
+                                sPendingScriptAction = ScriptFileAction::Delete;
+                                sScriptActionPath = entry->mFullPath;
+                                sScriptActionDisplayName = entry->mDisplayName;
+                                sScriptActionError.clear();
+                                sOpenScriptActionPopup = true;
+                            }
+                        }
+
+                        ImGui::Separator();
+
                         if (ImGui::Selectable("Reveal in Explorer"))
                         {
                             std::string absPath = SYS_GetAbsolutePath(entry->mFullPath);
@@ -10188,6 +10334,205 @@ static void DrawScriptsPanel()
             BeginAlternatingRows();
             drawTree(root, "");
             ImGui::EndChild();
+
+            // Deferred file operations. Opened here rather than inside the tree so the
+            // ScriptFileEntry pointers drawTree walks are never invalidated mid-iteration.
+            if (sOpenScriptActionPopup)
+            {
+                switch (sPendingScriptAction)
+                {
+                case ScriptFileAction::Rename:    ImGui::OpenPopup("Rename Script");    break;
+                case ScriptFileAction::Duplicate: ImGui::OpenPopup("Duplicate Script"); break;
+                case ScriptFileAction::Delete:    ImGui::OpenPopup("Delete Script");    break;
+                default: break;
+                }
+                sOpenScriptActionPopup = false;
+            }
+
+            {
+                ImGuiIO& io = ImGui::GetIO();
+                ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            }
+            if (ImGui::BeginPopupModal("Rename Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+            {
+                ImGui::Text("Rename \"%s\"", sScriptActionDisplayName.c_str());
+                ImGui::TextDisabled("The class name inside the file is updated to match.\nNodes already referencing the old name must be re-pointed by hand.");
+                ImGui::Spacing();
+
+                if (ImGui::IsWindowAppearing())
+                    ImGui::SetKeyboardFocusHere();
+
+                bool confirm = ImGui::InputText("New Name##RenameScript", sScriptActionNameBuffer, sizeof(sScriptActionNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+
+                if (ImGui::Button("Rename"))
+                    confirm = true;
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    sPendingScriptAction = ScriptFileAction::None;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                if (!sScriptActionError.empty())
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                    ImGui::TextWrapped("%s", sScriptActionError.c_str());
+                    ImGui::PopStyleColor();
+                }
+
+                if (confirm)
+                {
+                    sScriptActionError.clear();
+                    std::string oldStem = SYS_GetFileName(sScriptActionPath);
+                    std::string newStem = sScriptActionNameBuffer;
+                    std::string newPath = GetScriptDir(sScriptActionPath) + newStem + ".lua";
+
+                    if (!IsValidScriptName(sScriptActionNameBuffer))
+                    {
+                        sScriptActionError = "Name must be a valid Lua identifier (letters, digits, underscores; cannot start with a digit).";
+                    }
+                    else if (newStem == oldStem)
+                    {
+                        sPendingScriptAction = ScriptFileAction::None;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    else if (SYS_DoesFileExist(newPath.c_str(), false))
+                    {
+                        sScriptActionError = "A script named " + newStem + ".lua already exists in that folder.";
+                    }
+                    else if (!SYS_Rename(sScriptActionPath.c_str(), newPath.c_str()))
+                    {
+                        sScriptActionError = "Failed to rename the file on disk.";
+                    }
+                    else
+                    {
+                        // Rewrite the class table so the file still matches its name.
+                        Stream stream;
+                        if (stream.ReadFile(newPath.c_str(), false))
+                        {
+                            std::string body(stream.GetData(), stream.GetSize());
+                            std::string updated = ReplaceScriptClassName(body, oldStem, newStem);
+                            if (updated != body)
+                            {
+                                Stream out(updated.c_str(), (uint32_t)updated.size());
+                                out.WriteFile(newPath.c_str());
+                            }
+                        }
+
+                        // The className -> fileName registry still points at the old name.
+                        ScriptUtils::ClearLoadedScripts();
+
+                        LogDebug("Renamed Lua script: %s -> %s", sScriptActionPath.c_str(), newPath.c_str());
+
+                        if (sSelectedScript == sScriptActionDisplayName)
+                        {
+                            size_t slash = sScriptActionDisplayName.find_last_of('/');
+                            sSelectedScript = (slash == std::string::npos)
+                                ? (newStem + ".lua")
+                                : (sScriptActionDisplayName.substr(0, slash + 1) + newStem + ".lua");
+                        }
+
+                        sLuaLastUpdate = 0.0;
+                        sPendingScriptAction = ScriptFileAction::None;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+
+                ImGui::EndPopup();
+            }
+
+            {
+                ImGuiIO& io = ImGui::GetIO();
+                ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            }
+            if (ImGui::BeginPopupModal("Duplicate Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+            {
+                ImGui::Text("Duplicate \"%s\"", sScriptActionDisplayName.c_str());
+                ImGui::TextDisabled("The copy still declares the original Lua class name —\nrename it inside the file before using it.");
+                ImGui::Spacing();
+
+                if (ImGui::IsWindowAppearing())
+                    ImGui::SetKeyboardFocusHere();
+
+                bool confirm = ImGui::InputText("New Name##DuplicateScript", sScriptActionNameBuffer, sizeof(sScriptActionNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+
+                if (ImGui::Button("Duplicate"))
+                    confirm = true;
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    sPendingScriptAction = ScriptFileAction::None;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                if (!sScriptActionError.empty())
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                    ImGui::TextWrapped("%s", sScriptActionError.c_str());
+                    ImGui::PopStyleColor();
+                }
+
+                if (confirm)
+                {
+                    sScriptActionError.clear();
+                    std::string newStem = sScriptActionNameBuffer;
+                    std::string newPath = GetScriptDir(sScriptActionPath) + newStem + ".lua";
+
+                    if (!IsValidScriptName(sScriptActionNameBuffer))
+                    {
+                        sScriptActionError = "Name must be a valid Lua identifier (letters, digits, underscores; cannot start with a digit).";
+                    }
+                    else if (SYS_DoesFileExist(newPath.c_str(), false))
+                    {
+                        sScriptActionError = "A script named " + newStem + ".lua already exists in that folder.";
+                    }
+                    else if (!SYS_CopyFile(sScriptActionPath.c_str(), newPath.c_str()))
+                    {
+                        sScriptActionError = "Failed to copy the file.";
+                    }
+                    else
+                    {
+                        LogDebug("Duplicated Lua script: %s -> %s", sScriptActionPath.c_str(), newPath.c_str());
+                        sLuaLastUpdate = 0.0;
+                        sPendingScriptAction = ScriptFileAction::None;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+
+                ImGui::EndPopup();
+            }
+
+            {
+                ImGuiIO& io = ImGui::GetIO();
+                ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            }
+            if (ImGui::BeginPopupModal("Delete Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+            {
+                ImGui::Text("Delete \"%s\"?", sScriptActionDisplayName.c_str());
+                ImGui::TextDisabled("This permanently deletes the file from disk and cannot be undone.\nNodes that reference this script will fail to load.");
+                ImGui::Spacing();
+
+                if (ImGui::Button("Delete"))
+                {
+                    SYS_RemoveFile(sScriptActionPath.c_str());
+                    LogDebug("Deleted Lua script: %s", sScriptActionPath.c_str());
+
+                    if (sSelectedScript == sScriptActionDisplayName)
+                        sSelectedScript.clear();
+
+                    sLuaLastUpdate = 0.0;
+                    sPendingScriptAction = ScriptFileAction::None;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel"))
+                {
+                    sPendingScriptAction = ScriptFileAction::None;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndPopup();
+            }
 
             ImGui::EndTabItem();
         }
