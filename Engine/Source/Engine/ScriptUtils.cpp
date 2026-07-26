@@ -399,8 +399,8 @@ std::string ScriptUtils::GetClassNameFromFileName(const std::string& fileName)
     //
     // Defensive rules now:
     //   - Strip directory FIRST so the dot search only ever sees the basename.
-    //   - Accept both '/' and '\\' as separators so Windows ReadDirectoryChangesW
-    //     paths normalise correctly.
+    //   - Accept both '/' and '\\' as separators so Windows-authored paths
+    //     normalise correctly.
     //   - Strip the trailing extension ONLY if it is literally ".lua". Stripping
     //     any-last-dot meant a malformed input (e.g. the bare addon directory
     //     "Packages/com.polyphase.formats.gaussiansplat") silently sliced into

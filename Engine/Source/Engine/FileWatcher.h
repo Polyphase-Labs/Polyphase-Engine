@@ -12,10 +12,6 @@
 #include <unordered_map>
 #include <mutex>
 
-#if PLATFORM_WINDOWS
-#include <Windows.h>
-#endif
-
 enum class FileAction
 {
     Added,
@@ -33,6 +29,23 @@ struct FileChangeEvent
 
 using FileChangeCallback = std::function<void(const FileChangeEvent&)>;
 
+// ---------------------------------------------------------------------------
+// Portable polling file watcher.
+//
+// A worker thread walks the watched directories every kPollIntervalMs and
+// diffs each file's mtime against a snapshot; differences become events that
+// the main thread drains in Update(). This deliberately uses only stat() and
+// the SYS_* directory API, so it behaves identically on every editor-capable
+// platform (Windows, Linux, and anything added later) with no per-platform
+// code. The previous implementation was Windows-only — ReadDirectoryChangesW
+// over an IOCP — which meant script hot-reload silently did nothing on the
+// Linux editor build, and which stored the in-flight OVERLAPPED/buffer inside
+// a std::vector whose reallocation handed the kernel dangling pointers.
+//
+// The cost is that a change is picked up within a poll interval rather than
+// instantly. For a Scripts/ tree of a few hundred .lua files that walk is
+// negligible, and sub-second latency is imperceptible in an edit/save loop.
+// ---------------------------------------------------------------------------
 class FileWatcher
 {
 public:
@@ -51,6 +64,10 @@ public:
     // Remove a directory from watching
     void UnwatchDirectory(const std::string& directory);
 
+    // Drop every watch at once. Called on project close so the next project's
+    // watches don't stack on top of the previous one's.
+    void UnwatchAll();
+
     // Set callback for file change events
     void SetFileChangeCallback(FileChangeCallback callback);
 
@@ -62,34 +79,45 @@ public:
     bool IsEnabled() const { return mEnabled; }
 
 private:
+    struct WatchDir
+    {
+        std::string path;       // always ends in '/'
+        bool recursive = true;
+    };
+
+    struct FileSnapshot
+    {
+        int64_t lastSeenTime = 0;      // mtime observed by the most recent scan
+        int64_t lastEmittedTime = 0;   // mtime of the last change we dispatched
+        bool seenThisScan = false;     // scan mark used to detect deletions
+    };
+
     void WatcherThread();
     void ProcessEvents();
 
-#if PLATFORM_WINDOWS
-    struct WatchInfo
-    {
-        HANDLE directoryHandle;
-        OVERLAPPED overlapped;
-        char buffer[8192];
-        std::string path;
-        bool recursive;
-    };
-
-    std::vector<WatchInfo> mWatchInfos;
-    HANDLE mCompletionPort;
-#endif
+    // Worker-thread only. Walks a watched root, marking and diffing snapshots.
+    void ScanDirRecursive(const std::string& dir, bool recursive, std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth = 0);
+    void QueueEvents(const std::vector<FileChangeEvent>& events);
 
     std::thread mWatcherThread;
     std::atomic<bool> mRunning;
     std::atomic<bool> mEnabled;
 
+    // Set when the watch set changes or the watcher is re-enabled: the next
+    // scan records mtimes without emitting, so re-enabling hot-reload doesn't
+    // dispatch a reload for every file edited while it was switched off.
+    std::atomic<bool> mNeedsRebaseline;
+
     FileChangeCallback mCallback;
+
+    std::vector<WatchDir> mWatchDirs;
+    std::mutex mWatchMutex;
 
     std::vector<FileChangeEvent> mPendingEvents;
     std::mutex mEventsMutex;
 
-    // Track last modification times to avoid duplicate events
-    std::unordered_map<std::string, uint64_t> mLastModifyTimes;
+    // Worker-thread private: absolute path -> observed mtimes.
+    std::unordered_map<std::string, FileSnapshot> mSnapshots;
 };
 
 // Global file watcher instance
@@ -131,6 +159,7 @@ public:
     void Shutdown()                                                         {}
     bool WatchDirectory(const std::string&, bool = true)                    { return false; }
     void UnwatchDirectory(const std::string&)                               {}
+    void UnwatchAll()                                                       {}
     void SetFileChangeCallback(FileChangeCallback)                          {}
     void Update()                                                           {}
     void SetEnabled(bool)                                                   {}

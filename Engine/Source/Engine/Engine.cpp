@@ -134,8 +134,9 @@ void OnScriptFileChanged(const FileChangeEvent& event)
         return;
     }
 
-    // Normalize incoming path to forward slashes once. Windows ReadDirectoryChangesW
-    // hands us backslashes; the script bookkeeping is forward-slash only.
+    // Normalize incoming path to forward slashes once — mProjectDirectory is derived
+    // from whatever separators the .octp path arrived with, and the script bookkeeping
+    // is forward-slash only.
     std::string evPath = event.filePath;
     for (size_t i = 0; i < evPath.length(); ++i)
     {
@@ -673,8 +674,13 @@ bool Initialize()
         AssetManager::Get()->Discover("Engine", GetEngineContentDir("Assets/").c_str());
     }
 #else
-    // In headless mode, we need to discover engine assets for cooking
-    if (IsHeadless() && !sEngineConfig.mUseAssetRegistry)
+    // In headless mode, we need to discover engine assets for cooking.
+    // Deliberately NOT gated on mUseAssetRegistry, unlike the runtime branch above:
+    // AssetRegistry.txt is an *output* of packaging (ActionManager::BuildData writes it
+    // into the package), never an input to the cook. Gating on the flag left the root
+    // AssetDir with no "Engine" child, and BuildData null-deref'd
+    // FindEngineDirectory()->mName right after "Cooking assets...".
+    if (IsHeadless())
     {
         AssetManager::Get()->Discover("Engine", GetEngineContentDir("Assets/").c_str());
     }
@@ -1290,6 +1296,15 @@ void CloseProject(bool unloadNativeAddons)
     // current session. Clear so the next Script attach reloads from disk.
     ScriptUtils::ClearLoadedScripts();
 
+    // Drop the hot-reload watches too. LoadProject registers a watch per
+    // Scripts tree (the project's plus one per addon), so without this they
+    // stack up on every project switch and keep reporting paths belonging to
+    // projects that are no longer open.
+    if (GetFileWatcher())
+    {
+        GetFileWatcher()->UnwatchAll();
+    }
+
     if (unloadNativeAddons)
     {
         // Drop every loaded addon DLL's handle on its way to recovery /
@@ -1445,9 +1460,19 @@ void LoadProject(const std::string& path, bool discoverAssets)
 #endif
 
 #if EDITOR
-    // Start watching the Scripts directory for hot-reloading
-    if (GetFileWatcher() && sEngineState.mProjectDirectory != "")
+    // Start watching the Scripts directory for hot-reloading. Skipped when headless:
+    // there's nothing to hot-reload into during a cook, and the watcher polls, so
+    // leaving it armed would walk the Scripts tree twice a second for the whole build.
+    if (GetFileWatcher() && sEngineState.mProjectDirectory != "" && !IsHeadless())
     {
+        // mScriptHotReload is per-project (it lives in the project's Config.ini, read a
+        // few lines up by ReadEngineConfig), but FileWatcher::mEnabled is otherwise only
+        // synced from it once, at engine Initialize() — which runs before any project is
+        // open. Without this, opening a project with ScriptHotReload=1 from the picker
+        // leaves the watcher collecting events that Update() throws away, and the user
+        // has to toggle the preference off and on again to revive hot-reload.
+        GetFileWatcher()->SetEnabled(IsScriptHotReloadEnabled());
+
         std::string scriptsDir = sEngineState.mProjectDirectory + "Scripts";
 
         // Check if Scripts directory exists by trying to open it as a directory

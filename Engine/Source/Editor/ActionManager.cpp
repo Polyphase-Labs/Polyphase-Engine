@@ -1914,6 +1914,11 @@ void ActionManager::BuildPhase1()
 
     std::function<void(AssetDir*, bool)> saveDir = [&](AssetDir* dir, bool engine)
     {
+        if (dir == nullptr)
+        {
+            return;
+        }
+
         std::string packDir;
         if (engine)
         {
@@ -2037,6 +2042,25 @@ void ActionManager::BuildPhase1()
 
     AssetDir* engineAssetDir = AssetManager::Get()->FindEngineDirectory();
     AssetDir* projectAssetDir = AssetManager::Get()->FindProjectDirectory();
+
+    // Both trees must exist before the cook can mirror them into the package. A null here
+    // means asset discovery never ran for that root — dereferencing it took the whole
+    // process down with a segfault whose only clue was a build log ending at
+    // "Cooking assets...". Fail the build with something readable instead.
+    if (engineAssetDir == nullptr || projectAssetDir == nullptr)
+    {
+        std::string msg =
+            std::string("Build failed: the ") +
+            (engineAssetDir == nullptr ? "engine" : "project") +
+            " asset directory was never discovered - asset discovery did not run before "
+            "the cook. Nothing can be packaged in this state.\n";
+        LogError("%s", msg.c_str());
+        AppendBuildOutput(("ERROR: " + msg).c_str());
+        mBuildState.mComplete.store(true);
+        mBuildState.mSuccess.store(false);
+        return;
+    }
+
     std::string packEngineDir = packagedDir + engineAssetDir->mName + "/";
     std::string packProjectDir = packagedDir + projectAssetDir->mName + "/";
     CreateDir(packEngineDir.c_str());

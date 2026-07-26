@@ -7,14 +7,41 @@
 // Variant-2 addon platforms (e.g. PSP) get a tiny stub at the END of this
 // file that returns null from GetFileWatcher() — every call site already
 // null-checks, so this is enough to keep the engine ticking on platforms
-// without inotify/FindFirstChangeNotificationW. The rest of the file is
-// the desktop/console implementation that uses std::thread + Win32 APIs.
+// that have no threading. The rest of the file is the desktop implementation,
+// which is fully portable: std::thread + stat() + the SYS_* directory API.
 #if !defined(POLYPHASE_PLATFORM_ADDON)
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <cstring>
+
+// How long between directory scans, and how finely we chop that sleep so
+// Shutdown() joins promptly instead of blocking for a whole interval.
+static const uint32_t kPollIntervalMs = 500;
+static const uint32_t kPollSliceMs = 50;
+
+// Returns 0 when the file can't be stat'd (missing, or momentarily locked by
+// the editor that's writing it). Callers treat 0 as "no reading this scan"
+// rather than as a timestamp. std::filesystem is deliberately avoided — the
+// Win32 x86 project configs and the Linux makefiles don't guarantee C++17.
+static int64_t GetFileModTime(const std::string& path)
+{
 #if PLATFORM_WINDOWS
-#include <Windows.h>
-#include <winbase.h>
+    struct _stat64 st;
+    if (_stat64(path.c_str(), &st) != 0)
+        return 0;
+#else
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+        return 0;
 #endif
+    return (int64_t)st.st_mtime;
+}
+
+static bool HasLuaExtension(const std::string& path)
+{
+    return path.size() >= 4 && path.compare(path.size() - 4, 4, ".lua") == 0;
+}
 
 static FileWatcher* sFileWatcher = nullptr;
 
@@ -43,9 +70,7 @@ void DestroyFileWatcher()
 FileWatcher::FileWatcher()
     : mRunning(false)
     , mEnabled(true)
-#if PLATFORM_WINDOWS
-    , mCompletionPort(INVALID_HANDLE_VALUE)
-#endif
+    , mNeedsRebaseline(true)
 {
 }
 
@@ -56,23 +81,16 @@ FileWatcher::~FileWatcher()
 
 bool FileWatcher::Initialize()
 {
-#if PLATFORM_WINDOWS
-    // Create I/O completion port
-    mCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
-    if (mCompletionPort == INVALID_HANDLE_VALUE)
+    if (mRunning)
     {
-        LogError("Failed to create I/O completion port for FileWatcher");
-        return false;
+        return true;
     }
-    
+
     mRunning = true;
+    mNeedsRebaseline = true;
     mWatcherThread = std::thread(&FileWatcher::WatcherThread, this);
-    
+
     return true;
-#else
-    LogWarning("FileWatcher not implemented for this platform");
-    return false;
-#endif
 }
 
 void FileWatcher::Shutdown()
@@ -80,129 +98,121 @@ void FileWatcher::Shutdown()
     if (mRunning)
     {
         mRunning = false;
-        
-#if PLATFORM_WINDOWS
-        // Signal completion port to wake up the thread
-        if (mCompletionPort != INVALID_HANDLE_VALUE)
-        {
-            PostQueuedCompletionStatus(mCompletionPort, 0, 0, NULL);
-        }
-#endif
 
         if (mWatcherThread.joinable())
         {
             mWatcherThread.join();
         }
 
-#if PLATFORM_WINDOWS
-        // Clean up watch infos
-        for (auto& watchInfo : mWatchInfos)
         {
-            if (watchInfo.directoryHandle != INVALID_HANDLE_VALUE)
-            {
-                CloseHandle(watchInfo.directoryHandle);
-            }
+            std::lock_guard<std::mutex> lock(mWatchMutex);
+            mWatchDirs.clear();
         }
-        mWatchInfos.clear();
-        
-        if (mCompletionPort != INVALID_HANDLE_VALUE)
+
         {
-            CloseHandle(mCompletionPort);
-            mCompletionPort = INVALID_HANDLE_VALUE;
+            std::lock_guard<std::mutex> lock(mEventsMutex);
+            mPendingEvents.clear();
         }
-#endif
+
+        // Only ever touched by the (now joined) worker thread.
+        mSnapshots.clear();
     }
+}
+
+// Watched roots are stored with a trailing '/' so the recursive walk can just
+// concatenate. Callers don't necessarily supply one — Engine.cpp passes
+// "<projectDir>Scripts" unterminated.
+static std::string NormalizeWatchPath(const std::string& directory)
+{
+    std::string path = directory;
+    for (size_t i = 0; i < path.length(); ++i)
+    {
+        if (path[i] == '\\')
+            path[i] = '/';
+    }
+    if (!path.empty() && path[path.length() - 1] != '/')
+    {
+        path += '/';
+    }
+    return path;
 }
 
 bool FileWatcher::WatchDirectory(const std::string& directory, bool recursive)
 {
-#if PLATFORM_WINDOWS
     if (!mRunning)
     {
         LogError("FileWatcher not initialized");
         return false;
     }
-    
-    LogDebug("Attempting to watch directory: %s (recursive: %s)", directory.c_str(), recursive ? "true" : "false");
-    
-    // Convert to wide string
-    std::wstring wDirectory = std::wstring(directory.begin(), directory.end());
-    
-    // Open directory handle
-    HANDLE dirHandle = CreateFileW(
-        wDirectory.c_str(),
-        FILE_LIST_DIRECTORY,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        NULL,
-        OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
-        NULL
-    );
-    
-    if (dirHandle == INVALID_HANDLE_VALUE)
+
+    std::string path = NormalizeWatchPath(directory);
+
+    LogDebug("Attempting to watch directory: %s (recursive: %s)", path.c_str(), recursive ? "true" : "false");
+
     {
-        LogError("Failed to open directory for watching: %s", directory.c_str());
-        return false;
+        std::lock_guard<std::mutex> lock(mWatchMutex);
+
+        // Re-watching the same root is a no-op rather than a duplicate entry —
+        // LoadProject can run more than once per session for the same project.
+        for (uint32_t i = 0; i < mWatchDirs.size(); ++i)
+        {
+            if (mWatchDirs[i].path == path)
+            {
+                mWatchDirs[i].recursive = recursive;
+                return true;
+            }
+        }
+
+        WatchDir watchDir;
+        watchDir.path = path;
+        watchDir.recursive = recursive;
+        mWatchDirs.push_back(watchDir);
     }
-    
-    // Associate with completion port
-    if (CreateIoCompletionPort(dirHandle, mCompletionPort, (ULONG_PTR)mWatchInfos.size(), 0) == NULL)
-    {
-        LogError("Failed to associate directory with completion port: %s", directory.c_str());
-        CloseHandle(dirHandle);
-        return false;
-    }
-    
-    // Create watch info
-    WatchInfo watchInfo = {};
-    watchInfo.directoryHandle = dirHandle;
-    watchInfo.path = directory;
-    watchInfo.recursive = recursive;
-    
-    mWatchInfos.push_back(watchInfo);
-    size_t watchIndex = mWatchInfos.size() - 1;
-    
-    // Start watching
-    DWORD notifyFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION;
-    
-    BOOL result = ReadDirectoryChangesW(
-        dirHandle,
-        mWatchInfos[watchIndex].buffer,
-        sizeof(mWatchInfos[watchIndex].buffer),
-        recursive ? TRUE : FALSE,
-        notifyFilter,
-        NULL,
-        &mWatchInfos[watchIndex].overlapped,
-        NULL
-    );
-    
-    if (!result)
-    {
-        LogError("Failed to start watching directory: %s", directory.c_str());
-        CloseHandle(dirHandle);
-        mWatchInfos.pop_back();
-        return false;
-    }
-    
+
+    // The first scan over a newly added root only records mtimes; otherwise
+    // opening a project would fire a reload for every script it contains.
+    mNeedsRebaseline = true;
+
     return true;
-#else
-    return false;
-#endif
 }
 
 void FileWatcher::UnwatchDirectory(const std::string& directory)
 {
-#if PLATFORM_WINDOWS
-    for (auto it = mWatchInfos.begin(); it != mWatchInfos.end(); ++it)
+    std::string path = NormalizeWatchPath(directory);
+
     {
-        if (it->path == directory)
+        std::lock_guard<std::mutex> lock(mWatchMutex);
+        for (auto it = mWatchDirs.begin(); it != mWatchDirs.end(); ++it)
         {
-            CloseHandle(it->directoryHandle);
-            mWatchInfos.erase(it);
-            break;
+            if (it->path == path)
+            {
+                mWatchDirs.erase(it);
+                break;
+            }
         }
     }
-#endif
+
+    // Files under the removed root fall out of mSnapshots on the next scan
+    // (they simply stop being visited). Suppress that scan's events so the
+    // drop doesn't surface as a burst of deletions.
+    mNeedsRebaseline = true;
+}
+
+void FileWatcher::UnwatchAll()
+{
+    {
+        std::lock_guard<std::mutex> lock(mWatchMutex);
+        mWatchDirs.clear();
+    }
+
+    // Anything already queued belongs to the project being torn down. Dropping
+    // it here keeps stale paths from reaching the callback after the switch.
+    {
+        std::lock_guard<std::mutex> lock(mEventsMutex);
+        mPendingEvents.clear();
+    }
+
+    mNeedsRebaseline = true;
 }
 
 void FileWatcher::SetFileChangeCallback(FileChangeCallback callback)
@@ -220,154 +230,205 @@ void FileWatcher::Update()
 
 void FileWatcher::SetEnabled(bool enabled)
 {
+    // Rebaseline either way: while disabled we stop scanning, so the snapshot
+    // goes stale. Re-enabling must not dump a reload for every file the user
+    // saved in the meantime.
     mEnabled = enabled;
+    mNeedsRebaseline = true;
 }
 
 void FileWatcher::WatcherThread()
 {
-#if PLATFORM_WINDOWS
     while (mRunning)
     {
-        DWORD bytesTransferred;
-        ULONG_PTR completionKey;
-        LPOVERLAPPED overlapped;
-        
-        BOOL result = GetQueuedCompletionStatus(
-            mCompletionPort,
-            &bytesTransferred,
-            &completionKey,
-            &overlapped,
-            INFINITE
-        );
-        
-        if (!mRunning)
-            break;
-            
-        if (result && overlapped != nullptr)
+        if (mEnabled)
         {
-            size_t watchIndex = completionKey;
-            if (watchIndex < mWatchInfos.size())
+            // Consume the flag up front so a rebaseline requested mid-scan
+            // (e.g. a project load registering another root) still gets its
+            // own quiet pass rather than being swallowed by this one.
+            const bool rebaseline = mNeedsRebaseline.exchange(false);
+
+            std::vector<WatchDir> watchDirs;
             {
-                WatchInfo& watchInfo = mWatchInfos[watchIndex];
-                
-                if (bytesTransferred > 0)
+                std::lock_guard<std::mutex> lock(mWatchMutex);
+                watchDirs = mWatchDirs;
+            }
+
+            // Deletions are found by elimination: clear the marks, walk every
+            // root, then sweep whatever the walk didn't touch.
+            for (auto it = mSnapshots.begin(); it != mSnapshots.end(); ++it)
+            {
+                it->second.seenThisScan = false;
+            }
+
+            std::vector<FileChangeEvent> events;
+
+            for (uint32_t i = 0; i < watchDirs.size() && mRunning; ++i)
+            {
+                ScanDirRecursive(watchDirs[i].path, watchDirs[i].recursive, events, rebaseline);
+            }
+
+            if (mRunning)
+            {
+                for (auto it = mSnapshots.begin(); it != mSnapshots.end(); )
                 {
-                    // Process file change notifications
-                    FILE_NOTIFY_INFORMATION* notify = (FILE_NOTIFY_INFORMATION*)watchInfo.buffer;
-                    
-                    while (true)
+                    if (!it->second.seenThisScan)
                     {
-                        // Convert filename to narrow string
-                        int filenameLength = notify->FileNameLength / sizeof(WCHAR);
-                        std::wstring wFilename(notify->FileName, filenameLength);
-                        
-                        // Convert wide string to narrow string properly
-                        std::string filename;
-                        if (!wFilename.empty())
+                        if (!rebaseline)
                         {
-                            int size = WideCharToMultiByte(CP_UTF8, 0, wFilename.c_str(), -1, nullptr, 0, nullptr, nullptr);
-                            if (size > 0)
-                            {
-                                filename.resize(size - 1); // -1 to exclude null terminator
-                                WideCharToMultiByte(CP_UTF8, 0, wFilename.c_str(), -1, &filename[0], size, nullptr, nullptr);
-                            }
-                        }
-                        
-                        std::string fullPath = watchInfo.path + "/" + filename;
-                        
-                        // Determine action
-                        FileAction action;
-                        switch (notify->Action)
-                        {
-                            case FILE_ACTION_ADDED:
-                                action = FileAction::Added;
-                                break;
-                            case FILE_ACTION_REMOVED:
-                                action = FileAction::Removed;
-                                break;
-                            case FILE_ACTION_MODIFIED:
-                                action = FileAction::Modified;
-                                break;
-                            case FILE_ACTION_RENAMED_OLD_NAME:
-                            case FILE_ACTION_RENAMED_NEW_NAME:
-                                action = FileAction::Renamed;
-                                break;
-                            default:
-                                action = FileAction::Modified;
-                                break;
-                        }
-                        
-                        // Add to pending events
-                        {
-                            std::lock_guard<std::mutex> lock(mEventsMutex);
                             FileChangeEvent event;
-                            event.filePath = fullPath;
-                            event.action = action;
-                            mPendingEvents.push_back(event);
+                            event.filePath = it->first;
+                            event.action = FileAction::Removed;
+                            events.push_back(event);
                         }
-                        
-                        if (notify->NextEntryOffset == 0)
-                            break;
-                            
-                        notify = (FILE_NOTIFY_INFORMATION*)((char*)notify + notify->NextEntryOffset);
+                        it = mSnapshots.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
                     }
                 }
-                
-                // Continue watching
-                DWORD notifyFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION;
-                
-                ZeroMemory(&watchInfo.overlapped, sizeof(OVERLAPPED));
-                ReadDirectoryChangesW(
-                    watchInfo.directoryHandle,
-                    watchInfo.buffer,
-                    sizeof(watchInfo.buffer),
-                    watchInfo.recursive ? TRUE : FALSE,
-                    notifyFilter,
-                    NULL,
-                    &watchInfo.overlapped,
-                    NULL
-                );
+
+                QueueEvents(events);
             }
         }
+
+        // Chopped so Shutdown() doesn't wait out a whole interval.
+        for (uint32_t slept = 0; slept < kPollIntervalMs && mRunning; slept += kPollSliceMs)
+        {
+            SYS_Sleep(kPollSliceMs);
+        }
     }
-#endif
+}
+
+void FileWatcher::ScanDirRecursive(const std::string& dir, bool recursive, std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth)
+{
+    // A symlinked directory pointing back at an ancestor would otherwise spin
+    // this worker forever while mSnapshots grows without bound. No real Scripts
+    // tree comes close to this depth.
+    if (depth > 32)
+    {
+        return;
+    }
+
+    DirEntry dirEntry;
+    SYS_OpenDirectory(dir, dirEntry);
+
+    // A missing or unopenable directory leaves mValid false with no handle to
+    // release — closing it here would hand closedir()/FindClose() garbage.
+    if (!dirEntry.mValid)
+    {
+        return;
+    }
+
+    // SYS_OpenDirectory already yields the first entry, so consume before iterating.
+    while (dirEntry.mValid && mRunning)
+    {
+        if (strcmp(dirEntry.mFilename, ".") != 0 &&
+            strcmp(dirEntry.mFilename, "..") != 0)
+        {
+            std::string path = dir + dirEntry.mFilename;
+
+            if (dirEntry.mDirectory)
+            {
+                if (recursive)
+                {
+                    ScanDirRecursive(path + "/", true, outEvents, rebaseline, depth + 1);
+                }
+            }
+            else if (HasLuaExtension(path))
+            {
+                const int64_t modTime = GetFileModTime(path);
+                auto it = mSnapshots.find(path);
+
+                if (modTime == 0)
+                {
+                    // Unreadable right now — most likely mid-write. Keep the
+                    // entry alive so the sweep doesn't call it a deletion.
+                    if (it != mSnapshots.end())
+                    {
+                        it->second.seenThisScan = true;
+                    }
+                }
+                else if (it == mSnapshots.end())
+                {
+                    FileSnapshot snapshot;
+                    snapshot.lastSeenTime = modTime;
+                    // On a rebaseline pass the file counts as already known.
+                    // Otherwise leave lastEmittedTime at 0 so the next scan
+                    // emits Added — once the mtime has stopped moving.
+                    snapshot.lastEmittedTime = rebaseline ? modTime : 0;
+                    snapshot.seenThisScan = true;
+                    mSnapshots[path] = snapshot;
+                }
+                else
+                {
+                    FileSnapshot& snapshot = it->second;
+                    snapshot.seenThisScan = true;
+
+                    if (rebaseline)
+                    {
+                        snapshot.lastSeenTime = modTime;
+                        snapshot.lastEmittedTime = modTime;
+                    }
+                    else
+                    {
+                        // Settle rule: only report once the mtime has held
+                        // steady for a full interval. Reloading a half-written
+                        // file would fail to parse and never retry, since its
+                        // mtime wouldn't change again.
+                        if (modTime != snapshot.lastEmittedTime &&
+                            modTime == snapshot.lastSeenTime)
+                        {
+                            FileChangeEvent event;
+                            event.filePath = path;
+                            event.action = (snapshot.lastEmittedTime == 0) ? FileAction::Added : FileAction::Modified;
+                            outEvents.push_back(event);
+
+                            snapshot.lastEmittedTime = modTime;
+                        }
+
+                        snapshot.lastSeenTime = modTime;
+                    }
+                }
+            }
+        }
+
+        SYS_IterateDirectory(dirEntry);
+    }
+
+    SYS_CloseDirectory(dirEntry);
+}
+
+void FileWatcher::QueueEvents(const std::vector<FileChangeEvent>& events)
+{
+    if (events.empty())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mEventsMutex);
+    mPendingEvents.insert(mPendingEvents.end(), events.begin(), events.end());
 }
 
 void FileWatcher::ProcessEvents()
 {
     std::vector<FileChangeEvent> eventsToProcess;
-    
+
     {
         std::lock_guard<std::mutex> lock(mEventsMutex);
         eventsToProcess = std::move(mPendingEvents);
         mPendingEvents.clear();
     }
-    
-    for (const auto& event : eventsToProcess)
-    {
-        // Check if this is a script file (.lua extension)
-        if (event.filePath.size() >= 4 && 
-            event.filePath.substr(event.filePath.size() - 4) == ".lua")
-        {
-            // Check for duplicate events by comparing modification times
-            uint64_t currentTime = SYS_GetTimeMicroseconds();
-            auto it = mLastModifyTimes.find(event.filePath);
-            
-            if (it != mLastModifyTimes.end())
-            {
-                // If the last modification was less than 100ms ago, skip this event
-                if (currentTime - it->second < 100000) // 100ms in microseconds
-                {
-                    continue;
-                }
-            }
-            
-            mLastModifyTimes[event.filePath] = currentTime;
 
-            if (mCallback)
-            {
-                mCallback(event);
-            }
+    // The scan already filters to .lua and coalesces repeats, so this is just
+    // the main-thread dispatch point — the callback reloads scripts and pokes
+    // live Script nodes, neither of which is safe off the main thread.
+    for (uint32_t i = 0; i < eventsToProcess.size(); ++i)
+    {
+        if (mCallback)
+        {
+            mCallback(eventsToProcess[i]);
         }
     }
 }

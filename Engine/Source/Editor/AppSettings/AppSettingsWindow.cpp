@@ -296,8 +296,15 @@ void AppSettingsWindow::DrawRuntimeSection()
         changed = true;
     }
 
-    if (Polyphase::Checkbox("Script Hot Reload", &config->mScriptHotReload))
+    // Go through the setter rather than writing config->mScriptHotReload directly:
+    // it's the only thing that pushes the new state into the live FileWatcher. Editing
+    // the field in place would leave the watcher running with the old setting until the
+    // next editor launch, and would disagree with the identical checkbox in
+    // Preferences > General (see GeneralModule::Render).
+    bool hotReloadEnabled = IsScriptHotReloadEnabled();
+    if (Polyphase::Checkbox("Script Hot Reload", &hotReloadEnabled))
     {
+        SetScriptHotReloadEnabled(hotReloadEnabled);
         changed = true;
     }
 
