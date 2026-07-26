@@ -35,3 +35,28 @@ function SkeletalMesh:GetNumAnimations() end
 ---@param name string
 ---@return number
 function SkeletalMesh:GetAnimationDuration(name) end
+
+---@return integer
+function SkeletalMesh:GetNumSections() end
+
+---@param index integer
+---@return nil
+function SkeletalMesh:GetSectionName(index) end
+
+---@param index integer
+---@return Asset
+function SkeletalMesh:GetSectionMaterial(index) end
+
+---@param index integer
+---@param material? Material
+function SkeletalMesh:SetSectionMaterial(index, material) end
+
+---@param name string
+---@return integer
+function SkeletalMesh:FindSectionIndex(name) end
+
+---@return table
+function SkeletalMesh:GetBounds() end
+
+---@return any
+function SkeletalMesh:GetAABB() end

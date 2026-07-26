@@ -54,6 +54,9 @@ struct Node3D_Lua
     static int GetInheritTransform(lua_State* L);
     static int SetInheritTransform(lua_State* L);
 
+    static int GetAABB(lua_State* L);
+    static int GetHierarchyAABB(lua_State* L);
+
     static void Bind();
 };
 

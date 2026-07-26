@@ -133,6 +133,7 @@ public:
     const VoxelMaterialInfo& GetMaterialInfo(VoxelType id) const { return mMaterialTable[id]; }
 
     virtual Bounds GetLocalBounds() const override;
+    virtual AABB GetLocalAABB() const override;
 
     uint32_t GetNumVertices() const { return mNumVertices; }
     uint32_t GetNumIndices() const { return mNumIndices; }
@@ -173,6 +174,7 @@ protected:
 
     // Bounds cache
     Bounds mBounds;
+    AABB mAABB;
 
     // GPU resource
     Voxel3DResource mResource;

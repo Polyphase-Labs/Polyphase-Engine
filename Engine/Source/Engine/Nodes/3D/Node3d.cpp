@@ -602,6 +602,51 @@ void Node3D::LookAt(glm::vec3 target, glm::vec3 up)
     SetWorldRotation(rotQuat);
 }
 
+AABB Node3D::GetAABB() const
+{
+    // No geometry of our own -- a degenerate box at our world origin.
+    // Reads mTransform directly because this is const, so a dirty transform
+    // yields last frame's position. Same contract as Primitive3D::GetBounds().
+    glm::vec3 worldPos = glm::vec3(mTransform[3]);
+    return AABB(worldPos, worldPos);
+}
+
+AABB Node3D::GetHierarchyAABB(bool includeSelf) const
+{
+    AABB retAABB = AABB::MakeInvalid();
+
+    if (includeSelf && IsPrimitive3D())
+    {
+        AABB selfAABB = GetAABB();
+
+        // Skip LARGE_BOUNDS placeholder boxes so one unbounded primitive
+        // doesn't blow the whole hierarchy out to 10000 units.
+        if (!selfAABB.IsLarge())
+        {
+            retAABB.Encapsulate(selfAABB);
+        }
+    }
+
+    for (uint32_t i = 0; i < GetNumChildren(); ++i)
+    {
+        Node* child = GetChild(int32_t(i));
+
+        if (child != nullptr && child->IsNode3D())
+        {
+            retAABB.Encapsulate(static_cast<Node3D*>(child)->GetHierarchyAABB(true));
+        }
+    }
+
+    if (!retAABB.IsValid())
+    {
+        // Nothing in the subtree contributed any geometry.
+        glm::vec3 worldPos = glm::vec3(mTransform[3]);
+        retAABB = AABB(worldPos, worldPos);
+    }
+
+    return retAABB;
+}
+
 glm::vec3 Node3D::GetCachedEulerRotation() const
 {
     return mRotationEuler;

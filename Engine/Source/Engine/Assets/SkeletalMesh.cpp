@@ -686,6 +686,13 @@ void SkeletalMesh::CopyBindPose(std::vector<glm::mat4>& outTransforms)
     }
 }
 
+AABB SkeletalMesh::GetAABB() const
+{
+    // Apply mBoundsScale the same way GetBounds() does, so an animated pose
+    // that pushes slightly past the bind pose still fits.
+    return AABB::MakeFromCenterExtents(mAABB.GetCenter(), mAABB.GetExtents() * mBoundsScale);
+}
+
 Bounds SkeletalMesh::GetBounds() const
 {
     Bounds retBounds;
@@ -861,6 +868,7 @@ void SkeletalMesh::ComputeBounds()
     {
         mBounds.mCenter = { 0.0f, 0.0f, 0.0f };
         mBounds.mRadius = 0.0f;
+        mAABB = AABB(glm::vec3(0.0f), glm::vec3(0.0f));
         return;
     }
 
@@ -875,6 +883,7 @@ void SkeletalMesh::ComputeBounds()
         boxMax = glm::max(boxMax, pos);
     }
 
+    mAABB = AABB(boxMin, boxMax);
     mBounds.mCenter = (boxMin + boxMax) / 2.0f;
 
     float maxDist = 0.0f;

@@ -26,6 +26,8 @@ struct StaticMesh_Lua
     static int GetIndices(lua_State* L);
     static int HasTriangleMeshCollision(lua_State* L);
     static int EnableTriangleMeshCollision(lua_State* L);
+    static int GetBounds(lua_State* L);
+    static int GetAABB(lua_State* L);
 
     static void Bind();
 };

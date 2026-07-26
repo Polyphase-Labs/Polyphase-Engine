@@ -836,25 +836,60 @@ Bounds Primitive3D::GetLocalBounds() const
     return retBounds;
 }
 
+AABB Primitive3D::GetAABB() const
+{
+    // Transform the local box into world space and refit it.
+    return GetLocalAABB().Transform(mTransform);
+}
+
+AABB Primitive3D::GetLocalAABB() const
+{
+    // Default: a conservative box circumscribing the bounding sphere. Derived
+    // classes that can produce a tighter box should override this. Because the
+    // base GetLocalBounds() returns a LARGE_BOUNDS sphere, this degrades to a
+    // +/-LARGE_BOUNDS box for anything that doesn't override either function.
+    Bounds localBounds = GetLocalBounds();
+    return AABB::MakeFromCenterExtents(localBounds.mCenter, glm::vec3(localBounds.mRadius));
+}
+
 void Primitive3D::GatherProxyDraws(std::vector<DebugDraw>& inoutDraws)
 {
 #if DEBUG_DRAW_ENABLED
     BoundsDebugMode boundsMode = Renderer::Get()->GetBoundsDebugMode();
 
-    if (boundsMode == BoundsDebugMode::All
+    bool drawSphere = (boundsMode == BoundsDebugMode::All);
+    bool drawBox = (boundsMode == BoundsDebugMode::BoxAll);
+
 #if EDITOR
-        || (boundsMode == BoundsDebugMode::Selected && GetEditorState()->GetSelectedNode() == this)
+    bool isSelected = (GetEditorState()->GetSelectedNode() == this);
+    drawSphere = drawSphere || (boundsMode == BoundsDebugMode::Selected && isSelected);
+    drawBox = drawBox || (boundsMode == BoundsDebugMode::BoxSelected && isSelected);
 #endif
-        )
+
+    if (drawSphere)
     {
         Bounds worldBounds = GetBounds();
-        
+
         AddDebugDraw(
             LoadAsset<StaticMesh>("SM_Sphere"),
             worldBounds.mCenter,
             glm::vec3(0.0f, 0.0f, 0.0f),
             { worldBounds.mRadius, worldBounds.mRadius ,worldBounds.mRadius },
             {0.21f, 0.63f, 0.37, 1.0f});
+    }
+
+    if (drawBox)
+    {
+        AABB worldAABB = GetAABB();
+
+        // SM_Cube's vertices are at +/-1 (a 2-unit cube), so the scale here is
+        // the box's HALF size, not its full size.
+        AddDebugDraw(
+            LoadAsset<StaticMesh>("SM_Cube"),
+            worldAABB.GetCenter(),
+            glm::vec3(0.0f, 0.0f, 0.0f),
+            worldAABB.GetExtents(),
+            {0.63f, 0.53f, 0.21f, 1.0f});
     }
 #endif
 }

@@ -107,6 +107,12 @@ Bounds Box3D::GetLocalBounds() const
     return bounds;
 }
 
+AABB Box3D::GetLocalAABB() const
+{
+    // mExtents is the full side length, not a half-extent.
+    return AABB(-mExtents * 0.5f, mExtents * 0.5f);
+}
+
 void Box3D::UpdateRigidBody()
 {
     EnableRigidBody(false);

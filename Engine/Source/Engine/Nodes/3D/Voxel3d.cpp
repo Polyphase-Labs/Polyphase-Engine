@@ -956,6 +956,11 @@ Bounds Voxel3D::GetLocalBounds() const
     return mBounds;
 }
 
+AABB Voxel3D::GetLocalAABB() const
+{
+    return mAABB;
+}
+
 // Helper: Determine face type from normal
 static VoxelFace GetFaceFromNormal(const glm::vec3& n)
 {
@@ -1129,6 +1134,7 @@ void Voxel3D::UpdateBounds()
     {
         mBounds.mCenter = glm::vec3(0.0f);
         mBounds.mRadius = 0.0f;
+        mAABB = AABB(glm::vec3(0.0f), glm::vec3(0.0f));
         return;
     }
 
@@ -1141,6 +1147,7 @@ void Voxel3D::UpdateBounds()
         maxPos = glm::max(maxPos, v.mPosition);
     }
 
+    mAABB = AABB(minPos, maxPos);
     mBounds.mCenter = (minPos + maxPos) * 0.5f;
     mBounds.mRadius = glm::length(maxPos - minPos) * 0.5f;
 }

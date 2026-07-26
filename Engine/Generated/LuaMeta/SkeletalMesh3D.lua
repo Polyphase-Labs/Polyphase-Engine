@@ -17,6 +17,39 @@ function SkeletalMesh3D:GetSkeletalMesh() end
 function SkeletalMesh3D:PlayAnimation(animName, slot, loop, speed, weight) end
 
 ---@param animName string
+---@param slot integer
+---@param arg3? Asset
+---@param loop? boolean
+---@param speed? number
+---@param weight? number
+function SkeletalMesh3D:PlayAnimationMasked(animName, slot, arg3, loop, speed, weight) end
+
+---@param animName string
+---@param slot integer
+---@param arg3? Asset
+---@param loop? boolean
+---@param speed? number
+---@param weight? number
+function SkeletalMesh3D:PlayAnimationAdditive(animName, slot, arg3, loop, speed, weight) end
+
+---@param slot integer
+---@param arg2? Asset
+function SkeletalMesh3D:SetSlotMask(slot, arg2) end
+
+---@param slot integer
+---@param weight number
+function SkeletalMesh3D:SetSlotWeight(slot, weight) end
+
+---@param slot integer
+---@param modeInt integer
+function SkeletalMesh3D:SetSlotLayerMode(slot, modeInt) end
+
+---@param slot integer
+---@param target number
+---@param seconds number
+function SkeletalMesh3D:FadeSlotWeight(slot, target, seconds) end
+
+---@param animName string
 ---@param cancelQueued? boolean
 function SkeletalMesh3D:StopAnimation(animName, cancelQueued) end
 
@@ -95,3 +128,18 @@ function SkeletalMesh3D:SetBoundsRadiusOverride(radius) end
 
 ---@return number
 function SkeletalMesh3D:GetBoundsRadiusOverride() end
+
+---@return integer
+function SkeletalMesh3D:GetNumMaterialSlots() end
+
+---@param slot integer
+---@return Asset
+function SkeletalMesh3D:GetMaterialSlot(slot) end
+
+---@param slot integer
+---@param material? Material
+function SkeletalMesh3D:SetMaterialSlot(slot, material) end
+
+---@param name string
+---@return integer
+function SkeletalMesh3D:FindMaterialSlot(name) end

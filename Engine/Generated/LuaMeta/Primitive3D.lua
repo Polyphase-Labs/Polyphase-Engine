@@ -138,6 +138,12 @@ function Primitive3D:SweepToWorldPosition(pos) end
 ---@return table
 function Primitive3D:GetBounds() end
 
+---@return any
+function Primitive3D:GetAABB() end
+
+---@return any
+function Primitive3D:GetLocalAABB() end
+
 ---@param pos Vector
 ---@return table
 function Primitive3D:SweepToPosition(pos) end

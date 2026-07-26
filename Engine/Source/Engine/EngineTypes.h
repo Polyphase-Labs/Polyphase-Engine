@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string.h>
+#include <float.h>
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
@@ -200,6 +201,129 @@ struct Bounds
 {
     glm::vec3 mCenter = { };
     float mRadius = 1.0f;
+};
+
+// Axis-aligned bounding box. Kept separate from Bounds on purpose -- Bounds is
+// embedded by value in DrawData and streamed through the per-frame cull loops,
+// so it must stay small.
+struct AABB
+{
+    glm::vec3 mMin = { -0.5f, -0.5f, -0.5f };
+    glm::vec3 mMax = { 0.5f, 0.5f, 0.5f };
+
+    AABB() = default;
+    AABB(glm::vec3 min, glm::vec3 max) : mMin(min), mMax(max) { }
+
+    // An inverted box. This is the identity element for Encapsulate() folds.
+    static AABB MakeInvalid()
+    {
+        return AABB(glm::vec3(FLT_MAX), glm::vec3(-FLT_MAX));
+    }
+
+    static AABB MakeFromCenterExtents(glm::vec3 center, glm::vec3 extents)
+    {
+        return AABB(center - extents, center + extents);
+    }
+
+    // Matches the LARGE_BOUNDS sphere used as the "never cull me" default.
+    static AABB MakeLarge()
+    {
+        return AABB(glm::vec3(-LARGE_BOUNDS), glm::vec3(LARGE_BOUNDS));
+    }
+
+    bool IsValid() const
+    {
+        return mMin.x <= mMax.x && mMin.y <= mMax.y && mMin.z <= mMax.z;
+    }
+
+    // True when this is (approximately) the LARGE_BOUNDS placeholder box, so
+    // callers like editor focus-on-selection can ignore it.
+    bool IsLarge() const
+    {
+        return (mMax.x - mMin.x) >= (LARGE_BOUNDS - 1.0f);
+    }
+
+    glm::vec3 GetCenter() const { return (mMin + mMax) * 0.5f; }
+    glm::vec3 GetExtents() const { return (mMax - mMin) * 0.5f; }
+    glm::vec3 GetSize() const { return mMax - mMin; }
+    float GetRadius() const { return glm::length(GetExtents()); }
+    float GetVolume() const { glm::vec3 size = GetSize(); return size.x * size.y * size.z; }
+
+    bool Contains(glm::vec3 point) const
+    {
+        return point.x >= mMin.x && point.x <= mMax.x
+            && point.y >= mMin.y && point.y <= mMax.y
+            && point.z >= mMin.z && point.z <= mMax.z;
+    }
+
+    bool Contains(const AABB& other) const
+    {
+        return Contains(other.mMin) && Contains(other.mMax);
+    }
+
+    bool Intersects(const AABB& other) const
+    {
+        return mMin.x <= other.mMax.x && mMax.x >= other.mMin.x
+            && mMin.y <= other.mMax.y && mMax.y >= other.mMin.y
+            && mMin.z <= other.mMax.z && mMax.z >= other.mMin.z;
+    }
+
+    bool Intersects(glm::vec3 sphereCenter, float sphereRadius) const
+    {
+        glm::vec3 closest = glm::clamp(sphereCenter, mMin, mMax);
+        glm::vec3 delta = closest - sphereCenter;
+        return glm::dot(delta, delta) <= (sphereRadius * sphereRadius);
+    }
+
+    void Encapsulate(glm::vec3 point)
+    {
+        mMin = glm::min(mMin, point);
+        mMax = glm::max(mMax, point);
+    }
+
+    void Encapsulate(const AABB& other)
+    {
+        if (!other.IsValid())
+            return;
+
+        mMin = glm::min(mMin, other.mMin);
+        mMax = glm::max(mMax, other.mMax);
+    }
+
+    void Expand(float amount) { mMin -= amount; mMax += amount; }
+    void Expand(glm::vec3 amount) { mMin -= amount; mMax += amount; }
+
+    // Refit this box after applying an arbitrary transform. Equivalent to
+    // transforming all 8 corners and refitting, but does it in 9 mul/add.
+    AABB Transform(const glm::mat4& mat) const
+    {
+        if (!IsValid())
+            return *this;
+
+        glm::vec3 center = GetCenter();
+        glm::vec3 extents = GetExtents();
+
+        glm::vec3 newCenter = glm::vec3(mat * glm::vec4(center, 1.0f));
+        glm::vec3 newExtents;
+
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            newExtents[i] =
+                glm::abs(mat[0][i]) * extents.x +
+                glm::abs(mat[1][i]) * extents.y +
+                glm::abs(mat[2][i]) * extents.z;
+        }
+
+        return AABB(newCenter - newExtents, newCenter + newExtents);
+    }
+
+    Bounds ToBounds() const
+    {
+        Bounds retBounds;
+        retBounds.mCenter = GetCenter();
+        retBounds.mRadius = GetRadius();
+        return retBounds;
+    }
 };
 
 struct DrawData

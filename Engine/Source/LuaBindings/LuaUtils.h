@@ -37,6 +37,9 @@ POLYPHASE_API int CreateClassMetatable(
     const char* classFlag,
     const char* parentClassName);
 
+// Pushes a table with min/max/center/extents/size Vector fields.
+POLYPHASE_API void CreateAABBTableLua(lua_State* L, const AABB& aabb);
+
 #define REGISTER_TABLE_FUNC(L, TableIdx, Func) \
     OCT_ASSERT(TableIdx >= 1); \
     lua_pushstring(L, #Func); \

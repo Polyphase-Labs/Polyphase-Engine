@@ -35,6 +35,7 @@ public:
     virtual void SetStaticMesh(StaticMesh* staticMesh);
 
     virtual Bounds GetLocalBounds() const override;
+    virtual AABB GetLocalAABB() const override;
 
     virtual void GatherProxyDraws(std::vector<DebugDraw>& inoutDraws) override;
 
@@ -80,6 +81,7 @@ protected:
     bool mInstanceDataUpdatedThisFrame = false;
     bool mUnrolled = false;
     Bounds mBounds;
+    AABB mAABB;
 
     InstancedMeshCompResource mInstancedMeshResource;
 };

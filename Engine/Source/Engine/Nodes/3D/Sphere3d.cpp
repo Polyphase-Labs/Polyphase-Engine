@@ -101,6 +101,11 @@ Bounds Sphere3D::GetLocalBounds() const
     return bounds;
 }
 
+AABB Sphere3D::GetLocalAABB() const
+{
+    return AABB(glm::vec3(-mRadius), glm::vec3(mRadius));
+}
+
 void Sphere3D::UpdateRigidBody()
 {
     EnableRigidBody(false);

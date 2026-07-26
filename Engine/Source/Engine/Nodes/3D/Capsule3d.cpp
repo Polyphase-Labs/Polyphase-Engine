@@ -153,6 +153,16 @@ Bounds Capsule3D::GetLocalBounds() const
     return bounds;
 }
 
+AABB Capsule3D::GetLocalAABB() const
+{
+    // btCapsuleShape is Y-axis aligned, and mHeight is the cylinder section
+    // only -- the hemispherical caps add mRadius on each end.
+    float halfHeight = mHeight * 0.5f + mRadius;
+    return AABB(
+        glm::vec3(-mRadius, -halfHeight, -mRadius),
+        glm::vec3(mRadius, halfHeight, mRadius));
+}
+
 void Capsule3D::UpdateRigidBody()
 {
     EnableRigidBody(false);

@@ -81,6 +81,15 @@ public:
 
     void LookAt(glm::vec3 target, glm::vec3 up);
 
+    // World-space bounding box of THIS node's own geometry. Node3D has no
+    // geometry of its own, so the base implementation returns a degenerate
+    // box at the node's world origin. Primitive3D overrides this.
+    virtual AABB GetAABB() const;
+
+    // This node unioned with every Node3D descendant's GetAABB(). Useful for
+    // framing, selection and group operations.
+    AABB GetHierarchyAABB(bool includeSelf = true) const;
+
     glm::vec3 GetCachedEulerRotation() const;
 
     glm::vec3 GetForwardVector();

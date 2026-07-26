@@ -32,3 +32,9 @@ function StaticMesh:HasTriangleMeshCollision() end
 
 ---@param value boolean
 function StaticMesh:EnableTriangleMeshCollision(value) end
+
+---@return table
+function StaticMesh:GetBounds() end
+
+---@return any
+function StaticMesh:GetAABB() end

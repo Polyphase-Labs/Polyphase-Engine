@@ -95,6 +95,13 @@ function Node3D:GetInheritTransform() end
 ---@param value boolean
 function Node3D:SetInheritTransform(value) end
 
+---@return any
+function Node3D:GetAABB() end
+
+---@param includeSelf boolean
+---@return any
+function Node3D:GetHierarchyAABB(includeSelf) end
+
 ---@return Vector
 function Node3D:GetRotation() end
 

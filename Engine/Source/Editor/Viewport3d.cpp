@@ -416,23 +416,18 @@ void Viewport3D::HandleDefaultControls()
             if (node3d != nullptr && node3d != camera)
             {
                 glm::vec3 compPos = node3d->GetWorldPosition();
-
-                Primitive3D* prim = node3d->As<Primitive3D>();
-
                 float boundsRadius = 0.0f;
-                if (prim != nullptr)
+
+                // Frame the whole sub-hierarchy, not just this node's own geometry.
+                AABB focusAABB = node3d->GetHierarchyAABB();
+
+                // Some primitives (like Box,Sphere,Capsule) just have default bounds.
+                // Same for particles that don't have their bounds set.
+                // So just treat the bounds radius as 0.0 instead of blasting the camera to 10000 units away.
+                if (focusAABB.IsValid() && !focusAABB.IsLarge())
                 {
-                    Bounds bounds = prim->GetBounds();
-
-                    // Some primitives (like Box,Sphere,Capsule) just have default bounds.
-                    // Same for particles that don't have their bounds set.
-                    // So just treat the bounds radius as 0.0 instead of blasting the camera to 10000 units away.
-                    if (bounds.mRadius < (LARGE_BOUNDS - 1.0f))
-                    {
-                        boundsRadius = bounds.mRadius;
-                    }
-
-                    compPos = bounds.mCenter;
+                    compPos = focusAABB.GetCenter();
+                    boundsRadius = focusAABB.GetRadius();
                 }
 
                 float focusDist = glm::max(boundsRadius + 1.0f, 2.0f);

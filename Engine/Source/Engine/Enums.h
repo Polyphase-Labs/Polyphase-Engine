@@ -42,6 +42,8 @@ enum class BoundsDebugMode : uint8_t
     Off,
     All,
     Selected,
+    BoxAll,
+    BoxSelected,
 
     Count
 };

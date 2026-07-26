@@ -268,6 +268,18 @@ Bounds StaticMesh3D::GetLocalBounds() const
     }
 }
 
+AABB StaticMesh3D::GetLocalAABB() const
+{
+    if (mStaticMesh != nullptr)
+    {
+        return mStaticMesh.Get<StaticMesh>()->GetAABB();
+    }
+    else
+    {
+        return Mesh3D::GetLocalAABB();
+    }
+}
+
 void StaticMesh3D::ClearInstanceColors()
 {
     mInstanceColors.clear();

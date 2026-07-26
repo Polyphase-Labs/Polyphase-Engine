@@ -464,6 +464,7 @@ int Primitive3D_Lua::GetBounds(lua_State* L)
     Primitive3D* comp = CHECK_PRIMITIVE_3D(L, 1);
 
     Bounds bounds = comp->GetBounds();
+    AABB aabb = comp->GetAABB();
 
     lua_newtable(L);
     int retTable = lua_gettop(L);
@@ -472,6 +473,28 @@ int Primitive3D_Lua::GetBounds(lua_State* L)
     lua_setfield(L, retTable, "center");
     lua_pushnumber(L, bounds.mRadius);
     lua_setfield(L, retTable, "radius");
+    Vector_Lua::Create(L, aabb.mMin);
+    lua_setfield(L, retTable, "min");
+    Vector_Lua::Create(L, aabb.mMax);
+    lua_setfield(L, retTable, "max");
+
+    return 1;
+}
+
+int Primitive3D_Lua::GetAABB(lua_State* L)
+{
+    Primitive3D* comp = CHECK_PRIMITIVE_3D(L, 1);
+
+    CreateAABBTableLua(L, comp->GetAABB());
+
+    return 1;
+}
+
+int Primitive3D_Lua::GetLocalAABB(lua_State* L)
+{
+    Primitive3D* comp = CHECK_PRIMITIVE_3D(L, 1);
+
+    CreateAABBTableLua(L, comp->GetLocalAABB());
 
     return 1;
 }
@@ -576,6 +599,10 @@ void Primitive3D_Lua::Bind()
     REGISTER_TABLE_FUNC_EX(L, mtIndex, SweepToWorldPosition, "SweepToPosition"); // Alias
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetBounds);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAABB);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetLocalAABB);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

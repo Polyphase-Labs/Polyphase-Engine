@@ -45,12 +45,14 @@ nav:
       - Loading Menu: Development/LoadingMenu.md
       - Mesh Instancing: Development/MeshInstancing.md
       - Skeletal Animation: Development/SkeletalAnimation.md
+      - Bone Mask: Development/BoneMask.md
       - Shadows: Development/Shadows.md
       - 3D Nodes:
           - Terrain3D: Development/Terrain3D.md
           - TileMap2D: Development/TileMap2D.md
           - Voxel3D: Development/Voxel3D.md
       - Packaging Flow: Development/PackagingFlow.md
+      - Static Content: Development/StaticContent.md
       - Themes / CSS: Development/ThemesCss.md
       - Editor Widgets: Development/EditorWidgets.md
       - 3DS:

@@ -50,6 +50,7 @@ public:
     virtual void GatherProxyDraws(std::vector<DebugDraw>& inoutDraws) override;
 
     virtual Bounds GetLocalBounds() const override;
+    virtual AABB GetLocalAABB() const override;
 
     void ClearInstanceColors();
     void SetInstanceColors(const std::vector<uint32_t>& colors, bool bakedLighting);

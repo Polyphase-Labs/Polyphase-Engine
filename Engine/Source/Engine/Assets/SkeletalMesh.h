@@ -177,6 +177,7 @@ public:
         std::vector<uint8_t>& outBitset) const;
 
     Bounds GetBounds() const;
+    AABB GetAABB() const;
 
     const glm::mat4 GetBindPoseMatrix(int32_t boneIndex) const;
 
@@ -211,6 +212,11 @@ private:
     std::vector<IndexType> mIndices;
 
     Bounds mBounds;
+
+    // Bind-pose AABB derived from vertex positions in ComputeBounds().
+    // Intentionally NOT serialized -- Create() recomputes bounds on every load.
+    AABB mAABB;
+
     float mBoundsScale = 1.1f;
 
     // Graphics Resource

@@ -148,6 +148,37 @@ int StaticMesh_Lua::EnableTriangleMeshCollision(lua_State* L)
     return 0;
 }
 
+int StaticMesh_Lua::GetBounds(lua_State* L)
+{
+    StaticMesh* mesh = CHECK_STATIC_MESH(L, 1);
+
+    Bounds bounds = mesh->GetBounds();
+    AABB aabb = mesh->GetAABB();
+
+    lua_newtable(L);
+    int retTable = lua_gettop(L);
+
+    Vector_Lua::Create(L, bounds.mCenter);
+    lua_setfield(L, retTable, "center");
+    lua_pushnumber(L, bounds.mRadius);
+    lua_setfield(L, retTable, "radius");
+    Vector_Lua::Create(L, aabb.mMin);
+    lua_setfield(L, retTable, "min");
+    Vector_Lua::Create(L, aabb.mMax);
+    lua_setfield(L, retTable, "max");
+
+    return 1;
+}
+
+int StaticMesh_Lua::GetAABB(lua_State* L)
+{
+    StaticMesh* mesh = CHECK_STATIC_MESH(L, 1);
+
+    CreateAABBTableLua(L, mesh->GetAABB());
+
+    return 1;
+}
+
 
 void StaticMesh_Lua::Bind()
 {
@@ -178,6 +209,10 @@ void StaticMesh_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, HasTriangleMeshCollision);
 
     REGISTER_TABLE_FUNC(L, mtIndex, EnableTriangleMeshCollision);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetBounds);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAABB);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

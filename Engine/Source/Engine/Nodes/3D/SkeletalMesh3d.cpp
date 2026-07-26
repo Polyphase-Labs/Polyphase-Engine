@@ -1283,6 +1283,28 @@ Bounds SkeletalMesh3D::GetLocalBounds() const
     return retBounds;
 }
 
+AABB SkeletalMesh3D::GetLocalAABB() const
+{
+    AABB retAABB;
+    if (mSkeletalMesh != nullptr)
+    {
+        retAABB = mSkeletalMesh.Get<SkeletalMesh>()->GetAABB();
+    }
+    else
+    {
+        retAABB = Mesh3D::GetLocalAABB();
+    }
+
+    if (mBoundsRadiusOverride > 0.0f)
+    {
+        // Mirror the sphere override: a cube circumscribing the overridden
+        // radius, still centered on the mesh's own center.
+        retAABB = AABB::MakeFromCenterExtents(retAABB.GetCenter(), glm::vec3(mBoundsRadiusOverride));
+    }
+
+    return retAABB;
+}
+
 void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
 {
     if (mHasAnimatedThisFrame)

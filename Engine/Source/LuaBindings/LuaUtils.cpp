@@ -64,4 +64,21 @@ int CreateClassMetatable(
     return retMtIdx;
 }
 
+void CreateAABBTableLua(lua_State* L, const AABB& aabb)
+{
+    lua_newtable(L);
+    int retTable = lua_gettop(L);
+
+    Vector_Lua::Create(L, aabb.mMin);
+    lua_setfield(L, retTable, "min");
+    Vector_Lua::Create(L, aabb.mMax);
+    lua_setfield(L, retTable, "max");
+    Vector_Lua::Create(L, aabb.GetCenter());
+    lua_setfield(L, retTable, "center");
+    Vector_Lua::Create(L, aabb.GetExtents());
+    lua_setfield(L, retTable, "extents");
+    Vector_Lua::Create(L, aabb.GetSize());
+    lua_setfield(L, retTable, "size");
+}
+
 #endif

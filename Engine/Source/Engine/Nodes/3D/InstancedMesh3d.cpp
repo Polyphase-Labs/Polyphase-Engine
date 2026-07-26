@@ -116,6 +116,16 @@ Bounds InstancedMesh3D::GetLocalBounds() const
     return mBounds;
 }
 
+AABB InstancedMesh3D::GetLocalAABB() const
+{
+    if (mInstanceDataDirty)
+    {
+        const_cast<InstancedMesh3D*>(this)->UpdateInstanceData();
+    }
+
+    return mAABB;
+}
+
 void InstancedMesh3D::GatherProxyDraws(std::vector<DebugDraw>& inoutDraws)
 {
     StaticMesh3D::GatherProxyDraws(inoutDraws);
@@ -414,9 +424,12 @@ void InstancedMesh3D::CalculateLocalBounds()
     {
         // TODO: This algorithm can be improved.
         Bounds meshBounds = mesh->GetBounds();
+        AABB meshAABB = mesh->GetAABB();
 
         std::vector<glm::vec3> instBoundsCenters;
         instBoundsCenters.resize(mInstanceData.size());
+
+        mAABB = AABB::MakeInvalid();
 
         // Determine center position (every instance weighted equally)
         glm::vec3 sumPosition = {};
@@ -425,6 +438,8 @@ void InstancedMesh3D::CalculateLocalBounds()
             glm::mat4 transform = CalculateInstanceTransform(i);
             instBoundsCenters[i] = transform * glm::vec4(meshBounds.mCenter, 1.0f);
             sumPosition += instBoundsCenters[i];
+
+            mAABB.Encapsulate(meshAABB.Transform(transform));
         }
 
         glm::vec3 centerPosition = sumPosition / float(mInstanceData.size());
@@ -455,6 +470,10 @@ void InstancedMesh3D::CalculateLocalBounds()
     {
         mBounds.mCenter = GetWorldPosition();
         mBounds.mRadius = 0.0f;
+
+        // Degenerate box at the LOCAL origin. Deliberately not mBounds.mCenter
+        // -- that's a world position, and GetAABB() already applies mTransform.
+        mAABB = AABB(glm::vec3(0.0f), glm::vec3(0.0f));
     }
 }
 

@@ -61,6 +61,7 @@ public:
     IndexType* GetIndices();
 
     Bounds GetBounds() const;
+    AABB GetAABB() const;
 
     btBvhTriangleMeshShape* GetTriangleCollisionShape();
     btCollisionShape* GetCollisionShape();
@@ -100,6 +101,12 @@ private:
     IndexType* mIndices;
 
     Bounds mBounds;
+
+    // Derived from vertex positions in ComputeBounds(). Intentionally NOT
+    // serialized, because Create() recomputes bounds on every load -- the
+    // serialized mBounds is already dead data. If a future cook path ever
+    // strips vertex data, this has to become a versioned field.
+    AABB mAABB;
 
     btCollisionShape* mCollisionShape;
     btBvhTriangleMeshShape* mTriangleCollisionShape;

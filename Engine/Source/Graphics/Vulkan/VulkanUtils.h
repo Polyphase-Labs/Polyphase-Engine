@@ -38,6 +38,7 @@ class Text;
 class Poly;
 
 struct Bounds;
+struct AABB;
 
 VkFormat ConvertPixelFormat(PixelFormat pixelFormat, bool srgb = false);
 

@@ -323,6 +323,32 @@ int Node3D_Lua::SetInheritTransform(lua_State* L)
     return 0;
 }
 
+int Node3D_Lua::GetAABB(lua_State* L)
+{
+    Node3D* node = CHECK_NODE_3D(L, 1);
+
+    // Virtual, so a Primitive3D reached through the Node3D metatable still
+    // returns its real geometric bounds.
+    CreateAABBTableLua(L, node->GetAABB());
+
+    return 1;
+}
+
+int Node3D_Lua::GetHierarchyAABB(lua_State* L)
+{
+    Node3D* node = CHECK_NODE_3D(L, 1);
+    bool includeSelf = true;
+
+    if (lua_gettop(L) >= 2)
+    {
+        includeSelf = CHECK_BOOLEAN(L, 2);
+    }
+
+    CreateAABBTableLua(L, node->GetHierarchyAABB(includeSelf));
+
+    return 1;
+}
+
 void Node3D_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -407,6 +433,10 @@ void Node3D_Lua::Bind()
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetInheritTransform);
     REGISTER_TABLE_FUNC(L, mtIndex, SetInheritTransform);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAABB);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetHierarchyAABB);
 
     lua_pop(L, 1);
     OCT_ASSERT(lua_gettop(L) == 0);

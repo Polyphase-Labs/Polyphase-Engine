@@ -231,6 +231,7 @@ public:
     void UpdateAnimation(float deltaTime, bool updateBones);
 
     virtual Bounds GetLocalBounds() const override;
+    virtual AABB GetLocalAABB() const override;
 
     int32_t FindBoneIndex(const std::string& name) const;
 

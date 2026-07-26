@@ -139,6 +139,9 @@ public:
     Bounds GetBounds() const;
     virtual Bounds GetLocalBounds() const;
 
+    virtual AABB GetAABB() const override;
+    virtual AABB GetLocalAABB() const;
+
     virtual void GatherProxyDraws(std::vector<DebugDraw>& inoutDraws) override;
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);

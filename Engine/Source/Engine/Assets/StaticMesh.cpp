@@ -661,6 +661,11 @@ Bounds StaticMesh::GetBounds() const
     return mBounds;
 }
 
+AABB StaticMesh::GetAABB() const
+{
+    return mAABB;
+}
+
 btBvhTriangleMeshShape* StaticMesh::GetTriangleCollisionShape()
 {
     return ShouldGenerateTriangleCollision() ? mTriangleCollisionShape : nullptr;
@@ -900,6 +905,7 @@ void StaticMesh::ComputeBounds()
     {
         mBounds.mCenter = { 0.0f, 0.0f, 0.0f };
         mBounds.mRadius = 0.0f;
+        mAABB = AABB(glm::vec3(0.0f), glm::vec3(0.0f));
         return;
     }
 
@@ -919,6 +925,7 @@ void StaticMesh::ComputeBounds()
         boxMax = glm::max(boxMax, pos);
     }
 
+    mAABB = AABB(boxMin, boxMax);
     mBounds.mCenter = (boxMin + boxMax) / 2.0f;
 
     float maxDist = 0.0f;

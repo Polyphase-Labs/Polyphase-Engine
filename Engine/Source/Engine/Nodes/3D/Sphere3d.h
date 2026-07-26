@@ -21,6 +21,7 @@ public:
     void SetRadius(float radius);
 
     virtual Bounds GetLocalBounds() const override;
+    virtual AABB GetLocalAABB() const override;
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
 
