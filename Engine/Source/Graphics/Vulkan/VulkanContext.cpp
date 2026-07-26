@@ -1,6 +1,7 @@
 #if API_VULKAN
 
 #include "Graphics/Vulkan/VulkanContext.h"
+#include "ContentPak.h"
 #include "Log.h"
 #include "Engine.h"
 #include "Utilities.h"
@@ -2257,13 +2258,8 @@ void VulkanContext::CreateGlobalShaders()
 {
     OCT_ASSERT(mGlobalShaders.size() == 0);
 
-    DirEntry dirEntry;
-    SYS_OpenDirectory(ENGINE_SHADER_DIR, dirEntry);
-
-    while (dirEntry.mValid)
+    auto loadShader = [&](const std::string& fileName)
     {
-        std::string fileName = dirEntry.mFilename;
-
         ShaderStage shaderStage = ShaderStage::Count;
         if (fileName.size() >= 5)
         {
@@ -2284,7 +2280,36 @@ void VulkanContext::CreateGlobalShaders()
 
             LogDebug("Loaded Shader: %s", fileName.c_str());
         }
+    };
 
+    // A packed build has no shader directory on disk, so enumerate the pak index
+    // instead. Global shaders are discovered rather than named, which is why the
+    // pak has to expose a listing at all.
+    if (ContentPak::IsMounted())
+    {
+        std::vector<std::string> keys;
+        ContentPak::List(ENGINE_SHADER_DIR, keys);
+
+        for (size_t i = 0; i < keys.size(); ++i)
+        {
+            loadShader(keys[i].substr(strlen(ENGINE_SHADER_DIR)));
+        }
+
+        if (!keys.empty())
+        {
+            return;
+        }
+
+        // Pak mounted but carrying no shaders (e.g. an older pak) -- fall through
+        // to the loose directory rather than booting with no pipelines.
+    }
+
+    DirEntry dirEntry;
+    SYS_OpenDirectory(ENGINE_SHADER_DIR, dirEntry);
+
+    while (dirEntry.mValid)
+    {
+        loadShader(dirEntry.mFilename);
         SYS_IterateDirectory(dirEntry);
     }
 

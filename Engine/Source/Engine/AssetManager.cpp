@@ -7,6 +7,7 @@
 #include "Constants.h"
 #include "Utilities.h"
 #include "EmbeddedFile.h"
+#include "ContentObfuscation.h"
 #include "Renderer.h"
 #include "InputDevices.h"   // IsControlDown / IsShiftDown -- Ctrl+Shift override for engine-asset save
 
@@ -588,7 +589,14 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
             Stream stream;
             std::string path = directory->mPath + fname;
             // Read enough bytes for header with UUID (magic + version + type + embedded + uuid)
-            stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t));
+            if (!stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t)))
+            {
+                // Unreadable, or obfuscated content that failed to decode. Skip
+                // rather than letting ReadHeader trip the bounds assert in
+                // Stream::Read on an empty stream.
+                LogError("AssetManager: skipping unreadable asset '%s'", path.c_str());
+                continue;
+            }
 
             AssetHeader header = Asset::ReadHeader(stream);
 
@@ -681,17 +689,27 @@ void AssetManager::RefreshDirectory(AssetDir* directory)
             {
                 Stream stream;
                 std::string path = directory->mPath + dirEntry.mFilename;
-                stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t));
-                AssetHeader header = Asset::ReadHeader(stream);
-                AssetStub* stub = RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
-#if EDITOR
-                if (stub != nullptr)
+
+                // Same guard as DiscoverDirectory: a failed read (missing, or
+                // obfuscated content that wouldn't decode) must not reach
+                // ReadHeader, which would assert on the empty stream.
+                if (stream.ReadFile(path.c_str(), true, sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t)))
                 {
-                    AssetMetaSidecar meta = LoadAssetMeta(path);
-                    stub->mPlatformMask = meta.mPlatformMask;
-                    stub->mEmbed        = meta.mEmbed;
-                }
+                    AssetHeader header = Asset::ReadHeader(stream);
+                    AssetStub* stub = RegisterAsset(dirEntry.mFilename, header.mType, directory, nullptr, engineDir, header.mUuid);
+#if EDITOR
+                    if (stub != nullptr)
+                    {
+                        AssetMetaSidecar meta = LoadAssetMeta(path);
+                        stub->mPlatformMask = meta.mPlatformMask;
+                        stub->mEmbed        = meta.mEmbed;
+                    }
 #endif
+                }
+                else
+                {
+                    LogError("AssetManager: skipping unreadable asset '%s'", path.c_str());
+                }
             }
 #if EDITOR
             else
@@ -770,6 +788,13 @@ void AssetManager::DiscoverAssetRegistry(const char* registryPath)
         char typeString[32] = { };
         char filename[MAX_PATH_SIZE] = { };
 
+        // Engine content is listed in the registry root-relative
+        // ("Engine/Assets/..."), but console packages are commonly deployed into
+        // a per-project folder on an SD card, which puts Engine/ beside the
+        // project rather than at the card root. Resolve through the same helper
+        // the directory-discovery path uses so both layouts work.
+        const std::string engineContentRoot = GetEngineContentDir("");
+
         std::string lineStr;
         while (true)
         {
@@ -840,7 +865,16 @@ void AssetManager::DiscoverAssetRegistry(const char* registryPath)
                 }
             }
 
-            RegisterAsset(filename, assetType, mRootDirectory, nullptr, false, fileUuid);
+            // Only the on-disk path is rewritten -- RegisterAsset derives the
+            // asset's lookup name from the basename, so name-based lookups are
+            // unaffected.
+            std::string resolvedPath = filename;
+            if (strncmp(filename, "Engine/", 7) == 0)
+            {
+                resolvedPath = engineContentRoot + (filename + 7);
+            }
+
+            RegisterAsset(resolvedPath, assetType, mRootDirectory, nullptr, false, fileUuid);
         }
     }
     else
@@ -860,9 +894,40 @@ void AssetManager::DiscoverEmbeddedAssets(EmbeddedFile* assets, uint32_t numAsse
 
             // Read enough bytes for header with UUID
             uint32_t headerSize = sizeof(uint32_t) * 3 + sizeof(uint8_t) + sizeof(uint64_t);
-            Stream stream(embeddedAsset->mData, glm::min((uint32_t)embeddedAsset->mSize, headerSize));
 
-            AssetHeader header = Asset::ReadHeader(stream);
+            AssetHeader header;
+
+            if (ContentObfuscation::IsContainer(embeddedAsset->mData, embeddedAsset->mSize))
+            {
+                // Static build: the embedded bytes are wrapped, so the asset
+                // header has to be decoded before it can be parsed. Registration
+                // happens long before LoadEmbedded, and reading the raw container
+                // here would register every asset with a garbage TypeId and UUID.
+                //
+                // Only the header is needed and the keystream is offset
+                // addressable, so decode a short prefix on the stack rather than
+                // copying every embedded asset in full.
+                char prefix[ContentObfuscation::kHeaderSize + 32];
+                const uint32_t avail = glm::min(embeddedAsset->mSize, (uint32_t)sizeof(prefix));
+                memcpy(prefix, embeddedAsset->mData, avail);
+
+                uint32_t decodedSize = 0;
+                if (!ContentObfuscation::DecodeInPlace(prefix, avail, &decodedSize, nullptr) ||
+                    decodedSize < headerSize)
+                {
+                    LogError("DiscoverEmbeddedAssets: failed to decode header for '%s'", embeddedAsset->mName);
+                    continue;
+                }
+
+                Stream stream(prefix, decodedSize);
+                header = Asset::ReadHeader(stream);
+            }
+            else
+            {
+                Stream stream(embeddedAsset->mData, glm::min((uint32_t)embeddedAsset->mSize, headerSize));
+                header = Asset::ReadHeader(stream);
+            }
+
             AssetStub* existing = GetAssetStub(embeddedAsset->mName);
 
             if (existing == nullptr)

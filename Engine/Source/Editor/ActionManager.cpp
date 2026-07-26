@@ -116,6 +116,8 @@
 #include "Preferences/External/LaunchersModule.h"
 
 #include "Stream.h"
+#include "ContentObfuscation.h"
+#include "ContentPak.h"
 #include "document.h"
 #include "imgui.h"
 
@@ -1504,7 +1506,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     BuildCache* cache = BuildCache::Get();
     if (cache != nullptr && !mBuildState.mForceRebuild)
     {
-        BuildCacheResult cacheResult = cache->CheckRebuildNeeded(platform, embedded);
+        BuildCacheResult cacheResult = cache->CheckRebuildNeeded(platform, embedded, mBuildState.mStaticContent, mBuildState.mContentPak);
 
         if (cacheResult == BuildCacheResult::UpToDate)
         {
@@ -1657,6 +1659,12 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     // capture, allow Reset to run, re-apply.
     const std::string targetIdRequested = mBuildState.mTargetId;
 
+    // And again for the Static Content flag, which PackagingWindow writes onto
+    // the build state before calling us. Miss this and every build silently
+    // cooks as Moddable with no error to show for it.
+    const bool staticContentRequested = mBuildState.mStaticContent;
+    const bool contentPakRequested = mBuildState.mContentPak;
+
     // In headless mode, run the entire build synchronously (original behavior)
     if (IsHeadless())
     {
@@ -1667,6 +1675,8 @@ void ActionManager::BuildData(Platform platform, bool embedded)
         mBuildState.mRunOnDevice = false;
         mBuildState.mForceCompile = forceRebuildRequested;
         mBuildState.mTargetId = targetIdRequested;
+        mBuildState.mStaticContent = staticContentRequested;
+        mBuildState.mContentPak = contentPakRequested;
         BuildPhase1();
         if (mBuildState.mNeedCompile)
         {
@@ -1682,6 +1692,8 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     mBuildState.mEmbedded = embedded;
     mBuildState.mForceCompile = forceRebuildRequested; // write AFTER Reset so it survives
     mBuildState.mTargetId    = targetIdRequested;       // same — see snapshot above
+    mBuildState.mStaticContent = staticContentRequested; // same — see snapshot above
+    mBuildState.mContentPak    = contentPakRequested;    // same — see snapshot above
     mBuildDisplayOutput.clear();
     mBuildAutoScroll = true;
     mShowBuildModal = true;
@@ -2424,6 +2436,42 @@ void ActionManager::BuildPhase1()
         CreateDir((packagedDir + "Engine/Shaders/GLSL/").c_str());
 
         SYS_CopyDirectory((polyphaseDirectory+"Engine/Shaders/GLSL/bin/").c_str(), (packagedDir + "Engine/Shaders/GLSL/bin/").c_str());
+    }
+
+    // Static Build: obfuscate the shipped loose content.
+    //
+    // Ordering is load-bearing. This must run AFTER GenerateEmbeddedAssetFiles /
+    // GenerateEmbeddedScriptFiles above, because those read the cooked files back
+    // through Stream::ReadFile -- which now decodes -- and would otherwise emit
+    // plaintext byte arrays. They do their own encoding instead (see
+    // ConvertFileToByteString). And it must run BEFORE the romfs copy just below,
+    // which clones the whole packagedDir, or 3DS would ship unobfuscated.
+    if (mBuildState.mStaticContent)
+    {
+        if (mBuildState.mContentPak)
+        {
+            // The pak wraps each entry itself, so running the loose sweep first
+            // would just be wasted work -- ContentPak::Build passes through
+            // anything already wrapped either way.
+            AppendBuildOutput("Building Content Pak...\n");
+
+            // `embedded && !useRomfs` is what actually puts content into byte
+            // arrays. On 3DS `embedded` instead routes content through romfs as
+            // loose files, so treating it as embedded there would delete the
+            // very files romfs is about to bundle.
+            if (!PackPackagedContent(packagedDir, projectName, embedded && !useRomfs))
+            {
+                // Pack failed and pruned nothing, so fall back to obfuscated
+                // loose files rather than shipping content in the clear.
+                AppendBuildOutput("Falling back to obfuscated loose content.\n");
+                ObfuscatePackagedContent(packagedDir);
+            }
+        }
+        else
+        {
+            AppendBuildOutput("Obfuscating content (Static Build)...\n");
+            ObfuscatePackagedContent(packagedDir);
+        }
     }
 
     // Romfs setup for 3DS
@@ -4092,7 +4140,7 @@ void ActionManager::FinalizeLocalBuild()
     BuildCache* cache = BuildCache::Get();
     if (cache != nullptr)
     {
-        cache->BuildCurrentManifest(platform, mBuildState.mEmbedded);
+        cache->BuildCurrentManifest(platform, mBuildState.mEmbedded, mBuildState.mStaticContent, mBuildState.mContentPak);
         cache->SaveManifest();
     }
 
@@ -7323,13 +7371,29 @@ static void ConvertFileToByteString(
     const std::string& filePath,
     const std::string& name,
     std::string& outString,
-    uint32_t& outSize)
+    uint32_t& outSize,
+    bool obfuscate)
 {
     Stream stream;
 
     stream.ReadFile(filePath.c_str(), false);
     outSize = uint32_t(stream.GetSize());
     char* data = stream.GetData();
+
+    // Static Build: the embedded arrays get the same treatment as the loose
+    // files, otherwise ticking both Embedded and Static would ship the scripts
+    // as readable text inside the binary. Asset::LoadEmbedded and
+    // ScriptUtils::RunScript decode these back out at load time.
+    char* encoded = nullptr;
+    uint32_t encodedSize = 0;
+
+    if (obfuscate &&
+        data != nullptr &&
+        ContentObfuscation::Encode(data, outSize, &encoded, &encodedSize))
+    {
+        data = encoded;
+        outSize = encodedSize;
+    }
 
     outString.clear();
     outString.reserve(2048);
@@ -7370,6 +7434,8 @@ static void ConvertFileToByteString(
     }
 
     outString += "\n};\n\n";
+
+    free(encoded);
 }
 
 static void ParseGltfExtrasFromDoc(const rapidjson::Document& doc, std::unordered_map<std::string, PolyphaseNodeExtras>& result)
@@ -9465,7 +9531,8 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
                 packPath,
                 dataVarName,
                 sourceString,
-                dataSize);
+                dataSize,
+                mBuildState.mStaticContent);
 
             fprintf(sourceFile, "%s", sourceString.c_str());
 
@@ -9503,11 +9570,15 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
                 std::string rawDataVar = SanitizeCppIdentifier("RawAsset_" + std::to_string(i) + "_" + rawEntry.mLookupKey) + "_Data";
                 uint32_t rawDataSize = 0;
                 std::string rawSourceString;
+                // Raw assets stay in the clear even in a Static build -- addon
+                // code and UILoader open these with their own file I/O and never
+                // see the decode.
                 ConvertFileToByteString(
                     rawEntry.mAbsolutePath,
                     rawDataVar,
                     rawSourceString,
-                    rawDataSize);
+                    rawDataSize,
+                    false);
 
                 if (rawDataSize > 10u * 1024u * 1024u)
                 {
@@ -9547,11 +9618,14 @@ void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*,
         {
             std::string sourceString;
             uint32_t dataSize = 0;
+            // Config.ini is read during boot config parsing, well before the
+            // asset system exists -- it must stay plain.
             ConvertFileToByteString(
                 GetEngineState()->mProjectDirectory + "Config.ini",
                 "gEmbeddedConfig_Data",
                 sourceString,
-                dataSize);
+                dataSize,
+                false);
 
             fprintf(sourceFile, "%s", sourceString.c_str());
 
@@ -9624,6 +9698,20 @@ void ActionManager::GenerateEmbeddedScriptFiles(
             uint32_t size = uint32_t(stream.GetSize());
             char* data = stream.GetData();
 
+            // Static Build: embedded scripts get wrapped too, else ticking both
+            // Embedded and Static would leave readable Lua in the binary.
+            // ScriptUtils::RunScript decodes these on the way back out.
+            char* encoded = nullptr;
+            uint32_t encodedSize = 0;
+
+            if (mBuildState.mStaticContent &&
+                data != nullptr &&
+                ContentObfuscation::Encode(data, size, &encoded, &encodedSize))
+            {
+                data = encoded;
+                size = encodedSize;
+            }
+
             std::string sourceString;
             sourceString.reserve(2048);
 
@@ -9646,6 +9734,8 @@ void ActionManager::GenerateEmbeddedScriptFiles(
             }
 
             sourceString += "\n};\n\n";
+
+            free(encoded);
 
             fprintf(sourceFile, "%s", sourceString.c_str());
 
@@ -9725,6 +9815,202 @@ void ActionManager::GatherScriptFiles(const std::string& dir, std::vector<std::s
     };
 
     searchDirectory(dir);
+}
+
+void ActionManager::ObfuscatePackagedContent(const std::string& packagedDir)
+{
+    uint32_t fileCount = 0;
+    uint32_t failCount = 0;
+
+    // Deliberately extension-driven rather than driven off the cook lists: this
+    // way it also catches whatever a build-target addon's CookAsset wrote, the
+    // engine + project + package script copies, and the registry -- one pass, no
+    // per-producer wiring.
+    //
+    // Everything not listed here stays readable on purpose. Config.ini and the
+    // .octp are boot files; shaders and icons carry no user content; raw assets
+    // (.png/.json/.mp4/.rcss) are read by addon code and UILoader that own their
+    // own file I/O and would break with no useful diagnostic.
+    std::function<void(std::string)> searchDirectory = [&](std::string dirPath)
+    {
+        std::vector<std::string> subDirectories;
+        DirEntry dirEntry = { };
+
+        SYS_OpenDirectory(dirPath, dirEntry);
+
+        while (dirEntry.mValid)
+        {
+            if (dirEntry.mDirectory)
+            {
+                if (dirEntry.mFilename[0] != '.')
+                {
+                    subDirectories.push_back(dirEntry.mFilename);
+                }
+            }
+            else
+            {
+                const char* extension = strrchr(dirEntry.mFilename, '.');
+
+                const bool obfuscate =
+                    (extension != nullptr && strcmp(extension, ".oct") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".lua") == 0) ||
+                    (strcmp(dirEntry.mFilename, "AssetRegistry.txt") == 0);
+
+                if (obfuscate)
+                {
+                    const std::string path = dirPath + dirEntry.mFilename;
+
+                    if (ContentObfuscation::EncodeFileInPlace(path.c_str()))
+                    {
+                        ++fileCount;
+                    }
+                    else
+                    {
+                        ++failCount;
+                        AppendBuildOutput("Warning: could not obfuscate " + path + "\n");
+                    }
+                }
+            }
+
+            SYS_IterateDirectory(dirEntry);
+        }
+
+        SYS_CloseDirectory(dirEntry);
+
+        for (uint32_t i = 0; i < subDirectories.size(); ++i)
+        {
+            searchDirectory(dirPath + subDirectories[i] + "/");
+        }
+    };
+
+    searchDirectory(packagedDir);
+
+    AppendBuildOutput("Obfuscated " + std::to_string(fileCount) + " files.\n");
+
+    if (failCount > 0)
+    {
+        AppendBuildOutput("Warning: " + std::to_string(failCount) +
+                          " file(s) could not be obfuscated and shipped in the clear.\n");
+    }
+}
+
+bool ActionManager::PackPackagedContent(const std::string& packagedDir,
+                                        const std::string& projectName,
+                                        bool contentIsEmbedded)
+{
+    std::vector<ContentPak::SourceFile> files;
+    std::vector<std::string> discard;
+
+    // Keys are stored package-relative with forward slashes -- exactly the form
+    // the runtime asks with ("Game/Assets/T.oct", "Engine/Assets/T_White.oct",
+    // "Game/Scripts/Player.lua"), so no path canonicalisation has to agree across
+    // platforms at load time.
+    std::function<void(std::string, std::string)> searchDirectory =
+        [&](std::string dirPath, std::string relativePath)
+    {
+        std::vector<std::string> subDirectories;
+        DirEntry dirEntry = { };
+
+        SYS_OpenDirectory(dirPath, dirEntry);
+
+        while (dirEntry.mValid)
+        {
+            if (dirEntry.mDirectory)
+            {
+                if (dirEntry.mFilename[0] != '.')
+                {
+                    subDirectories.push_back(dirEntry.mFilename);
+                }
+            }
+            else
+            {
+                const char* extension = strrchr(dirEntry.mFilename, '.');
+
+                // Shaders, the .octp and the registry go in too, so a packed
+                // build ships as just the executable plus Content.pak. All are
+                // read through Stream after the pak is mounted -- the .octp
+                // inside LoadProject, and the Vulkan shaders via
+                // ContentPak::List, since those are enumerated rather than named.
+                //
+                // Config.ini stays out: ReadEngineConfig runs before the mount
+                // and falls back to the copy embedded in the executable.
+                const bool isContent =
+                    (extension != nullptr && strcmp(extension, ".oct") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".lua") == 0);
+
+                const bool isSupport =
+                    (extension != nullptr && strcmp(extension, ".vert") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".frag") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".comp") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".octp") == 0) ||
+                    (strcmp(dirEntry.mFilename, "AssetRegistry.txt") == 0);
+
+                if (isSupport || (isContent && !contentIsEmbedded))
+                {
+                    ContentPak::SourceFile entry;
+                    entry.mKey = relativePath + dirEntry.mFilename;
+                    entry.mSourcePath = dirPath + dirEntry.mFilename;
+                    files.push_back(entry);
+                }
+                else if (isContent)
+                {
+                    // Already compiled into the executable as byte arrays, and
+                    // LoadAsset prefers the embedded copy, so packing these too
+                    // would ship every asset twice. The loose originals are dead
+                    // weight either way -- drop them.
+                    discard.push_back(dirPath + dirEntry.mFilename);
+                }
+            }
+
+            SYS_IterateDirectory(dirEntry);
+        }
+
+        SYS_CloseDirectory(dirEntry);
+
+        for (uint32_t i = 0; i < subDirectories.size(); ++i)
+        {
+            searchDirectory(dirPath + subDirectories[i] + "/",
+                            relativePath + subDirectories[i] + "/");
+        }
+    };
+
+    searchDirectory(packagedDir, "");
+
+    if (files.empty())
+    {
+        AppendBuildOutput("Content Pak: nothing to pack.\n");
+        return false;
+    }
+
+    const std::string pakPath = packagedDir + "Content.pak";
+    uint32_t entryCount = 0;
+
+    if (!ContentPak::Build(pakPath.c_str(), files, entryCount))
+    {
+        AppendBuildOutput("ERROR: Content Pak build failed; shipping loose content instead.\n");
+        SYS_RemoveFile(pakPath.c_str());
+        return false;
+    }
+
+    // Only prune once the pak is known good -- a half-written pak plus deleted
+    // originals would ship an unbootable package.
+    for (size_t i = 0; i < files.size(); ++i)
+    {
+        SYS_RemoveFile(files[i].mSourcePath.c_str());
+    }
+    for (size_t i = 0; i < discard.size(); ++i)
+    {
+        SYS_RemoveFile(discard[i].c_str());
+    }
+
+    AppendBuildOutput("Content Pak: packed " + std::to_string(entryCount) + " files into Content.pak.\n");
+
+    if (!discard.empty())
+    {
+        AppendBuildOutput("Content Pak: skipped " + std::to_string(discard.size()) +
+                          " file(s) already embedded in the executable.\n");
+    }
+    return true;
 }
 
 void ActionManager::ClearWorld()

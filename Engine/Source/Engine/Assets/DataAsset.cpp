@@ -234,8 +234,21 @@ void DataAsset::LoadPropertiesFromLua()
     // Build the full path to the script file
     std::string scriptPath = GetEngineState()->mProjectDirectory + "Scripts/" + mScriptFile;
 
-    // Try to load and run the script file
-    if (luaL_dofile(L, scriptPath.c_str()) != LUA_OK)
+    // Read through Stream rather than luaL_dofile: that bypassed both the
+    // embedded-script table and the Static-build obfuscation decode, so every
+    // DataAsset script failed to load in a packaged build.
+    Stream scriptStream;
+    if (!scriptStream.ReadFile(scriptPath.c_str(), true))
+    {
+        LogError("DataAsset: Failed to read script '%s'", mScriptFile.c_str());
+        return;
+    }
+
+    // Chunk results are discarded here (only the GetProperties global matters),
+    // so ask for zero of them and keep the stack balanced.
+    const std::string chunkName = "@" + mScriptFile;
+    if (luaL_loadbuffer(L, scriptStream.GetData(), scriptStream.GetSize(), chunkName.c_str()) != LUA_OK ||
+        lua_pcall(L, 0, 0, 0) != LUA_OK)
     {
         const char* errMsg = lua_tostring(L, -1);
         LogError("DataAsset: Failed to load script '%s': %s", mScriptFile.c_str(), errMsg ? errMsg : "Unknown error");

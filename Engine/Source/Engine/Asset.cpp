@@ -4,6 +4,7 @@
 #include "AssetDir.h"
 #include "Engine.h"
 #include "AssetManager.h"
+#include "ContentObfuscation.h"
 #include "Log.h"
 #include "Utilities.h"
 #include "Assets/Scene.h"
@@ -271,6 +272,38 @@ void Asset::SaveFile(const char* path, Platform platform)
 
 void Asset::LoadEmbedded(const EmbeddedFile* embeddedAsset, AsyncLoadRequest* request)
 {
+    // A Static build obfuscates the embedded byte arrays too. Those live in
+    // read-only data, so unlike the disk path they can't be decoded in place --
+    // copy into an owning Stream first. Plain (Moddable) embedded assets keep
+    // aliasing rodata with no copy at all, which is what keeps embedded builds
+    // memory-viable on the consoles.
+    if (ContentObfuscation::IsContainer(embeddedAsset->mData, embeddedAsset->mSize))
+    {
+        Stream stream;
+        stream.Resize(embeddedAsset->mSize);
+        memcpy(stream.GetData(), embeddedAsset->mData, embeddedAsset->mSize);
+
+        uint32_t decodedSize = 0;
+        if (!ContentObfuscation::DecodeInPlace(stream.GetData(), embeddedAsset->mSize, &decodedSize, nullptr))
+        {
+            LogError("Asset::LoadEmbedded: failed to decode obfuscated asset '%s'", embeddedAsset->mName);
+            return;
+        }
+
+        stream.Resize(decodedSize);
+        stream.SetPos(0);
+
+        LoadStream(stream, GetPlatform());
+        SetEmbedded(true);
+
+        if (request == nullptr)
+        {
+            Create();
+        }
+
+        return;
+    }
+
     Stream stream(embeddedAsset->mData, embeddedAsset->mSize);
     LoadStream(stream, GetPlatform());
     SetEmbedded(true);

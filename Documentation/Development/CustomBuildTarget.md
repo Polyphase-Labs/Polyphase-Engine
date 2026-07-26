@@ -216,6 +216,52 @@ std::string>`. The engine serialises it under `targetOptions` in the saved
 profile JSON. You see the same map through `GetProfileSetting` /
 `SetProfileSetting` on the build context during callbacks.
 
+## Static Content / Content Pak
+
+A build target inherits both content-protection modes with **no implementation
+work**. The obfuscation decode lives in `Stream::ReadFile`, and the seekable
+variant in `SYS_FileOpenRead`/`Read`/`Seek` — both above the SYS layer, so a
+target shipping its own `SYS_AcquireFileData` still gets them. Whatever
+`CookAsset` writes is picked up by the packaging sweep automatically.
+
+The one optional flag is a UI hint. The **Content Pak** checkbox hides itself
+when **Embedded** is on and the target gains nothing from a pak. The only thing
+embedding doesn't cover is the Vulkan `.spv` shaders, which fixed-function
+console backends don't have — but the engine can't detect that from
+`basePlatform`, because that field is a cook-compat anchor rather than a
+statement about the runtime backend. Dreamcast, PSP, PS2, PS3 and N64 all declare
+`Platform::Linux`, and so do the genuinely-Vulkan `LinuxARM64` and `AndroidTV`
+targets.
+
+Non-Vulkan targets should therefore opt in explicitly:
+
+```cpp
+// In DrawProfileOptions — the only callback whose context can write settings.
+char buf[8] = {0};
+if (!ctx->GetProfileSetting("polyphase.hideContentPak", buf, sizeof(buf)))
+{
+    ctx->SetProfileSetting("polyphase.hideContentPak", "1");
+}
+```
+
+This rides the existing `mTargetOptions` map, so it needs no
+`POLYPHASE_BUILD_TARGET_API_VERSION` bump and no descriptor change. Omitting it
+is harmless; the checkbox merely appears where it isn't useful.
+
+Note the engine only calls `DrawProfileOptions` while the "Target Options"
+collapsing header is expanded, so the flag lands the first time a user opens it
+and persists in `BuildProfiles.json` thereafter. Users can equally set
+`"polyphase.hideContentPak": "1"` under `targetOptions` by hand.
+
+If your **runtime** reads content directly, use `Stream::ReadFile` for whole
+files or `SYS_FileOpenRead`/`SYS_FileRead`/`SYS_FileSeek` for chunked reads — a
+raw `fopen` reads encrypted bytes, and finds nothing at all once a Content Pak
+has pruned the loose tree. `SYS_FileSeek` offsets are in decoded space. Raw
+assets (`.mp4`, `.json`, `.png`, `.rcss`) are never obfuscated or packed, so
+existing addon file I/O against those is unaffected.
+
+See [StaticContent.md](StaticContent.md).
+
 ## Discoverability — `native.buildTargets`
 
 Add an optional `buildTargets` array to your addon's `native` block so the

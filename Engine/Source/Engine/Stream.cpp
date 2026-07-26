@@ -2,6 +2,8 @@
 #include "Asset.h"
 #include "AssetRef.h"
 #include "AssetManager.h"
+#include "ContentObfuscation.h"
+#include "ContentPak.h"
 #include "Log.h"
 #include "Maths.h"
 
@@ -135,7 +137,26 @@ bool Stream::ReadFile(const char* path, bool isAsset, int32_t maxSize)
         mSize = 0;
         mCapacity = 0;
     }
-    SYS_AcquireFileData(path, isAsset, maxSize, mData, mSize);
+    // Content.pak first. Sitting above the SYS layer means every platform gets
+    // the archive for free, including the ones whose SYS_AcquireFileData lives in
+    // an out-of-tree build target addon. A miss falls through to loose files, so
+    // partially-packed and dev builds keep working.
+    if (!ContentPak::Read(path, maxSize, mData, mSize))
+    {
+        // A capped read must also pull the obfuscation container header, or a
+        // Static build hands the caller fewer plaintext bytes than it asked for.
+        // The 21-byte asset-header reads in AssetManager::DiscoverDirectory would
+        // otherwise land entirely inside the header and register every asset with
+        // a garbage type.
+        int32_t acquireSize = maxSize;
+        if (acquireSize > 0)
+        {
+            acquireSize += ContentObfuscation::kReadHeadroom;
+        }
+
+        SYS_AcquireFileData(path, isAsset, acquireSize, mData, mSize);
+    }
+
     mCapacity = mSize;
     mPos = 0;
 
@@ -144,10 +165,22 @@ bool Stream::ReadFile(const char* path, bool isAsset, int32_t maxSize)
         LogError("Stream failed to read file: %s", path);
         return false;
     }
+
+    if (!DecodeObfuscatedData(path))
+    {
+        return false;
+    }
 #else
     char* fileData = nullptr;
     uint32_t fileSize = 0;
-    SYS_AcquireFileData(path, isAsset, maxSize, fileData, fileSize);
+
+    int32_t acquireSize = maxSize;
+    if (acquireSize > 0)
+    {
+        acquireSize += ContentObfuscation::kReadHeadroom;
+    }
+
+    SYS_AcquireFileData(path, isAsset, acquireSize, fileData, fileSize);
 
     if (fileData != nullptr)
     {
@@ -160,6 +193,11 @@ bool Stream::ReadFile(const char* path, bool isAsset, int32_t maxSize)
 
         mSize = fileSize;
         mPos = 0;
+
+        if (!DecodeObfuscatedData(path))
+        {
+            return false;
+        }
     }
     else
     {
@@ -168,6 +206,44 @@ bool Stream::ReadFile(const char* path, bool isAsset, int32_t maxSize)
     }
 #endif
 
+    return true;
+}
+
+// Static-build content is wrapped in a ContentObfuscation container. Plain files
+// miss the magic and pass through untouched, which is what lets obfuscated and
+// clear content coexist in one package and lets the editor keep reading its own
+// unobfuscated project tree.
+//
+// This sits above the SYS layer on purpose: every platform funnels through here,
+// including the ones whose SYS_AcquireFileData lives in an out-of-tree build
+// target addon (PSP, PS2, ...), so they get decoding with no changes at all.
+bool Stream::DecodeObfuscatedData(const char* path)
+{
+    if (!ContentObfuscation::IsContainer(mData, mSize))
+    {
+        return true;
+    }
+
+    uint32_t decodedSize = 0;
+
+    if (!ContentObfuscation::DecodeInPlace(mData, mSize, &decodedSize, nullptr))
+    {
+        LogError("Stream failed to decode obfuscated file: %s", path);
+
+        // Bail with an empty stream rather than letting partially-decoded bytes
+        // reach LoadStream, where the bounds assert in Read<T> would fire far
+        // from the actual cause.
+        free(mData);
+        mData = nullptr;
+        mSize = 0;
+        mCapacity = 0;
+        return false;
+    }
+
+    // mCapacity intentionally keeps the allocated size -- only the logical
+    // contents shrank, the buffer did not.
+    mSize = decodedSize;
+    mPos = 0;
     return true;
 }
 

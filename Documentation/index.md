@@ -136,6 +136,22 @@ Instructions for building from source below.
    - Android NDK (Side by side): 25.2.9519653
    - CMake: 3.22.1
 
+### Protecting shipped content
+
+Build profiles offer two options that stop packaged content from being casually
+read or edited:
+
+- **Static Content** — cooked assets, scripts and the asset registry are
+  obfuscated on disk and decoded on demand at load time.
+- **Content Pak** — additionally folds everything into a single `Content.pak`
+  with an obfuscated index, so filenames and the folder tree don't ship either.
+  A packed build distributes as just the executable plus `Content.pak`.
+
+Both work on every platform including consoles and custom build targets, with no
+per-platform work. This is obfuscation, not DRM — the key ships in the
+executable. See
+[Documentation/Development/StaticContent.md](Development/StaticContent.md).
+
 ## CMake Support
 
 CMake support is currently a work-in-progress, and only Linux support has been implemented and tested. If you want to try building with CMake, here are some tips:

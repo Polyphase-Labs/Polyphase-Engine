@@ -6490,7 +6490,23 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     std::string includesStr;
     for (const std::string& path : includePaths)
     {
-        includesStr += std::string("$(PolyphasePath)") + normalizePathVS(path) + ";";
+        // Emit an explicit separator after the macro, matching the library
+        // paths below. Unlike SYS_GetPolyphasePath() -- which always ends in a
+        // separator, so the direct-compile and c_cpp_properties emitters can
+        // concatenate safely -- $(PolyphasePath) resolves from the UserMacros
+        // chain and the generated Directory.Build.props, and both of those
+        // yield a path with NO trailing separator. Without this,
+        // "$(PolyphasePath)Engine\Source" collapses to
+        // "...polyphase-engineEngine\Source" and no engine header resolves.
+        //
+        // A doubled separator, when the macro does happen to end in one (the
+        // hardcoded fallback at the end of the UserMacros chain), is harmless
+        // on Windows -- the library paths already produce that today.
+        std::string relPath = normalizePathVS(path);
+        size_t firstMeaningful = relPath.find_first_not_of('\\');
+        relPath.erase(0, (firstMeaningful == std::string::npos) ? relPath.size() : firstMeaningful);
+
+        includesStr += std::string("$(PolyphasePath)\\") + relPath + ";";
     }
     // Add dependency addon Source directories
     for (const AddonDependencySpec& dep : pkgContent.mDependencies)

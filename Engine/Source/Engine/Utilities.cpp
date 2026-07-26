@@ -6,6 +6,7 @@
 #include "Engine.h"
 #include "TableDatum.h"
 #include "AssetManager.h"
+#include "NodePath.h"
 #include "Assets/Scene.h"
 #include "Nodes/3D/StaticMesh3d.h"
 
@@ -753,6 +754,21 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
     }
 
     GatherNonDefaultProperties(node, over.mProperties, defaultNode);
+
+    // Record node-reference paths, mirroring what Scene::AddNodeDef does for
+    // ordinary (non-override) node defs.
+    //
+    // A Node property stores a raw weak pointer, which cannot be serialized;
+    // the path string recorded into Property::mExtra is what actually persists.
+    // Without this call, every node reference on a node inside a scene instance
+    // is silently dropped on save -- Scene::Instantiate's override loop guards
+    // on `prop.mExtra != nullptr` and simply skips the property, so the
+    // reference comes back null after a reload or on leaving PIE.
+    //
+    // Property::WriteStream / ReadStream already persist mExtra, and
+    // ResolvePendingNodePaths already consumes it; only this producer side was
+    // missing.
+    RecordNodePaths(node, over.mProperties);
 
     if (node->As<StaticMesh3D>() && defaultNode->As<StaticMesh3D>())
     {

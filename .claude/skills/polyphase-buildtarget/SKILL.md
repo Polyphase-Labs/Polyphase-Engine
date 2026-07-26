@@ -227,22 +227,86 @@ through `BuildProfile::mTargetOptions` — a flat `std::unordered_map<string,
 string>`. Read them back from build callbacks via
 `ctx->GetProfileSetting("key", buf, sizeof(buf))`.
 
+The signature takes the build context, **not** a `BuildProfile*` — the addon
+never touches `BuildProfile` directly, which is what keeps the ABI a pure C
+surface (`PolyphaseBuildTargetAPI.h`):
+
 ```cpp
-static void Dreamcast_DrawProfileOptions(void* profilePtr)
+static void Dreamcast_DrawProfileOptions(const PolyphaseBuildContext* ctx)
 {
-    auto* profile = static_cast<BuildProfile*>(profilePtr);
-    auto it = profile->mTargetOptions.find("region");
     static const char* regions[] = { "NTSC-U", "NTSC-J", "PAL" };
+
+    char buf[16] = {0};
+    ctx->GetProfileSetting("region", buf, sizeof(buf));
+
     int sel = 0;
-    if (it != profile->mTargetOptions.end()) {
-        for (int i = 0; i < 3; ++i) if (it->second == regions[i]) sel = i;
-    }
+    for (int i = 0; i < 3; ++i) if (strcmp(buf, regions[i]) == 0) sel = i;
+
     if (ImGui::Combo("Region", &sel, regions, 3))
     {
-        profile->mTargetOptions["region"] = regions[sel];
+        ctx->SetProfileSetting("region", regions[sel]);
     }
 }
 ```
+
+**`DrawProfileOptions` is the only callback that can write profile settings** —
+`Validate` receives just `char* outReason`. The engine calls it only while the
+"Target Options" collapsing header is expanded, so anything you write there lands
+the first time a user opens that header and persists in `BuildProfiles.json`
+thereafter. Don't rely on it for anything that must be set before the first
+build.
+
+### Static Content / Content Pak — nothing to implement, one flag to set
+
+Shipped packages can obfuscate their content (**Static Content**) and fold it
+into a single archive (**Content Pak**). Your target gets both **for free** — the
+decode lives in `Stream::ReadFile` and `SYS_FileOpenRead`, above the SYS layer,
+so even a target shipping its own `SYS_AcquireFileData` inherits it. Whatever
+`CookAsset` writes is picked up by the sweep/pack automatically. This was
+verified end-to-end on the Dreamcast target with zero addon changes.
+
+The one thing worth setting is a UI hint. Content Pak hides itself when
+**Embedded** is on and the target gains nothing from a pak — the only thing
+embedding doesn't cover is the Vulkan `.spv` shaders, and fixed-function console
+backends compile theirs in. The engine can't infer this:
+
+> `basePlatform` is a **cook-compat anchor**, not a statement about the runtime
+> backend. Dreamcast, PSP, PS2, PS3 and N64 all declare `Platform::Linux`; Xbox
+> declares `Platform::Windows`. But `BuildTarget-LinuxARM64` and
+> `BuildTarget-AndroidTV` are *genuine* Vulkan targets declaring the same values.
+> Nothing in that field distinguishes them.
+
+So if your target has no runtime shader files (i.e. it isn't Vulkan), opt in:
+
+```cpp
+// In DrawProfileOptions — the only callback with a settings-capable context.
+char buf[8] = {0};
+if (!ctx->GetProfileSetting("polyphase.hideContentPak", buf, sizeof(buf)))
+{
+    ctx->SetProfileSetting("polyphase.hideContentPak", "1");
+}
+```
+
+Because `DrawProfileOptions` only runs while the "Target Options" header is
+expanded, the flag lands the first time a user opens it and persists from then
+on. Users can equally set `"polyphase.hideContentPak": "1"` under `targetOptions`
+in `BuildProfiles.json`. It's cosmetic either way — nothing breaks if unset.
+
+It rides the existing `mTargetOptions` map, so there's **no
+`POLYPHASE_BUILD_TARGET_API_VERSION` bump** and no descriptor change. Omitting it
+is harmless — the checkbox just appears where it isn't useful.
+
+Two things to be aware of when your target ships content:
+
+- **Raw assets stay plain.** `.mp4` / `.json` / `.png` / `.rcss` are never
+  obfuscated or packed, because addon code opens them with its own I/O. Only
+  `.oct`, `.lua`, the registry, shaders and the `.octp` are protected.
+- **If your runtime reads content itself**, go through `Stream::ReadFile` (whole
+  file) or `SYS_FileOpenRead`/`Read`/`Seek` (chunked). A raw `fopen` will read
+  encrypted bytes, or find nothing once a pak has pruned the loose tree.
+  `SYS_FileSeek` offsets are in **decoded** space.
+
+Full reference: `Documentation/Development/StaticContent.md`.
 
 ### CookAsset override — when and how
 

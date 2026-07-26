@@ -350,6 +350,12 @@
     <ClCompile Include="Source\Engine\Stream.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\ContentObfuscation.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\ContentPak.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Utilities.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
@@ -2239,6 +2245,12 @@
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Stream.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\ContentObfuscation.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\ContentPak.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="Source\Graphics\GraphicsConstants.h">
