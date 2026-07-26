@@ -19,6 +19,7 @@ guide.
 | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `Documentation/Development/NativeAddon/NativeAddon.md`                                    | Full dev guide — manifest schema, lifecycle, editor UI hooks, hot-reload rules.  |
 | `Documentation/Development/NativeAddon/Examples/`                                         | Focused recipes (custom menu, debug window, inspector, context menu, rotator…). |
+| `Documentation/Development/StaticContent.md`                                              | Static Content / Content Pak — what obfuscation means for addon file I/O.       |
 | `.llm/Addons.md`                                                                          | Architecture overview.                                                           |
 | `Engine/Source/Plugins/PolyphasePluginAPI.h`                                              | `PolyphasePluginDesc`, `OCTAVE_PLUGIN_API`, `POLYPHASE_PLUGIN_API_VERSION`.      |
 | `Engine/Source/Plugins/PolyphaseEngineAPI.h`                                              | Engine API surface passed to `OnLoad` (logging, Lua, world, nodes, assets…).    |
@@ -138,6 +139,50 @@ the engine, use `polyphase-widget`.
    builds — always null-check). For *imported-from-source* asset types
    (`.dialogue`, `.fbx`, `.mp4`, …) keep using `RegisterImportExtension` —
    the two paths compose.
+
+## Reading files from an addon — Static / Content Pak builds
+
+Shipped packages can be built with **Static Content** (cooked assets, scripts and
+the asset registry are obfuscated) and **Content Pak** (all of it folded into a
+single `Content.pak`, loose copies deleted). Full reference:
+`Documentation/Development/StaticContent.md`.
+
+What this means for addon code:
+
+- **Use `Stream::ReadFile` for anything that ships as engine content.** It is the
+  universal chokepoint — it consults the pak and unwraps the obfuscation
+  container, on every platform, including build-target addons. A raw `fopen`
+  silently misses both layers and will read encrypted bytes (or nothing at all,
+  once the loose file is pruned into a pak).
+
+  ```cpp
+  Stream stream;
+  if (stream.ReadFile(path.c_str(), true))
+  {
+      // stream.GetData() / GetSize() are plaintext here regardless of build mode
+  }
+  ```
+
+  Plain files pass through untouched, so this is correct in Moddable builds and
+  in the editor too — there is no mode to branch on.
+
+- **Raw assets keep working as-is.** `.mp4`, `.json`, `.png`, `.rcss` and other
+  non-`.oct` files are deliberately **never** obfuscated or packed, precisely
+  because addons open them with their own file I/O (FFmpeg, a decoder library, a
+  parser). VideoPlayer's `.mp4` handling needs no changes. If you want an
+  addon's data protected, ship it as a custom `Asset` type (`.oct`) instead of a
+  raw file.
+
+- **Lua from an addon** must go through `Stream::ReadFile` + `luaL_loadbuffer`,
+  not `luaL_dofile`. `luaL_dofile` bypasses the decode *and* the embedded-script
+  table, so it fails in both Static and Embedded builds.
+
+- **Seekable/chunked reads** (streaming a large file) must use
+  `SYS_FileOpenRead` / `SYS_FileRead` / `SYS_FileSeek`, which are pak- and
+  container-aware. Offsets you pass to `SYS_FileSeek` are in **decoded** space;
+  the wrapper maps them onto the physical file.
+
+Nothing else is required — you don't opt in, and there's no per-mode branching.
 
 ## Locating the addon directory
 
@@ -331,6 +376,8 @@ your addon's own `OnLoad`.
 | Addon rebuilds on every load                                         | A timestamped artifact ends up under the source dir, or a build script writes mtimes inside `Source/`. Move generated outputs to `Intermediate/`.                              |
 | `RegisterScriptFuncs(void* L)` fails to compile                      | The signature is `RegisterScriptFuncs(lua_State* L)`. Older docs have the wrong type.                                                                                          |
 | Calling `hooks->AddCreateAssetItem(...)` crashes on an older engine  | The pointer is `nullptr` on engine builds older than the slash-path / declarative-create patch. Null-check it and fall back to `AddCreateAssetItems` (callback form).            |
+| Addon reads garbage bytes / "file not found" only in a packaged build | The addon used raw `fopen` on engine content. Switch to `Stream::ReadFile` — it handles Content Pak and the Static obfuscation container. See *Reading files from an addon*. |
+| Addon Lua fails to load in a shipped build but works in the editor    | `luaL_dofile` bypasses both the obfuscation decode and the embedded-script table. Use `Stream::ReadFile` + `luaL_loadbuffer`. |
 | Asset created from menu doesn't appear until Refresh                 | The menu callback used `Asset::SaveFile` directly. Switch to `AssetManager::Get()->CreateAndRegisterAsset(type, GetCurrentAssetDir(), name, false)` — that inserts the stub into the AssetDir tree as well as writing the .oct, so the browser sees it on the next frame. |
 
 ## Where to look for an advanced full-feature example

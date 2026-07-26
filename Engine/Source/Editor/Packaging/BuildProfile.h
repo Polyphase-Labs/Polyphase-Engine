@@ -119,4 +119,21 @@ bool PlatformRequiresDockerOnWindows(Platform platform);
  */
 bool PlatformSupportsRun(Platform platform);
 
+/**
+ * @brief Whether a platform loads shader files from content at runtime.
+ *
+ * Vulkan targets enumerate Engine/Shaders/GLSL/bin/ at startup, so an Embedded
+ * build there still needs those files delivered somehow -- a Content Pak is how.
+ * GX / C3D and the other fixed-function console backends have no shader files at
+ * all, which makes Embedded self-sufficient and a pak alongside it redundant.
+ */
+bool PlatformUsesShaderFiles(Platform platform);
+
+/**
+ * @brief Target-option key a build-target addon can set to "1" to hide the
+ *        Content Pak checkbox when Embedded is on, the same way consoles do.
+ *        For targets whose embedded build is already a single deliverable.
+ */
+#define POLYPHASE_OPT_HIDE_CONTENT_PAK "polyphase.hideContentPak"
+
 #endif

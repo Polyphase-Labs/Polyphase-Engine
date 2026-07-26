@@ -132,6 +132,19 @@ bool PlatformRequiresDockerOnWindows(Platform platform)
     }
 }
 
+bool PlatformUsesShaderFiles(Platform platform)
+{
+    switch (platform)
+    {
+        case Platform::Windows:
+        case Platform::Linux:
+        case Platform::Android:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool PlatformSupportsRun(Platform platform)
 {
     switch (platform)

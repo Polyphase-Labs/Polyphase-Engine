@@ -152,6 +152,27 @@ Binary stream with methods for all types:
 - File I/O: `ReadFile(path)`, `WriteFile(path)`
 - Async: `SetAsyncRequest()`, `SetAssetVersion()`
 
+### `Stream::ReadFile` is the universal content chokepoint
+
+Every asset, script and registry read on **every** platform funnels through here,
+including targets whose `SYS_AcquireFileData` lives in an out-of-tree build-target
+addon. `ReadFile` therefore does two things before returning:
+
+1. Consults `ContentPak` — a mounted `Content.pak` serves the entry; a miss falls
+   through to loose/embedded files.
+2. Unwraps a `ContentObfuscation` container if one is present (Static builds).
+   Plain files miss the magic and pass through untouched, so obfuscated and clear
+   content coexist and the editor keeps reading its own project tree.
+
+**Put content-wide behaviour here, not in per-platform `SYS_AcquireFileData`** —
+there are five in-repo backends plus every addon backend, and editing them all
+defeats the point. The seekable streaming API (`SYS_FileOpenRead`/`Read`/`Seek`
+in `System/SystemUtils.cpp`) is the matching chokepoint for chunked reads and is
+likewise implemented once for all platforms.
+
+Callers that bypass `Stream` (raw `fopen`, `luaL_dofile`) silently miss both
+layers. See `Documentation/Development/StaticContent.md`.
+
 ## Asset Header
 
 ```cpp

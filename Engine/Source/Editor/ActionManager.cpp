@@ -2455,7 +2455,11 @@ void ActionManager::BuildPhase1()
             // anything already wrapped either way.
             AppendBuildOutput("Building Content Pak...\n");
 
-            if (!PackPackagedContent(packagedDir, projectName))
+            // `embedded && !useRomfs` is what actually puts content into byte
+            // arrays. On 3DS `embedded` instead routes content through romfs as
+            // loose files, so treating it as embedded there would delete the
+            // very files romfs is about to bundle.
+            if (!PackPackagedContent(packagedDir, projectName, embedded && !useRomfs))
             {
                 // Pack failed and pruned nothing, so fall back to obfuscated
                 // loose files rather than shipping content in the clear.
@@ -9890,9 +9894,12 @@ void ActionManager::ObfuscatePackagedContent(const std::string& packagedDir)
     }
 }
 
-bool ActionManager::PackPackagedContent(const std::string& packagedDir, const std::string& projectName)
+bool ActionManager::PackPackagedContent(const std::string& packagedDir,
+                                        const std::string& projectName,
+                                        bool contentIsEmbedded)
 {
     std::vector<ContentPak::SourceFile> files;
+    std::vector<std::string> discard;
 
     // Keys are stored package-relative with forward slashes -- exactly the form
     // the runtime asks with ("Game/Assets/T.oct", "Engine/Assets/T_White.oct",
@@ -9919,29 +9926,39 @@ bool ActionManager::PackPackagedContent(const std::string& packagedDir, const st
             {
                 const char* extension = strrchr(dirEntry.mFilename, '.');
 
-                // Shaders and the .octp go in too, so a packed build ships as
-                // just the executable plus Content.pak. Both are read through
-                // Stream after the pak is mounted -- the .octp inside
-                // LoadProject, and the Vulkan shaders via ContentPak::List,
-                // since those are enumerated rather than named.
+                // Shaders, the .octp and the registry go in too, so a packed
+                // build ships as just the executable plus Content.pak. All are
+                // read through Stream after the pak is mounted -- the .octp
+                // inside LoadProject, and the Vulkan shaders via
+                // ContentPak::List, since those are enumerated rather than named.
                 //
                 // Config.ini stays out: ReadEngineConfig runs before the mount
                 // and falls back to the copy embedded in the executable.
-                const bool pack =
+                const bool isContent =
                     (extension != nullptr && strcmp(extension, ".oct") == 0) ||
-                    (extension != nullptr && strcmp(extension, ".lua") == 0) ||
+                    (extension != nullptr && strcmp(extension, ".lua") == 0);
+
+                const bool isSupport =
                     (extension != nullptr && strcmp(extension, ".vert") == 0) ||
                     (extension != nullptr && strcmp(extension, ".frag") == 0) ||
                     (extension != nullptr && strcmp(extension, ".comp") == 0) ||
                     (extension != nullptr && strcmp(extension, ".octp") == 0) ||
                     (strcmp(dirEntry.mFilename, "AssetRegistry.txt") == 0);
 
-                if (pack)
+                if (isSupport || (isContent && !contentIsEmbedded))
                 {
                     ContentPak::SourceFile entry;
                     entry.mKey = relativePath + dirEntry.mFilename;
                     entry.mSourcePath = dirPath + dirEntry.mFilename;
                     files.push_back(entry);
+                }
+                else if (isContent)
+                {
+                    // Already compiled into the executable as byte arrays, and
+                    // LoadAsset prefers the embedded copy, so packing these too
+                    // would ship every asset twice. The loose originals are dead
+                    // weight either way -- drop them.
+                    discard.push_back(dirPath + dirEntry.mFilename);
                 }
             }
 
@@ -9981,8 +9998,18 @@ bool ActionManager::PackPackagedContent(const std::string& packagedDir, const st
     {
         SYS_RemoveFile(files[i].mSourcePath.c_str());
     }
+    for (size_t i = 0; i < discard.size(); ++i)
+    {
+        SYS_RemoveFile(discard[i].c_str());
+    }
 
     AppendBuildOutput("Content Pak: packed " + std::to_string(entryCount) + " files into Content.pak.\n");
+
+    if (!discard.empty())
+    {
+        AppendBuildOutput("Content Pak: skipped " + std::to_string(discard.size()) +
+                          " file(s) already embedded in the executable.\n");
+    }
     return true;
 }
 

@@ -56,6 +56,7 @@ polyphase-engine/
 | Platforms | [Platforms.md](Platforms.md) | `Engine/Source/System/` | System API, input, audio, networking, platform abstractions |
 | Timeline | [Timeline.md](Timeline.md) | `Engine/Source/Engine/Timeline/` | Keyframe animation: tracks, clips, interpolation, TimelinePlayer |
 | Addons | [Addons.md](Addons.md) | `Engine/Source/Plugins/` | Runtime plugin API, editor hooks, native addon system |
+| Static Content / Content Pak | [../Documentation/Development/StaticContent.md](../Documentation/Development/StaticContent.md) | `Engine/Source/Engine/ContentObfuscation.{h,cpp}`, `ContentPak.{h,cpp}` | Shipped-content obfuscation + single-archive `Content.pak`. Decode lives in `Stream::ReadFile` + `SYS_FileOpenRead`, so every platform incl. addon build targets is covered with no per-platform code |
 | Controller Server | [ControlServer.md](ControlServer.md) | `Engine/Source/Editor/ControllerServer/` | REST API for remote editor control, Crow HTTP server, addon route hooks |
 | Serial I/O | [Serial.md](Serial.md) | `Engine/Source/Serial/` + `Engine/Source/Engine/SerialManager.h` | Cross-platform COM / USB-CDC serial ports: enumerate, connect, send, opt-in receive, script + graph-node callbacks |
 | Loading Menu | [LoadingMenu.md](LoadingMenu.md) | `Engine/Source/Engine/LoadingMenu.{h,cpp}` | Scene-overlay loading screen orchestrator: persistent menu node, queued root swap, `Loading.*` SignalBus channels, AppSettings min-display + timeout |

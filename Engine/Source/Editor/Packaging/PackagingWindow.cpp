@@ -727,7 +727,35 @@ void PackagingWindow::DrawProfileSettings()
 
     // Content Pak builds on top of Static -- there is no point packing content
     // that isn't obfuscated, and the pak index reuses the same container.
-    if (profile->mStaticContent)
+    //
+    // With Embedded on, the pak's only remaining job is delivering the Vulkan
+    // shaders, which are the one thing embedding doesn't cover. Console backends
+    // compile their shaders in, so there Embedded is already a single
+    // deliverable and a pak beside it would carry nothing -- hide the checkbox
+    // rather than offer one that does nothing. Build-target addons whose
+    // embedded build is likewise self-contained can opt in via
+    // POLYPHASE_OPT_HIDE_CONTENT_PAK.
+    // basePlatform is a plain int across the addon C ABI.
+    const Platform basePlatform =
+        (activeTarget != nullptr) ? (Platform)activeTarget->mDesc.basePlatform
+                                  : profile->mTargetPlatform;
+
+    const auto hideOptIt = profile->mTargetOptions.find(POLYPHASE_OPT_HIDE_CONTENT_PAK);
+    const bool addonHidesPak =
+        (hideOptIt != profile->mTargetOptions.end() && hideOptIt->second == "1");
+
+    const bool pakRedundant =
+        profile->mEmbedded && (!PlatformUsesShaderFiles(basePlatform) || addonHidesPak);
+
+    if (profile->mStaticContent && pakRedundant && profile->mContentPak)
+    {
+        // Don't let a value saved while the checkbox was visible keep applying
+        // silently once it's hidden.
+        profile->mContentPak = false;
+        changed = true;
+    }
+
+    if (profile->mStaticContent && !pakRedundant)
     {
         ImGui::Indent();
         if (Polyphase::Checkbox("Content Pak", &profile->mContentPak))

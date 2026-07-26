@@ -244,6 +244,49 @@ static void Dreamcast_DrawProfileOptions(void* profilePtr)
 }
 ```
 
+### Static Content / Content Pak — nothing to implement, one flag to set
+
+Shipped packages can obfuscate their content (**Static Content**) and fold it
+into a single archive (**Content Pak**). Your target gets both **for free** — the
+decode lives in `Stream::ReadFile` and `SYS_FileOpenRead`, above the SYS layer,
+so even a target shipping its own `SYS_AcquireFileData` inherits it. Whatever
+`CookAsset` writes is picked up by the sweep/pack automatically. This was
+verified end-to-end on the Dreamcast target with zero addon changes.
+
+The one thing worth setting is a UI hint. Content Pak hides itself when
+**Embedded** is on and the target gains nothing from a pak — the only thing
+embedding doesn't cover is the Vulkan `.spv` shaders, and fixed-function console
+backends compile theirs in. The engine can't infer this:
+
+> `basePlatform` is a **cook-compat anchor**, not a statement about the runtime
+> backend. Dreamcast, PSP, PS2, PS3 and N64 all declare `Platform::Linux`; Xbox
+> declares `Platform::Windows`. But `BuildTarget-LinuxARM64` and
+> `BuildTarget-AndroidTV` are *genuine* Vulkan targets declaring the same values.
+> Nothing in that field distinguishes them.
+
+So if your target has no runtime shader files (i.e. it isn't Vulkan), opt in:
+
+```cpp
+// Anywhere the target initialises its profile settings — e.g. DrawProfileOptions.
+ctx->SetProfileSetting(POLYPHASE_OPT_HIDE_CONTENT_PAK, "1");   // "polyphase.hideContentPak"
+```
+
+It rides the existing `mTargetOptions` map, so there's **no
+`POLYPHASE_BUILD_TARGET_API_VERSION` bump** and no descriptor change. Omitting it
+is harmless — the checkbox just appears where it isn't useful.
+
+Two things to be aware of when your target ships content:
+
+- **Raw assets stay plain.** `.mp4` / `.json` / `.png` / `.rcss` are never
+  obfuscated or packed, because addon code opens them with its own I/O. Only
+  `.oct`, `.lua`, the registry, shaders and the `.octp` are protected.
+- **If your runtime reads content itself**, go through `Stream::ReadFile` (whole
+  file) or `SYS_FileOpenRead`/`Read`/`Seek` (chunked). A raw `fopen` will read
+  encrypted bytes, or find nothing once a pak has pruned the loose tree.
+  `SYS_FileSeek` offsets are in **decoded** space.
+
+Full reference: `Documentation/Development/StaticContent.md`.
+
 ### CookAsset override — when and how
 
 `basePlatform` is enough for ~80% of homebrew targets. Override only when

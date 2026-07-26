@@ -373,7 +373,9 @@ public:
      * nor their names. Raw assets, Config.ini, the .octp and shaders stay loose.
      * On any failure nothing is pruned and the build falls back to loose content.
      */
-    bool PackPackagedContent(const std::string& packagedDir, const std::string& projectName);
+    bool PackPackagedContent(const std::string& packagedDir,
+                             const std::string& projectName,
+                             bool contentIsEmbedded);
 
 protected:
 

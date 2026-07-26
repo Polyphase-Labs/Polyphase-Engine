@@ -163,7 +163,19 @@ bool ContentPak::Mount(const char* pakPath)
 
     if (pakPath == nullptr) return false;
 
+    // Try the raw path first (works where the CWD is already the content root),
+    // then the platform-resolved one. 3DS needs "romfs:/" prepended and PS2 a
+    // "host:" device prefix, which SYS_GetAbsolutePath supplies -- without this
+    // the pak simply fails to open on those targets.
+    std::string resolvedPath = pakPath;
     FILE* file = fopen(pakPath, "rb");
+
+    if (file == nullptr)
+    {
+        resolvedPath = SYS_GetAbsolutePath(pakPath);
+        file = fopen(resolvedPath.c_str(), "rb");
+    }
+
     if (file == nullptr) return false;
 
     uint8_t header[kHeaderSize] = { };
@@ -221,7 +233,8 @@ bool ContentPak::Mount(const char* pakPath)
     sPathBlob.assign(index.begin() + recordBytes, index.begin() + decodedSize);
 
     sPakFile = file;
-    sPakPath = pakPath;
+    // Store what actually opened, so streaming handles reopen the same file.
+    sPakPath = resolvedPath;
     if (sPakMutex == nullptr)
     {
         sPakMutex = SYS_CreateMutex();

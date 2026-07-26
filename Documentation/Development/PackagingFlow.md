@@ -44,7 +44,13 @@ BuildData()
 [7] Copy Project Files (.octp, Config.ini)
     |
     v
-[8] Handle Platform-Specific Tasks (shaders, romfs)
+[8] Handle Platform-Specific Tasks (shaders)
+    |
+    v
+[8b] Static Content / Content Pak (if enabled)
+    |
+    v
+[8c] Romfs copy (3DS)
     |
     v
 [9] Compile Executable (if needed)
@@ -140,9 +146,29 @@ Copies to packaged directory:
 1. Compiles SPIR-V shaders via `compile.bat` (Windows) or `compile.sh` (Linux)
 2. Copies shader binaries to `{PackagedDir}/Engine/Shaders/GLSL/bin/`
 
+#### Static Content / Content Pak
+If the profile enables **Static Content**, shipped content is obfuscated here —
+either wrapped in place (`ObfuscatePackagedContent`) or folded into a single
+`Content.pak` with the loose copies deleted (`PackPackagedContent`).
+
+**This step's position is load-bearing:**
+- It must run **after** Step 5 (embedded generators). `ConvertFileToByteString`
+  reads cooked files back through `Stream::ReadFile`, which decodes — sweeping
+  first would make the generators emit plaintext byte arrays.
+- It must run **before** the romfs copy below, which clones the whole packaged
+  directory. Running after it ships 3DS in the clear.
+
+See [StaticContent.md](StaticContent.md) for the format, runtime decode sites and
+the build-target addon opt-in.
+
 #### Nintendo 3DS with Romfs
 If `useRomfs` (N3DS + embedded):
 - Copies all packaged content to `{IntermediateDir}/Romfs/`
+
+Note `useRomfs = (platform == N3DS) && embedded`, and the embedded byte arrays in
+Step 5 are gated on `embedded && !useRomfs`. So on 3DS "embedded" routes content
+through romfs as **loose files** rather than compiling it into the executable —
+anything that treats `embedded` as "content is in the binary" is wrong there.
 
 **Intermediate Directory:**
 - Standalone: `{PolyphaseDir}/Standalone/Intermediate`
