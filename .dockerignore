@@ -5,6 +5,16 @@ Engine/Build/
 External/Assimp/Build/
 External/Bullet/Build/
 
+# Host-compiled intermediate .o files under External/. The Bullet/Assimp
+# Linux Makefiles wildcard-glob these into the .so link (see
+# Engine/Makefile_Linux BULLET_OFILES). COPY preserves mtimes so container
+# make treats stale host .o's as up-to-date and skips rebuild. If the host
+# ran a newer toolchain (e.g. Ubuntu 24.04 GCC 13 / glibc 2.39) the .o's
+# reference symbols that don't exist in Bookworm (__isoc23_strtoll,
+# std::ios_base_library_init) and the editor exe link fails.
+External/Bullet/Intermediate/
+External/Assimp/Intermediate/
+
 # Stale host build artifacts under External/ — the container regenerates
 # these from source (Dockerfile runs prebuild_libgit2.sh, make -C
 # External/Lua, etc). A leftover CMakeCache.txt from a host build points
