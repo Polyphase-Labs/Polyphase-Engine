@@ -441,6 +441,30 @@ void BindScreenOrientation()
     OCT_ASSERT(lua_gettop(L) == 0);
 }
 
+void BindTargetScreen()
+{
+    lua_State* L = GetLua();
+    OCT_ASSERT(lua_gettop(L) == 0);
+
+    lua_newtable(L);
+    int tableIdx = lua_gettop(L);
+
+    // Matches Node::mTargetScreen. Only 3DS has a second screen; everywhere else
+    // everything renders on screen 0 regardless of what this is set to.
+    lua_pushinteger(L, 0);
+    lua_setfield(L, tableIdx, "Top");
+
+    lua_pushinteger(L, 1);
+    lua_setfield(L, tableIdx, "Bottom");
+
+    lua_pushinteger(L, 0xFF);
+    lua_setfield(L, tableIdx, "All");
+
+    lua_setglobal(L, "TargetScreen");
+
+    OCT_ASSERT(lua_gettop(L) == 0);
+}
+
 void BindParticleOrientation()
 {
     lua_State* L = GetLua();
@@ -580,6 +604,7 @@ void Misc_Lua::BindMisc()
     BindNetFuncType();
     BindJustification();
     BindScreenOrientation();
+    BindTargetScreen();
     BindParticleOrientation();
     BindNetConstants();
     BindAttenuationFunc();

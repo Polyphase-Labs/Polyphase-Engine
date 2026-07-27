@@ -17,15 +17,9 @@ function Renderer.GetFrameNumber() end
 ---@return integer
 function Renderer.GetFrameIndex() end
 
----@return integer
-function Renderer.GetScreenIndex() end
-
----@param screenIndex? integer
+---@param screenIndex integer
 ---@return Vector
 function Renderer.GetScreenResolution(screenIndex) end
-
----@return Vector
-function Renderer.GetActiveScreenResolution() end
 
 ---@param screenIndex? integer
 ---@return integer, integer, integer, integer

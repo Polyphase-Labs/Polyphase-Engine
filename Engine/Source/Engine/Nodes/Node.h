@@ -195,6 +195,13 @@ public:
     uint8_t GetTargetScreen() const { return mTargetScreen; }
     void SetTargetScreen(uint8_t screen) { mTargetScreen = screen; }
 
+    // Target Screen is authored on scene-root-level nodes and is NOT inherited, so
+    // reading it off a nested node always gives the default 0. This walks up to the
+    // direct child of the scene root, which is the granularity the renderer's screen
+    // filter prunes at, and reports the screen that node actually renders on.
+    // Pass a scene root explicitly to stop there; otherwise the node's world root is used.
+    uint8_t GetEffectiveTargetScreen(Node* sceneRoot = nullptr);
+
     std::vector<NetDatum>& GetReplicatedData();
 
     void SetNetId(NetId id);

@@ -88,28 +88,20 @@ int Renderer_Lua::GetFrameIndex(lua_State* L)
     return 1;
 }
 
-int Renderer_Lua::GetScreenIndex(lua_State* L)
-{
-    uint32_t ret = Renderer::Get()->GetScreenIndex();
-
-    lua_pushinteger(L, ret);
-    return 1;
-}
+// Deliberately not exposed to Lua: GetScreenIndex and GetActiveScreenResolution.
+// Both resolve through Renderer::mScreenIndex, which is only assigned inside
+// Renderer::Render. Every Lua entry point (Tick, BeginPlay, ...) runs during the
+// world update, before the render loop, so from a script they report a stale value
+// from the previous frame rather than anything about the caller. Scripts should use
+// Node:GetEffectiveTargetScreen() and pass an explicit index to GetScreenResolution.
 
 int Renderer_Lua::GetScreenResolution(lua_State* L)
 {
-    int32_t screenIndex = -1;
-    if (!lua_isnone(L, 1)) { screenIndex = CHECK_INDEX(L, 1); }
+    // Index is required. Omitting it used to fall through to the currently-rendering
+    // screen, which is meaningless outside the render pass.
+    int32_t screenIndex = CHECK_INDEX(L, 1);
 
     glm::vec2 res = Renderer::Get()->GetScreenResolution(screenIndex);
-
-    Vector_Lua::Create(L, res);
-    return 1;
-}
-
-int Renderer_Lua::GetActiveScreenResolution(lua_State* L)
-{
-    glm::vec2 res = Renderer::Get()->GetActiveScreenResolution();
 
     Vector_Lua::Create(L, res);
     return 1;
@@ -433,11 +425,7 @@ void Renderer_Lua::Bind()
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetFrameIndex);
 
-    REGISTER_TABLE_FUNC(L, tableIdx, GetScreenIndex);
-
     REGISTER_TABLE_FUNC(L, tableIdx, GetScreenResolution);
-
-    REGISTER_TABLE_FUNC(L, tableIdx, GetActiveScreenResolution);
 
     REGISTER_TABLE_FUNC(L, tableIdx, GetViewportRect);
 

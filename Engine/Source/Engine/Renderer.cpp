@@ -866,21 +866,9 @@ bool Renderer::PassesTargetScreenFilter(Node* node, World* world) const
         return true;
     }
 
-    Node* root = world->GetRootNode();
-    Node* sceneRoot = node;
-
-    while (sceneRoot != nullptr && sceneRoot->GetParent() != root)
-    {
-        sceneRoot = sceneRoot->GetParent();
-    }
-
-    if (sceneRoot == nullptr)
-    {
-        // Not parented under the world root (or it is the root) -- no screen to test.
-        return true;
-    }
-
-    uint8_t targetScreen = sceneRoot->GetTargetScreen();
+    // Resolve against the world we are actually rendering rather than node->GetWorld(),
+    // since on 3DS world 0 gets rendered a second time for the bottom screen.
+    uint8_t targetScreen = node->GetEffectiveTargetScreen(world->GetRootNode());
     return (targetScreen == (uint8_t)mTargetScreenFilter || targetScreen == 0xFF);
 }
 

@@ -91,6 +91,26 @@ Returns the World that the node is currently in. Returns nil if not part of a Wo
 Sig: `world = Node:GetWorld()`
  - Ret: `World world` Current world 
 ---
+### SetTargetScreen
+Set which 3DS screen this node's subtree renders on. Only meaningful on a scene-root-level node, meaning a direct child of the world root, because that is the granularity the renderer filters at. Use the `TargetScreen` table: `TargetScreen.Top` (0), `TargetScreen.Bottom` (1), or `TargetScreen.All` (255) for something that should appear on both. Has no effect on platforms without a second screen.
+
+Sig: `Node:SetTargetScreen(screen)`
+ - Arg: `integer screen` Target screen
+---
+### GetTargetScreen
+Returns the screen this node renders on, as a `TargetScreen` value. Works from any node in the tree, including nodes nested deep inside a child scene, because it resolves up to the scene-root-level ancestor that owns the setting.
+
+Note this is not the same as the C++ `Node::GetTargetScreen()`, which returns the node's own raw property. Lua gets the resolved answer, which is the only thing script code ever wants. The C++ equivalent is `Node::GetEffectiveTargetScreen()`.
+
+Sig: `screen = Node:GetTargetScreen()`
+ - Ret: `integer screen` Target screen
+---
+### GetScreenResolution
+Returns the resolution of the screen this node renders on, so you don't have to map a target screen onto a screen index yourself. A node set to `TargetScreen.All` reports the main screen.
+
+Sig: `res = Node:GetScreenResolution()`
+ - Ret: `Vector res` Screen resolution (width in x, height in y)
+---
 ### GetParent
 Returns this node's parent node.
 

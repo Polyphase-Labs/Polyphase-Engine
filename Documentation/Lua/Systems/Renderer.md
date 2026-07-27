@@ -34,16 +34,12 @@ Get the frame index. Either 0 or 1.
 Sig: `index = Renderer.GetFrameIndex()`
  - Ret: `integer index` Frame index
 ---
-### GetScreenIndex
-Get the screen index that is currently being rendered to. Not sure if this is useful to Lua code.
-
-Sig: `index = Renderer.GetScreenIndex()`
- - Ret: `integer index` Screen index being rendered
----
 ### GetScreenResolution
-Get the screen resolution.
+Get the resolution of a specific screen. The index is required: 1 is the main screen, 2 is the 3DS bottom screen. This matches `Engine.GetWorld`.
 
-Sig: `res = Renderer.GetScreenResolution(index=1)`
+If you just want the size of the screen a node is on, `Node:GetScreenResolution()` does it in one call with no index maths.
+
+Sig: `res = Renderer.GetScreenResolution(index)`
  - Arg: `integer index` Screen index
  - Ret: `Vector res` Screen resolution (width in x, height in y)
 ---

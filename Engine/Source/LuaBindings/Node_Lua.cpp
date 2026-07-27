@@ -1,6 +1,7 @@
 #include "EngineTypes.h"
 #include "Log.h"
 #include "Engine.h"
+#include "Renderer.h"
 
 #include "Nodes/Node.h"
 #include "Assets/Scene.h"
@@ -9,6 +10,7 @@
 #include "LuaBindings/Node_Lua.h"
 #include "LuaBindings/Node3d_Lua.h"
 #include "LuaBindings/World_Lua.h"
+#include "LuaBindings/Vector_Lua.h"
 
 #if LUA_ENABLED
 
@@ -403,6 +405,46 @@ int Node_Lua::GetWorld(lua_State* L)
     World* world = node->GetWorld();
 
     World_Lua::Create(L, world);
+    return 1;
+}
+
+int Node_Lua::SetTargetScreen(lua_State* L)
+{
+    Node* node = CHECK_NODE(L, 1);
+    int32_t screen = CHECK_INTEGER(L, 2);
+
+    node->SetTargetScreen((uint8_t)screen);
+
+    return 0;
+}
+
+int Node_Lua::GetTargetScreen(lua_State* L)
+{
+    Node* node = CHECK_NODE(L, 1);
+
+    // Deliberately the resolved value, not the raw mTargetScreen that the C++ getter
+    // of the same name returns. Target Screen is only authored on scene-root-level
+    // nodes, so the raw value reads 0 on everything nested underneath and scripts get
+    // a wrong answer that looks plausible. Lua only ever wants "which screen am I on".
+    uint8_t screen = node->GetEffectiveTargetScreen();
+
+    lua_pushinteger(L, screen);
+    return 1;
+}
+
+int Node_Lua::GetScreenResolution(lua_State* L)
+{
+    Node* node = CHECK_NODE(L, 1);
+
+    uint8_t screen = node->GetEffectiveTargetScreen();
+
+    // A node marked for all screens has no single resolution. Report the main screen,
+    // which is the one it is guaranteed to appear on.
+    int32_t screenIndex = (screen == 1) ? 1 : 0;
+
+    glm::vec2 res = Renderer::Get()->GetScreenResolution(screenIndex);
+
+    Vector_Lua::Create(L, res);
     return 1;
 }
 
@@ -1197,6 +1239,12 @@ void Node_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, IsPersistent);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetWorld);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, SetTargetScreen);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetTargetScreen);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetScreenResolution);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetParent);
 

@@ -38,6 +38,9 @@ struct POLYPHASE_API Node_Lua
     static int SetPersistent(lua_State* L);
     static int IsPersistent(lua_State* L);
     static int GetWorld(lua_State* L);
+    static int SetTargetScreen(lua_State* L);
+    static int GetTargetScreen(lua_State* L);
+    static int GetScreenResolution(lua_State* L);
 
     static int GetParent(lua_State* L);
     static int Attach(lua_State* L);

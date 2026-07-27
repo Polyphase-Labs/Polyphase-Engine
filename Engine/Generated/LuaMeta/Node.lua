@@ -42,6 +42,15 @@ function Node:IsPersistent() end
 ---@return World
 function Node:GetWorld() end
 
+---@param screen integer
+function Node:SetTargetScreen(screen) end
+
+---@return integer
+function Node:GetTargetScreen() end
+
+---@return Vector
+function Node:GetScreenResolution() end
+
 ---@return Node
 function Node:GetParent() end
 

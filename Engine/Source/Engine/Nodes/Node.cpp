@@ -1303,6 +1303,31 @@ Scene* Node::GetScene()
     return mScene.Get<Scene>();
 }
 
+uint8_t Node::GetEffectiveTargetScreen(Node* sceneRoot)
+{
+    if (sceneRoot == nullptr)
+    {
+        World* world = GetWorld();
+        sceneRoot = world ? world->GetRootNode() : nullptr;
+    }
+
+    Node* node = this;
+
+    while (node != nullptr && node->GetParent() != sceneRoot)
+    {
+        node = node->GetParent();
+    }
+
+    // Detached, or we are the scene root ourselves. Nothing above us to inherit from,
+    // so our own value is the best answer.
+    if (node == nullptr)
+    {
+        return mTargetScreen;
+    }
+
+    return node->GetTargetScreen();
+}
+
 std::vector<NetDatum>& Node::GetReplicatedData()
 {
     return mReplicatedData;

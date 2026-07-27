@@ -131,30 +131,50 @@ Engine.GetWorld(2):LoadScene("BottomHUD")
 ### Querying Screen State
 
 ```lua
--- Get the screen index currently being rendered (0 or 1)
-local screenIdx = Renderer.GetScreenIndex()
+-- Which screen a node renders on (TargetScreen.Top / .Bottom / .All)
+local screen = someNode:GetTargetScreen()
 
--- Get resolution of a specific screen (1-indexed)
+-- Resolution of the screen that node is on
+local res = someNode:GetScreenResolution()
+
+-- Or a specific screen by index (1-indexed, matching Engine.GetWorld)
 local topRes = Renderer.GetScreenResolution(1)    -- Vector(400, 240)
 local botRes = Renderer.GetScreenResolution(2)    -- Vector(320, 240)
-
--- Get resolution of the screen currently being rendered
-local activeRes = Renderer.GetActiveScreenResolution()
 ```
+
+> **`GetScreenIndex` and `GetActiveScreenResolution` are not exposed to Lua.** Both resolve through
+> `Renderer::mScreenIndex`, which is assigned inside `Renderer::Render` and never reset afterwards.
+> Every Lua entry point runs during `World::Update`, before the render loop, so from a script they
+> could only ever return a stale value from the previous frame. In the editor that value settles
+> back to 0 every frame, which is why logging `GetScreenIndex()` from scripts on two different
+> screens printed `0` both times. The C++ accessors remain and are used by `Widget` and `Text`
+> during rendering, where they are correct.
+>
+> For the same reason `Renderer.GetScreenResolution` requires an explicit index. Omitting it
+> previously fell through to the currently-rendering screen.
+
+Note that Lua's `Node:GetTargetScreen()` maps to C++ `Node::GetEffectiveTargetScreen()`, not to the
+C++ getter of the same name. The raw property is only authored on scene-root-level nodes, so
+exposing it directly would report `Top` from every node nested inside a bottom-screen scene. Script
+code only ever wants the resolved answer, so that is what the single Lua name gives it.
 
 ### Adaptive UI Example
 
-Because the two screens have different widths (400 vs 320), you may need to adjust widget layouts:
+Because the two screens have different widths (400 vs 320), you may need to adjust widget layouts.
+Ask the node for its own screen size:
 
 ```lua
-function OnStart(self)
-    local res = Renderer.GetActiveScreenResolution()
+function StatusBar:Start()
+    local res = self:GetScreenResolution()
 
     -- Center a widget horizontally regardless of screen width
     local widget = self:FindChild("StatusBar")
     widget:SetPosition(res.x / 2, widget:GetPosition().y)
 end
 ```
+
+A node set to `TargetScreen.All` (255) has no single resolution, so `GetScreenResolution` reports
+the main screen for it.
 
 ## New 3DS Detection
 
