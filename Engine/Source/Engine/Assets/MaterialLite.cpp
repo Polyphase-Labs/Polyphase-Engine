@@ -287,6 +287,16 @@ void MaterialLite::Create()
         {
             if (mLiteParams.mTextures[i].Get() == nullptr)
             {
+                // Slot 0 is what the fixed-function backends (C3D/GX) sample with
+                // GPU_REPLACE, so a white backfill there is indistinguishable from
+                // "the texture ref didn't resolve" -- the surface just draws flat
+                // white with nothing in the log. Say it once, at load.
+                if (i < uint32_t(mLiteParams.mNumTextures))
+                {
+                    LogWarning("Material '%s' texture slot %u did not resolve; using white",
+                        GetName().c_str(), i);
+                }
+
                 mLiteParams.mTextures[i] = renderer->mWhiteTexture;
             }
         }

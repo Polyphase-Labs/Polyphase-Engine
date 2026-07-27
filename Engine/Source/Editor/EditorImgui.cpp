@@ -5415,10 +5415,13 @@ static void DrawScenePanel()
 
         bool drawTreeNode = true;
 
-        // Screen filter: hide subtrees targeting a different screen
+        // Screen filter: hide subtrees targeting a different screen.
+        // 0xFF means "all screens" (Skybox3D sets it) -- same exemption the
+        // renderer's filter uses, so the outliner matches the viewport.
         if (GetEditorState()->mSceneScreenFilter >= 0 && node->GetParent() == rootNode)
         {
-            if (node->GetTargetScreen() != (uint8_t)GetEditorState()->mSceneScreenFilter)
+            if (node->GetTargetScreen() != (uint8_t)GetEditorState()->mSceneScreenFilter &&
+                node->GetTargetScreen() != 0xFF)
             {
                 return; // Skip this subtree entirely in the hierarchy
             }
@@ -9368,6 +9371,24 @@ static void DrawPropertiesPanel()
 
                 std::vector<Property> props;
                 obj->GatherProperties(props);
+
+                // "Target Screen" only does anything on an instantiated child scene
+                // sitting under the scene root -- that's the granularity Renderer's
+                // screen filter prunes at. Hide it elsewhere so it isn't set on a
+                // Canvas or a deep node where it would silently do nothing. Only the
+                // UI is filtered: GatherProperties must keep emitting it, because
+                // Scene::Instantiate gathers before the node is parented and would
+                // otherwise drop every stored override.
+                if (Node* propNode = obj->As<Node>())
+                {
+                    if (!propNode->IsSceneLinked(false))
+                    {
+                        props.erase(
+                            std::remove_if(props.begin(), props.end(),
+                                [](const Property& prop) { return prop.mName == "Target Screen"; }),
+                            props.end());
+                    }
+                }
 
                 DrawPropertyList(obj, props);
 

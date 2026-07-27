@@ -186,16 +186,11 @@ static Camera3D* FindCameraForScreen(World* world, uint8_t targetScreen)
     if (world == nullptr)
         return nullptr;
 
-    std::vector<Camera3D*> cameras;
-    world->FindNodes(cameras);
-
-    for (Camera3D* cam : cameras)
-    {
-        if (cam->GetTargetScreen() == targetScreen)
-            return cam;
-    }
-
-    return nullptr;
+    // Same subtree-based lookup the runtime uses, so the preview matches the
+    // device. Matching on the camera's own Target Screen doesn't work: the
+    // property isn't inherited, so a camera inside a bottom-screen scene still
+    // reports 0 and the bottom pane would show the top camera.
+    return world->FindCameraForScreen(targetScreen);
 }
 
 void SecondScreenPreview::UpdateScreen(ScreenState& screen, uint8_t targetScreen, float deltaTime)

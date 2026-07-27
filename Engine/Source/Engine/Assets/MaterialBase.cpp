@@ -914,6 +914,20 @@ MaterialLite* MaterialBase::GetLiteFallback() const
 
     if (retLite == nullptr)
     {
+        // mLiteFallback is not serialized yet (see the TODOs in Save/LoadStream),
+        // so any MaterialBase loaded from disk lands here. On the fixed-function
+        // backends (C3D/GX) Material::AsLite routes every draw through this, which
+        // means the mesh silently renders with M_Default's white texture. Vulkan
+        // never calls AsLite, so it only shows up on console builds.
+        static bool sWarnedLiteFallback = false;
+
+        if (!sWarnedLiteFallback)
+        {
+            sWarnedLiteFallback = true;
+            LogWarning("MaterialBase '%s' has no Lite Fallback; falling back to M_Default. "
+                       "Meshes using it will render untextured on GX/C3D.", GetName().c_str());
+        }
+
         retLite = LoadAsset<MaterialLite>("M_Default");
     }
 

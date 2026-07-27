@@ -35,6 +35,25 @@ The world index directly maps to the screen index. This mapping is fixed and can
 
 The `SUPPORTS_SECOND_SCREEN` constant is set to `1` only for the Citro3D graphics backend (3DS). All other backends set it to `0`.
 
+### Resolution order
+
+At startup the engine loads the default scene into **world 0 only** (`Engine.cpp`,
+the `#if !EDITOR` block). World 1 is created but stays empty unless the game fills
+it. So there are two ways content reaches the bottom screen, and they compose:
+
+1. **Explicit — the game populates world 1.** `Engine.GetWorld(2):SetRootNode(node)`
+   or `Engine.GetWorld(2):LoadScene("BottomHUD")`. This world is rendered on
+   screen 1 as-is, with no screen filtering. It always wins.
+2. **Authored — Target Screen on scene roots.** If world 1 has no root node, the
+   render loop renders **world 0 again** for screen 1, and `Renderer` sets
+   `mTargetScreenFilter = screenIndex` so each scene-root subtree is pruned to the
+   screen it was assigned in the editor. This is what makes a scene authored with
+   `TopScreen` / `BottomScreen` child scenes work on hardware without any script.
+
+In case 2 the world's single active camera can't serve both screens, so
+`Renderer::Render` temporarily installs `World::FindCameraForScreen(screenIndex)`
+as the world's camera override for the duration of that screen's pass.
+
 ## Stereoscopic 3D
 
 ### How It Works
@@ -152,7 +171,7 @@ The following aspects are **hardcoded and cannot be changed at runtime**:
 
 - **Screen resolutions** -- 400x240 (top) and 320x240 (bottom) are fixed by hardware
 - **Number of screens** -- always 2 on 3DS
-- **World-to-screen mapping** -- world index always equals screen index
+- **World-to-screen mapping** -- world index always equals screen index (an empty world 1 falls back to rendering world 0 with the Target Screen filter; it cannot be remapped)
 - **Stereoscopic 3D** -- always enabled on the top screen; the hardware slider is the only control
 - **No wide mode** or screen layout configuration API
 
@@ -171,7 +190,7 @@ During Play-In-Editor, all scenes live in a single shared game world. The 3DS Pr
 
 The filter is applied in `GatherDrawData()`: when `mTargetScreenFilter >= 0`, direct children of the world root whose `GetTargetScreen()` does not match the filter are skipped entirely (including their whole subtree of 3D nodes and widgets).
 
-On actual 3DS hardware, the two worlds are already separate, so the filter acts as a safety net (set to `screenIndex` via `SUPPORTS_SECOND_SCREEN`).
+On actual 3DS hardware `Renderer::Render` arms the same filter with `mTargetScreenFilter = screenIndex` (guarded by `SUPPORTS_SECOND_SCREEN && !EDITOR`), so the device and the preview panel apply identical rules. When the game has populated world 1 explicitly, that world holds only its own content and the filter is a no-op for it.
 
 ### Scene Panel Screen Filter
 
@@ -189,7 +208,13 @@ During PIE, the viewport filter is disabled (shows everything), but the 3DS Prev
 
 ### Target Screen Property
 
-Set `mTargetScreen` on scene root nodes to control which 3DS screen the subtree renders on. The convention matches `FindSceneForScreen()`: root children with `GetTargetScreen() == 0` are top-screen, `1` are bottom-screen.
+Set `mTargetScreen` on scene root nodes to control which 3DS screen the subtree renders on. The convention matches `FindSceneForScreen()`: root children with `GetTargetScreen() == 0` are top-screen, `1` are bottom-screen. `0xFF` means "all screens" (`Skybox3D` sets it in its constructor).
+
+Three constraints follow from how the filter works, and they are easy to trip over:
+
+- **It is only read on direct children of the world root.** `GatherDrawData` checks `node->GetParent() == world->GetRootNode()`. Setting Target Screen on a deeper node does nothing.
+- **It is not inherited.** There is no resolved/effective-screen walk — a `Camera3D` or `Canvas` nested inside a bottom-screen scene still reports `0`. That is why per-screen camera lookup goes through `World::FindCameraForScreen`, which matches by *subtree membership* rather than the camera's own value. The one exception is `UIDocument::Mount`, which push-copies the parent's value onto a mounted widget tree.
+- **The inspector only exposes it on instantiated child scenes.** `EditorImgui.cpp` strips the property row for any node where `IsSceneLinked(false)` is false, so artists set it on the scene instance in the hierarchy and never need to set it on an inner `Canvas`. `Node::GatherProperties` still emits it unconditionally — `Scene::Instantiate` gathers properties *before* the node is parented, so gating the gather itself would silently drop every stored override on load.
 
 ### UIDocument Interaction
 
@@ -204,7 +229,8 @@ When a UIDocument is mounted to a widget via `UIDocument::Mount()`, the entire w
 | `Engine/Source/Graphics/C3D/C3dTypes.h` | `C3dContext` struct (render targets, IOD, current screen) |
 | `Engine/Source/Graphics/GraphicsConstants.h` | `SUPPORTS_SECOND_SCREEN` constant |
 | `Engine/Source/Engine/Engine.cpp` | World creation and render loop |
-| `Engine/Source/Engine/Renderer.cpp` | Screen index tracking, resolution queries, `mTargetScreenFilter` |
+| `Engine/Source/Engine/Renderer.cpp` | Screen index tracking, resolution queries, `mTargetScreenFilter`, per-screen camera override |
+| `Engine/Source/Engine/World.cpp` | `World::FindCameraForScreen` (subtree-based per-screen camera lookup) |
 | `Engine/Source/Engine/EngineTypes.h` | `mWindowWidth/Height`, `mSecondWindowWidth/Height` |
 | `Engine/Source/System/SystemTypes.h` | `SystemState` 3DS fields (`mSlider`, `mNew3DS`) |
 | `Engine/Source/LuaBindings/Renderer_Lua.cpp` | `GetScreenIndex`, `GetScreenResolution` bindings |

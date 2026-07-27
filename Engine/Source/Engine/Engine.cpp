@@ -1108,7 +1108,21 @@ bool Update()
         SCOPED_FRAME_STAT("Render");
         for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
         {
-            Renderer::Get()->Render(sWorlds[i], i);
+            World* renderWorld = sWorlds[i];
+
+#if PLATFORM_3DS
+            // A game that drives the screens explicitly (Engine.GetWorld(2):SetRootNode /
+            // :LoadScene) owns this world and wins. Otherwise the whole scene was loaded
+            // into world 0, and its subtrees carry the authored Target Screen -- so render
+            // world 0 again here and let Renderer's screen filter pick out this screen's
+            // half. Without this the second screen just draws an empty world.
+            if (renderWorld->GetRootNode() == nullptr)
+            {
+                renderWorld = sWorlds[0];
+            }
+#endif
+
+            Renderer::Get()->Render(renderWorld, i);
         }
     }
 

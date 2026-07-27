@@ -1767,6 +1767,56 @@ Camera3D* World::GetActiveCamera()
     return mActiveCamera;
 }
 
+Camera3D* World::FindCameraForScreen(uint8_t targetScreen)
+{
+    // Target Screen is authored on the scene-root-level nodes only and is not
+    // inherited, so a camera nested inside a bottom-screen scene still reports 0.
+    // Match the subtree the way Renderer's screen filter prunes it, then take the
+    // camera from inside that subtree.
+    if (mRootNode == nullptr)
+    {
+        return nullptr;
+    }
+
+    Camera3D* mainCam = nullptr;
+    Camera3D* firstCam = nullptr;
+
+    const std::vector<NodePtr>& children = mRootNode->GetChildren();
+
+    for (uint32_t i = 0; i < children.size(); ++i)
+    {
+        Node* child = children[i].Get();
+
+        if (child == nullptr ||
+            child->GetTargetScreen() != targetScreen)
+        {
+            continue;
+        }
+
+        child->Traverse([&](Node* node) -> bool
+        {
+            Camera3D* cam = node->As<Camera3D>();
+
+            if (cam != nullptr)
+            {
+                if (firstCam == nullptr)
+                {
+                    firstCam = cam;
+                }
+
+                if (mainCam == nullptr && cam->GetIsMainCamera())
+                {
+                    mainCam = cam;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    return (mainCam != nullptr) ? mainCam : firstCam;
+}
+
 Node3D* World::GetAudioReceiver()
 {
     if (mAudioReceiver != nullptr)

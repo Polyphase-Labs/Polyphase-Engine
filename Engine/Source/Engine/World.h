@@ -34,10 +34,12 @@ public:
     Camera3D* GetMainCamera();
 
     Camera3D* GetActiveCamera();
+    Camera3D* FindCameraForScreen(uint8_t targetScreen);
     Node3D* GetAudioReceiver();
 
     void SetActiveCamera(Camera3D* activeCamera);
     void SetCameraOverride(Camera3D* camera) { mCameraOverride = camera; }
+    Camera3D* GetCameraOverride() const { return mCameraOverride; }
     void SetAudioReceiver(Node3D* newReceiver);
 
     Node* SpawnNode(TypeId actorType, glm::vec3 position = {});

@@ -548,6 +548,13 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
     if (texture->GetFormat() == PixelFormat::RGBA8 &&
         data.size() == size_t(texture->GetWidth()) * size_t(texture->GetHeight()) * 4)
     {
+        // This branch is entered on pixel size alone, so a cooked asset that
+        // somehow arrived as raw RGBA8 (cooked for the wrong platform, or an
+        // older asset version) lands here and gets an empty texture with no
+        // other diagnostic. Name it so that case is identifiable in the log.
+        LogDebug("Streaming texture path for '%s' (%ux%u)",
+            texture->GetName().c_str(), texture->GetWidth(), texture->GetHeight());
+
         // Next-power-of-two helper. Caps at 1024 (3DS GPU max).
         auto nextPow2 = [](uint32_t v) -> uint32_t {
             if (v <= 8u) return 8u;
@@ -617,7 +624,8 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
 
     if (!t3x)
     {
-        LogError("Failed to import t3x file");
+        LogError("Failed to import t3x for '%s' (%ux%u, %u bytes) -- it will draw untextured",
+            texture->GetName().c_str(), texture->GetWidth(), texture->GetHeight(), (uint32_t)data.size());
     }
 
     // Delete the t3x object since we don't need it

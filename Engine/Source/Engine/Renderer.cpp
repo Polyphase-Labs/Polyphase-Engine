@@ -1327,6 +1327,35 @@ void Renderer::Render(World* world, int32_t screenIndex)
 
     mTargetScreenFilter = -1;
 
+#if SUPPORTS_SECOND_SCREEN && !EDITOR
+    // One world per screen is the primary mechanism, but a scene authored in the
+    // editor with per-node Target Screen lives entirely in world 0. When the game
+    // hasn't populated the second world, Engine.cpp hands us world 0 again for
+    // screen 1, and this filter prunes each scene-root subtree to the screen it
+    // was assigned. Harmless when the worlds really are separate -- an authored
+    // single-screen scene keeps the default Target Screen of 0.
+    mTargetScreenFilter = screenIndex;
+#endif
+
+    // When world 0 is being rendered for both screens, the world's single active
+    // camera can only serve one of them. Point it at the camera inside the
+    // subtree we're about to draw for the duration of this screen -- the C3D
+    // backend reads World::GetActiveCamera() directly, so overriding on the world
+    // is what keeps the projection matrices in sync with the filtered draw list.
+    Camera3D* prevCameraOverride = world->GetCameraOverride();
+    bool restoreCameraOverride = false;
+
+    if (mTargetScreenFilter > 0 && prevCameraOverride == nullptr)
+    {
+        Camera3D* screenCamera = world->FindCameraForScreen((uint8_t)mTargetScreenFilter);
+
+        if (screenCamera != nullptr)
+        {
+            world->SetCameraOverride(screenCamera);
+            restoreCameraOverride = true;
+        }
+    }
+
     bool inGame = IsGameTickEnabled();
     float gameDeltaTime = GetEngineState()->mGameDeltaTime;
     float realDeltatime = GetEngineState()->mRealDeltaTime;
@@ -1634,6 +1663,11 @@ void Renderer::Render(World* world, int32_t screenIndex)
     }
 
     UpdateDebugDraws();
+
+    if (restoreCameraOverride)
+    {
+        world->SetCameraOverride(prevCameraOverride);
+    }
 
     mTargetScreenFilter = -1;
     mCurrentWorld = nullptr;
