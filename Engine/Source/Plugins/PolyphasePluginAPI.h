@@ -50,7 +50,15 @@
 //     world-space point into the editor viewport's window-space
 //     pixels, for overlaying ImGui labels on top of scene objects).
 //     Both ABI-additive at the end of EditorUIHooks.
-#define POLYPHASE_PLUGIN_API_VERSION 8
+// v9: added EditorUIHooks::EditorImage_Load / EditorImage_GetSize /
+//     EditorImage_Invalidate — an engine-owned, path-keyed image → ImGui
+//     texture cache. Lets addons show thumbnails without linking class
+//     Image / DestroyQueue / GetDestroyQueue / DeviceWaitIdle, none of
+//     which are exported from Polyphase.lib. Also annotated
+//     GFX_GetVulkanAddonHandles with POLYPHASE_API so addons that drive
+//     their own Vulkan passes can actually link it (declaration-only
+//     change; no ABI impact). ABI-additive at the end of EditorUIHooks.
+#define POLYPHASE_PLUGIN_API_VERSION 9
 
 // Forward declarations
 struct PolyphaseEngineAPI;

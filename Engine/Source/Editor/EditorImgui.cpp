@@ -2,6 +2,7 @@
 
 #include "EditorImgui.h"
 #include "EditorWidgets.h"
+#include "EditorImageCache.h"
 #include "EditorWidgetsInternal.h"
 #include "System/System.h"
 #include "Engine.h"
@@ -13728,6 +13729,11 @@ static void DrawNativeAddonBuildModal()
 
 void EditorImguiDraw()
 {
+    // Release any thumbnails invalidated during the previous frame. Must happen
+    // before NewFrame() -- ImGui_ImplVulkan_RemoveTexture is immediate, so the
+    // descriptor sets can only be freed once last frame's draw list is done.
+    EditorImageCache::RetirePending();
+
     EngineState* engState = GetEngineState();
 
     // Reset per-frame hovered-dir tracker. The OS file-drop modal reads this
@@ -15501,6 +15507,9 @@ void EditorImguiPreShutdown()
     GetTerminalPanel()->Shutdown();
     GetLuaDebuggerPanel()->Shutdown();
     GetAddonsWindow()->Shutdown();
+    // Runs before Renderer::Destroy() (see Engine.cpp), so the device is still
+    // alive and the cached images can be torn down properly.
+    EditorImageCache::Shutdown();
     ImGui::ShutdownDock();
     UnregisterLogCallback(DebugLogWindow::LogCallback);
     ControllerServer::Destroy();

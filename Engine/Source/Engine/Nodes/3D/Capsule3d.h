@@ -2,7 +2,7 @@
 
 #include "Nodes/3D/Primitive3d.h"
 
-class Capsule3D : public Primitive3D
+class POLYPHASE_API Capsule3D : public Primitive3D
 {
 public:
 

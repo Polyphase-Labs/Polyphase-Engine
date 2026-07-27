@@ -1272,6 +1272,76 @@ struct EditorUIHooks
     // over the socket gizmo).
     int  (*Viewport_WorldToScreen)(float wx, float wy, float wz,
                                     float* outSx, float* outSy);
+
+    // ===== Batch 16 / v9: shared editor image (thumbnail) cache ===========
+    //
+    // A path-keyed image -> ImGui-texture cache owned by the EDITOR, not by
+    // the addon. This exists because the engine's Vulkan types (class Image,
+    // class DestroyQueue, DeviceWaitIdle, GetDestroyQueue) carry no
+    // POLYPHASE_API annotation and so are absent from Polyphase.lib — an addon
+    // that rolls its own loader gets LNK2019 on every one of them. Rather than
+    // exporting Vulkan internals, the engine does the decode and the upload
+    // and hands back an opaque handle.
+    //
+    // The handle is `void*` and is bit-identical to ImTextureID; cast it:
+    //
+    //     ImTextureID tex = (ImTextureID)hooks->EditorImage_Load(absPath);
+    //     if (tex != 0) ImGui::Image(tex, ImVec2(96, 96));
+    //
+    // Backend: Vulkan only. On other editor backends these return nullptr / 0
+    // and callers should fall back to a text placeholder — which they already
+    // do for the "file missing" case.
+    //
+    // OWNERSHIP — read this before wiring an addon:
+    //   The engine owns every texture for the whole editor session. There is
+    //   deliberately NO per-addon and NO per-HookId release entry point, and
+    //   RemoveAllHooks(hookId) does NOT drop images this addon loaded.
+    //   Reasons: (a) descriptor-set removal is immediate, not deferred through
+    //   the engine's DestroyQueue, and addon unload happens mid-frame, so an
+    //   unload-time release would free a descriptor the current ImGui draw
+    //   list still points at; (b) sibling addons routinely resolve the SAME
+    //   absolute path (shared kit icons), so a per-owner release would blank
+    //   another addon's UI. Hold nothing across frames — call
+    //   EditorImage_Load every frame; the lookup is a hash-map hit.
+
+    /**
+     * @brief Get (decoding + uploading on first use) an ImGui texture for the
+     *        image file at `absPath`.
+     *
+     * One decode and one GPU upload per path per editor session. Failures
+     * (missing file, undecodable data) are negatively cached, so calling this
+     * every frame for a bad path costs one hash lookup, not one open().
+     *
+     * @param absPath Absolute path to a PNG/JPG/TGA/BMP on disk.
+     * @return Opaque handle castable to ImTextureID, or nullptr on failure or
+     *         on a non-Vulkan backend. Engine-owned — do NOT free.
+     */
+    void* (*EditorImage_Load)(const char* absPath);
+
+    /**
+     * @brief Pixel dimensions of an image previously returned by
+     *        EditorImage_Load.
+     *
+     * Lets an addon lay out aspect-correct thumbnails without linking its own
+     * image decoder. Fills outWidth/outHeight only when the path is present in
+     * the cache and decoded successfully.
+     *
+     * @return 1 on success, 0 if the path is unknown or was a failed decode.
+     */
+    int (*EditorImage_GetSize)(const char* absPath, int* outWidth, int* outHeight);
+
+    /**
+     * @brief Forget `absPath` so the next EditorImage_Load re-reads the file.
+     *
+     * Call after the addon has rewritten the image on disk (kit re-export,
+     * thumbnail regeneration). Safe to call mid-frame: the entry is unlinked
+     * immediately but the GPU release is deferred to the start of the next
+     * editor frame.
+     *
+     * Never required for cleanup — the engine releases everything at editor
+     * shutdown regardless.
+     */
+    void (*EditorImage_Invalidate)(const char* absPath);
 };
 
 /**

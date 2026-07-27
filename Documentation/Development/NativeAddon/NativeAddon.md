@@ -422,6 +422,9 @@ The following are confirmed `POLYPHASE_API`-exported and safe to use from addons
   - `Texture`, `StaticMesh`, `SkeletalMesh`, `Scene`, `SoundWave`, `Font`, `ParticleSystem`
 - **Node bases** — derive custom nodes from:
   - `Node`, `Node3D`, `Widget`
+- **Concrete nodes** — construct / configure directly:
+  - `StaticMesh3D`, `SkeletalMesh3D`, `Camera3D`, `Primitive3D`, `Capsule3D`
+- **Script** — `Script::SetScriptProperties()` for pushing values into a freshly-attached Lua script
 - **Managers / singletons** — call from your addon:
   - `Renderer::Get()`
   - `AssetManager::Get()` and `AssetManager::RegisterTransientAsset(Asset*)`
@@ -434,6 +437,10 @@ The following are confirmed `POLYPHASE_API`-exported and safe to use from addons
   - `RegisterImportExtension()`
 - **Plugin hook entry points**:
   - `RegisterOctHooks()`, `GetOctHooks()`
+- **Editor-only (`#if EDITOR`)** — for addons that contribute Tools-menu authoring flows:
+  - `GetEditorState()`, `EditorState::GetAssetDirectory()`
+  - `EditorAddUniqueAsset()`
+  - `DrawAssetProperty()` — the inspector's stock asset picker
 
 The engine's `Engine/Source/Plugins/PolyphaseEngineAPI.h` wrapper struct is the older, function-pointer-based way to reach a subset of the same surface — useful if you want to keep your addon binary-compatible across engine versions. Using the exported classes directly is more ergonomic but couples your addon to the exact engine ABI.
 

@@ -1544,6 +1544,9 @@
     <ClCompile Include="Source\Editor\EditorUIHookManager.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\EditorImageCache.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\Addons\AddonCreator.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -3124,6 +3127,9 @@
       <Filter>Source Files\Editor\AutoUpdater</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorUIHookManager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\EditorImageCache.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Addons\AddonCreator.h">

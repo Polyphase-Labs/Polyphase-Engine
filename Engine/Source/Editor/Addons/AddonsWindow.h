@@ -10,7 +10,6 @@
 
 struct Addon;
 struct InstalledAddon;
-class Image;
 
 /**
  * @brief Window for browsing and installing addons.
@@ -31,9 +30,9 @@ public:
     void Draw();
     bool IsOpen() const { return mIsOpen; }
 
-    // Release Vulkan-backed thumbnail resources. Must be called while the
-    // Vulkan device is still valid (i.e. from EditorImguiPreShutdown), not
-    // from the static destructor.
+    // Drop the thumbnail path memo and ask the shared EditorImageCache to
+    // forget our entries. Called from EditorImguiPreShutdown; the GPU release
+    // itself is the cache's business.
     void Shutdown();
 
 private:
@@ -112,15 +111,14 @@ private:
     bool mShowBuildLog = false;
     std::string mBuildLogAddonId;
 
-    // Thumbnail cache
-    struct ThumbnailEntry
-    {
-        ImTextureID mTexId = 0;
-        Image* mImage = nullptr;
-    };
+    // Thumbnail path memo: addonId -> resolved absolute PNG path ("" when the
+    // addon has none). The decoded texture lives in the shared
+    // EditorImageCache, which owns it for the editor session; this map only
+    // memoizes the two-location path search so we don't stat the filesystem
+    // once per card per frame.
     ImTextureID GetAddonThumbnail(const std::string& addonId);
     void ClearThumbnailCache();
-    std::unordered_map<std::string, ThumbnailEntry> mThumbnailCache;
+    std::unordered_map<std::string, std::string> mThumbnailPaths;
 
     // Per-addon "is this dir inside a git repo" cache. Keyed by addonId
     // (the Packages/ subdir name). Cleared on project switch.

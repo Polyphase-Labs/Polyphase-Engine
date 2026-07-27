@@ -844,8 +844,12 @@ private:
     // Empty vector for returning when menu not found
     std::vector<RegisteredMenuItem> mEmptyMenuItems;
 
-    // Hooks struct passed to plugins
-    EditorUIHooks mHooks;
+    // Hooks struct passed to plugins. Value-initialized: it's an aggregate of
+    // raw function pointers with no default member initializers, so anything
+    // InitializeHooks misses would otherwise be indeterminate rather than
+    // null — and every doc comment in EditorUIHooks.h tells plugins to
+    // null-check before calling.
+    EditorUIHooks mHooks{};
 
     // Helper: Parse key binding string to shortcut fields
     void ParseKeyBinding(RegisteredShortcut& shortcut);

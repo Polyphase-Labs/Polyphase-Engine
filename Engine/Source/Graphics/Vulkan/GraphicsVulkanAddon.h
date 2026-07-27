@@ -20,6 +20,12 @@
 
 #include <cstdint>
 
+// GFX_GetVulkanAddonHandles is part of the addon-facing surface (see above), so
+// it has to land in Polyphase.lib / PolyphaseEditor.lib. Nothing else under
+// Graphics/ is exported, and without the annotation every addon that calls it
+// gets LNK2019.
+#include "PolyphaseAPI.h"
+
 struct GfxVulkanAddonHandles
 {
     VkDevice         mDevice                = VK_NULL_HANDLE;
@@ -54,4 +60,4 @@ struct GfxVulkanAddonHandles
 // Must be called from inside a custom render pass callback (registered via
 // Renderer::RegisterCustomRenderPass) — otherwise the command buffer and
 // render pass fields will be VK_NULL_HANDLE.
-bool GFX_GetVulkanAddonHandles(GfxVulkanAddonHandles& out);
+POLYPHASE_API bool GFX_GetVulkanAddonHandles(GfxVulkanAddonHandles& out);

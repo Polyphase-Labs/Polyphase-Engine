@@ -533,7 +533,7 @@ struct EditorState
     void RegressInspectPast();
     void ClearAssetDirHistory();
     void SetAssetDirectory(AssetDir* assetDir, bool recordHistory);
-    AssetDir* GetAssetDirectory();
+    POLYPHASE_API AssetDir* GetAssetDirectory();
     void BrowseToAsset(const std::string& name);
     void BrowseToScript(const std::string& scriptName);
 
@@ -557,6 +557,6 @@ struct EditorState
     void AddRecentScene(const std::string& sceneName);
 };
 
-EditorState* GetEditorState();
+POLYPHASE_API EditorState* GetEditorState();
 
 #endif

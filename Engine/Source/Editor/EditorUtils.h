@@ -6,6 +6,7 @@
 
 #include "Maths.h"
 #include "EngineTypes.h"
+#include "PolyphaseAPI.h"
 
 #include <stdint.h>
 
@@ -20,7 +21,7 @@ struct aiMesh;
 
 void EditorCenterCursor();
 glm::vec3 EditorGetFocusPosition();
-AssetStub* EditorAddUniqueAsset(const char* baseName, AssetDir* dir, TypeId assetType, bool autoCreate);
+POLYPHASE_API AssetStub* EditorAddUniqueAsset(const char* baseName, AssetDir* dir, TypeId assetType, bool autoCreate);
 std::string EditorGetAssetNameFromPath(const std::string& path);
 
 void RemoveRedundantDescendants(std::vector<Node*>& nodes);

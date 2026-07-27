@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorUIHookManager.h"
+#include "EditorImageCache.h"
 #include "EditorImgui.h"
 #include "EditorState.h"
 #include "Engine.h"
@@ -1368,6 +1369,47 @@ void EditorUIHookManager::InitializeHooks()
         return (sp.z > 0.0f) ? 1 : 0;
     };
 
+    // ===== Batch 16 / v9: shared editor image cache =====
+
+    mHooks.EditorImage_Load = [](const char* absPath) -> void*
+    {
+        if (absPath == nullptr || absPath[0] == '\0')
+        {
+            return nullptr;
+        }
+        return (void*)EditorImageCache::Get(absPath);
+    };
+
+    mHooks.EditorImage_GetSize = [](const char* absPath, int* outWidth, int* outHeight) -> int
+    {
+        if (outWidth) *outWidth = 0;
+        if (outHeight) *outHeight = 0;
+        if (absPath == nullptr || absPath[0] == '\0')
+        {
+            return 0;
+        }
+
+        int32_t w = 0;
+        int32_t h = 0;
+        if (!EditorImageCache::GetSize(absPath, w, h))
+        {
+            return 0;
+        }
+
+        if (outWidth) *outWidth = (int)w;
+        if (outHeight) *outHeight = (int)h;
+        return 1;
+    };
+
+    mHooks.EditorImage_Invalidate = [](const char* absPath)
+    {
+        if (absPath == nullptr || absPath[0] == '\0')
+        {
+            return;
+        }
+        EditorImageCache::Invalidate(absPath);
+    };
+
     mHooks.Viewport_GetMouseState = [](float* outViewportX, float* outViewportY,
                                        float* outViewportW, float* outViewportH,
                                        float* outMouseX,    float* outMouseY,
@@ -1890,6 +1932,13 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     {
         profiling->RemoveAllHooks(hookId);
     }
+
+    // Batch 16: the shared EditorImageCache is intentionally NOT torn down
+    // here. Entries are engine-lifetime and path-keyed, deliberately not
+    // owner-keyed — see the ownership note in EditorUIHooks.h. Releasing on
+    // unload would free descriptor sets mid-frame (ImGui_ImplVulkan_RemoveTexture
+    // is immediate, unlike DestroyQueue) and would yank shared kit icons out
+    // from under sibling addons that resolved the same path.
 }
 
 // ===== Batch 14: OS file-drop dispatch =====

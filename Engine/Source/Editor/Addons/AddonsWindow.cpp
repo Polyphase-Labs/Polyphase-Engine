@@ -23,12 +23,7 @@
 
 #include "document.h"
 
-#if API_VULKAN
-#include "Graphics/Vulkan/Image.h"
-#include "Graphics/Vulkan/VulkanUtils.h"
-#include "backends/imgui_impl_vulkan.h"
-#include <stb_image.h>
-#endif
+#include "EditorImageCache.h"
 
 #include <algorithm>
 
@@ -51,8 +46,8 @@ AddonsWindow::~AddonsWindow()
 {
     // sAddonsWindow is a translation-unit static; this runs after Engine /
     // VulkanContext have already been destroyed, so we MUST NOT touch the
-    // GPU here. Thumbnail resources are released earlier via Shutdown(),
-    // called from EditorImguiPreShutdown().
+    // GPU here. Thumbnails are owned by EditorImageCache, which is torn down
+    // from EditorImguiPreShutdown() while the device is still alive.
 }
 
 void AddonsWindow::Shutdown()
@@ -62,111 +57,60 @@ void AddonsWindow::Shutdown()
 
 void AddonsWindow::ClearThumbnailCache()
 {
-#if API_VULKAN
-    if (!mThumbnailCache.empty())
+    // Drop the path memo and ask the shared cache to forget the entries, so a
+    // freshly installed / re-exported thumbnail is picked up next time. The
+    // GPU release is deferred to the start of the next frame -- important,
+    // because Close() runs mid-Draw().
+    for (const auto& pair : mThumbnailPaths)
     {
-        DeviceWaitIdle();
-        for (auto& pair : mThumbnailCache)
+        if (!pair.second.empty())
         {
-            if (pair.second.mTexId != 0)
-            {
-                ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)pair.second.mTexId);
-            }
-            if (pair.second.mImage != nullptr)
-            {
-                GetDestroyQueue()->Destroy(pair.second.mImage);
-            }
+            EditorImageCache::Invalidate(pair.second);
         }
-        mThumbnailCache.clear();
     }
-#endif
+    mThumbnailPaths.clear();
 }
 
 ImTextureID AddonsWindow::GetAddonThumbnail(const std::string& addonId)
 {
-    // Check cache first
-    auto it = mThumbnailCache.find(addonId);
-    if (it != mThumbnailCache.end())
+    auto it = mThumbnailPaths.find(addonId);
+    if (it == mThumbnailPaths.end())
     {
-        return it->second.mTexId;
-    }
-
-#if API_VULKAN
-    // Try installed path first: {ProjectDir}/Packages/{addonId}/thumbnail.png
-    std::string thumbPath;
-    const std::string& projDir = GetEngineState()->mProjectDirectory;
-    if (!projDir.empty())
-    {
-        thumbPath = projDir + "Packages/" + addonId + "/thumbnail.png";
-        if (!SYS_DoesFileExist(thumbPath.c_str(), false))
+        // Try installed path first: {ProjectDir}/Packages/{addonId}/thumbnail.png
+        std::string thumbPath;
+        const std::string& projDir = GetEngineState()->mProjectDirectory;
+        if (!projDir.empty())
         {
-            thumbPath.clear();
-        }
-    }
-
-    // Try addon cache: {CacheDir}/{addonId}/thumbnail.png
-    if (thumbPath.empty())
-    {
-        AddonManager* am = AddonManager::Get();
-        if (am != nullptr)
-        {
-            std::string cachePath = am->GetAddonCacheDirectory() + "/" + addonId + "/thumbnail.png";
-            if (SYS_DoesFileExist(cachePath.c_str(), false))
+            thumbPath = projDir + "Packages/" + addonId + "/thumbnail.png";
+            if (!SYS_DoesFileExist(thumbPath.c_str(), false))
             {
-                thumbPath = cachePath;
+                thumbPath.clear();
             }
         }
+
+        // Try addon cache: {CacheDir}/{addonId}/thumbnail.png
+        if (thumbPath.empty())
+        {
+            AddonManager* am = AddonManager::Get();
+            if (am != nullptr)
+            {
+                std::string cachePath = am->GetAddonCacheDirectory() + "/" + addonId + "/thumbnail.png";
+                if (SYS_DoesFileExist(cachePath.c_str(), false))
+                {
+                    thumbPath = cachePath;
+                }
+            }
+        }
+
+        it = mThumbnailPaths.emplace(addonId, thumbPath).first;
     }
 
-    if (thumbPath.empty())
+    if (it->second.empty())
     {
-        mThumbnailCache[addonId] = {};
         return 0;
     }
 
-    // Load with stb_image
-    int width, height, channels;
-    stbi_uc* pixels = stbi_load(thumbPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
-    if (pixels == nullptr)
-    {
-        mThumbnailCache[addonId] = {};
-        return 0;
-    }
-
-    // Create Vulkan image
-    ImageDesc imgDesc;
-    imgDesc.mWidth = width;
-    imgDesc.mHeight = height;
-    imgDesc.mFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    imgDesc.mUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imgDesc.mMipLevels = 1;
-    imgDesc.mLayers = 1;
-
-    SamplerDesc sampDesc;
-    sampDesc.mMagFilter = VK_FILTER_LINEAR;
-    sampDesc.mMinFilter = VK_FILTER_LINEAR;
-    sampDesc.mAddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-    Image* image = new Image(imgDesc, sampDesc, "AddonThumbnail");
-    image->Update(pixels);
-    image->Transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    stbi_image_free(pixels);
-
-    ImTextureID texId = (ImTextureID)ImGui_ImplVulkan_AddTexture(
-        image->GetSampler(),
-        image->GetView(),
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    ThumbnailEntry entry;
-    entry.mTexId = texId;
-    entry.mImage = image;
-    mThumbnailCache[addonId] = entry;
-    return texId;
-#else
-    mThumbnailCache[addonId] = {};
-    return 0;
-#endif
+    return EditorImageCache::Get(it->second);
 }
 
 void AddonsWindow::Open()

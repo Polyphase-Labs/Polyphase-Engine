@@ -2,6 +2,7 @@
 
 #if EDITOR
 #include "EngineTypes.h"
+#include "PolyphaseAPI.h"
 
 #include <cstdint>
 #include <vector>
@@ -49,7 +50,7 @@ void EditorShowUnsavedAssetsModal(const std::vector<AssetStub*>& unsavedStubs);
  */
 void EditorShowAlert(const char* title, const char* message);
 
-void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOwnerType ownerType);
+POLYPHASE_API void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOwnerType ownerType);
 
 /**
  * Forget the cached "Add Node" submenu categorization so the next time the

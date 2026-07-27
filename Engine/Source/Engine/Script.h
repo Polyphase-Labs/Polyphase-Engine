@@ -106,7 +106,7 @@ public:
     void UploadScriptProperties();
     const std::vector<Property>& GetScriptProperties() const;
     std::vector<Property>& GetScriptProperties();
-    void SetScriptProperties(const std::vector<Property>& srcProps);
+    POLYPHASE_API void SetScriptProperties(const std::vector<Property>& srcProps);
 
     // Auto property support
     void AddAutoProperty(const std::string& varName, const std::string& displayName, DatumType type, const Datum& defaultValue);
