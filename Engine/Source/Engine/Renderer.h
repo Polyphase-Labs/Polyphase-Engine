@@ -223,6 +223,7 @@ private:
 
     void GatherDrawData(World* world);
     void GatherLightData(World* world);
+    bool PassesTargetScreenFilter(Node* node, World* world) const;
     void RenderDraws(const std::vector<DrawData>& drawData);
     void RenderDraws(const std::vector<DrawData>& drawData, PipelineConfig pipelineConfig);
     void RenderDebugDraws(const std::vector<DebugDraw>& draws, PipelineConfig pipelineConfig = PipelineConfig::Count);

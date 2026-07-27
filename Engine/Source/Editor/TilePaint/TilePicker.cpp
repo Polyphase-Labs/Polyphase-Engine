@@ -5,6 +5,7 @@
 #include "Assets/Texture.h"
 #include "Graphics/GraphicsTypes.h"
 #include "Graphics/Vulkan/Image.h"
+#include "Graphics/Vulkan/VulkanUtils.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -21,6 +22,7 @@ namespace TilePicker
     struct CachedDescriptor
     {
         Texture* mLast = nullptr;
+        uint32_t mLastGen = 0;
         ImTextureID mId = 0;
     };
 
@@ -28,12 +30,20 @@ namespace TilePicker
 
     void* GetOrCreateImTextureID(const char* cacheKey, Texture* atlasTex)
     {
+        // The generation has to be part of the cache key, not just the pointer:
+        // editing Filter Type / Wrap Mode / Mipmapped rebuilds the image behind
+        // an unchanged Texture*, and the cached descriptor set would keep
+        // pointing at the image view and sampler the destroy queue is about to
+        // free -- a GPU fault a few frames later.
+        uint32_t gen = atlasTex ? atlasTex->GetResourceGeneration() : 0;
+
         CachedDescriptor& cache = sCache[cacheKey];
-        if (cache.mLast == atlasTex && cache.mId != 0)
+        if (cache.mLast == atlasTex && cache.mLastGen == gen && cache.mId != 0)
             return (void*)cache.mId;
 
         if (cache.mId != 0)
         {
+            DeviceWaitIdle();
             ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)cache.mId);
             cache.mId = 0;
         }
@@ -51,6 +61,7 @@ namespace TilePicker
         }
 
         cache.mLast = atlasTex;
+        cache.mLastGen = gen;
         return (void*)cache.mId;
     }
 

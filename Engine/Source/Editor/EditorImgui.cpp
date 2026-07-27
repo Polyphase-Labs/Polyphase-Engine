@@ -324,6 +324,7 @@ static std::map<std::string, std::vector<std::string>> sNodeOtherAddonGrouped;
 
 static ImTextureID sInspectTexId = 0;
 static Texture* sPrevInspectTexture = nullptr;
+static uint32_t sPrevInspectTexGen = 0;
 
 static bool sFileBrowserOpen = false;
 static bool sFileBrowserFolderMode = false;
@@ -9329,8 +9330,18 @@ static void DrawPropertiesPanel()
                 if (texObj != nullptr &&
                     texObj->GetResource()->mImage != nullptr)
                 {
-                    // Dealloc prev tex descriptor
-                    if (sPrevInspectTexture != texObj)
+                    // Dealloc prev tex descriptor. The generation has to be part
+                    // of the test, not just the pointer: editing Filter Type /
+                    // Wrap Mode / Mipmapped on the texture we're inspecting
+                    // rebuilds the image behind an unchanged Texture*, and a
+                    // pointer-only test would keep feeding ImGui a descriptor set
+                    // bound to the image view and sampler the destroy queue is
+                    // about to free -- the GPU then faults on it a few frames
+                    // later, which surfaces as VK_ERROR_DEVICE_LOST in
+                    // ReadTimeQueryResults and takes the display driver with it.
+                    uint32_t texGen = texObj->GetResourceGeneration();
+                    if (sPrevInspectTexture != texObj ||
+                        sPrevInspectTexGen != texGen)
                     {
                         DeviceWaitIdle();
 
@@ -9346,6 +9357,7 @@ static void DrawPropertiesPanel()
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                         sPrevInspectTexture = texObj;
+                        sPrevInspectTexGen = texGen;
                     }
 
                     if (sInspectTexId != 0)
@@ -13854,11 +13866,16 @@ void EditorImguiDraw()
                 // Get atlas ImTextureID for tile previews
                 static ImTextureID sAtlasTexId = 0;
                 static Texture* sLastAtlasTex = nullptr;
+                static uint32_t sLastAtlasTexGen = 0;
                 Texture* atlasTex = voxel->GetAtlasTexture();
-                if (atlasTex != sLastAtlasTex)
+                // Generation as well as pointer -- see the inspector preview.
+                uint32_t atlasTexGen = atlasTex ? atlasTex->GetResourceGeneration() : 0;
+                if (atlasTex != sLastAtlasTex ||
+                    atlasTexGen != sLastAtlasTexGen)
                 {
                     if (sAtlasTexId != 0)
                     {
+                        DeviceWaitIdle();
                         ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sAtlasTexId);
                         sAtlasTexId = 0;
                     }
@@ -13874,6 +13891,7 @@ void EditorImguiDraw()
                         }
                     }
                     sLastAtlasTex = atlasTex;
+                    sLastAtlasTexGen = atlasTexGen;
                 }
 
                 uint32_t tilesX = voxel->mAtlasTilesX;
@@ -14144,11 +14162,16 @@ void EditorImguiDraw()
                 // Get atlas ImTextureID for tile previews
                 static ImTextureID sTerrainAtlasTexId = 0;
                 static Texture* sLastTerrainAtlasTex = nullptr;
+                static uint32_t sLastTerrainAtlasTexGen = 0;
                 Texture* atlasTex = terrain->mAtlasTexture.Get<Texture>();
-                if (atlasTex != sLastTerrainAtlasTex)
+                // Generation as well as pointer -- see the inspector preview.
+                uint32_t atlasTexGen = atlasTex ? atlasTex->GetResourceGeneration() : 0;
+                if (atlasTex != sLastTerrainAtlasTex ||
+                    atlasTexGen != sLastTerrainAtlasTexGen)
                 {
                     if (sTerrainAtlasTexId != 0)
                     {
+                        DeviceWaitIdle();
                         ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sTerrainAtlasTexId);
                         sTerrainAtlasTexId = 0;
                     }
@@ -14164,6 +14187,7 @@ void EditorImguiDraw()
                         }
                     }
                     sLastTerrainAtlasTex = atlasTex;
+                    sLastTerrainAtlasTexGen = atlasTexGen;
                 }
 
                 uint32_t tilesX = terrain->mAtlasTilesX;
@@ -14230,10 +14254,15 @@ void EditorImguiDraw()
                     // Show preview of the mask texture
                     static ImTextureID sBrushMaskTexId = 0;
                     static Texture* sLastBrushMaskTex = nullptr;
-                    if (maskTex != sLastBrushMaskTex)
+                    static uint32_t sLastBrushMaskTexGen = 0;
+                    // Generation as well as pointer -- see the inspector preview.
+                    uint32_t maskTexGen = maskTex->GetResourceGeneration();
+                    if (maskTex != sLastBrushMaskTex ||
+                        maskTexGen != sLastBrushMaskTexGen)
                     {
                         if (sBrushMaskTexId != 0)
                         {
+                            DeviceWaitIdle();
                             ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sBrushMaskTexId);
                             sBrushMaskTexId = 0;
                         }
@@ -14246,6 +14275,7 @@ void EditorImguiDraw()
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         }
                         sLastBrushMaskTex = maskTex;
+                        sLastBrushMaskTexGen = maskTexGen;
                     }
 
                     if (sBrushMaskTexId != 0)
@@ -14258,11 +14288,11 @@ void EditorImguiDraw()
                     if (ImGui::Button("Clear##BrushMask"))
                     {
                         mgr->mOptions.mBrushMask = nullptr;
-                        if (sBrushMaskTexId != 0)
-                        {
-                            ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)sBrushMaskTexId);
-                            sBrushMaskTexId = 0;
-                        }
+                        // Deliberately do NOT free sBrushMaskTexId here: ImGui::Image()
+                        // above already pushed it into this frame's draw list, and
+                        // ImGui_ImplVulkan_RemoveTexture frees immediately. Just
+                        // invalidate the cache key -- the branch above frees it (after
+                        // a DeviceWaitIdle) the next time a mask is assigned.
                         sLastBrushMaskTex = nullptr;
                     }
                     ImGui::EndGroup();

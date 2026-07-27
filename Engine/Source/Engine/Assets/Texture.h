@@ -81,6 +81,17 @@ public:
 
     const std::vector<uint8_t>& GetPixels() const { return mPixels; }
 
+    // Bumped every time the backing GPU resource is torn down and rebuilt --
+    // Create(), Destroy(), or an editor property change (Filter Type, Wrap Mode,
+    // Mipmapped) that forces a rebuild behind an unchanged Texture*.
+    //
+    // Anything caching a backend handle *derived* from the resource must key on
+    // this as well as the Texture pointer. The ImGui descriptor sets the editor
+    // builds from the Vulkan image view + sampler are the motivating case: a
+    // pointer-only cache keeps handing ImGui a descriptor set pointing at the
+    // freed image, and the GPU faults a few frames later (device lost / TDR).
+    uint32_t GetResourceGeneration() const { return mResourceGeneration; }
+
 protected:
 
     uint32_t mWidth;
@@ -100,6 +111,9 @@ protected:
     // graphics backend when it has to pad the physical texture beyond the
     // logical content size (e.g. 3DS PoT requirement).
     glm::vec2 mUvMax = glm::vec2(1.0f, 1.0f);
+
+    // See GetResourceGeneration().
+    uint32_t mResourceGeneration = 0;
 
     // This pixel array is used as an intermediate storage between LoadStream() and Create()
     // It is cleared and shrunk within Create() except when compiled for EDITOR

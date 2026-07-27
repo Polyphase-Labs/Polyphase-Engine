@@ -2901,8 +2901,17 @@ void VulkanContext::ReadTimeQueryResults()
     }
     else
     {
-        LogError("Failed to read timestamp queries");
-        OCT_ASSERT(0);
+        // Don't assert here. The only errors this call returns are
+        // VK_ERROR_DEVICE_LOST / out-of-memory -- i.e. the GPU already died
+        // somewhere else and this is just the first call unlucky enough to
+        // report it. Breaking into a modal assert at that moment, while the
+        // display driver is mid-reset, is what turns a recoverable fault into an
+        // apparently frozen machine. Log the real cause and stop profiling
+        // instead, so the assert that fires is the one at the actual fault site.
+        LogError("Failed to read timestamp queries (VkResult %d) -- disabling GPU profiling", int32_t(res));
+        mTimestampsSupported = false;
+        mNumTimestamps[mFrameIndex] = 0;
+        return;
     }
 
     vkCmdResetQueryPool(GetCommandBuffer(), mTimeQueryPools[mFrameIndex], 0, MAX_GPU_TIMESTAMPS);

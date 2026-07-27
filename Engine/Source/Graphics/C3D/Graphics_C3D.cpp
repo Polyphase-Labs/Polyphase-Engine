@@ -218,10 +218,13 @@ void GFX_BeginFrame()
     // Refresh color scale (this should really stay constant the entire lifespan of game though)
     gC3dContext.mColorScale = Renderer::Get()->GetColorScale();
     gC3dContext.mInvColorScale = Renderer::Get()->GetColorScaleInverse();
-    GPU_TEVSCALE tevScale = GPU_TEVSCALE_1;
     if (gC3dContext.mColorScale > 1.0f)
     {
         gC3dContext.mColorScaleEnum = (gC3dContext.mColorScale == 2.0f) ? GPU_TEVSCALE_2 : GPU_TEVSCALE_4;
+    }
+    else
+    {
+        gC3dContext.mColorScaleEnum = GPU_TEVSCALE_1;
     }
 
     gC3dContext.mLastBoundShaderId = ShaderId::Count;
@@ -615,6 +618,11 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
     resource->mT3dsData = SYS_AlignedMalloc((uint32_t)data.size(), 32);
     memcpy(resource->mT3dsData, data.data(), data.size());
 
+    // VRAM is only 6MB and the three render targets already claim ~2MB of it, so a
+    // big texture has nowhere to go -- a 1024x1024 RGBA8 needs 4MB by itself. The
+    // import then fails outright and leaves a zeroed C3D_Tex, which draws black with
+    // no other symptom. Retry on the linear heap: sampling out of main RAM costs
+    // bandwidth, but it renders.
     Tex3DS_Texture t3x = Tex3DS_TextureImport(
         resource->mT3dsData,
         (uint32_t)data.size(),
@@ -624,14 +632,30 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
 
     if (!t3x)
     {
-        LogError("Failed to import t3x for '%s' (%ux%u, %u bytes) -- it will draw untextured",
-            texture->GetName().c_str(), texture->GetWidth(), texture->GetHeight(), (uint32_t)data.size());
+        t3x = Tex3DS_TextureImport(
+            resource->mT3dsData,
+            (uint32_t)data.size(),
+            &resource->mTex,
+            nullptr,
+            false);
+
+        if (t3x)
+        {
+            LogWarning("Texture '%s' (%ux%u) did not fit in VRAM; fell back to the linear heap. "
+                       "Lower its Downsample Factor or LqMaxTextureSize to keep it in VRAM.",
+                texture->GetName().c_str(), texture->GetWidth(), texture->GetHeight());
+        }
+        else
+        {
+            LogError("Failed to import t3x for '%s' (%ux%u, %u bytes) -- it will draw untextured",
+                texture->GetName().c_str(), texture->GetWidth(), texture->GetHeight(), (uint32_t)data.size());
+        }
     }
 
     // Delete the t3x object since we don't need it
     Tex3DS_TextureFree(t3x);
 
-    free(resource->mT3dsData);
+    SYS_AlignedFree(resource->mT3dsData);
     resource->mT3dsData = nullptr;
 
     GPU_TEXTURE_FILTER_PARAM gpuFilter = GPU_LINEAR;

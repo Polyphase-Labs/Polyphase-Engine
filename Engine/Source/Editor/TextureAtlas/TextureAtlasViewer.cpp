@@ -44,6 +44,7 @@ void TextureAtlasViewer::SetTexture(Texture* tex)
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     mTexture = tex;
+    mTexGeneration = tex->GetResourceGeneration();
     mAtlasWidth = tex->GetWidth();
     mAtlasHeight = tex->GetHeight();
 #endif
@@ -60,12 +61,24 @@ void TextureAtlasViewer::ClearTexture()
     }
 #endif
     mTexture = nullptr;
+    mTexGeneration = 0;
     mAtlasWidth = 0;
     mAtlasHeight = 0;
 }
 
 void TextureAtlasViewer::DrawPanel()
 {
+    // Editing Filter Type / Wrap Mode / Mipmapped rebuilds the image behind an
+    // unchanged Texture*, which leaves mImGuiTexId bound to an image view and
+    // sampler the destroy queue is about to free. Re-latch here, before anything
+    // pushes the descriptor into this frame's draw list -- otherwise the GPU
+    // faults on the freed descriptor a few frames later.
+    if (mTexture != nullptr &&
+        mTexture->GetResourceGeneration() != mTexGeneration)
+    {
+        SetTexture(mTexture);
+    }
+
     DrawControls();
 
     if (mImGuiTexId != 0 && mAtlasWidth > 0 && mAtlasHeight > 0)

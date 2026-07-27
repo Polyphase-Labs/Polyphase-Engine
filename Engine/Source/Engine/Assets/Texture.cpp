@@ -91,6 +91,11 @@ bool Texture::HandlePropChange(Datum* datum, uint32_t index, const void* newValu
         // Need to recreate the texture resource to show changes.
         GFX_DestroyTextureResource(texture);
         GFX_CreateTextureResource(texture, texture->mPixels);
+
+        // The Texture* is unchanged but the image view and sampler behind it are
+        // brand new, so every editor-side cache of a handle derived from them is
+        // now dangling. See Texture::GetResourceGeneration().
+        texture->mResourceGeneration++;
 #endif
     }
 
@@ -524,6 +529,7 @@ void Texture::Create()
     Asset::Create();
 
     GFX_CreateTextureResource(this, mPixels);
+    mResourceGeneration++;
 
 #if !EDITOR
     // This pixel data is transferred to the GPU resource in GFX_CreateTextureResource(), so now 
@@ -539,6 +545,7 @@ void Texture::Destroy()
     Asset::Destroy();
 
     GFX_DestroyTextureResource(this);
+    mResourceGeneration++;
 }
 
 bool Texture::Import(const std::string& path, ImportOptions* options)

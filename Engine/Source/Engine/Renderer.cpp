@@ -850,6 +850,40 @@ static void SetLightData(LightData& lightData, Light3D* comp)
     }
 }
 
+// GatherDrawData prunes by target screen during traversal, but lights are pulled
+// from World's flat registration list, which has no hierarchy to prune. Walk up to
+// the scene-root-level ancestor and read the screen there -- Target Screen isn't
+// inherited, so the light's own value is always the default 0. Without this, a
+// dual-screen scene lights every screen with *both* scenes' lights: doubled diffuse
+// and doubled specular, which on the fixed-function backends blows lit surfaces out
+// to white.
+bool Renderer::PassesTargetScreenFilter(Node* node, World* world) const
+{
+    if (mTargetScreenFilter < 0 ||
+        node == nullptr ||
+        world == nullptr)
+    {
+        return true;
+    }
+
+    Node* root = world->GetRootNode();
+    Node* sceneRoot = node;
+
+    while (sceneRoot != nullptr && sceneRoot->GetParent() != root)
+    {
+        sceneRoot = sceneRoot->GetParent();
+    }
+
+    if (sceneRoot == nullptr)
+    {
+        // Not parented under the world root (or it is the root) -- no screen to test.
+        return true;
+    }
+
+    uint8_t targetScreen = sceneRoot->GetTargetScreen();
+    return (targetScreen == (uint8_t)mTargetScreenFilter || targetScreen == 0xFF);
+}
+
 void Renderer::GatherLightData(World* world)
 {
     static std::vector<LightDistance2> sClosestLights;
@@ -873,7 +907,7 @@ void Renderer::GatherLightData(World* world)
 #if !EDITOR
                 || lights[i]->GetLightingDomain() == LightingDomain::Static
 #endif
-                )
+                || !PassesTargetScreenFilter(lights[i], world))
             {
                 continue;
             }
@@ -998,7 +1032,7 @@ void Renderer::GatherLightData(World* world)
 #if !EDITOR
                 && lights[i]->GetLightingDomain() != LightingDomain::Static
 #endif
-                )
+                && PassesTargetScreenFilter(lights[i], world))
             {
                 LightData lightData;
                 SetLightData(lightData, lights[i]);

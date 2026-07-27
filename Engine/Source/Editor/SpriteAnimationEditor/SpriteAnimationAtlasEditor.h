@@ -46,6 +46,8 @@ private:
     // Vulkan descriptor for the atlas texture (same lifecycle as the other editors).
     Texture* mTexture = nullptr;
     ImTextureID mImGuiTexId = 0;
+    // Resource generation mImGuiTexId was built from. See Texture::GetResourceGeneration().
+    uint32_t mTexGeneration = 0;
     uint32_t mAtlasWidth = 0;
     uint32_t mAtlasHeight = 0;
 

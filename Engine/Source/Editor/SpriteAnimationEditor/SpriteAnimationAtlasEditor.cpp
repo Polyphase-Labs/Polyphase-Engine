@@ -52,6 +52,7 @@ void SpriteAnimationAtlasEditor::SetTexture(Texture* tex)
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     mTexture = tex;
+    mTexGeneration = tex->GetResourceGeneration();
     mAtlasWidth = tex->GetWidth();
     mAtlasHeight = tex->GetHeight();
 #endif
@@ -68,6 +69,7 @@ void SpriteAnimationAtlasEditor::ClearTexture()
     }
 #endif
     mTexture = nullptr;
+    mTexGeneration = 0;
     mAtlasWidth = 0;
     mAtlasHeight = 0;
 }
@@ -150,6 +152,16 @@ void SpriteAnimationAtlasEditor::DrawPopup()
     if (mLastDrawFrame == frameCount)
         return;
     mLastDrawFrame = frameCount;
+
+    // Editing Filter Type / Wrap Mode / Mipmapped rebuilds the image behind an
+    // unchanged Texture*, leaving mImGuiTexId bound to an image view and sampler
+    // the destroy queue is about to free. Re-latch before anything pushes the
+    // descriptor into this frame's draw list.
+    if (mTexture != nullptr &&
+        mTexture->GetResourceGeneration() != mTexGeneration)
+    {
+        SetTexture(mTexture);
+    }
 
     ImGuiIO& io = ImGui::GetIO();
     if (mJustOpened)
