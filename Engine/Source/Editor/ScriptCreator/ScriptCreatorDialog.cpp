@@ -2,6 +2,7 @@
 
 #include "ScriptCreatorDialog.h"
 #include "EditorWidgets.h"
+#include "EditorState.h"
 #include "Engine.h"
 #include "Stream.h"
 #include "Log.h"
@@ -131,6 +132,7 @@ static char sReactNodeType[64] = {};        // "" = None; else a reaction-capabl
 static std::set<std::string> sSelectedReactions;
 static std::string sScriptError;
 static std::string sScriptSuccess;
+static std::string sLastCreatedScriptPath;  // absolute path written by the last successful create
 
 // ===== Create C++ File Dialog State =====
 
@@ -386,6 +388,7 @@ static bool ValidateAndCreateScript()
 {
     sScriptError.clear();
     sScriptSuccess.clear();
+    sLastCreatedScriptPath.clear();
 
     // Validate class name
     if (sScriptClassName[0] == '\0')
@@ -479,6 +482,7 @@ static bool ValidateAndCreateScript()
 
     LogDebug("Created Lua script: %s", filePath.c_str());
     sScriptSuccess = "Created: " + filePath;
+    sLastCreatedScriptPath = filePath;
     return true;
 }
 
@@ -775,7 +779,11 @@ static void DrawCreateScriptDialog()
     {
         if (ValidateAndCreateScript())
         {
-            // Keep dialog open to show success
+            // Close on success; the Scripts panel selects the new file and
+            // scrolls it into view. Validation failures fall through and keep
+            // the window open so sScriptError stays on screen.
+            GetEditorState()->BrowseToScriptPath(sLastCreatedScriptPath);
+            sShowCreateScriptDialog = false;
         }
     }
     ImGui::SameLine();
@@ -957,7 +965,12 @@ static void DrawCreateCppFileDialog()
     ImGui::Spacing();
     if (ImGui::Button("Create", ImVec2(80, 0)))
     {
-        ValidateAndCreateCppFiles();
+        // No reveal counterpart: the C++ Addons tab lists addons and has no
+        // per-file selection state to highlight into.
+        if (ValidateAndCreateCppFiles())
+        {
+            sShowCreateCppFileDialog = false;
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(80, 0)))
@@ -991,6 +1004,7 @@ void OpenCreateScriptDialog()
     sSelectedReactions.clear();
     sScriptError.clear();
     sScriptSuccess.clear();
+    sLastCreatedScriptPath.clear();
 }
 
 void OpenCreateCppFileDialog()

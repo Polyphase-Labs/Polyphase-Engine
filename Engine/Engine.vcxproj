@@ -987,6 +987,8 @@
     <ClCompile Include="Source\Editor\Addons\AddonScriptRunner.cpp" />
     <ClCompile Include="Source\Editor\Addons\AddonsMenu.cpp" />
     <ClCompile Include="Source\Editor\Addons\AddonsWindow.cpp" />
+    <ClCompile Include="Source\Editor\MemorySnapshot\MemorySnapshotProfiler.cpp" />
+    <ClCompile Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.cpp" />
     <ClCompile Include="Source\Editor\Addons\NativeAddonManager.cpp" />
     <ClCompile Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.cpp" />
     <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp">
@@ -1569,6 +1571,9 @@
     <ClInclude Include="Source\Editor\Addons\AddonScriptRunner.h" />
     <ClInclude Include="Source\Editor\Addons\AddonsMenu.h" />
     <ClInclude Include="Source\Editor\Addons\AddonsWindow.h" />
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshot.h" />
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshotProfiler.h" />
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.h" />
     <ClInclude Include="Source\Editor\Addons\NativeAddonManager.h" />
     <ClInclude Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.h" />
     <ClInclude Include="Source\Editor\ScriptEditor\ScriptEditorWindow.h" />

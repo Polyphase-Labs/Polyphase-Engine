@@ -248,7 +248,10 @@ struct EditorState
     bool mRequestSaveSceneAs = false;
     bool mTrackSelectedAsset = false;
     bool mTrackSelectedNode = false;
+    // Pending Scripts-panel reveal request. Exactly one of these is set at a
+    // time; the panel consumes and clears both on the next frame it draws.
     std::string mRevealScriptName = "";
+    std::string mRevealScriptPath = "";
     std::set<AssetDir*> mRevealAssetExpandDirs;
     uint32_t mViewportX = 0;
     uint32_t mViewportY = 0;
@@ -536,6 +539,7 @@ struct EditorState
     POLYPHASE_API AssetDir* GetAssetDirectory();
     void BrowseToAsset(const std::string& name);
     void BrowseToScript(const std::string& scriptName);
+    void BrowseToScriptPath(const std::string& fullPath);
 
     void CaptureAndSaveScene(AssetStub* stub, Node* rootNode);
     void DuplicateAsset(AssetStub* srcStub, const char* overrideName = nullptr);

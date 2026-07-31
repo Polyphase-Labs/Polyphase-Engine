@@ -29,6 +29,7 @@
 #include "AppSettings/AppSettingsWindow.h"
 #include "Addons/AddonsWindow.h"
 #include "Addons/AddonsMenu.h"
+#include "MemorySnapshot/MemorySnapshotWindow.h"
 #include "Addons/NativeAddonManager.h"
 #include "EditorUIHookManager.h"
 #include "BuildDependencyWindow.h"
@@ -903,6 +904,11 @@ static void DrawToolsMenu()
     {
         DrawVersionControlMenu();
         ImGui::EndMenu();
+    }
+
+    if (ImGui::MenuItem("Memory Snapshot"))
+    {
+        GetMemorySnapshotWindow()->Open();
     }
 
     if (ImGui::BeginMenu("Open In..."))

@@ -165,6 +165,9 @@
     <Filter Include="Source Files\Editor\GamePreview">
       <UniqueIdentifier>{c5d7e9f1-3b5a-4c8d-9e0f-a2b4c6d8e0f2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\MemorySnapshot">
+      <UniqueIdentifier>{a1f2b3c4-5d6e-4f70-8a9b-0c1d2e3f4a5b}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Editor\AnimationBrowser">
       <UniqueIdentifier>{d6e8f0a2-4c6b-5d9e-af10-b3c5d7e9f1a3}</UniqueIdentifier>
     </Filter>
@@ -1564,6 +1567,12 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\Addons\AddonsWindow.cpp">
       <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\MemorySnapshot\MemorySnapshotProfiler.cpp">
+      <Filter>Source Files\Editor\MemorySnapshot</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.cpp">
+      <Filter>Source Files\Editor\MemorySnapshot</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\Addons\NativeAddonManager.cpp">
       <Filter>Source Files\Editor</Filter>
@@ -3149,6 +3158,15 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Addons\AddonsWindow.h">
       <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshot.h">
+      <Filter>Source Files\Editor\MemorySnapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshotProfiler.h">
+      <Filter>Source Files\Editor\MemorySnapshot</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.h">
+      <Filter>Source Files\Editor\MemorySnapshot</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Addons\NativeAddonManager.h">
       <Filter>Source Files\Editor</Filter>

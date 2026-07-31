@@ -82,6 +82,7 @@
 #include "AppSettings/AppSettingsWindow.h"
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonsWindow.h"
+#include "MemorySnapshot/MemorySnapshotWindow.h"
 #include "Addons/NativeAddonManager.h"
 #include "Addons/AddonsMenu.h"
 #include "EditorUIHookManager.h"
@@ -9860,6 +9861,40 @@ static void GatherCppSourceFiles(const std::string& dir, std::vector<std::string
     }
 }
 
+// A reveal request may name a script with or without the trailing ".lua" --
+// Script components serialize package scripts without it (see ScriptUtils)
+// while the panel's display names always carry it -- so both sides compare on
+// the stem.
+static std::string StripLuaExtension(const std::string& name)
+{
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".lua") == 0)
+    {
+        return name.substr(0, name.size() - 4);
+    }
+
+    return name;
+}
+
+// Full paths reach the panel from three different roots and may use either
+// separator, so normalize before comparing.
+static std::string NormalizeScriptPath(const std::string& path)
+{
+    std::string ret = path;
+    for (char& c : ret)
+    {
+        if (c == '\\')
+        {
+            c = '/';
+        }
+    }
+
+#if PLATFORM_WINDOWS
+    std::transform(ret.begin(), ret.end(), ret.begin(), ::tolower);
+#endif
+
+    return ret;
+}
+
 static void DrawScriptsPanel()
 {
     // --- Cached Lua scripts ---
@@ -9876,6 +9911,9 @@ static void DrawScriptsPanel()
     // --- Script reveal state ---
     static std::set<std::string> sRevealExpandPaths;
     static std::string sSelectedScript = "";
+    static std::string sPendingRevealName;
+    static std::string sPendingRevealPath;
+    static double sPendingRevealExpire = 0.0;
 
     // --- Deferred file operations (recorded by the context menu, run after the tree draws) ---
     static ScriptFileAction sPendingScriptAction = ScriptFileAction::None;
@@ -9887,13 +9925,35 @@ static void DrawScriptsPanel()
 
     double currentTime = ImGui::GetTime();
 
-    // Check for pending script reveal and build expand paths
+    // Take ownership of any pending reveal request. Clearing EditorState here,
+    // rather than once the script is found, means an unmatchable request -- a
+    // script saved outside the three scanned roots, say -- can never pin
+    // sSelectedScript and lock the user out of changing the selection.
     EditorState* es = GetEditorState();
-    if (!es->mRevealScriptName.empty())
+    if (!es->mRevealScriptName.empty() || !es->mRevealScriptPath.empty())
     {
+        sPendingRevealName = es->mRevealScriptName;
+        sPendingRevealPath = es->mRevealScriptPath;
+        sPendingRevealExpire = currentTime + 1.0;
+        es->mRevealScriptName.clear();
+        es->mRevealScriptPath.clear();
+
         sRevealExpandPaths.clear();
-        sSelectedScript = es->mRevealScriptName;  // Set selection to revealed script
-        // Will be populated when we find the script in the tree build loop below
+        sSearchBuffer[0] = '\0';    // an active filter would hide the target
+        sLuaLastUpdate = 0.0;       // the file may have been written this frame
+    }
+
+    // The request is retried for a short window rather than handled once:
+    // ImGuiTabItemFlags_SetSelected is queued (TabBarQueueFocus), so the Lua
+    // tab body may not draw until the next frame, and the expand paths need a
+    // frame to take effect. The same window bounds an unmatchable request.
+    bool revealPending = (!sPendingRevealName.empty() || !sPendingRevealPath.empty());
+    if (revealPending && currentTime > sPendingRevealExpire)
+    {
+        sPendingRevealName.clear();
+        sPendingRevealPath.clear();
+        sRevealExpandPaths.clear();
+        revealPending = false;
     }
 
     // Search bar at top
@@ -9911,7 +9971,11 @@ static void DrawScriptsPanel()
     if (ImGui::BeginTabBar("ScriptBrowserTabs"))
     {
         // ===== Lua Scripts Tab =====
-        if (ImGui::BeginTabItem("Lua Scripts"))
+        // A pending reveal forces this tab forward -- every bit of the reveal
+        // logic lives inside this tab body, so a request made while the user is
+        // on C++ Addons would otherwise never be seen.
+        ImGuiTabItemFlags luaTabFlags = revealPending ? ImGuiTabItemFlags_SetSelected : 0;
+        if (ImGui::BeginTabItem("Lua Scripts", nullptr, luaTabFlags))
         {
             // Toolbar buttons
             {
@@ -10076,6 +10140,24 @@ static void DrawScriptsPanel()
             TreeNode root;
             bool hasFilter = !filterLower.empty();
 
+            const std::string revealPathNorm = revealPending ? NormalizeScriptPath(sPendingRevealPath) : std::string();
+            const std::string revealNameStem = revealPending ? StripLuaExtension(sPendingRevealName) : std::string();
+
+            // Matches either form of a request: an exact file path (what the
+            // script creator sends, so no root mapping is duplicated there) or a
+            // display name with or without ".lua" (what a Script property sends).
+            // Goes cold once the leaf draw clears sPendingReveal*.
+            auto matchesReveal = [&](const ScriptFileEntry& entry)
+            {
+                if (!sPendingRevealPath.empty() && NormalizeScriptPath(entry.mFullPath) == revealPathNorm)
+                    return true;
+
+                if (!sPendingRevealName.empty() && StripLuaExtension(entry.mDisplayName) == revealNameStem)
+                    return true;
+
+                return false;
+            };
+
             for (const ScriptFileEntry& entry : sLuaScripts)
             {
                 // Filter check
@@ -10088,9 +10170,14 @@ static void DrawScriptsPanel()
                 }
 
                 // Build reveal expand paths if this is the target script
-                bool isRevealTarget = (!es->mRevealScriptName.empty() && entry.mDisplayName == es->mRevealScriptName);
+                bool isRevealTarget = matchesReveal(entry);
                 if (isRevealTarget)
                 {
+                    // Resolve the request to a display name here -- callers that
+                    // reveal by path never have to derive one. Runs before the
+                    // leaf draws below, so the highlight lands this frame.
+                    sSelectedScript = entry.mDisplayName;
+
                     // Add origin as first path to expand
                     sRevealExpandPaths.insert(entry.mOrigin);
 
@@ -10231,7 +10318,7 @@ static void DrawScriptsPanel()
 
                     // Check if this script is selected
                     bool isSelected = (entry->mDisplayName == sSelectedScript);
-                    bool isRevealTarget = (!es->mRevealScriptName.empty() && entry->mDisplayName == es->mRevealScriptName);
+                    bool isRevealTarget = matchesReveal(*entry);
 
                     ImGuiTreeNodeFlags leafFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
                     if (isSelected)
@@ -10252,7 +10339,8 @@ static void DrawScriptsPanel()
                     if (isRevealTarget)
                     {
                         ImGui::SetScrollHereY(0.5f);
-                        es->mRevealScriptName.clear();
+                        sPendingRevealName.clear();
+                        sPendingRevealPath.clear();
                         sRevealExpandPaths.clear();
                     }
 
@@ -15503,6 +15591,7 @@ void EditorImguiDraw()
         ActionManager::Get()->DrawRetargetAnimationModal();
         GetProjectSelectWindow()->Draw();
         GetAddonsWindow()->Draw();
+        GetMemorySnapshotWindow()->Draw();
         GetThemeEditorWindow()->Draw();
         GetAutoUpdaterWindow()->Draw();
 
@@ -15558,6 +15647,7 @@ void EditorImguiPreShutdown()
     GetTerminalPanel()->Shutdown();
     GetLuaDebuggerPanel()->Shutdown();
     GetAddonsWindow()->Shutdown();
+    GetMemorySnapshotWindow()->Shutdown();
     // Runs before Renderer::Destroy() (see Engine.cpp), so the device is still
     // alive and the cached images can be torn down properly.
     EditorImageCache::Shutdown();

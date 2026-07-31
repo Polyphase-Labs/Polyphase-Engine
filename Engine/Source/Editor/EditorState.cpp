@@ -2608,6 +2608,23 @@ void EditorState::BrowseToScript(const std::string& scriptName)
     if (!scriptName.empty())
     {
         mRevealScriptName = scriptName;
+        mRevealScriptPath.clear();
+
+        // Activate the Scripts panel
+        ImGui::SetDockActive("EditorDock", ICON_IX_CODE "  Scripts");
+    }
+}
+
+// Reveal by absolute file path rather than display name. Callers that just
+// wrote a file (the script creator) know the exact path but not the
+// root-relative display name the panel keys off; the panel holds both, so it
+// does the mapping instead of every caller re-deriving it.
+void EditorState::BrowseToScriptPath(const std::string& fullPath)
+{
+    if (!fullPath.empty())
+    {
+        mRevealScriptPath = fullPath;
+        mRevealScriptName.clear();
 
         // Activate the Scripts panel
         ImGui::SetDockActive("EditorDock", ICON_IX_CODE "  Scripts");
