@@ -17,7 +17,11 @@ struct PolyphaseNodeExtras
     std::string mScriptPropsJson;
     std::string mScriptPropsTypesJson;
     std::string mMaterialType;
+    std::string mMaterialPath;   // existing project Material to use as override (name or path)
     bool mMainCamera = false;
+    // Per-node overrides. -1 = unset (use SceneImportOptions default / leave as-is).
+    int mCollision = -1;   // 0 = no collision, 1 = collision
+    int mHidden    = -1;   // 0 = visible,     1 = hidden
 };
 
 struct SceneImportOptions
@@ -35,6 +39,13 @@ struct SceneImportOptions
     ShadingModel mDefaultShadingModel = ShadingModel::Lit;
     VertexColorMode mDefaultVertexColorMode = VertexColorMode::None;
     bool mReimportTextures = false;
+    // Share materials/textures across scene imports instead of namespacing them
+    // per-scene. When true, M_/T_ assets get a scene-independent name (dropping
+    // the per-scene stem) and land in a single shared folder; an existing asset
+    // of the same name is reused instead of duplicated. Ideal for tiled/streamed
+    // worlds where many sector scenes reference the same ground material/texture.
+    bool mShareAssets = false;
+    std::string mSharedAssetDir = "_Shared";  // folder (sibling of scene folders)
     AssetStub* mReimportSceneStub = nullptr;  // Non-null = reimport mode
 };
 

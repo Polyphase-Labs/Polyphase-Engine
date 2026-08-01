@@ -148,6 +148,8 @@ public:
     void LoadScene(const char* name, bool instant);
     void QueueRootScene(const char* name);
     void QueueRootNode(Node* node);
+    const std::string& GetLoadedSceneName() const { return mLoadedSceneName; }
+    void GetLoadedSceneNames(std::vector<std::string>& outNames);
 
     void EnableInternalEdgeSmoothing(bool enable);
     bool IsInternalEdgeSmoothingEnabled() const;
@@ -223,6 +225,8 @@ private:
     std::vector<class Audio3D*> mAudios;
     std::vector<FadingLight> mFadingLights;
     NodePtr mQueuedRootNode;
+    std::string mLoadedSceneName;
+    std::string mQueuedSceneName;
     glm::vec4 mAmbientLightColor;
     glm::vec4 mShadowColor;
     FogSettings mFogSettings;

@@ -11995,6 +11995,15 @@ static void DrawMainMenuBar()
         Polyphase::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
         Polyphase::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
         Polyphase::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
+        Polyphase::Checkbox("Share Materials/Textures", &sSceneImportOptions.mShareAssets);
+        if (sSceneImportOptions.mShareAssets)
+        {
+            ImGui::Indent();
+            ImGui::TextDisabled("Reuse shared M_/T_ assets in a '%s' folder instead of",
+                sSceneImportOptions.mSharedAssetDir.c_str());
+            ImGui::TextDisabled("duplicating them per scene.");
+            ImGui::Unindent();
+        }
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sSceneImportOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);

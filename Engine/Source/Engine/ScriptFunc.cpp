@@ -95,6 +95,12 @@ void ScriptFunc::Call(uint32_t numParams, Datum* params) const
         }
 
         ScriptUtils::CallLuaFunc(numParams, 0);
+
+        // CallLuaFunc consumes the function and its args, but the ref table
+        // pushed above is still on the stack. Engine-driven callbacks (signals,
+        // network events) run outside any lua_CFunction frame, so nothing else
+        // ever unwinds it.
+        lua_pop(L, 1);
     }
 }
 
@@ -126,6 +132,9 @@ Datum ScriptFunc::CallR(uint32_t numParams, Datum* params) const
             LuaObjectToDatum(L, -1, retDatum);
             lua_pop(L, 1);
         }
+
+        // Pop the ref table pushed above (see the note in Call).
+        lua_pop(L, 1);
     }
 
     return retDatum;

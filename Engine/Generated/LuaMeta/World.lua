@@ -98,6 +98,12 @@ function World:SweepTest(primComp, start, end, colMask) end
 ---@param instant? boolean
 function World:LoadScene(newScene, instant) end
 
+---@return string
+function World:GetLoadedSceneName() end
+
+---@return string
+function World:GetLoadedSceneNames() end
+
 ---@param newRoot Node
 function World:QueueRootNode(newRoot) end
 

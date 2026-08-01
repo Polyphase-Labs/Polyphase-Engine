@@ -1857,6 +1857,15 @@ void NetworkManager::ProcessIncomingPackets(float deltaTime)
 
     while ((bytes = RecvFrom(sRecvBuffer, OCT_RECV_BUFFER_SIZE, sender)) > 0)
     {   
+        // A packet must carry at least the header plus one message-type byte.
+        // Anything shorter is malformed -- reading msgType below would run off
+        // the end of the received data.
+        if (bytes < int32_t(OCT_PACKET_HEADER_SIZE + sizeof(NetMsgType)))
+        {
+            LogWarning("Runt packet received (%d bytes) -- ignoring", bytes);
+            continue;
+        }
+
         Stream stream(sRecvBuffer, bytes);
         NetMsgType msgType = (NetMsgType) sRecvBuffer[OCT_PACKET_HEADER_SIZE];
 
@@ -2025,7 +2034,8 @@ void NetworkManager::ProcessMessages(NetHost sender, Stream& stream)
             NET_MSG_STATIC_CASE(ReplicateScript)
             NET_MSG_CASE(Invoke)
             NET_MSG_CASE(InvokeScript)
-            //NET_MSG_CASE(Broadcast)
+            // Broadcast is deliberately absent -- session broadcasts arrive on
+            // mSearchSocket (OCT_BROADCAST_PORT) and are handled by UpdateSearch().
             NET_MSG_CASE(Ack)
 
         default: break;
@@ -2033,7 +2043,12 @@ void NetworkManager::ProcessMessages(NetHost sender, Stream& stream)
 
         if (!msgHandled)
         {
-            LogWarning("Unknown message received: %u", (uint32_t)msgType);
+            // Message sizes are type-dependent, so an unrecognized type leaves
+            // the stream unadvanced and there is no way to resync on the next
+            // message. Drop the rest of the packet -- without this break the
+            // loop spins forever on the same byte, hanging the frame.
+            LogWarning("Unknown message received: %u -- discarding rest of packet", (uint32_t)msgType);
+            break;
         }
     }
 }

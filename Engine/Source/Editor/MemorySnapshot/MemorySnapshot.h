@@ -26,6 +26,7 @@ enum class SnapshotCategory : uint8_t
     Animation,  // SkeletalMesh animation keyframe data
     Nodes,      // Runtime node overhead in the game world
     Other,      // Anything without a cheap size estimate
+    FrameBuffer,// Render targets / framebuffers (color x2 + depth) for the surface
 
     Count
 };

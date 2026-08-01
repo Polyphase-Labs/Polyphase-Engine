@@ -1501,6 +1501,8 @@ void World::Update(float deltaTime)
         SetRootNode(mQueuedRootNode.Get());
 
         mQueuedRootNode.Reset();
+        mLoadedSceneName = mQueuedSceneName;
+        mQueuedSceneName.clear();
     }
 
     // Ensure world root node is set to replicate. (Otherwise clients will see nothing)
@@ -1999,6 +2001,7 @@ void World::LoadScene(const char* name, bool instant)
 
             NodePtr newRoot = scene->Instantiate();
             SetRootNode(newRoot.Get());
+            mLoadedSceneName = name ? name : "";
         }
         else
         {
@@ -2021,6 +2024,7 @@ void World::QueueRootScene(const char* name)
     {
         NodePtr sceneNode = scene->Instantiate();
         QueueRootNode(sceneNode.Get());
+        mQueuedSceneName = name ? name : "";
     }
     else
     {
@@ -2028,9 +2032,32 @@ void World::QueueRootScene(const char* name)
     }
 }
 
+void World::GetLoadedSceneNames(std::vector<std::string>& outNames)
+{
+    outNames.clear();
+
+    if (mRootNode == nullptr)
+    {
+        return;
+    }
+
+    std::unordered_set<std::string> seen;
+
+    mRootNode->Traverse([&](Node* node) -> bool
+    {
+        Scene* scene = node->GetScene();
+        if (scene != nullptr && seen.insert(scene->GetName()).second)
+        {
+            outNames.push_back(scene->GetName());
+        }
+        return true;
+    });
+}
+
 void World::QueueRootNode(Node* node)
 {
     mQueuedRootNode = ResolvePtr(node);
+    mQueuedSceneName.clear();
 }
 
 void World::EnableInternalEdgeSmoothing(bool enable)

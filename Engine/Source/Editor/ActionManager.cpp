@@ -178,6 +178,9 @@ struct MaterialImportContext
     bool            mImportTextures = true;
     bool            mIsReimport = false;
     bool            mReimportTextures = false;
+    // When true, M_/T_ assets are named without the per-scene stem and an existing
+    // asset of that name is reused (not duplicated). mTargetDir is the shared folder.
+    bool            mShareAssets = false;
 };
 
 // Resolve a single aiTextureType_DIFFUSE slot reference (embedded "*N" or external
@@ -214,12 +217,23 @@ static Texture* ImportOrFetchMaterialTexture(
         }
     }
     assetName = ctx.mUserPrefix + assetName;
-    assetName = std::string("T_") + ctx.mAssetNameStem + std::string("_") + assetName;
+    if (ctx.mShareAssets)
+    {
+        // Shared: scene-independent name so every scene resolves to the same asset.
+        assetName = std::string("T_") + assetName;
+    }
+    else
+    {
+        assetName = std::string("T_") + ctx.mAssetNameStem + std::string("_") + assetName;
+    }
 
     Texture* textureToAssign = nullptr;
 
+    // Reuse an already-registered texture of this name: always across directories,
+    // and in share mode even within the target dir (so the first scene creates it
+    // and every later scene reuses it instead of re-importing a duplicate).
     AssetStub* existingStub = AssetManager::Get()->GetAssetStub(assetName);
-    if (existingStub && existingStub->mDirectory != ctx.mTargetDir)
+    if (existingStub && (ctx.mShareAssets || existingStub->mDirectory != ctx.mTargetDir))
     {
         textureToAssign = LoadAsset<Texture>(assetName);
     }
@@ -343,14 +357,25 @@ static std::vector<MaterialLite*> ImportSceneMaterials(
 
         if (materialName.size() < 2 || (materialName.substr(0, 2) != "M_"))
         {
-            materialName = std::string("M_") + ctx.mAssetNameStem + std::string("_") + materialName;
+            if (ctx.mShareAssets)
+            {
+                // Shared: scene-independent name so every scene resolves to the same material.
+                materialName = std::string("M_") + materialName;
+            }
+            else
+            {
+                materialName = std::string("M_") + ctx.mAssetNameStem + std::string("_") + materialName;
+            }
         }
 
         AssetStub* materialStub = nullptr;
         MaterialLite* newMaterial = nullptr;
+        bool reusedShared = false;
         if (ctx.mImportMaterials)
         {
-            if (ctx.mIsReimport)
+            // Reuse an existing material of this name on reimport, or in share mode
+            // (where a prior scene already created the shared material).
+            if (ctx.mIsReimport || ctx.mShareAssets)
             {
                 AssetStub* existingStub = AssetManager::Get()->GetAssetStub(materialName);
                 if (existingStub && existingStub->mType == MaterialLite::GetStaticType())
@@ -358,6 +383,9 @@ static std::vector<MaterialLite*> ImportSceneMaterials(
                     materialStub = existingStub;
                     if (!existingStub->mAsset) AssetManager::Get()->LoadAsset(*existingStub);
                     newMaterial = static_cast<MaterialLite*>(existingStub->mAsset);
+                    // In share mode reuse the shared material as-is (don't re-author
+                    // or re-import its textures, and don't clobber any edits).
+                    reusedShared = ctx.mShareAssets;
                 }
             }
             if (materialStub == nullptr)
@@ -365,6 +393,10 @@ static std::vector<MaterialLite*> ImportSceneMaterials(
                 materialStub = EditorAddUniqueAsset(materialName.c_str(), ctx.mTargetDir, MaterialLite::GetStaticType(), true);
                 newMaterial = static_cast<MaterialLite*>(materialStub->mAsset);
             }
+        }
+
+        if (ctx.mImportMaterials && !reusedShared)
+        {
             newMaterial->SetShadingModel(ctx.mDefaultShadingModel);
             newMaterial->SetVertexColorMode(ctx.mDefaultVertexColorMode);
 
@@ -392,31 +424,40 @@ static std::vector<MaterialLite*> ImportSceneMaterials(
             }
         }
 
-        uint32_t numBaseTextures = aMaterial->GetTextureCount(aiTextureType_DIFFUSE);
-        numBaseTextures = glm::clamp(numBaseTextures, 0u, 4u);
-
-        for (uint32_t t = 0; t < numBaseTextures; ++t)
+        // Skip texture import/assignment for a reused shared material -- it already
+        // has its textures wired up from when the first scene created it.
+        if (!reusedShared)
         {
-            aiString path;
-            aiReturn ret = aMaterial->GetTexture(aiTextureType::aiTextureType_DIFFUSE, t, &path);
+            uint32_t numBaseTextures = aMaterial->GetTextureCount(aiTextureType_DIFFUSE);
+            numBaseTextures = glm::clamp(numBaseTextures, 0u, 4u);
 
-            if (ret == aiReturn_SUCCESS)
+            for (uint32_t t = 0; t < numBaseTextures; ++t)
             {
-                std::string texturePath = path.C_Str();
-                LogDebug("Scene Texture: %s", texturePath.c_str());
+                aiString path;
+                aiReturn ret = aMaterial->GetTexture(aiTextureType::aiTextureType_DIFFUSE, t, &path);
 
-                Texture* textureToAssign = ImportOrFetchMaterialTexture(scene, texturePath, ctx, textureMap);
-
-                if (newMaterial != nullptr && textureToAssign != nullptr)
+                if (ret == aiReturn_SUCCESS)
                 {
-                    newMaterial->SetTexture(t, textureToAssign);
+                    std::string texturePath = path.C_Str();
+                    LogDebug("Scene Texture: %s", texturePath.c_str());
+
+                    Texture* textureToAssign = ImportOrFetchMaterialTexture(scene, texturePath, ctx, textureMap);
+
+                    if (newMaterial != nullptr && textureToAssign != nullptr)
+                    {
+                        newMaterial->SetTexture(t, textureToAssign);
+                    }
                 }
             }
         }
 
         if (materialStub != nullptr)
         {
-            AssetManager::Get()->SaveAsset(*materialStub);
+            // Reused shared material is unchanged -- no need to rewrite its .oct.
+            if (!reusedShared)
+            {
+                AssetManager::Get()->SaveAsset(*materialStub);
+            }
             materialList.push_back(newMaterial);
         }
         else
@@ -5154,6 +5195,19 @@ Node* ActionManager::EXE_SpawnNode(TypeId srcType)
 
 Node* ActionManager::EXE_SpawnNode(const char* srcTypeName)
 {
+    // Reject unknown type names up front. Without this guard the type-name would
+    // reach ActionSpawnNodes::Execute, Node::Construct would return null, and the
+    // OCT_ASSERT there would crash the editor -- which is fatal for the REST
+    // controller path (an unloaded addon type, e.g. WorldStreamSector3D when its
+    // addon isn't installed in the project, would take down the whole editor
+    // instead of returning a clean error to the caller).
+    if (srcTypeName == nullptr || Node::FindFactory(srcTypeName) == nullptr)
+    {
+        LogError("EXE_SpawnNode: unknown node type '%s' (is its addon loaded?)",
+                 srcTypeName ? srcTypeName : "(null)");
+        return nullptr;
+    }
+
     std::vector<const char*> srcTypeNames;
     srcTypeNames.push_back(srcTypeName);
 
@@ -5162,7 +5216,11 @@ Node* ActionManager::EXE_SpawnNode(const char* srcTypeName)
     ActionSpawnNodes* action = new ActionSpawnNodes(srcTypeNames);
     ActionManager::Get()->ExecuteAction(action);
 
-    OCT_ASSERT(action->GetNodes().size() == 1);
+    if (action->GetNodes().size() != 1)
+    {
+        LogError("EXE_SpawnNode: failed to construct node of type '%s'", srcTypeName);
+        return nullptr;
+    }
     Node* retNode = action->GetNodes()[0].Get();
 	retNode->SetName(srcTypeName);
     return retNode;
@@ -7600,6 +7658,51 @@ static void ParseGltfExtrasFromDoc(const rapidjson::Document& doc, std::unordere
             }
         }
 
+        // Existing-material override: assign a project Material by name/path.
+        {
+            const char* mpKey = extras.HasMember("polyphase_material") ? "polyphase_material"
+                              : extras.HasMember("material_path") ? "material_path"
+                              : extras.HasMember("octave_material") ? "octave_material" : nullptr;
+            if (mpKey && extras[mpKey].IsString())
+            {
+                data.mMaterialPath = extras[mpKey].GetString();
+                if (!data.mMaterialPath.empty())
+                    hasPolyphaseData = true;
+            }
+        }
+
+        // Per-node collision override (accepts bool or int; polyphase_* or bare key).
+        {
+            const char* colKey = extras.HasMember("polyphase_collision") ? "polyphase_collision"
+                               : extras.HasMember("collision") ? "collision" : nullptr;
+            if (colKey && extras[colKey].IsBool())
+            {
+                data.mCollision = extras[colKey].GetBool() ? 1 : 0;
+                hasPolyphaseData = true;
+            }
+            else if (colKey && extras[colKey].IsInt())
+            {
+                data.mCollision = (extras[colKey].GetInt() != 0) ? 1 : 0;
+                hasPolyphaseData = true;
+            }
+        }
+
+        // Per-node hidden/visibility override.
+        {
+            const char* hidKey = extras.HasMember("polyphase_hidden") ? "polyphase_hidden"
+                               : extras.HasMember("hidden") ? "hidden" : nullptr;
+            if (hidKey && extras[hidKey].IsBool())
+            {
+                data.mHidden = extras[hidKey].GetBool() ? 1 : 0;
+                hasPolyphaseData = true;
+            }
+            else if (hidKey && extras[hidKey].IsInt())
+            {
+                data.mHidden = (extras[hidKey].GetInt() != 0) ? 1 : 0;
+                hasPolyphaseData = true;
+            }
+        }
+
         if (hasPolyphaseData)
         {
             LogDebug("PolyphaseExtras: node='%s' asset='%s' uuid=%llu meshType=%d script='%s'",
@@ -7805,6 +7908,29 @@ static void ApplyMaterialTypeOverride(StaticMesh* mesh, const std::string& mater
     }
 }
 
+static void ApplyMaterialOverride(Node* node, const std::string& matPath)
+{
+    if (node == nullptr || matPath.empty())
+        return;
+
+    Mesh3D* mesh = node->As<Mesh3D>();
+    if (mesh == nullptr)
+        return;   // Node3D etc. have no material slot
+
+    Material* mat = nullptr;
+    Asset* a = AssetManager::Get()->LoadAssetByPath(matPath);
+    if (a)
+        mat = a->As<Material>();
+    if (mat == nullptr)
+        mat = LoadAsset<Material>(matPath);
+
+    if (mat)
+        mesh->SetMaterialOverride(mat);
+    else
+        LogWarning("PolyphaseExtras: material '%s' not found for node '%s'",
+                   matPath.c_str(), node->GetName().c_str());
+}
+
 static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransform, const std::vector<StaticMesh*>& meshList, const SceneImportOptions& options, const std::unordered_map<std::string, PolyphaseNodeExtras>& extrasMap)
 {
     if (node == nullptr || root == nullptr)
@@ -7823,6 +7949,10 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
             extras = octIt->second;
         }
     }
+
+    // Per-node collision override; -1 (unset) falls back to the import default.
+    const bool enableCol = (extras.mCollision >= 0) ? (extras.mCollision != 0)
+                                                    : options.mEnableCollision;
 
     // Resolve asset from extras (UUID first, then name)
     StaticMesh* assetMesh = nullptr;
@@ -7904,7 +8034,7 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newInst->SetName(nodeName);
                 newInst->EnableCastShadows(true);
                 newInst->SetBakeLighting(true);
-                newInst->EnableCollision(options.mEnableCollision);
+                newInst->EnableCollision(enableCol);
                 {
                     MeshInstanceData data;
                     glm::vec3 skew;
@@ -7930,7 +8060,7 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newMesh->EnableCastShadows(true);
                 newMesh->SetBakeLighting(true);
                 newMesh->SetUseTriangleCollision(true);
-                newMesh->EnableCollision(options.mEnableCollision);
+                newMesh->EnableCollision(enableCol);
                 newNode = newMesh;
                 break;
             }
@@ -7941,10 +8071,16 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 ApplyMaterialTypeOverride(meshToUse, extras.mMaterialType);
             }
 
-            if (newNode != nullptr && !extras.mScriptPath.empty())
+            if (newNode != nullptr)
             {
-                newNode->SetScriptFile(extras.mScriptPath);
-                ApplyScriptPropertyOverrides(newNode, extras);
+                if (extras.mHidden >= 0)
+                    newNode->SetVisible(extras.mHidden == 0);
+                ApplyMaterialOverride(newNode, extras.mMaterialPath);
+                if (!extras.mScriptPath.empty())
+                {
+                    newNode->SetScriptFile(extras.mScriptPath);
+                    ApplyScriptPropertyOverrides(newNode, extras);
+                }
             }
         }
     }
@@ -7973,7 +8109,7 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newInst->SetName(nodeName);
                 newInst->EnableCastShadows(true);
                 newInst->SetBakeLighting(true);
-                newInst->EnableCollision(options.mEnableCollision);
+                newInst->EnableCollision(enableCol);
                 MeshInstanceData data;
                 glm::vec3 skew;
                 glm::vec4 perspective;
@@ -8004,17 +8140,23 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newMesh->EnableCastShadows(true);
                 newMesh->SetBakeLighting(true);
                 newMesh->SetUseTriangleCollision(true);
-                newMesh->EnableCollision(options.mEnableCollision);
+                newMesh->EnableCollision(enableCol);
                 newNode = newMesh;
             }
             break;
         }
         }
 
-        if (newNode != nullptr && !extras.mScriptPath.empty())
+        if (newNode != nullptr)
         {
-            newNode->SetScriptFile(extras.mScriptPath);
-            ApplyScriptPropertyOverrides(newNode, extras);
+            if (extras.mHidden >= 0)
+                newNode->SetVisible(extras.mHidden == 0);
+            ApplyMaterialOverride(newNode, extras.mMaterialPath);
+            if (!extras.mScriptPath.empty())
+            {
+                newNode->SetScriptFile(extras.mScriptPath);
+                ApplyScriptPropertyOverrides(newNode, extras);
+            }
         }
     }
 
@@ -8105,10 +8247,10 @@ void ActionManager::ImportCamera(const CameraImportOptions& options)
 
 }
 
-void ActionManager::ImportScene(const SceneImportOptions& options)
+Asset* ActionManager::ImportScene(const SceneImportOptions& options)
 {
     if (GetEngineState()->mProjectPath == "")
-        return;
+        return nullptr;
 
     World* world = GetWorld(0);
     std::string openPath = options.mFilePath;
@@ -8143,7 +8285,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             if (scene == nullptr)
             {
                 LogError("Failed to load scene file");
-                return;
+                return nullptr;
             }
 
             // Parse Polyphase extras from glTF files
@@ -8193,7 +8335,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 sceneDir->mParentDir == nullptr)
             {
                 LogError("Invalid directory. Use the asset panel to navigate to a valid directory");
-                return;
+                return nullptr;
             }
 
             if (!isReimport)
@@ -8256,8 +8398,23 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             // ImportAsset / ImportAssetCombined call this same helper so all three
             // import modes produce the same M_/T_ asset graph.
             {
+                // Share mode: M_/T_ assets go to a single shared folder (a sibling
+                // of the per-scene folders) and are reused across scenes instead of
+                // duplicated. sceneDir->mParentDir is validated non-null above.
+                AssetDir* matDir = sceneDir;
+                if (options.mShareAssets)
+                {
+                    std::string sharedName = options.mSharedAssetDir.empty()
+                        ? std::string("_Shared") : options.mSharedAssetDir;
+                    AssetDir* sharedDir = sceneDir->mParentDir->CreateSubdirectory(sharedName);
+                    if (sharedDir != nullptr)
+                    {
+                        matDir = sharedDir;
+                    }
+                }
+
                 MaterialImportContext matCtx;
-                matCtx.mTargetDir              = sceneDir;
+                matCtx.mTargetDir              = matDir;
                 matCtx.mImportDir              = importDir;
                 matCtx.mAssetNameStem          = sceneName;
                 matCtx.mUserPrefix             = options.mPrefix;
@@ -8267,6 +8424,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 matCtx.mImportTextures         = options.mImportTextures;
                 matCtx.mIsReimport             = isReimport;
                 matCtx.mReimportTextures       = options.mReimportTextures;
+                matCtx.mShareAssets            = options.mShareAssets && (matDir != sceneDir);
 
                 std::vector<MaterialLite*> matLite = ImportSceneMaterials(scene, neededMaterialIndices, matCtx, textureMap);
                 materialList.assign(matLite.begin(), matLite.end());
@@ -8460,10 +8618,12 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                     existingScene->Capture(rootNode.Get());
                     AssetManager::Get()->SaveAsset(*options.mReimportSceneStub);
                     GetEditorState()->OpenEditScene(existingScene);
+                    return existingScene;
                 }
                 else
                 {
                     LogError("Failed to access existing scene asset for reimport");
+                    return nullptr;
                 }
             }
             else
@@ -8476,10 +8636,12 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                     newScene->Capture(rootNode.Get());
                     AssetManager::Get()->SaveAsset(*sceneStub);
                     GetEditorState()->OpenEditScene(newScene);
+                    return newScene;
                 }
                 else
                 {
                     LogError("Failed to create new scene asset for scene import");
+                    return nullptr;
                 }
             }
         }
@@ -8488,6 +8650,8 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             LogError("Failed to import scene. File format must be .glb, .gltf, .dae, or .blend");
         }
     }
+
+    return nullptr;
 }
 
 void ActionManager::BeginImportScene()

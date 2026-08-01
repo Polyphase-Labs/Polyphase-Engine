@@ -47,8 +47,20 @@
 // Console default: gamepad only (no keyboard / mouse / touch hardware on
 // PSP, GameCube, etc.). Touch-capable consoles (Wii IR, 3DS, Vita)
 // override to 1 in their own #elif arm above.
+//
+// #ifndef guards: an addon platform whose hardware differs from the console
+// default (e.g. the Web target, which has keyboard/mouse/touch) can pass
+// -DINPUT_*_SUPPORT=1 on its compile line and win over these fallbacks.
+#ifndef INPUT_KEYBOARD_SUPPORT
 #define INPUT_KEYBOARD_SUPPORT 0
+#endif
+#ifndef INPUT_MOUSE_SUPPORT
 #define INPUT_MOUSE_SUPPORT 0
+#endif
+#ifndef INPUT_TOUCH_SUPPORT
 #define INPUT_TOUCH_SUPPORT 0
+#endif
+#ifndef INPUT_GAMEPAD_SUPPORT
 #define INPUT_GAMEPAD_SUPPORT 1
+#endif
 #endif

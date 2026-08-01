@@ -20,6 +20,9 @@ public:
     void Draw();
     bool IsOpen() const { return mIsOpen; }
 
+    // Capture a snapshot now (also used by the Profiling window's button).
+    void CaptureNow();
+
     // Release the cached thumbnail texture. Call from EditorImguiPreShutdown.
     void Shutdown();
 
@@ -29,7 +32,6 @@ private:
     void DrawCategoryTree();
     void DrawEntryTable();
 
-    void CaptureNow();
     void SaveCurrent();
     void LoadFromDialog();
     void RefreshThumbnailTexture();

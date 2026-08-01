@@ -59,6 +59,7 @@ const char* SnapshotCategoryName(SnapshotCategory cat)
     case SnapshotCategory::Animation: return "Animation";
     case SnapshotCategory::Nodes:     return "Nodes";
     case SnapshotCategory::Other:     return "Other";
+    case SnapshotCategory::FrameBuffer: return "Frame Buffers";
     default:                          return "?";
     }
 }
@@ -425,6 +426,162 @@ static void DownscaleThumbnail(const std::vector<uint8_t>& srcRgba, uint32_t src
     }
 }
 
+void GatherGameReferencedAssets(std::unordered_map<Asset*, uint32_t>& outRefs,
+                                std::unordered_map<std::string, uint32_t>* outScriptFiles,
+                                uint32_t* outNodeCount,
+                                int32_t* outWorldCount)
+{
+    // Gather every node in the game world(s). When not playing, world 0 holds the
+    // edit scene; during PIE it holds the cloned play tree.
+    std::vector<Node*> nodes;
+    int32_t numWorlds = GetNumWorlds();
+    for (int32_t i = 0; i < numWorlds; ++i)
+    {
+        World* world = GetWorld(i);
+        if (world != nullptr)
+            world->GatherNodes(nodes);
+    }
+
+    // Direct references: any asset-typed node/script property.
+    std::vector<Property> props;
+    for (Node* node : nodes)
+    {
+        props.clear();
+        node->GatherProperties(props);
+
+        Script* script = node->GetScript();
+        if (script != nullptr)
+        {
+            script->AppendScriptProperties(props);
+            if (outScriptFiles != nullptr)
+            {
+                const std::string& file = script->GetFile();
+                if (!file.empty())
+                    (*outScriptFiles)[file]++;
+            }
+        }
+
+        for (const Property& prop : props)
+        {
+            if (!IsAssetDatumType(prop.GetType()))
+                continue;
+
+            for (uint32_t idx = 0; idx < prop.GetCount(); ++idx)
+            {
+                Asset* a = prop.GetAsset(idx);
+                if (a != nullptr && a->IsLoaded())
+                    outRefs[a]++;
+            }
+        }
+    }
+
+    // Transitively pull in child assets (mesh -> material -> texture incl.
+    // MaterialLite slots, font -> atlas, particle -> material).
+    std::vector<Asset*> work;
+    work.reserve(outRefs.size());
+    for (const auto& kv : outRefs)
+        work.push_back(kv.first);
+
+    std::unordered_set<Asset*> expanded;
+    std::vector<Asset*> children;
+    while (!work.empty())
+    {
+        Asset* a = work.back();
+        work.pop_back();
+        if (expanded.count(a) != 0)
+            continue;
+        expanded.insert(a);
+
+        children.clear();
+        GatherChildAssets(a, children);
+        for (Asset* c : children)
+        {
+            auto it = outRefs.find(c);
+            if (it == outRefs.end())
+                outRefs[c] = 1;
+            else
+                it->second++;
+            work.push_back(c);
+        }
+    }
+
+    if (outNodeCount != nullptr)
+        *outNodeCount = (uint32_t)nodes.size();
+    if (outWorldCount != nullptr)
+        *outWorldCount = numWorlds;
+}
+
+void BuildGameMemoryEntries(std::vector<SnapshotEntry>& out,
+                            uint32_t* outNodeCount,
+                            int32_t* outWorldCount)
+{
+    std::unordered_map<Asset*, uint32_t> refs;
+    std::unordered_map<std::string, uint32_t> scriptFiles;
+    GatherGameReferencedAssets(refs, &scriptFiles, outNodeCount, outWorldCount);
+
+    // Per-asset entries (format-accurate textures, streaming-aware audio, etc.).
+    for (const auto& kv : refs)
+        ClassifyAndSize(kv.first, kv.second, out);
+
+    // Lua script source sizes from disk.
+    const std::string& projDir = GetEngineState()->mProjectDirectory;
+    for (const auto& kv : scriptFiles)
+    {
+        std::string file = kv.first;
+        if (file.size() < 4 || file.substr(file.size() - 4) != ".lua")
+            file += ".lua";
+        std::string path = projDir + "Scripts/" + file;
+
+        SnapshotEntry entry;
+        entry.mName = kv.first;
+        entry.mTypeName = "Script";
+        entry.mCategory = SnapshotCategory::Scripts;
+        entry.mRefCount = kv.second;
+
+        if (SYS_DoesFileExist(path.c_str(), false))
+        {
+            Stream s;
+            if (s.ReadFile(path.c_str(), false))
+            {
+                entry.mCpuBytes = s.GetSize();
+                entry.mDetail = "Lua source";
+            }
+        }
+        else
+        {
+            entry.mDetail = "source not on disk";
+        }
+        out.push_back(entry);
+    }
+
+    // Frame buffers: real runtime GPU memory for the render surface (double-
+    // buffered RGBA8 color + 16-bit depth), sized from the Game Preview.
+    {
+        uint32_t w = 640;
+        uint32_t h = 480;
+        GamePreview* preview = GetGamePreview();
+        if (preview != nullptr && preview->IsEnabled() &&
+            preview->GetCurrentWidth() > 0 && preview->GetCurrentHeight() > 0)
+        {
+            w = preview->GetCurrentWidth();
+            h = preview->GetCurrentHeight();
+        }
+        uint64_t color = (uint64_t)w * h * 4 * 2;
+        uint64_t depth = (uint64_t)w * h * 2;
+
+        SnapshotEntry entry;
+        entry.mName = "Frame Buffers";
+        entry.mTypeName = "RenderTarget";
+        entry.mCategory = SnapshotCategory::FrameBuffer;
+        entry.mRefCount = 1;
+        entry.mGpuBytes = color + depth;
+        char detail[96];
+        snprintf(detail, sizeof(detail), "%ux%u color x2 + depth", w, h);
+        entry.mDetail = detail;
+        out.push_back(entry);
+    }
+}
+
 MemorySnapshot CaptureSnapshot()
 {
     MemorySnapshot snapshot;
@@ -457,112 +614,11 @@ MemorySnapshot CaptureSnapshot()
             snapshot.mActiveAudioVoices++;
     }
 
-    // Gather every node in the game world(s).
-    std::vector<Node*> nodes;
-    int32_t numWorlds = GetNumWorlds();
-    for (int32_t i = 0; i < numWorlds; ++i)
-    {
-        World* world = GetWorld(i);
-        if (world != nullptr)
-            world->GatherNodes(nodes);
-    }
-
-    // Collect assets referenced by those nodes (direct), plus the Lua scripts.
-    std::unordered_map<Asset*, uint32_t> refs;
-    std::unordered_map<std::string, uint32_t> scriptFiles;
-
-    std::vector<Property> props;
-    for (Node* node : nodes)
-    {
-        props.clear();
-        node->GatherProperties(props);
-
-        Script* script = node->GetScript();
-        if (script != nullptr)
-        {
-            script->AppendScriptProperties(props);
-            const std::string& file = script->GetFile();
-            if (!file.empty())
-                scriptFiles[file]++;
-        }
-
-        for (const Property& prop : props)
-        {
-            if (!IsAssetDatumType(prop.GetType()))
-                continue;
-
-            for (uint32_t idx = 0; idx < prop.GetCount(); ++idx)
-            {
-                Asset* a = prop.GetAsset(idx);
-                if (a != nullptr && a->IsLoaded())
-                    refs[a]++;
-            }
-        }
-    }
-
-    // Transitively pull in child assets (mesh -> material -> texture, font -> atlas).
-    std::vector<Asset*> work;
-    work.reserve(refs.size());
-    for (const auto& kv : refs)
-        work.push_back(kv.first);
-
-    std::unordered_set<Asset*> expanded;
-    std::vector<Asset*> children;
-    while (!work.empty())
-    {
-        Asset* a = work.back();
-        work.pop_back();
-        if (expanded.count(a) != 0)
-            continue;
-        expanded.insert(a);
-
-        children.clear();
-        GatherChildAssets(a, children);
-        for (Asset* c : children)
-        {
-            auto it = refs.find(c);
-            if (it == refs.end())
-                refs[c] = 1;
-            else
-                it->second++;
-            work.push_back(c);
-        }
-    }
-
-    // Build the per-asset entries.
-    for (const auto& kv : refs)
-        ClassifyAndSize(kv.first, kv.second, snapshot.mEntries);
-
-    // Script source sizes from disk.
-    const std::string& projDir = GetEngineState()->mProjectDirectory;
-    for (const auto& kv : scriptFiles)
-    {
-        std::string file = kv.first;
-        if (file.size() < 4 || file.substr(file.size() - 4) != ".lua")
-            file += ".lua";
-        std::string path = projDir + "Scripts/" + file;
-
-        SnapshotEntry entry;
-        entry.mName = kv.first;
-        entry.mTypeName = "Script";
-        entry.mCategory = SnapshotCategory::Scripts;
-        entry.mRefCount = kv.second;
-
-        if (SYS_DoesFileExist(path.c_str(), false))
-        {
-            Stream s;
-            if (s.ReadFile(path.c_str(), false))
-            {
-                entry.mCpuBytes = s.GetSize();
-                entry.mDetail = "Lua source";
-            }
-        }
-        else
-        {
-            entry.mDetail = "source not on disk";
-        }
-        snapshot.mEntries.push_back(entry);
-    }
+    // Build the game-scoped memory entries (assets + scripts + frame buffers).
+    // Shared with the Profiling window so both report identical numbers.
+    uint32_t nodeCount = 0;
+    int32_t numWorlds = 0;
+    BuildGameMemoryEntries(snapshot.mEntries, &nodeCount, &numWorlds);
 
     // Informational node-count row.
     {
@@ -570,10 +626,10 @@ MemorySnapshot CaptureSnapshot()
         nodeEntry.mName = "Scene Nodes";
         nodeEntry.mTypeName = "Node";
         nodeEntry.mCategory = SnapshotCategory::Nodes;
-        nodeEntry.mRefCount = (uint32_t)nodes.size();
+        nodeEntry.mRefCount = nodeCount;
         char detail[96];
         snprintf(detail, sizeof(detail), "%u nodes across %d world%s",
-                 (uint32_t)nodes.size(), numWorlds, numWorlds == 1 ? "" : "s");
+                 nodeCount, numWorlds, numWorlds == 1 ? "" : "s");
         nodeEntry.mDetail = detail;
         snapshot.mEntries.push_back(nodeEntry);
     }

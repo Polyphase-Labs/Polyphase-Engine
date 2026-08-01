@@ -480,7 +480,7 @@ struct EditorState
     void ClearNodePropertySelect();
     void AssignNodePropertySelect(Node* targetNode);
 
-    Camera3D* GetEditorCamera();
+    POLYPHASE_API Camera3D* GetEditorCamera();
     void ToggleEditorCameraProjection();
     void ApplyEditorCameraSettings();
 
@@ -507,7 +507,7 @@ struct EditorState
     void SetSelectedInstance(int32_t instance);
     //void ShowTextPrompt(const char* title, TextFieldHandlerFP confirmHandler, const char* defaultText = nullptr);
 
-    void OpenEditScene(Scene* scene);
+    POLYPHASE_API void OpenEditScene(Scene* scene);
     void OpenEditScene(int32_t idx);
     void CloseEditScene(int32_t idx);
     void ShelveEditScene();
@@ -535,7 +535,7 @@ struct EditorState
     void ProgressInspectFuture();
     void RegressInspectPast();
     void ClearAssetDirHistory();
-    void SetAssetDirectory(AssetDir* assetDir, bool recordHistory);
+    POLYPHASE_API void SetAssetDirectory(AssetDir* assetDir, bool recordHistory);
     POLYPHASE_API AssetDir* GetAssetDirectory();
     void BrowseToAsset(const std::string& name);
     void BrowseToScript(const std::string& scriptName);

@@ -231,6 +231,7 @@ protected:
     AssetManager();
 
     void UpdateEndLoadQueue();
+    bool ProcessNextBeginLoad();
 
     std::unordered_map<std::string, AssetStub*> mAssetMap;      // Name-based lookup (first wins)
     std::unordered_map<std::string, AssetStub*> mAssetPathMap;  // Path-based lookup (e.g., "Models/SM_Plane")

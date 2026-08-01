@@ -105,6 +105,13 @@ private:
     EstimatedMemory EstimateMemoryForPlatform(Platform platform) const;
     uint64_t GetBytesPerPixelForPlatform(Platform platform) const;
     uint32_t GetIndexSizeForPlatform(Platform platform) const;
+
+    // Cached game-scoped estimate. EstimateMemoryForPlatform walks the game
+    // world's nodes, so it is throttled to a few recomputes per second.
+    mutable EstimatedMemory mCachedMemory;
+    mutable bool mHasCachedMemory = false;
+    mutable float mLastMemoryEstimateTime = 0.0f;
+    mutable int32_t mLastEstimatePlatform = -1;
 };
 
 ProfilingWindow* GetProfilingWindow();

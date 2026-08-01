@@ -221,9 +221,12 @@ AssetManager::~AssetManager()
     mDestructing = true;
     SYS_UnlockMutex(mMutex);
 
-    SYS_JoinThread(mAsyncLoadThread);
-    SYS_DestroyThread(mAsyncLoadThread);
-    mAsyncLoadThread = nullptr;
+    if (mAsyncLoadThread != nullptr)
+    {
+        SYS_JoinThread(mAsyncLoadThread);
+        SYS_DestroyThread(mAsyncLoadThread);
+        mAsyncLoadThread = nullptr;
+    }
 
     SYS_DestroyMutex(mMutex);
     mMutex = nullptr;
@@ -235,10 +238,30 @@ void AssetManager::Initialize()
 
     mMutex = SYS_CreateMutex();
     mAsyncLoadThread = SYS_CreateThread(AsyncLoadThreadFunc, this);
+
+    if (mAsyncLoadThread == nullptr)
+    {
+        // Threadless platform (e.g. single-threaded wasm): async load
+        // requests are drained synchronously in Update() instead.
+        LogWarning("AssetManager: no async-load thread on this platform; async loads run synchronously.");
+    }
 }
 
 void AssetManager::Update(float deltaTime)
 {
+    if (mAsyncLoadThread == nullptr)
+    {
+        // Threadless platform: service the begin-load queue here so
+        // AsyncLoadAsset() still completes. Bounded per frame to keep the
+        // frame time sane when a script kicks off a burst of loads.
+        const uint32_t maxLoadsPerFrame = 4;
+        for (uint32_t i = 0; i < maxLoadsPerFrame; ++i)
+        {
+            if (!ProcessNextBeginLoad())
+                break;
+        }
+    }
+
     UpdateEndLoadQueue();
 }
 
@@ -2307,23 +2330,62 @@ std::vector<AssetStub*> AssetManager::GatherDirtyAssets()
     return retAssets;
 }
 
+// Pop and fully load one request from the begin-load queue, pushing it onto
+// the end-load queue for main-thread finalization. Returns false when the
+// queue was empty. Shared by the async-load thread and the threadless
+// synchronous drain in Update().
+bool AssetManager::ProcessNextBeginLoad()
+{
+    AsyncLoadRequest* request = nullptr;
+
+    SYS_LockMutex(mMutex);
+    if (mBeginLoadQueue.size() > 0)
+    {
+        request = mBeginLoadQueue.front();
+        mBeginLoadQueue.pop_front();
+    }
+    SYS_UnlockMutex(mMutex);
+
+    if (request == nullptr)
+    {
+        return false;
+    }
+
+    // (1) Create the Asset type
+    Asset* newAsset = Asset::CreateInstance(request->mType);
+    OCT_ASSERT(newAsset);
+
+    // (2) Load the file into a stream
+    // (3) Call asset->LoadStream()
+    // The call to Asset::Create() is made on the main thread, that's why we queue it up on the EndLoadQueue
+    if (request->mEmbeddedData != nullptr)
+    {
+        newAsset->LoadEmbedded(request->mEmbeddedData, request);
+    }
+    else
+    {
+        newAsset->LoadFile(request->mPath.c_str(), request);
+    }
+
+    request->mAsset = newAsset;
+
+    // (4) Add the request to the EndLoadQueue
+    {
+        SCOPED_LOCK(mMutex);
+        mEndLoadQueue.push_back(request);
+    }
+
+    return true;
+}
+
 ThreadFuncRet AssetManager::AsyncLoadThreadFunc(void* in)
 {
     AssetManager& am = *((AssetManager*)in);
-    bool exit = false;
 
-    while (!exit)
+    while (true)
     {
-        AsyncLoadRequest* request = nullptr;
-
-        // Pop off the next request from the queue.
         SYS_LockMutex(am.mMutex);
         bool exit = am.mDestructing;
-        if (am.mBeginLoadQueue.size() > 0)
-        {
-            request = am.mBeginLoadQueue.front();
-            am.mBeginLoadQueue.pop_front();
-        }
         SYS_UnlockMutex(am.mMutex);
 
         if (exit)
@@ -2331,34 +2393,7 @@ ThreadFuncRet AssetManager::AsyncLoadThreadFunc(void* in)
             break;
         }
 
-        if (request != nullptr)
-        {
-            // We have a request, so we need to
-            // (1) Create the Asset type
-            Asset* newAsset = Asset::CreateInstance(request->mType);
-            OCT_ASSERT(newAsset);
-
-            // (2) Load the file into a stream
-            // (3) Call asset->LoadStream()
-            // The call to Asset::Create() is made on the main thread, that's why we queue it up on the EndLoadQueue
-            if (request->mEmbeddedData != nullptr)
-            {
-                newAsset->LoadEmbedded(request->mEmbeddedData, request);
-            }
-            else
-            {
-                newAsset->LoadFile(request->mPath.c_str(), request);
-            }
-
-            request->mAsset = newAsset;
-
-            // (4) Add the request to the EndLoadQueue
-            {
-                SCOPED_LOCK(am.mMutex);
-                am.mEndLoadQueue.push_back(request);
-            }
-        }
-        else
+        if (!am.ProcessNextBeginLoad())
         {
             // If nothing to process then sleep, for a bit so we don't was cpu cycles checking.
             SYS_Sleep(2);

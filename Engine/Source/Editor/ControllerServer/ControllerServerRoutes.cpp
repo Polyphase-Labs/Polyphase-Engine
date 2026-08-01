@@ -402,6 +402,20 @@ static Node* FindNodeByIdentifier(World* world, const std::string& identifier)
         return nullptr;
     }
 
+    // "Root" is a stable alias for the active scene's root node. Its actual name
+    // is scene-specific -- CreateNewScene names it "<sceneName>_Root", an imported
+    // scene names it after the source -- so callers can't hardcode it. Aliasing
+    // here lets REST callers reliably parent nodes under the root (e.g. the
+    // worldstream builder posting nodes with {"parent": "Root"}).
+    if (identifier == "Root")
+    {
+        Node* root = world->GetRootNode();
+        if (root != nullptr)
+        {
+            return root;
+        }
+    }
+
     Node* node = world->FindNode(identifier);
     return node;
 }
@@ -743,6 +757,14 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 if (parent != nullptr)
                 {
                     ActionManager::Get()->EXE_AttachNode(newNode, parent, -1, -1);
+                }
+                else
+                {
+                    // Report rather than silently leaving the node detached from
+                    // the scene tree -- an orphaned node isn't findable by later
+                    // calls, which surfaces confusingly as "Node not found" on the
+                    // next request against it.
+                    return ErrorJson("Parent node not found: " + parentName).dump();
                 }
             }
 
@@ -1330,6 +1352,18 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
 
     // ------------------------------------------------------------------
     // POST /api/assets/import — Import an asset from disk path
+    //
+    // Body: { "path": "<file>",  ["scene": true],  ["sceneName": "..."],
+    //         [import{Meshes,Materials,Textures,Lights,Cameras}: bool],
+    //         [enableCollision: bool], [applyGltfExtras: bool] }
+    //
+    // Default: single-asset import (one StaticMesh per primitive for meshes),
+    // matching the editor's "As Multiple Objects" behavior with no options.
+    //
+    // With "scene": true, a .glb/.gltf/.dae/.blend is imported through the same
+    // "As Scene" pipeline the editor uses: a subfolder named after the file is
+    // created and filled with SC_/SM_/M_/T_ assets plus the node hierarchy. The
+    // returned asset is the Scene (name "SC_<sceneName>", type "Scene").
     // ------------------------------------------------------------------
     CROW_ROUTE(app, "/api/assets/import").methods("POST"_method)
     ([server](const crow::request& req)
@@ -1347,11 +1381,63 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
             }
 
             std::string path = parsed["path"].s();
-            Asset* imported = ActionManager::Get()->ImportAsset(path);
+            bool wantScene = parsed.has("scene") && parsed["scene"].b();
 
-            if (imported == nullptr)
+            Asset* imported = nullptr;
+            if (wantScene)
             {
-                return ErrorJson("Failed to import asset: " + path).dump();
+                SceneImportOptions opts;
+                opts.mFilePath = path;
+
+                // Scene name defaults to the source file basename (no dir, no ext),
+                // matching the editor's Import Scene modal.
+                if (parsed.has("sceneName"))
+                {
+                    opts.mSceneName = parsed["sceneName"].s();
+                }
+                else
+                {
+                    std::string base = path;
+                    size_t slash = base.find_last_of("/\\");
+                    if (slash != std::string::npos) base = base.substr(slash + 1);
+                    size_t dot = base.find_last_of('.');
+                    if (dot != std::string::npos) base = base.substr(0, dot);
+                    opts.mSceneName = base;
+                }
+
+                if (parsed.has("importMeshes"))    opts.mImportMeshes    = parsed["importMeshes"].b();
+                if (parsed.has("importMaterials")) opts.mImportMaterials = parsed["importMaterials"].b();
+                if (parsed.has("importTextures"))  opts.mImportTextures  = parsed["importTextures"].b();
+                if (parsed.has("importLights"))    opts.mImportLights    = parsed["importLights"].b();
+                if (parsed.has("importCameras"))   opts.mImportCameras   = parsed["importCameras"].b();
+                if (parsed.has("enableCollision")) opts.mEnableCollision = parsed["enableCollision"].b();
+                if (parsed.has("applyGltfExtras")) opts.mApplyGltfExtras = parsed["applyGltfExtras"].b();
+
+                // Share materials/textures across scene imports (dedup by name into
+                // a shared folder) instead of namespacing them per-scene.
+                if (parsed.has("shareAssets"))     opts.mShareAssets     = parsed["shareAssets"].b();
+                if (parsed.has("sharedFolder"))    opts.mSharedAssetDir  = parsed["sharedFolder"].s();
+
+                // ImportScene creates its folder under the current asset dir and
+                // then sets the current dir to that new folder on exit. Capture and
+                // restore it so a batch of scene imports lands as siblings rather
+                // than nesting each sector inside the previous one.
+                AssetDir* prevDir = GetEditorState()->GetAssetDirectory();
+                imported = ActionManager::Get()->ImportScene(opts);
+                GetEditorState()->SetAssetDirectory(prevDir, true);
+
+                if (imported == nullptr)
+                {
+                    return ErrorJson("Failed to import scene: " + path).dump();
+                }
+            }
+            else
+            {
+                imported = ActionManager::Get()->ImportAsset(path);
+                if (imported == nullptr)
+                {
+                    return ErrorJson("Failed to import asset: " + path).dump();
+                }
             }
 
             crow::json::wvalue j;

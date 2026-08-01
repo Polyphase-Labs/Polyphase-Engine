@@ -238,6 +238,18 @@ Sig: `World:LoadScene(sceneName, instant=false)`
  - Arg: `string sceneName` Name of Scene asset to load
  - Arg: `boolean instant` Whether to instantly load the scene, or wait until the start of the next frame. Note: Using instant loading may cause problems and probably shouldn't be used. Setting instant to false is generally safer.
 ---
+### GetLoadedSceneName
+Get the name of the scene most recently loaded via `World:LoadScene()`. Only reflects the top-level scene load (or queued scene load, once it takes effect at the start of the next frame) -- it isn't updated if the root node is changed some other way (e.g. `World:SetRootNode()`).
+
+Sig: `name = World:GetLoadedSceneName()`
+ - Ret: `string name` Name of the currently loaded scene (empty string if none)
+---
+### GetLoadedSceneNames
+Get the names of every currently instantiated scene in the world, including nested/child scenes (scenes spawned via `World:SpawnScene()`, or scene references nested inside another scene's hierarchy). Names are de-duplicated, so a scene instanced multiple times only appears once.
+
+Sig: `names = World:GetLoadedSceneNames()`
+ - Ret: `table names` Array of scene name strings
+---
 ### QueueRootNode
 Queue a new node to be set as the world's root node at the start of the next frame. This is used internally by World:LoadScene().
 

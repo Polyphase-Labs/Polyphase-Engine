@@ -13,9 +13,12 @@
 #include "System/System.h"
 #include "Packaging/PackagingSettings.h"
 #include "GamePreview/GamePreview.h"
+#include "MemorySnapshot/MemorySnapshotProfiler.h"
+#include "MemorySnapshot/MemorySnapshotWindow.h"
 #include "imgui.h"
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 static ProfilingWindow sProfilingWindow;
 
@@ -32,6 +35,23 @@ void ProfilingWindow::Draw()
 
 void ProfilingWindow::DrawContent()
 {
+    // Memory Snapshot shortcuts -- the snapshot tool and this window share the
+    // same game-scoped sizing, so the numbers match.
+    if (ImGui::Button("Capture Snapshot"))
+    {
+        GetMemorySnapshotWindow()->Open();
+        GetMemorySnapshotWindow()->CaptureNow();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Capture a full Memory Snapshot of the running game and open the viewer.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open Memory Snapshot Window"))
+    {
+        GetMemorySnapshotWindow()->Open();
+    }
+
+    ImGui::Separator();
+
     // Toggle buttons row
     Polyphase::Checkbox("FPS", &mShowFPS);
     ImGui::SameLine();
@@ -262,7 +282,10 @@ void ProfilingWindow::DrawMemoryBar(const char* label, uint64_t used, uint64_t t
     ImGui::SameLine(80.0f);
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
     char overlay[64];
-    snprintf(overlay, sizeof(overlay), "%.1f / %.1f MB (%.0f%%)", usedMB, totalMB, percentage);
+    if (total > 0)
+        snprintf(overlay, sizeof(overlay), "%.1f / %.1f MB (%.0f%%)", usedMB, totalMB, percentage);
+    else
+        snprintf(overlay, sizeof(overlay), "%.2f MB", usedMB);
     ImGui::ProgressBar(fraction, ImVec2(-1, 0), overlay);
     ImGui::PopStyleColor();
 }
@@ -354,19 +377,22 @@ void ProfilingWindow::DrawMemorySection()
 {
     if (ImGui::CollapsingHeader("Memory", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        uint64_t platformTotal = GetPlatformTotalMemoryBytes();
         const char* platformName = GetPlatformName();
 
         // Check if using a target profile
         PackagingSettings* settings = PackagingSettings::Get();
         BuildProfile* target = (settings != nullptr) ? settings->GetCurrentTargetProfile() : nullptr;
 
-        Platform targetPlatform = Platform::Windows;
+        // Determine the platform used for byte sizing + the budget cap. With a
+        // build target we size for that console; otherwise we size for the host
+        // and show no fixed budget (the estimate is still game-scoped).
+        Platform targetPlatform;
+        uint64_t platformTotal;
         if (target != nullptr)
         {
             targetPlatform = target->mTargetPlatform;
+            platformTotal = GetPlatformTotalMemoryBytes();
 
-            // Show target profile info
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Target: %s", target->mName.c_str());
             if (platformTotal > 0)
             {
@@ -380,27 +406,23 @@ void ProfilingWindow::DrawMemorySection()
         }
         else
         {
-            ImGui::Text("Platform: %s", platformName);
-            ImGui::TextDisabled("Set a Build Profile as Current Target for memory estimates");
-            ImGui::Spacing();
-            ImGui::TextDisabled("No target set - showing raw process memory");
+#if PLATFORM_LINUX
+            targetPlatform = Platform::Linux;
+#elif PLATFORM_ANDROID
+            targetPlatform = Platform::Android;
+#else
+            targetPlatform = Platform::Windows;
+#endif
+            platformTotal = 0;
 
-            // Fall back to showing actual process memory
-            std::vector<MemoryStat> memStats = SYS_GetMemoryStats();
-            ImVec4 memColor(0.3f, 0.8f, 0.5f, 1.0f);
-            for (const MemoryStat& stat : memStats)
-            {
-                uint64_t used = stat.mBytesAllocated;
-                uint64_t total = stat.mBytesAllocated + stat.mBytesFree;
-                DrawMemoryBar(stat.mName.c_str(), used, total, memColor);
-            }
-            ImGui::Spacing();
-            return;
+            ImGui::Text("Platform: %s", platformName);
+            ImGui::TextDisabled("No build target set - showing estimated game memory.");
+            ImGui::TextDisabled("Set a Build Profile as Current Target for a console budget.");
         }
 
         ImGui::Spacing();
 
-        // Calculate estimated memory for target platform
+        // Game-scoped estimate (only assets the running game references).
         EstimatedMemory estimated = EstimateMemoryForPlatform(targetPlatform);
         uint64_t totalEstimated = estimated.Total();
 
@@ -408,6 +430,7 @@ void ProfilingWindow::DrawMemorySection()
         ImVec4 meshColor(0.5f, 0.9f, 0.5f, 1.0f);  // Green
         ImVec4 audioColor(0.9f, 0.7f, 0.4f, 1.0f); // Orange
         ImVec4 rtColor(0.9f, 0.5f, 0.9f, 1.0f);    // Purple
+        ImVec4 otherColor(0.7f, 0.7f, 0.7f, 1.0f); // Grey
         ImVec4 totalColor(0.3f, 0.8f, 0.5f, 1.0f); // Green
 
         // Show breakdown
@@ -420,7 +443,9 @@ void ProfilingWindow::DrawMemorySection()
         if (estimated.mAudio > 0)
             DrawMemoryBar("Audio", estimated.mAudio, platformTotal, audioColor);
         if (estimated.mRenderTargets > 0)
-            DrawMemoryBar("RT/FB", estimated.mRenderTargets, platformTotal, rtColor);
+            DrawMemoryBar("Frame Buf", estimated.mRenderTargets, platformTotal, rtColor);
+        if (estimated.mOther > 0)
+            DrawMemoryBar("Other", estimated.mOther, platformTotal, otherColor);
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -444,8 +469,14 @@ void ProfilingWindow::DrawMemorySection()
         else
         {
             float totalMB = (float)totalEstimated / (1024.0f * 1024.0f);
-            ImGui::Text("Estimated Total: %.2f MB", totalMB);
+            ImGui::Text("Estimated game memory: %.2f MB", totalMB);
         }
+
+        // Whole-process figure for reference -- this includes the editor itself
+        // and is NOT the game estimate above.
+        ImGui::Spacing();
+        ImGui::TextDisabled("Whole process (incl. editor): %.1f MB RAM, %.1f MB VRAM",
+                            SYS_GetRAMUsage(), SYS_GetVRAMUsage());
 
         ImGui::Spacing();
     }
@@ -677,100 +708,59 @@ uint32_t ProfilingWindow::GetIndexSizeForPlatform(Platform platform) const
 
 ProfilingWindow::EstimatedMemory ProfilingWindow::EstimateMemoryForPlatform(Platform platform) const
 {
+    // This walks the game world's nodes, so throttle to a few recomputes/sec.
+    const Clock* clock = GetAppClock();
+    float now = (clock != nullptr) ? clock->GetTime() : 0.0f;
+    if (mHasCachedMemory &&
+        mLastEstimatePlatform == (int32_t)platform &&
+        (now - mLastMemoryEstimateTime) < 0.5f)
+    {
+        return mCachedMemory;
+    }
+
     EstimatedMemory mem;
 
-    uint64_t bytesPerPixel = GetBytesPerPixelForPlatform(platform);
-    uint32_t indexSize = GetIndexSizeForPlatform(platform);
+    // Single source of truth: the exact same game-scoped entries the Memory
+    // Snapshot tool builds (format-accurate textures, streaming-aware audio,
+    // frame buffers). We just bucket them into this window's categories, so the
+    // two tools always report identical totals.
+    std::vector<SnapshotEntry> entries;
+    BuildGameMemoryEntries(entries);
 
-    // Estimate texture memory from loaded assets
-    AssetManager* assetMgr = AssetManager::Get();
-    if (assetMgr != nullptr)
+    for (const SnapshotEntry& e : entries)
     {
-        auto& assetMap = assetMgr->GetAssetMap();
-        for (auto& pair : assetMap)
+        uint64_t footprint = (e.mGpuBytes > 0) ? e.mGpuBytes : e.mCpuBytes;
+        switch (e.mCategory)
         {
-            AssetStub* stub = pair.second;
-            if (stub == nullptr || stub->mAsset == nullptr || !stub->mAsset->IsLoaded())
-                continue;
-
-            Asset* asset = stub->mAsset;
-
-            // Texture memory
-            if (asset->GetType() == Texture::GetStaticType())
-            {
-                Texture* tex = static_cast<Texture*>(asset);
-                uint64_t w = tex->GetWidth();
-                uint64_t h = tex->GetHeight();
-                uint64_t baseSize = w * h * bytesPerPixel;
-
-                // Add ~33% for mipmaps if mipmapped
-                if (tex->IsMipmapped())
-                {
-                    baseSize = (baseSize * 4) / 3;
-                }
-
-                mem.mTextures += baseSize;
-            }
-            // Static mesh memory
-            else if (asset->GetType() == StaticMesh::GetStaticType())
-            {
-                StaticMesh* mesh = static_cast<StaticMesh*>(asset);
-                uint64_t vertexMem = mesh->GetNumVertices() * mesh->GetVertexSize();
-                uint64_t indexMem = mesh->GetNumIndices() * indexSize;
-                mem.mMeshes += vertexMem + indexMem;
-            }
-            // Skeletal mesh memory
-            else if (asset->GetType() == SkeletalMesh::GetStaticType())
-            {
-                SkeletalMesh* mesh = static_cast<SkeletalMesh*>(asset);
-                uint64_t vertexMem = mesh->GetNumVertices() * 60; // VertexSkinned = 60 bytes
-                uint64_t indexMem = mesh->GetNumIndices() * indexSize;
-                uint64_t boneMem = mesh->GetNumBones() * 160; // Approximate bone struct size
-                mem.mSkeletalMeshes += vertexMem + indexMem + boneMem;
-            }
-            // Audio memory
-            else if (asset->GetType() == SoundWave::GetStaticType())
-            {
-                SoundWave* sound = static_cast<SoundWave*>(asset);
-                mem.mAudio += sound->GetWaveDataSize();
-            }
+        case SnapshotCategory::Textures:
+            mem.mTextures += footprint;
+            break;
+        case SnapshotCategory::Geometry:
+            if (e.mTypeName == "SkeletalMesh")
+                mem.mSkeletalMeshes += footprint;
+            else
+                mem.mMeshes += footprint;
+            break;
+        case SnapshotCategory::Animation:
+            mem.mSkeletalMeshes += footprint;
+            break;
+        case SnapshotCategory::Audio:
+            mem.mAudio += footprint;
+            break;
+        case SnapshotCategory::FrameBuffer:
+            mem.mRenderTargets += footprint;
+            break;
+        default:
+            // Scripts, Materials, Fonts, Particles, Nodes, Other
+            mem.mOther += footprint;
+            break;
         }
     }
 
-    // Estimate render target memory based on Game Preview resolution
-    GamePreview* preview = GetGamePreview();
-    if (preview != nullptr && preview->IsEnabled())
-    {
-        uint32_t w = preview->GetCurrentWidth();
-        uint32_t h = preview->GetCurrentHeight();
-
-        // Color buffer (double buffered)
-        uint64_t colorBuffer = w * h * bytesPerPixel * 2;
-
-        // Depth buffer (typically 2 or 4 bytes)
-        uint64_t depthBuffer = w * h * 2;
-
-        mem.mRenderTargets = colorBuffer + depthBuffer;
-    }
-    else
-    {
-        // Default estimate if Game Preview not active - use a reasonable resolution
-        // For target platforms like Wii (640x480) or 3DS (400x240 + 320x240)
-        uint32_t w = 640;
-        uint32_t h = 480;
-
-        if (platform == Platform::N3DS)
-        {
-            // 3DS has two screens
-            w = 400;
-            h = 240 + 240;
-        }
-
-        uint64_t colorBuffer = w * h * bytesPerPixel * 2;
-        uint64_t depthBuffer = w * h * 2;
-        mem.mRenderTargets = colorBuffer + depthBuffer;
-    }
-
+    mCachedMemory = mem;
+    mHasCachedMemory = true;
+    mLastMemoryEstimateTime = now;
+    mLastEstimatePlatform = (int32_t)platform;
     return mem;
 }
 

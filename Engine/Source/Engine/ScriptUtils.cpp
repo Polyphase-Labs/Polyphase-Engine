@@ -77,6 +77,11 @@ bool ScriptUtils::CallLuaFunc(int numArgs, int numResults)
             LogError("Lua Error:\n%s", errMsg);
         }
         if (sBreakOnScriptError) { OCT_ASSERT(0); }
+
+        // lua_pcall leaves the error object on the stack. Callbacks that error
+        // every frame (a bad network/http handler, say) would otherwise grow
+        // the stack without bound.
+        lua_pop(L, 1);
         success = false;
     }
 #endif

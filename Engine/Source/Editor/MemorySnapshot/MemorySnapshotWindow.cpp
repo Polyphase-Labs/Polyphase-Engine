@@ -65,6 +65,7 @@ static ImVec4 CategoryColor(SnapshotCategory cat)
     case SnapshotCategory::Particles: return ImVec4(1.00f, 0.50f, 0.70f, 1.0f);
     case SnapshotCategory::Animation: return ImVec4(0.70f, 0.75f, 0.95f, 1.0f);
     case SnapshotCategory::Nodes:     return ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
+    case SnapshotCategory::FrameBuffer: return ImVec4(0.90f, 0.45f, 0.55f, 1.0f);
     default:                          return ImVec4(0.60f, 0.60f, 0.60f, 1.0f);
     }
 }

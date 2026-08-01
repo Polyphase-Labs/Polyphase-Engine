@@ -461,6 +461,36 @@ int World_Lua::LoadScene(lua_State* L)
     return 0;
 }
 
+int World_Lua::GetLoadedSceneName(lua_State* L)
+{
+    World* world = CHECK_WORLD(L, 1);
+
+    const std::string& name = world->GetLoadedSceneName();
+
+    lua_pushstring(L, name.c_str());
+    return 1;
+}
+
+int World_Lua::GetLoadedSceneNames(lua_State* L)
+{
+    World* world = CHECK_WORLD(L, 1);
+
+    std::vector<std::string> names;
+    world->GetLoadedSceneNames(names);
+
+    lua_newtable(L);
+    int arrayIdx = lua_gettop(L);
+
+    for (uint32_t i = 0; i < names.size(); ++i)
+    {
+        lua_pushinteger(L, (int)i + 1);
+        lua_pushstring(L, names[i].c_str());
+        lua_settable(L, arrayIdx);
+    }
+
+    return 1;
+}
+
 int World_Lua::QueueRootNode(lua_State* L)
 {
     World* world = CHECK_WORLD(L, 1);
@@ -652,6 +682,9 @@ void World_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, SweepTest);
 
     REGISTER_TABLE_FUNC(L, mtIndex, LoadScene);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetLoadedSceneName);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetLoadedSceneNames);
 
     REGISTER_TABLE_FUNC(L, mtIndex, QueueRootNode);
 

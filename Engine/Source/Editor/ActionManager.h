@@ -248,7 +248,7 @@ public:
 
     static void Create();
     static void Destroy();
-    static ActionManager* Get();
+    POLYPHASE_API static ActionManager* Get();
 
     void Update();
 
@@ -480,7 +480,7 @@ public:
     // stub to open that scene directly (same as the non-Request OpenScene).
     void RequestOpenScene(AssetStub* stub);
     void RequestOpenSceneFromDialog();
-    void SaveScene(bool saveAs);
+    POLYPHASE_API void SaveScene(bool saveAs);
     // Defer SaveScene/SaveSelectedAsset/ResaveAllAssets to end-of-frame so the
     // progress modal can render before the (potentially slow) capture and
     // serialization work blocks the main thread. The hotkey / menu /
@@ -515,7 +515,7 @@ public:
     // sceneType: 0 = 2D Canvas root, 1 = 3D Node3D root. targetDir defaults to the
     // editor's currently-selected asset directory. Returns the created Scene asset
     // (already saved to disk) or nullptr on failure.
-    Scene* CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = false, bool createDirectionalLight = false, bool createUICanvas = false, AssetDir* targetDir = nullptr);
+    POLYPHASE_API Scene* CreateNewScene(const char* sceneName, int sceneType, bool createCamera, bool createSkybox = false, bool createDirectionalLight = false, bool createUICanvas = false, AssetDir* targetDir = nullptr);
     void SaveSelectedAsset();
     void DeleteSelectedNodes();
     void DeleteNode(Node* node);
@@ -534,7 +534,8 @@ public:
     void ImportTinyLLMModel();
     void ImportTinyLLMTokenizer();
     void ImportCamera(const CameraImportOptions& options);
-    void ImportScene(const SceneImportOptions& options);
+    // Returns the created (or reimported) Scene asset, or nullptr on failure.
+    POLYPHASE_API Asset* ImportScene(const SceneImportOptions& options);
     void BeginImportScene();
     void BeginReimportScene(AssetStub* sceneStub);
     void BeginReimportAssetWithNewFile(AssetStub* stub);

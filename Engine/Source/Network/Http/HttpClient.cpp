@@ -6,6 +6,13 @@
 // the bottom of this file for those targets. NET_* and HttpBackend_Stub
 // already return failure cleanly; the Http::* stubs below just need to
 // be no-ops so engine code that calls Http::Tick etc. doesn't link-fail.
+//
+// PLATFORM_WEB is a third case: also single-threaded, but the browser has a
+// perfectly good async HTTP facility. It supplies the entire Http:: namespace
+// itself from the WebGL2 addon (Runtime/Web/Http_Web.cpp), built on fetch()
+// with a main-thread completion queue drained in Http::Tick — so this TU
+// compiles to nothing there. Same arrangement as NET_*, which Network_Web.cpp
+// provides for the addon build.
 #if !defined(POLYPHASE_PLATFORM_ADDON)
 
 #include "Network/Http/Backends/HttpBackend.h"
@@ -321,6 +328,13 @@ namespace Http
         return response;
     }
 }
+
+#elif defined(PLATFORM_WEB) && PLATFORM_WEB
+
+// ---------------------------------------------------------------------------
+// Nothing here. The WebGL2 addon's Runtime/Web/Http_Web.cpp defines every
+// Http::* symbol against the browser's fetch() API.
+// ---------------------------------------------------------------------------
 
 #else  // POLYPHASE_PLATFORM_ADDON
 

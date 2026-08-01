@@ -76,6 +76,20 @@ CREATE_TYPE_MAP = {
     "Signal_Lua::Create": "Signal",
 }
 
+# Registration macros. Most bindings pass a bare function name
+# (REGISTER_TABLE_FUNC(L, tableIdx, OpenSession)), but some qualify it with the
+# binding namespace (Http_Lua.cpp uses Http_Lua::Get). Accept and discard the
+# qualifier -- without it those files parse as having no functions at all and
+# silently generate an empty stub.
+# Group 1 is the table-index variable, so registrations can be grouped by which
+# table they land in (see the multi-table handling in process_binding_file).
+REGISTER_FUNC_RE = re.compile(
+    r'REGISTER_TABLE_FUNC\s*\(\s*L\s*,\s*(\w+)\s*,\s*(?:\w+::)?(\w+)\s*\)'
+)
+REGISTER_FUNC_EX_RE = re.compile(
+    r'REGISTER_TABLE_FUNC_EX\s*\(\s*L\s*,\s*(\w+)\s*,\s*(?:\w+::)?(\w+)\s*,\s*"([^"]+)"\s*\)'
+)
+
 # Metamethods to skip in stub output (internal C machinery)
 SKIP_METAMETHODS = {"__gc", "__index", "__newindex", "__tostring", "__len"}
 
@@ -458,7 +472,7 @@ def parse_bind_function(source, class_prefix):
     bodies = extract_function_bodies(source)
     bind_body = bodies.get(bind_key)
     if bind_body is None:
-        return None, None, None, [], []
+        return None, None, None, [], [], [], {}
 
     # Determine kind
     kind = "module"
@@ -482,19 +496,22 @@ def parse_bind_function(source, class_prefix):
     elif 'luaL_newmetatable' in bind_body:
         kind = "value"
 
-    # Extract registered functions
+    # Extract registered functions, tracking which table each went into.
     registrations = []
+    reg_groups = {}
+
+    def _record(table_var, lua_name, cpp_func):
+        registrations.append((lua_name, cpp_func))
+        reg_groups.setdefault(table_var, []).append((lua_name, cpp_func))
 
     # REGISTER_TABLE_FUNC(L, idx, FuncName)
-    for m in re.finditer(r'REGISTER_TABLE_FUNC\s*\(\s*L\s*,\s*\w+\s*,\s*(\w+)\s*\)', bind_body):
-        func_name = m.group(1)
-        registrations.append((func_name, func_name))
+    for m in re.finditer(REGISTER_FUNC_RE, bind_body):
+        func_name = m.group(2)
+        _record(m.group(1), func_name, func_name)
 
     # REGISTER_TABLE_FUNC_EX(L, idx, FuncName, "AliasName")
-    for m in re.finditer(r'REGISTER_TABLE_FUNC_EX\s*\(\s*L\s*,\s*\w+\s*,\s*(\w+)\s*,\s*"([^"]+)"\s*\)', bind_body):
-        cpp_func = m.group(1)
-        alias_name = m.group(2)
-        registrations.append((alias_name, cpp_func))
+    for m in re.finditer(REGISTER_FUNC_EX_RE, bind_body):
+        _record(m.group(1), m.group(3), m.group(2))
 
     # Extract global name from lua_setglobal
     global_name = None
@@ -569,7 +586,7 @@ def parse_bind_function(source, class_prefix):
     for m in alias_pattern2.finditer(bind_body):
         table_aliases.append(m.group(2))
 
-    return kind, parent_name, global_name, registrations, extra_globals, table_aliases
+    return kind, parent_name, global_name, registrations, extra_globals, table_aliases, reg_groups
 
 
 def parse_bind_common(source, class_prefix):
@@ -581,11 +598,11 @@ def parse_bind_common(source, class_prefix):
         return []
 
     registrations = []
-    for m in re.finditer(r'REGISTER_TABLE_FUNC\s*\(\s*L\s*,\s*\w+\s*,\s*(\w+)\s*\)', bind_body):
-        func_name = m.group(1)
+    for m in re.finditer(REGISTER_FUNC_RE, bind_body):
+        func_name = m.group(2)
         registrations.append((func_name, func_name))
-    for m in re.finditer(r'REGISTER_TABLE_FUNC_EX\s*\(\s*L\s*,\s*\w+\s*,\s*(\w+)\s*,\s*"([^"]+)"\s*\)', bind_body):
-        registrations.append((m.group(2), m.group(1)))
+    for m in re.finditer(REGISTER_FUNC_EX_RE, bind_body):
+        registrations.append((m.group(3), m.group(2)))
     return registrations
 
 
@@ -731,6 +748,109 @@ def resolve_constant(name, name_map):
     return None
 
 
+def build_methods(regs, class_prefix, all_bodies, is_self_type):
+    """Turn (lua_name, cpp_func) registrations into MethodInfo, in order."""
+    methods = []
+    seen_method_names = set()
+
+    for lua_name, cpp_func in regs:
+        # Skip metamethods
+        if lua_name in SKIP_METAMETHODS:
+            continue
+
+        is_operator = lua_name in OPERATOR_METAMETHODS
+        is_alias = lua_name != cpp_func
+
+        # Find the function body
+        body_key = f"{class_prefix}::{cpp_func}"
+        body = all_bodies.get(body_key)
+
+        params = []
+        returns = []
+
+        if body:
+            params = parse_check_macros_from_body(body, is_self_type)
+            returns = parse_return_types(body)
+
+        method = MethodInfo(
+            name=lua_name,
+            cpp_func=cpp_func,
+            params=params,
+            returns=returns,
+            is_alias=is_alias
+        )
+
+        # Skip duplicate operators (e.g. Add and __add both exist)
+        if is_operator:
+            continue
+
+        if lua_name not in seen_method_names:
+            methods.append(method)
+            seen_method_names.add(lua_name)
+
+    return methods
+
+
+def _lua_name_for_table_var(table_var, module_name):
+    """
+    Map a Bind()-local table variable to the Lua type it becomes.
+
+    Convention (Http_Lua.cpp): a leading "mt"/"t" is a Hungarian prefix, and the
+    remainder either names the module itself (tHttp -> Http, the module table)
+    or a userdata type within it (mtResponse -> HttpResponse).
+    Returns (lua_name, is_module).
+    """
+    rest = table_var
+    for prefix in ("mt", "t"):
+        if rest.startswith(prefix) and len(rest) > len(prefix) and rest[len(prefix)].isupper():
+            rest = rest[len(prefix):]
+            break
+
+    if rest.lower() == module_name.lower():
+        return module_name, True
+
+    return module_name + rest, False
+
+
+def build_multi_table_types(reg_groups, module_name, class_prefix, all_bodies, basename):
+    """
+    Build one TypeInfo per registered table for files that register several.
+
+    Returns [] when the naming convention doesn't apply, so the caller can fall
+    back to the normal single-type path rather than emit something wrong.
+    """
+    types = []
+    saw_module = False
+
+    for table_var, regs in reg_groups.items():
+        lua_name, is_module = _lua_name_for_table_var(table_var, module_name)
+
+        if is_module:
+            if saw_module:
+                return []   # two module tables -- convention doesn't hold
+            saw_module = True
+
+        # Module functions are Http.Get(url); metatable entries are
+        # response:GetStatus() and take the userdata as arg 1.
+        kind = "module" if is_module else "value"
+        methods = build_methods(regs, class_prefix, all_bodies, not is_module)
+
+        if not methods:
+            continue
+
+        types.append(TypeInfo(
+            lua_name=lua_name,
+            kind=kind,
+            parent=None,
+            methods=methods,
+            source_file=basename,
+            extra_globals=[],
+            table_aliases=[]
+        ))
+
+    return types if saw_module else []
+
+
 def process_binding_file(filepath, name_map, check_map, verbose=False):
     """
     Process a single *_Lua.cpp file.
@@ -754,7 +874,7 @@ def process_binding_file(filepath, name_map, check_map, verbose=False):
         print(f"  Processing {basename} (class: {class_prefix})")
 
     # Parse the Bind() function
-    kind, parent_const, global_const, registrations, extra_globals, table_aliases = parse_bind_function(source, class_prefix)
+    kind, parent_const, global_const, registrations, extra_globals, table_aliases, reg_groups = parse_bind_function(source, class_prefix)
     if kind is None:
         return [], parse_enum_functions(source)
 
@@ -804,43 +924,18 @@ def process_binding_file(filepath, name_map, check_map, verbose=False):
 
     # Process all registered methods
     all_regs = common_regs + registrations
-    methods = []
-    seen_method_names = set()
+    methods = build_methods(all_regs, class_prefix, all_bodies, is_self_type)
 
-    for lua_name, cpp_func in all_regs:
-        # Skip metamethods
-        if lua_name in SKIP_METAMETHODS:
-            continue
-
-        is_operator = lua_name in OPERATOR_METAMETHODS
-        is_alias = lua_name != cpp_func
-
-        # Find the function body
-        body_key = f"{class_prefix}::{cpp_func}"
-        body = all_bodies.get(body_key)
-
-        params = []
-        returns = []
-
-        if body:
-            params = parse_check_macros_from_body(body, is_self_type)
-            returns = parse_return_types(body)
-
-        method = MethodInfo(
-            name=lua_name,
-            cpp_func=cpp_func,
-            params=params,
-            returns=returns,
-            is_alias=is_alias
+    # Most binding files register exactly one table. A few (Http_Lua) register
+    # the module table plus one metatable per userdata type in the same Bind().
+    # Flattening those onto the module would put Response:GetStatus() and
+    # Http.Get() in the same class, so split them into separate stubs instead.
+    if len(reg_groups) > 1:
+        types = build_multi_table_types(
+            reg_groups, global_name, class_prefix, all_bodies, basename
         )
-
-        # Skip duplicate operators (e.g. Add and __add both exist)
-        if is_operator:
-            continue
-
-        if lua_name not in seen_method_names:
-            methods.append(method)
-            seen_method_names.add(lua_name)
+        if types:
+            return types, parse_enum_functions(source)
 
     # Create TypeInfo
     type_info = TypeInfo(
