@@ -620,9 +620,250 @@ bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::str
     return true;
 }
 
+// Map one manifest.json "packages[]" entry onto an Addon record. The registry manifest is
+// auto-generated and already inlines every field the browser needs, so no per-addon
+// package.json fetch is required. Installed status is (re)stamped by RefreshAllRepositories.
+static void ParseAddonObject(const rapidjson::Value& pkg, Addon& out)
+{
+    ContentMetadata& meta = out.mMetadata;
+
+    if (pkg.HasMember("id") && pkg["id"].IsString())
+        meta.mId = pkg["id"].GetString();
+
+    if (pkg.HasMember("name") && pkg["name"].IsString())
+        meta.mName = pkg["name"].GetString();
+    else
+        meta.mName = meta.mId;
+
+    if (pkg.HasMember("description") && pkg["description"].IsString())
+        meta.mDescription = pkg["description"].GetString();
+    else if (pkg.HasMember("summary") && pkg["summary"].IsString())
+        meta.mDescription = pkg["summary"].GetString();
+
+    if (pkg.HasMember("author") && pkg["author"].IsString())
+        meta.mAuthor = pkg["author"].GetString();
+
+    if (pkg.HasMember("version") && pkg["version"].IsString())
+        meta.mVersion = pkg["version"].GetString();
+
+    if (pkg.HasMember("updatedAt") && pkg["updatedAt"].IsString())
+        meta.mUpdated = pkg["updatedAt"].GetString();
+    else if (pkg.HasMember("updated") && pkg["updated"].IsString())
+        meta.mUpdated = pkg["updated"].GetString();
+
+    if (pkg.HasMember("category") && pkg["category"].IsString())
+        meta.mCategory = pkg["category"].GetString();
+
+    if (pkg.HasMember("tags") && pkg["tags"].IsArray())
+    {
+        const rapidjson::Value& tags = pkg["tags"];
+        for (rapidjson::SizeType i = 0; i < tags.Size(); ++i)
+        {
+            if (tags[i].IsString())
+                meta.mTags.push_back(tags[i].GetString());
+        }
+    }
+
+    // Each manifest package is its own standalone repo.
+    out.mIsStandalone = true;
+    out.mIsMain = true;
+    if (pkg.HasMember("repository") && pkg["repository"].IsObject())
+    {
+        const rapidjson::Value& repo = pkg["repository"];
+        if (repo.HasMember("url") && repo["url"].IsString())
+        {
+            out.mRepoUrl = repo["url"].GetString();
+            meta.mUrl = out.mRepoUrl;
+        }
+        if (repo.HasMember("branch") && repo["branch"].IsString())
+            out.mIsMain = (std::string(repo["branch"].GetString()) == "main");
+    }
+
+    // Cross-addon dependencies: { "id": "^1.0.0" | "<url>[#ref]" | "" }.
+    if (pkg.HasMember("dependencies") && pkg["dependencies"].IsObject())
+    {
+        const rapidjson::Value& deps = pkg["dependencies"];
+        for (auto it = deps.MemberBegin(); it != deps.MemberEnd(); ++it)
+        {
+            if (!it->name.IsString()) continue;
+            std::string id = it->name.GetString();
+            std::string value = it->value.IsString() ? it->value.GetString() : std::string();
+            meta.mDependencies.push_back(AddonDependencySpec::FromValue(id, value));
+        }
+    }
+
+    // Native "engine" block. A null/absent target means the package is non-native
+    // (a project or pure-asset addon).
+    if (pkg.HasMember("engine") && pkg["engine"].IsObject())
+    {
+        const rapidjson::Value& engine = pkg["engine"];
+
+        if (engine.HasMember("target") && engine["target"].IsString())
+        {
+            out.mNative.mHasNative = true;
+            std::string target = engine["target"].GetString();
+            out.mNative.mTarget = (target == "editor")
+                ? NativeAddonTarget::EditorOnly
+                : NativeAddonTarget::EngineAndEditor;
+        }
+
+        if (engine.HasMember("apiVersion") && engine["apiVersion"].IsUint())
+            out.mNative.mPluginApiVersion = engine["apiVersion"].GetUint();
+
+        if (engine.HasMember("entrySymbol") && engine["entrySymbol"].IsString())
+            out.mNative.mEntrySymbol = engine["entrySymbol"].GetString();
+
+        if (engine.HasMember("binaryName") && engine["binaryName"].IsString())
+            out.mNative.mBinaryName = engine["binaryName"].GetString();
+        else
+            out.mNative.mBinaryName = meta.mId;
+
+        if (engine.HasMember("resolveMode") && engine["resolveMode"].IsString())
+        {
+            std::string mode = engine["resolveMode"].GetString();
+            out.mNative.mResolveMode = (mode == "binary")
+                ? NativeAddonResolveMode::Binary
+                : NativeAddonResolveMode::Source;
+        }
+    }
+
+    // Declarative build targets (metadata only; the addon registers them at load time).
+    if (pkg.HasMember("buildTargets") && pkg["buildTargets"].IsArray())
+    {
+        const rapidjson::Value& bt = pkg["buildTargets"];
+        for (rapidjson::SizeType i = 0; i < bt.Size(); ++i)
+        {
+            if (!bt[i].IsObject()) continue;
+            const rapidjson::Value& entry = bt[i];
+            NativeModuleMetadata::BuildTargetMetadata m;
+            if (entry.HasMember("id") && entry["id"].IsString())
+                m.mId = entry["id"].GetString();
+            if (entry.HasMember("displayName") && entry["displayName"].IsString())
+                m.mDisplayName = entry["displayName"].GetString();
+            if (entry.HasMember("category") && entry["category"].IsString())
+                m.mCategory = entry["category"].GetString();
+            if (!m.mId.empty())
+                out.mNative.mBuildTargets.push_back(std::move(m));
+        }
+    }
+}
+
+bool AddonManager::FetchManifest(const std::string& url, const std::string& branch, bool& outFound)
+{
+    outFound = false;
+    EnsureCacheDirectory();
+
+    std::string rawUrl = ConvertToRawUrl(url, "manifest.json", branch);
+    std::string tempPath = GetAddonCacheDirectory() + "/_temp_registry_manifest.json";
+
+    std::string error;
+    if (!DownloadFile(rawUrl, tempPath, error))
+    {
+        return false;
+    }
+
+    Stream stream;
+    if (!stream.ReadFile(tempPath.c_str(), false))
+    {
+        SYS_RemoveFile(tempPath.c_str());
+        return false;
+    }
+
+    std::string jsonStr(stream.GetData(), stream.GetSize());
+    rapidjson::Document doc;
+    doc.Parse(jsonStr.c_str());
+
+    SYS_RemoveFile(tempPath.c_str());
+
+    // A file always comes back (curl writes GitHub's 404 body too), so only treat this as a
+    // real manifest when it parses into an object carrying a "packages" array. Otherwise let
+    // the caller fall back to the legacy package.json crawl.
+    if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("packages") || !doc["packages"].IsArray())
+    {
+        return false;
+    }
+
+    outFound = true;
+
+    std::string repoName;
+    if (doc.HasMember("name") && doc["name"].IsString())
+        repoName = doc["name"].GetString();
+
+    // Top-level categories dictionary (id/name/description).
+    if (doc.HasMember("categories") && doc["categories"].IsArray())
+    {
+        const rapidjson::Value& cats = doc["categories"];
+        for (rapidjson::SizeType i = 0; i < cats.Size(); ++i)
+        {
+            if (!cats[i].IsObject()) continue;
+            const rapidjson::Value& c = cats[i];
+            AddonCategory cat;
+            if (c.HasMember("id") && c["id"].IsString())                   cat.mId = c["id"].GetString();
+            if (c.HasMember("name") && c["name"].IsString())               cat.mName = c["name"].GetString();
+            if (c.HasMember("description") && c["description"].IsString())  cat.mDescription = c["description"].GetString();
+            if (cat.mId.empty()) continue;
+
+            bool exists = false;
+            for (const AddonCategory& existing : mCategories)
+            {
+                if (existing.mId == cat.mId) { exists = true; break; }
+            }
+            if (!exists)
+                mCategories.push_back(std::move(cat));
+        }
+    }
+
+    std::vector<std::string> repoAddonIds;
+
+    const rapidjson::Value& packages = doc["packages"];
+    for (rapidjson::SizeType i = 0; i < packages.Size(); ++i)
+    {
+        if (!packages[i].IsObject()) continue;
+        const rapidjson::Value& pkg = packages[i];
+
+        // Hide non-published packages from the browser.
+        if (pkg.HasMember("status") && pkg["status"].IsString() &&
+            std::string(pkg["status"].GetString()) != "published")
+        {
+            continue;
+        }
+
+        Addon addon;
+        ParseAddonObject(pkg, addon);
+        if (addon.mMetadata.mId.empty())
+            continue;
+
+        repoAddonIds.push_back(addon.mMetadata.mId);
+
+        // Dedupe by id (an addon may be listed by more than one configured repo).
+        bool exists = false;
+        for (const Addon& existing : mAvailableAddons)
+        {
+            if (existing.mMetadata.mId == addon.mMetadata.mId) { exists = true; break; }
+        }
+        if (!exists)
+            mAvailableAddons.push_back(std::move(addon));
+    }
+
+    // Update the configured repository entry: name + id list feed the Repositories tab.
+    for (AddonRepository& repo : mRepositories)
+    {
+        if (repo.mUrl == url)
+        {
+            if (!repoName.empty())
+                repo.mName = repoName;
+            repo.mAddonIds = repoAddonIds;
+            break;
+        }
+    }
+
+    return true;
+}
+
 void AddonManager::RefreshAllRepositories()
 {
     mAvailableAddons.clear();
+    mCategories.clear();
 
     for (AddonRepository& repo : mRepositories)
     {
@@ -643,6 +884,17 @@ void AddonManager::RefreshAllRepositories()
 
 void AddonManager::RefreshRepository(const std::string& url)
 {
+    // Preferred path: one auto-generated manifest.json carrying every package's full
+    // metadata. Try main, then master.
+    bool found = false;
+    if (FetchManifest(url, "main", found) || (!found && FetchManifest(url, "master", found)))
+    {
+        SaveSettings();
+        return;
+    }
+
+    // Legacy fallback: repos without a manifest.json still expose a root package.json with an
+    // "addons" index that we crawl one package.json at a time.
     AddonRepository repoInfo;
     if (!FetchRepositoryManifest(url, repoInfo, "main"))
     {

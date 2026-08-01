@@ -39,6 +39,7 @@ public:
     void RefreshAllRepositories();
     void RefreshRepository(const std::string& url);
     const std::vector<Addon>& GetAvailableAddons() const { return mAvailableAddons; }
+    const std::vector<AddonCategory>& GetCategories() const { return mCategories; }
 
     // Installation
     bool DownloadAddon(const Addon& addon, std::string& outError);
@@ -77,6 +78,17 @@ private:
 
     /** @brief Ensure cache directory exists */
     void EnsureCacheDirectory();
+
+    /**
+     * @brief Fetch the auto-generated registry manifest.json and populate available addons.
+     *
+     * Single request per repo: reads the top-level name/categories and every published
+     * package's full metadata directly, replacing the per-addon package.json crawl.
+     * @param outFound set true when a manifest.json was fetched+parsed (so the caller can
+     *                 fall back to the legacy package.json path when it is false).
+     */
+    bool FetchManifest(const std::string& url, const std::string& branch, bool& outFound);
+
     bool FetchRepositoryManifest(const std::string& url, AddonRepository& outRepo, const std::string& branch);
     /** @brief Fetch addon metadata from addon's package.json */
     bool FetchAddonMetadata(const std::string& repoUrl, const std::string& addonId, Addon& outAddon, const std::string& branch);
@@ -103,6 +115,7 @@ private:
 
     std::vector<AddonRepository> mRepositories;
     std::vector<Addon> mAvailableAddons;
+    std::vector<AddonCategory> mCategories;  // Registry categories from manifest.json
     std::vector<InstalledAddon> mInstalledAddons;
     bool mAutoResolveDeps = true;
 };

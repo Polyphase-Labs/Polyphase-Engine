@@ -94,6 +94,7 @@ private:
     // Filter
     char mSearchBuffer[256] = {};
     std::vector<std::string> mSelectedTags;
+    std::string mSelectedCategory;  // empty = "All"
 
     // Available tags (collected from addons)
     std::vector<std::string> mAvailableTags;
