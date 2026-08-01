@@ -195,6 +195,7 @@ struct ContentMetadata
     std::string mVersion;
     std::string mUpdated;      // ISO date string
     std::vector<std::string> mTags;
+    std::string mCategory;     // Registry category id (from manifest.json "category")
     bool mIsCpp = false;       // C++ or Lua (templates only)
 
     // Cross-addon dependencies, parsed from top-level "dependencies" in package.json
@@ -239,6 +240,16 @@ struct AddonRepository
     std::string mName;
     std::string mUrl;          // Base URL (GitHub repo URL)
     std::vector<std::string> mAddonIds;  // List of addon IDs in this repo
+};
+
+/**
+ * @brief A registry category, from the top-level "categories" array in manifest.json.
+ */
+struct AddonCategory
+{
+    std::string mId;
+    std::string mName;
+    std::string mDescription;
 };
 
 /**

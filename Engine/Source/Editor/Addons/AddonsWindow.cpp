@@ -898,6 +898,64 @@ void AddonsWindow::DrawAddonBrowser()
         ImGui::Spacing();
     }
 
+    // Category filter — driven by the registry manifest's category dictionary, falling back
+    // to the distinct category ids present on the addons (legacy repos ship no dictionary).
+    {
+        struct CatOption { std::string mId; std::string mLabel; };
+        std::vector<CatOption> catOptions;
+        catOptions.push_back({ "", "All Categories" });
+
+        const std::vector<AddonCategory>& registryCats = am->GetCategories();
+        if (!registryCats.empty())
+        {
+            for (const AddonCategory& c : registryCats)
+                catOptions.push_back({ c.mId, c.mName.empty() ? c.mId : c.mName });
+        }
+        else
+        {
+            std::vector<std::string> seen;
+            for (const Addon& addon : addons)
+            {
+                const std::string& cid = addon.mMetadata.mCategory;
+                if (cid.empty() || std::find(seen.begin(), seen.end(), cid) != seen.end())
+                    continue;
+                seen.push_back(cid);
+                catOptions.push_back({ cid, cid });
+            }
+        }
+
+        if (catOptions.size() > 1)
+        {
+            std::string currentLabel = "All Categories";
+            for (const CatOption& o : catOptions)
+            {
+                if (o.mId == mSelectedCategory) { currentLabel = o.mLabel; break; }
+            }
+
+            ImGui::Text("Category:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(220);
+            if (ImGui::BeginCombo("##CategoryFilter", currentLabel.c_str()))
+            {
+                for (const CatOption& o : catOptions)
+                {
+                    bool selected = (o.mId == mSelectedCategory);
+                    if (ImGui::Selectable(o.mLabel.c_str(), selected))
+                        mSelectedCategory = o.mId;
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Spacing();
+        }
+        else
+        {
+            // Nothing to group by; clear any stale selection so it can't hide everything.
+            mSelectedCategory.clear();
+        }
+    }
+
     // Filter addons
     std::vector<const Addon*> filteredAddons;
     std::string searchStr = mSearchBuffer;
@@ -905,6 +963,12 @@ void AddonsWindow::DrawAddonBrowser()
 
     for (const Addon& addon : addons)
     {
+        // Category filter
+        if (!mSelectedCategory.empty() && addon.mMetadata.mCategory != mSelectedCategory)
+        {
+            continue;
+        }
+
         // Search filter
         if (!searchStr.empty())
         {
@@ -947,22 +1011,62 @@ void AddonsWindow::DrawAddonBrowser()
     }
     else
     {
-        // Addon grid
+        // Card grid, grouped under per-category collapsing headers.
+        auto categoryLabel = [&](const std::string& cid) -> std::string {
+            if (cid.empty()) return "Other";
+            for (const AddonCategory& c : am->GetCategories())
+            {
+                if (c.mId == cid) return c.mName.empty() ? c.mId : c.mName;
+            }
+            return cid;
+        };
+
+        // Stable category order: registry order first, then any leftover ids in first-seen
+        // order, then the empty/"Other" bucket last.
+        std::vector<std::string> order;
+        for (const AddonCategory& c : am->GetCategories())
+            order.push_back(c.mId);
+        for (const Addon* a : filteredAddons)
+        {
+            const std::string& cid = a->mMetadata.mCategory;
+            if (cid.empty() || std::find(order.begin(), order.end(), cid) != order.end())
+                continue;
+            order.push_back(cid);
+        }
+        order.push_back(""); // Other bucket last
+
+        ImGui::BeginChild("AddonGrid", ImVec2(0, 0), true);
+
         float cardWidth = 200.0f;
         float spacing = 10.0f;
         int cardsPerRow = (int)((ImGui::GetContentRegionAvail().x + spacing) / (cardWidth + spacing));
         if (cardsPerRow < 1) cardsPerRow = 1;
 
-        ImGui::BeginChild("AddonGrid", ImVec2(0, 0), true);
-
-        for (int i = 0; i < (int)filteredAddons.size(); ++i)
+        for (const std::string& cid : order)
         {
-            if (i > 0 && i % cardsPerRow != 0)
+            std::vector<const Addon*> group;
+            for (const Addon* a : filteredAddons)
             {
-                ImGui::SameLine();
+                if (a->mMetadata.mCategory == cid)
+                    group.push_back(a);
             }
+            if (group.empty())
+                continue;
 
-            DrawAddonCard(*filteredAddons[i], cardWidth);
+            ImGui::PushID(cid.empty() ? "cat_other" : cid.c_str());
+            if (ImGui::CollapsingHeader(categoryLabel(cid).c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                for (int i = 0; i < (int)group.size(); ++i)
+                {
+                    if (i > 0 && i % cardsPerRow != 0)
+                    {
+                        ImGui::SameLine();
+                    }
+
+                    DrawAddonCard(*group[i], cardWidth);
+                }
+            }
+            ImGui::PopID();
         }
 
         ImGui::EndChild();
