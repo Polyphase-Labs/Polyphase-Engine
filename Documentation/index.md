@@ -135,6 +135,7 @@ Instructions for building from source below.
    - Android SDK Build Tools: 34.0.0
    - Android NDK (Side by side): 25.2.9519653
    - CMake: 3.22.1
+3. The Linux installer targets (RPM / AppImage) require `rpmbuild` and `appimagetool` on the host (inside WSL2 on Windows). See [Packaging Linux Installers](Development/SetupEnvironment/Linux.md#packaging-linux-installers-rpm--appimage).
 
 ### Protecting shipped content
 

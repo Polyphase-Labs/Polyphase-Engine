@@ -5,6 +5,9 @@
 #include "EngineTypes.h"
 #include "Plugins/PolyphaseBuildTargetAPI.h"
 
+#include "RpmPackager.h"
+#include "AppImagePackager.h"
+
 namespace BuiltInBuildTargets
 {
     const char* const kWindowsId  = "polyphase.windows";
@@ -28,10 +31,12 @@ namespace BuiltInBuildTargets
         }
     }
 
-    // Built-in descriptors carry metadata only — callback pointers stay
-    // null so ActionManager's legacy switch-on-Platform path runs for them.
-    // Addon-provided targets register descriptors with real callbacks and
-    // dispatch through those instead.
+    // The six platform-owning targets carry metadata only — callback pointers
+    // stay null, so ActionManager's legacy switch-on-Platform path runs for
+    // them end to end. Targets that DO need callbacks (built-in packagers as
+    // well as addon-provided targets) register a filled-in descriptor below;
+    // ActionManager dispatches on the callback being present, not on where the
+    // target came from.
     static void RegisterBuiltIn(BuildTargetRegistry& registry,
                                 const char* id, const char* displayName,
                                 const char* category, Platform basePlatform,
@@ -49,8 +54,6 @@ namespace BuiltInBuildTargets
         desc.requiresDocker      = 0;
         desc.supportsRunOnDevice = supportsRunOnDevice ? 1 : 0;
         desc.supportsEmulator    = supportsEmulator ? 1 : 0;
-        // All function pointers left as nullptr — ActionManager checks
-        // RegisteredBuildTarget::mIsBuiltIn and runs the legacy path.
 
         registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
     }
@@ -63,6 +66,23 @@ namespace BuiltInBuildTargets
         RegisterBuiltIn(registry, kGameCubeId, "GameCube",         "Console",   Platform::GameCube, ".dol",  false, true);
         RegisterBuiltIn(registry, kWiiId,      "Wii",              "Console",   Platform::Wii,      ".dol",  true,  true);
         RegisterBuiltIn(registry, kN3DSId,     "Nintendo 3DS",     "Handheld",  Platform::N3DS,     ".3dsx", true,  true);
+
+        // Linux packaging targets. Each shares Platform::Linux with kLinuxId —
+        // they reuse the same compile and cook path entirely and only add a
+        // PostPackage step that wraps the staged payload. Because they aren't
+        // the canonical target for Linux, ActionManager gives them their own
+        // Packaged/<targetId>/ directory and their own build-cache manifest.
+        {
+            PolyphaseBuildTargetDesc desc{};
+            RpmPackager::FillDesc(desc);
+            registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
+        }
+
+        {
+            PolyphaseBuildTargetDesc desc{};
+            AppImagePackager::FillDesc(desc);
+            registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
+        }
     }
 }
 

@@ -1207,14 +1207,94 @@ float SYS_GetTotalRAM2()
 }
 
 // Save Game
+
+// mkdir -p. SYS_CreateDirectory is a single-level mkdir, and the XDG fallback
+// below needs to create up to three missing components.
+static bool EnsureDirPath(const std::string& path)
+{
+    if (path.empty() || path == "/")
+        return false;
+
+    if (DoesDirExist(path.c_str()))
+        return true;
+
+    size_t slash = path.find_last_of('/');
+    if (slash != std::string::npos && slash > 0)
+    {
+        EnsureDirPath(path.substr(0, slash));
+    }
+
+    // Re-test after mkdir: a concurrent process may have won the race.
+    return SYS_CreateDirectory(path.c_str()) || DoesDirExist(path.c_str());
+}
+
+// Resolve the directory game saves live in.
+//
+//   1. $POLYPHASE_SAVE_DIR              — explicit override.
+//   2. <projectDir>/Saves               — when the project dir is writable.
+//   3. $XDG_DATA_HOME/<Project>/Saves   — else ~/.local/share/<Project>/Saves.
+//
+// Keeping (2) ahead of (3) is what makes this non-breaking: every existing
+// install and every editor/PIE session keeps saving next to the project. The
+// XDG fallback only engages when the install root is read-only, which is
+// exactly the AppImage / system-wide package case. Returns "" if the project
+// directory is unset, which every caller already treats as failure.
+static std::string GetSaveDir()
+{
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+
+    if (projectDir == "")
+        return "";
+
+    const char* envOverride = getenv("POLYPHASE_SAVE_DIR");
+    if (envOverride != nullptr && envOverride[0] != '\0')
+        return std::string(envOverride);
+
+    // Probe the project dir rather than Saves/ — Saves/ legitimately may not
+    // exist yet on a first run, and we still want the legacy location then.
+    if (access(projectDir.c_str(), W_OK) == 0)
+        return projectDir + "Saves";
+
+    std::string base;
+    const char* xdgDataHome = getenv("XDG_DATA_HOME");
+
+    if (xdgDataHome != nullptr && xdgDataHome[0] != '\0')
+    {
+        base = xdgDataHome;
+    }
+    else
+    {
+        const char* home = getenv("HOME");
+
+        if (home == nullptr || home[0] == '\0')
+        {
+            // No writable project dir and no HOME. Fall back to the legacy
+            // path so the failure surfaces in the existing error logs.
+            return projectDir + "Saves";
+        }
+
+        base = std::string(home) + "/.local/share";
+    }
+
+    std::string projectName = GetEngineState()->mProjectName;
+    if (projectName == "")
+    {
+        projectName = "Polyphase";
+    }
+
+    return base + "/" + projectName + "/Saves";
+}
+
 bool SYS_ReadSave(const char* saveName, Stream& outStream)
 {
     bool success = false;
-    if (GetEngineState()->mProjectDirectory != "")
+    std::string saveDir = GetSaveDir();
+
+    if (saveDir != "")
     {
         if (SYS_DoesSaveExist(saveName))
         {
-            std::string savePath = GetEngineState()->mProjectDirectory + "Saves/" + saveName;
+            std::string savePath = saveDir + "/" + saveName;
             outStream.ReadFile(savePath.c_str(), false);
             success = true;
         }
@@ -1234,18 +1314,11 @@ bool SYS_ReadSave(const char* saveName, Stream& outStream)
 bool SYS_WriteSave(const char* saveName, Stream& stream)
 {
     bool success = false;
+    std::string saveDir = GetSaveDir();
 
-    if (GetEngineState()->mProjectDirectory != "")
+    if (saveDir != "")
     {
-        std::string saveDir = GetEngineState()->mProjectDirectory + "Saves";
-        bool saveDirExists = DoesDirExist(saveDir.c_str());
-
-        if (!saveDirExists)
-        {
-            saveDirExists = SYS_CreateDirectory(saveDir.c_str());
-        }
-
-        if (saveDirExists)
+        if (EnsureDirPath(saveDir))
         {
             std::string savePath = saveDir + "/" + saveName;
             stream.WriteFile(savePath.c_str());
@@ -1254,7 +1327,7 @@ bool SYS_WriteSave(const char* saveName, Stream& stream)
         }
         else
         {
-            LogError("Failed to open Saves directory");
+            LogError("Failed to open Saves directory: %s", saveDir.c_str());
         }
     }
     else
@@ -1268,10 +1341,11 @@ bool SYS_WriteSave(const char* saveName, Stream& stream)
 bool SYS_DoesSaveExist(const char* saveName)
 {
     bool exists = false;
+    std::string saveDir = GetSaveDir();
 
-    if (GetEngineState()->mProjectDirectory != "")
+    if (saveDir != "")
     {
-        std::string savePath = GetEngineState()->mProjectDirectory + "Saves/" + saveName;
+        std::string savePath = saveDir + "/" + saveName;
 
         FILE* file = fopen(savePath.c_str(), "rb");
 
@@ -1289,10 +1363,11 @@ bool SYS_DoesSaveExist(const char* saveName)
 bool SYS_DeleteSave(const char* saveName)
 {
     bool success = false;
+    std::string saveDir = GetSaveDir();
 
-    if (GetEngineState()->mProjectDirectory != "")
+    if (saveDir != "")
     {
-        std::string savePath = GetEngineState()->mProjectDirectory + "Saves/" + saveName;
+        std::string savePath = saveDir + "/" + saveName;
         SYS_RemoveFile(savePath.c_str());
         success = true;
     }

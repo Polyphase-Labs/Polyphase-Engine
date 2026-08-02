@@ -26,6 +26,7 @@ struct BuildManifest
     int64_t mBuildTime = 0;
     std::string mProjectName;
     std::string mOutputDirectory;
+    std::string mTargetVariant;     // discriminates targets sharing a basePlatform; "" for the canonical built-in
 
     std::vector<FileEntry> mAssets;
     std::vector<FileEntry> mScripts;
@@ -53,14 +54,32 @@ public:
     // a Static package of the same content are different outputs, so they must not
     // share a manifest or flipping the checkbox reports "up to date" and ships the
     // previous, unobfuscated build.
-    BuildCacheResult CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent, bool contentPak);
+    //
+    // targetVariant extends that identity to the build target. Platform alone is
+    // not unique — RPM, AppImage, PSP, Dreamcast and PS2 all declare Linux as
+    // their basePlatform — so without it they share one manifest and switching
+    // between them falsely reports "up to date". Empty for the canonical built-in
+    // of each platform, which keeps legacy manifest filenames unchanged. Callers
+    // fold the target's profile options into the string so option edits invalidate.
+    // outputDirectory is the absolute Packaged/<subdir>/ path this build writes
+    // to; empty derives the legacy Packaged/<PlatformName>/. It has to be told
+    // rather than derived because only ActionManager knows which target owns a
+    // platform outright, and VerifyOutputDirectory checks it to decide whether a
+    // cached build's output still exists.
+    BuildCacheResult CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                                        const std::string& targetVariant = "",
+                                        const std::string& outputDirectory = "");
     std::string GetRebuildReason() const { return mRebuildReason; }
 
-    void BuildCurrentManifest(Platform platform, bool embedded, bool staticContent, bool contentPak);
+    void BuildCurrentManifest(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                              const std::string& targetVariant = "",
+                              const std::string& outputDirectory = "");
     bool SaveManifest();
-    bool LoadManifest(Platform platform, bool embedded, bool staticContent, bool contentPak);
+    bool LoadManifest(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                      const std::string& targetVariant = "");
 
-    std::string GetManifestPath(Platform platform, bool embedded, bool staticContent, bool contentPak) const;
+    std::string GetManifestPath(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                                const std::string& targetVariant = "") const;
 
 private:
     BuildCache();
