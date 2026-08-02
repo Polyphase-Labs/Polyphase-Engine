@@ -58,7 +58,8 @@ int64_t BuildCache::GetFileModTime(const std::string& path) const
     return static_cast<int64_t>(info.st_mtime);
 }
 
-std::string BuildCache::GetManifestPath(Platform platform, bool embedded, bool staticContent, bool contentPak) const
+std::string BuildCache::GetManifestPath(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                                        const std::string& targetVariant) const
 {
     const EngineState* engineState = GetEngineState();
     std::string projectDir = engineState->mProjectDirectory;
@@ -77,6 +78,10 @@ std::string BuildCache::GetManifestPath(Platform platform, bool embedded, bool s
     if (contentPak)
     {
         mode += "_Pak";
+    }
+    if (!targetVariant.empty())
+    {
+        mode += "_" + targetVariant;
     }
     return intermediateDir + "BuildManifest_" + GetPlatformString(platform) + "_" + mode + ".json";
 }
@@ -176,7 +181,8 @@ void BuildCache::GatherConfigFiles(std::vector<FileEntry>& outConfigs)
     }
 }
 
-void BuildCache::BuildCurrentManifest(Platform platform, bool embedded, bool staticContent, bool contentPak)
+void BuildCache::BuildCurrentManifest(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                                      const std::string& targetVariant, const std::string& outputDirectory)
 {
     mCurrentManifest = BuildManifest();
     mCurrentManifest.mVersion = BuildManifest::kCurrentVersion;
@@ -184,11 +190,14 @@ void BuildCache::BuildCurrentManifest(Platform platform, bool embedded, bool sta
     mCurrentManifest.mEmbedded = embedded;
     mCurrentManifest.mStaticContent = staticContent;
     mCurrentManifest.mContentPak = contentPak;
+    mCurrentManifest.mTargetVariant = targetVariant;
     mCurrentManifest.mBuildTime = static_cast<int64_t>(time(nullptr));
     mCurrentManifest.mProjectName = GetEngineState()->mProjectName;
 
     std::string projectDir = GetEngineState()->mProjectDirectory;
-    mCurrentManifest.mOutputDirectory = projectDir + "Packaged/" + GetPlatformString(platform) + "/";
+    mCurrentManifest.mOutputDirectory = outputDirectory.empty()
+        ? (projectDir + "Packaged/" + GetPlatformString(platform) + "/")
+        : outputDirectory;
 
     GatherAssetFiles(mCurrentManifest.mAssets);
     GatherScriptFiles(mCurrentManifest.mScripts);
@@ -209,6 +218,7 @@ bool BuildCache::SaveManifest()
     doc.AddMember("buildTime", mCurrentManifest.mBuildTime, alloc);
     doc.AddMember("projectName", rapidjson::Value(mCurrentManifest.mProjectName.c_str(), alloc), alloc);
     doc.AddMember("outputDirectory", rapidjson::Value(mCurrentManifest.mOutputDirectory.c_str(), alloc), alloc);
+    doc.AddMember("targetVariant", rapidjson::Value(mCurrentManifest.mTargetVariant.c_str(), alloc), alloc);
 
     auto addFileEntries = [&](const char* name, const std::vector<FileEntry>& entries)
     {
@@ -231,7 +241,7 @@ bool BuildCache::SaveManifest()
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     doc.Accept(writer);
 
-    std::string path = GetManifestPath(mCurrentManifest.mPlatform, mCurrentManifest.mEmbedded, mCurrentManifest.mStaticContent, mCurrentManifest.mContentPak);
+    std::string path = GetManifestPath(mCurrentManifest.mPlatform, mCurrentManifest.mEmbedded, mCurrentManifest.mStaticContent, mCurrentManifest.mContentPak, mCurrentManifest.mTargetVariant);
     Stream outStream(buffer.GetString(), (uint32_t)buffer.GetSize());
     outStream.WriteFile(path.c_str());
 
@@ -239,9 +249,10 @@ bool BuildCache::SaveManifest()
     return true;
 }
 
-bool BuildCache::LoadManifest(Platform platform, bool embedded, bool staticContent, bool contentPak)
+bool BuildCache::LoadManifest(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                              const std::string& targetVariant)
 {
-    std::string path = GetManifestPath(platform, embedded, staticContent, contentPak);
+    std::string path = GetManifestPath(platform, embedded, staticContent, contentPak, targetVariant);
     if (!SYS_DoesFileExist(path.c_str(), false))
     {
         return false;
@@ -293,6 +304,9 @@ bool BuildCache::LoadManifest(Platform platform, bool embedded, bool staticConte
 
     if (doc.HasMember("outputDirectory") && doc["outputDirectory"].IsString())
         mSavedManifest.mOutputDirectory = doc["outputDirectory"].GetString();
+
+    if (doc.HasMember("targetVariant") && doc["targetVariant"].IsString())
+        mSavedManifest.mTargetVariant = doc["targetVariant"].GetString();
 
     auto loadFileEntries = [&](const char* name, std::vector<FileEntry>& entries)
     {
@@ -407,10 +421,11 @@ bool BuildCache::VerifyOutputDirectory() const
     return true;
 }
 
-BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent, bool contentPak)
+BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded, bool staticContent, bool contentPak,
+                                                const std::string& targetVariant, const std::string& outputDirectory)
 {
     // Load saved manifest
-    if (!LoadManifest(platform, embedded, staticContent, contentPak))
+    if (!LoadManifest(platform, embedded, staticContent, contentPak, targetVariant))
     {
         mRebuildReason = "No previous build manifest found";
         return BuildCacheResult::ManifestMissing;
@@ -424,7 +439,7 @@ BuildCacheResult BuildCache::CheckRebuildNeeded(Platform platform, bool embedded
     }
 
     // Build current manifest for comparison
-    BuildCurrentManifest(platform, embedded, staticContent, contentPak);
+    BuildCurrentManifest(platform, embedded, staticContent, contentPak, targetVariant, outputDirectory);
 
     // Compare
     if (!CompareManifests(mCurrentManifest, mSavedManifest))

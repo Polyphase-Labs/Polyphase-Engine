@@ -456,10 +456,13 @@ protected:
     void BuildPhase1();
     void BuildCompileThreadFunc();
     void FinalizeLocalBuild();
-    void AppendBuildOutput(const std::string& text);
     void CancelBuild();
 
 public:
+
+    // Public so the build-context WriteOutputLine trampoline can forward a
+    // target's PostPackage progress into the PackagingWindow log.
+    void AppendBuildOutput(const std::string& text);
 
     // Actions
     void CreateNewProject(const char* folderPath = nullptr, bool cpp = false, const char* defaultSceneName = "SC_Default");

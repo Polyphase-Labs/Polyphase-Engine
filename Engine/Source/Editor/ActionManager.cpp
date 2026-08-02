@@ -1451,6 +1451,115 @@ namespace
         std::snprintf(outVal, cap, "%s", it->second.c_str());
         return 1;
     }
+
+    // Same trampoline trick for the build-output log. Set immediately before a
+    // callback fires so a packager's progress lands in the PackagingWindow log
+    // rather than only in the engine log.
+    ActionManager* sBuildCtxOwner = nullptr;
+
+    void BuildCtx_WriteOutputLine(const char* line)
+    {
+        if (sBuildCtxOwner == nullptr || line == nullptr) return;
+        sBuildCtxOwner->AppendBuildOutput(std::string(line) + "\n");
+    }
+
+    void BuildCtx_Log(int32_t severity, const char* msg)
+    {
+        if (msg == nullptr) return;
+        switch (severity)
+        {
+        case POLYPHASE_BT_LOG_ERROR:   LogError("%s", msg);   break;
+        case POLYPHASE_BT_LOG_WARNING: LogWarning("%s", msg); break;
+        default:                       LogDebug("%s", msg);   break;
+        }
+    }
+
+    // True only for the one built-in target that "owns" a platform outright
+    // (polyphase.linux for Linux, polyphase.windows for Windows, ...). Extra
+    // built-ins that share a basePlatform — the RPM and AppImage packagers —
+    // are not canonical, and neither is any addon target.
+    bool IsCanonicalTargetForPlatform(const RegisteredBuildTarget* target)
+    {
+        return target != nullptr &&
+               target->mIsBuiltIn &&
+               strcmp(target->mDesc.targetId,
+                      BuiltInBuildTargets::IdForPlatform(target->mDesc.basePlatform)) == 0;
+    }
+
+    const RegisteredBuildTarget* FindBuildTarget(const std::string& targetId)
+    {
+        if (targetId.empty() || EditorUIHookManager::Get() == nullptr)
+            return nullptr;
+        return EditorUIHookManager::Get()->GetBuildTargets().Find(targetId.c_str());
+    }
+
+    // The canonical built-in packages into Packaged/<PlatformName>/; everything
+    // else packages into Packaged/<targetId>/ so targets sharing a basePlatform
+    // can't overwrite each other's output.
+    std::string ResolvePackageSubdir(const std::string& targetId, Platform platform)
+    {
+        const RegisteredBuildTarget* target = FindBuildTarget(targetId);
+
+        if (target != nullptr && !IsCanonicalTargetForPlatform(target))
+        {
+            return targetId;
+        }
+
+        return GetPlatformString(platform);
+    }
+
+    // Manifest identity for the build cache. Empty for the canonical built-in so
+    // existing manifest filenames stay byte-identical; otherwise the targetId
+    // plus a hash of the target's profile options. Without this, every target
+    // sharing a basePlatform (Linux backs RPM, AppImage, PSP, Dreamcast, PS2)
+    // reads and writes one BuildManifest_Linux_External.json, so switching
+    // targets falsely reports "up to date" and PostPackage never runs. Hashing
+    // the options is what makes a changed RPM version force a rebuild.
+    std::string ResolveBuildVariantKey(const std::string& targetId,
+                                       const std::unordered_map<std::string, std::string>& options)
+    {
+        const RegisteredBuildTarget* target = FindBuildTarget(targetId);
+
+        if (target == nullptr || IsCanonicalTargetForPlatform(target))
+        {
+            return "";
+        }
+
+        std::string key = targetId;
+        for (char& c : key)
+        {
+            if (c == '.' || c == '/' || c == '\\' || c == ':') c = '-';
+        }
+
+        if (!options.empty())
+        {
+            std::vector<std::string> pairs;
+            pairs.reserve(options.size());
+            for (const auto& kv : options)
+            {
+                pairs.push_back(kv.first + "=" + kv.second);
+            }
+            std::sort(pairs.begin(), pairs.end());
+
+            // FNV-1a. Only needs to detect change, not resist collisions.
+            uint64_t hash = 1469598103934665603ull;
+            for (const std::string& pair : pairs)
+            {
+                for (unsigned char c : pair)
+                {
+                    hash ^= c;
+                    hash *= 1099511628211ull;
+                }
+            }
+
+            char hashBuf[24];
+            std::snprintf(hashBuf, sizeof(hashBuf), "%016llx", (unsigned long long)hash);
+            key += "_";
+            key += hashBuf;
+        }
+
+        return key;
+    }
 }
 
 void ActionManager::BuildData(const std::string& targetId, bool embedded)
@@ -1547,7 +1656,11 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     BuildCache* cache = BuildCache::Get();
     if (cache != nullptr && !mBuildState.mForceRebuild)
     {
-        BuildCacheResult cacheResult = cache->CheckRebuildNeeded(platform, embedded, mBuildState.mStaticContent, mBuildState.mContentPak);
+        BuildCacheResult cacheResult = cache->CheckRebuildNeeded(
+            platform, embedded, mBuildState.mStaticContent, mBuildState.mContentPak,
+            ResolveBuildVariantKey(mBuildState.mTargetId, mBuildState.mTargetOptions),
+            GetEngineState()->mProjectDirectory + "Packaged/" +
+                ResolvePackageSubdir(mBuildState.mTargetId, platform) + "/");
 
         if (cacheResult == BuildCacheResult::UpToDate)
         {
@@ -1556,7 +1669,8 @@ void ActionManager::BuildData(Platform platform, bool embedded)
             const EngineState* engineState = GetEngineState();
             std::string projectDir = engineState->mProjectDirectory;
             std::string projectName = engineState->mProjectName;
-            std::string packagedDir = projectDir + "Packaged/" + GetPlatformString(platform) + "/";
+            std::string packagedDir = projectDir + "Packaged/" +
+                                      ResolvePackageSubdir(mBuildState.mTargetId, platform) + "/";
 
             // Get platform extension
             std::string extension;
@@ -1706,6 +1820,13 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     const bool staticContentRequested = mBuildState.mStaticContent;
     const bool contentPakRequested = mBuildState.mContentPak;
 
+    // And the per-target option map, for the same reason. PackagingWindow
+    // happens to re-apply this after BuildData returns, but callers that don't
+    // (controller server, CLI) would otherwise reach PostPackage with an empty
+    // map — every target option silently falling back to its default, and the
+    // build-cache variant key disagreeing between the check and the write.
+    const std::unordered_map<std::string, std::string> targetOptionsRequested = mBuildState.mTargetOptions;
+
     // In headless mode, run the entire build synchronously (original behavior)
     if (IsHeadless())
     {
@@ -1735,6 +1856,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     mBuildState.mTargetId    = targetIdRequested;       // same — see snapshot above
     mBuildState.mStaticContent = staticContentRequested; // same — see snapshot above
     mBuildState.mContentPak    = contentPakRequested;    // same — see snapshot above
+    mBuildState.mTargetOptions = targetOptionsRequested; // same — see snapshot above
     mBuildDisplayOutput.clear();
     mBuildAutoScroll = true;
     mShowBuildModal = true;
@@ -1868,30 +1990,7 @@ void ActionManager::BuildPhase1()
         CreateDir(packagedDir.c_str());
     }
 
-    // Built-in targets use the platform name as the package subdir
-    // (Packaged/Linux/, Packaged/Windows/, ...). Addon-provided targets use
-    // their targetId instead (Packaged/homebrew.psp/, Packaged/homebrew.dreamcast/, ...),
-    // because multiple addon targets may share the same basePlatform and
-    // would otherwise collide / overwrite each other's output.
-    if (!mBuildState.mTargetId.empty())
-    {
-        const RegisteredBuildTarget* addonTarget =
-            EditorUIHookManager::Get() ?
-            EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str()) :
-            nullptr;
-        if (addonTarget != nullptr && !addonTarget->mIsBuiltIn)
-        {
-            packagedDir += mBuildState.mTargetId;
-        }
-        else
-        {
-            packagedDir += GetPlatformString(platform);
-        }
-    }
-    else
-    {
-        packagedDir += GetPlatformString(platform);
-    }
+    packagedDir += ResolvePackageSubdir(mBuildState.mTargetId, platform);
     packagedDir += "/";
     if (DoesDirExist(packagedDir.c_str()))
     {
@@ -4156,36 +4255,41 @@ void ActionManager::FinalizeLocalBuild()
 
     LogDebug("Finished packaging!");
 
-    // Addon PostPackage: gives addon-provided targets a chance to wrap the
-    // packaged dir into a console-native image (Dreamcast .cdi, PS2 .iso,
-    // Xbox .xbe / .xiso, 3DS .cia, NDS .nds-rom, ...). Built-in targets
-    // leave PostPackage null and skip this block.
+    // PostPackage: gives a target a chance to wrap the packaged dir into its
+    // native distributable — a console image (Dreamcast .cdi, PS2 .iso, Xbox
+    // .xbe / .xiso, 3DS .cia, NDS .nds-rom, ...) or a Linux package (.rpm,
+    // .AppImage). Dispatch is on the callback being present, not on where the
+    // target came from: the six legacy built-ins leave PostPackage null and
+    // skip this block, while built-in packagers that set it run just like an
+    // addon's would.
     if (!mBuildState.mTargetId.empty())
     {
-        const RegisteredBuildTarget* addonTarget =
+        const RegisteredBuildTarget* buildTarget =
             EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
-        if (addonTarget != nullptr && !addonTarget->mIsBuiltIn &&
-            addonTarget->mDesc.PostPackage != nullptr)
+        if (buildTarget != nullptr && buildTarget->mDesc.PostPackage != nullptr)
         {
             const std::string engineDirForCtx = SYS_GetPolyphasePath();
 
             PolyphaseBuildContext ctx{};
             ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
-            ctx.targetId         = addonTarget->mDesc.targetId;
+            ctx.targetId         = buildTarget->mDesc.targetId;
             ctx.projectName      = projectName.c_str();
             ctx.projectDir       = projectDir.c_str();
             ctx.packageOutputDir = packagedDir.c_str();
             ctx.engineDir        = engineDirForCtx.c_str();
-            ctx.basePlatform     = addonTarget->mDesc.basePlatform;
+            ctx.basePlatform     = buildTarget->mDesc.basePlatform;
             ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
             ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
             sBuildCtxOptions     = &mBuildState.mTargetOptions;
+            sBuildCtxOwner       = this;
             ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
+            ctx.WriteOutputLine  = &BuildCtx_WriteOutputLine;
+            ctx.Log              = &BuildCtx_Log;
 
-            if (addonTarget->mDesc.PostPackage(&ctx) == 0)
+            if (buildTarget->mDesc.PostPackage(&ctx) == 0)
             {
-                LogError("Addon target '%s' PostPackage returned failure.", addonTarget->mDesc.targetId);
-                AppendBuildOutput("ERROR: addon PostPackage failed.\n");
+                LogError("Target '%s' PostPackage returned failure.", buildTarget->mDesc.targetId);
+                AppendBuildOutput("ERROR: PostPackage failed.\n");
                 EditorUIHookManager* hookMgrFail = EditorUIHookManager::Get();
                 if (hookMgrFail != nullptr) hookMgrFail->FireOnPackageFinished((int32_t)platform, false);
                 if (hookMgrFail != nullptr) hookMgrFail->FireOnPostBuild((int32_t)platform, false);
@@ -4205,7 +4309,10 @@ void ActionManager::FinalizeLocalBuild()
     BuildCache* cache = BuildCache::Get();
     if (cache != nullptr)
     {
-        cache->BuildCurrentManifest(platform, mBuildState.mEmbedded, mBuildState.mStaticContent, mBuildState.mContentPak);
+        cache->BuildCurrentManifest(
+            platform, mBuildState.mEmbedded, mBuildState.mStaticContent, mBuildState.mContentPak,
+            ResolveBuildVariantKey(mBuildState.mTargetId, mBuildState.mTargetOptions),
+            packagedDir);
         cache->SaveManifest();
     }
 
