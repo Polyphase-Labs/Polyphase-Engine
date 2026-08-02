@@ -9,7 +9,11 @@ struct MeshInstanceData
     glm::vec3 mScale = {1.0f, 1.0f, 1.0f};
 };
 
-class InstancedMesh3D : public StaticMesh3D
+// POLYPHASE_API: exported for native addons (e.g. the Houdini HDA addon bakes
+// instance point clouds into InstancedMesh3D nodes). Note that per-instance
+// scale is uniform — CalculateInstanceTransform uses MeshInstanceData::mScale.x
+// for all three axes.
+class POLYPHASE_API InstancedMesh3D : public StaticMesh3D
 {
 public:
 

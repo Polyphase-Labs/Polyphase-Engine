@@ -173,9 +173,10 @@ public:
     Asset* LoadAssetByUuid(uint64_t uuid);
     void AsyncLoadAssetByUuid(uint64_t uuid, AssetRef* targetRef);
 
-    // Path-based lookup (e.g., "Assets/Models/SM_Plane" or "Models/SM_Plane")
-    AssetStub* GetAssetStubByPath(const std::string& path);
-    Asset* LoadAssetByPath(const std::string& path);
+    // Path-based lookup (e.g., "Assets/Models/SM_Plane" or "Models/SM_Plane").
+    // Exported for native addons that resolve assets by authored path.
+    POLYPHASE_API AssetStub* GetAssetStubByPath(const std::string& path);
+    POLYPHASE_API Asset* LoadAssetByPath(const std::string& path);
     POLYPHASE_API void SaveAsset(const std::string& name);
     POLYPHASE_API void SaveAsset(AssetStub& stub);
     bool UnloadAsset(const std::string& name);

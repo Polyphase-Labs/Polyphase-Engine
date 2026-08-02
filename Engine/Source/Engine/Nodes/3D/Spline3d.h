@@ -3,7 +3,10 @@
 #include "Nodes/3D/Node3d.h"
 #include <vector>
 
-class Spline3D : public Node3D
+// POLYPHASE_API: exported for native addons (e.g. the Houdini HDA addon
+// bakes HDA curve output into Spline3D nodes and feeds Spline3D points back
+// into HDA inputs).
+class POLYPHASE_API Spline3D : public Node3D
 {
 public:
     DECLARE_NODE(Spline3D, Node3D);
@@ -18,6 +21,17 @@ public:
     virtual void GatherProperties(std::vector<Property>& props) override;
     virtual void GatherProxyDraws(std::vector<DebugDraw>& inoutDraws) override;
 
+    // Authoritative point access: a spline's points ARE its "pointN" child
+    // nodes (created by GeneratePoint / the editor, gathered in index order).
+    // Prefer these over the mPoints-based API below, which is a separate
+    // legacy vector that the child-node representation never populates.
+    uint32_t GetNumSplinePoints() const;
+    glm::vec3 GetSplinePointPosition(uint32_t index) const;       // relative to the spline
+    glm::vec3 GetSplinePointWorldPosition(uint32_t index) const;
+    void SetSplinePointPosition(uint32_t index, const glm::vec3& localPosition);
+    Node3D* AddSplinePoint(const glm::vec3& localPosition);       // appends a new pointN child
+    void ClearSplinePoints();
+
     void AddPoint(const glm::vec3& p);
     void ClearPoints();
     uint32_t GetPointCount() const;
@@ -26,6 +40,11 @@ public:
 
     glm::vec3 GetPositionAt(float t) const;  // t in [0,1]
     glm::vec3 GetTangentAt(float t) const;   // normalized tangent
+
+    void SetCloseLoop(bool close) { mCloseLoop = close; }
+    bool IsCloseLoop() const { return mCloseLoop; }
+    void SetSmoothCurve(bool smooth) { mSmoothCurve = smooth; }
+    bool IsSmoothCurve() const { return mSmoothCurve; }
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
 

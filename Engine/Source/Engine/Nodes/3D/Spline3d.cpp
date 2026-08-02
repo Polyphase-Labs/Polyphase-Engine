@@ -1868,6 +1868,76 @@ void Spline3D::GeneratePoint()
 
 }
 
+uint32_t Spline3D::GetNumSplinePoints() const
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(const_cast<Spline3D*>(this), points);
+    return (uint32_t)points.size();
+}
+
+glm::vec3 Spline3D::GetSplinePointPosition(uint32_t index) const
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(const_cast<Spline3D*>(this), points);
+    if (index >= points.size() || points[index].node == nullptr)
+        return glm::vec3(0.0f);
+    return points[index].node->GetPosition();
+}
+
+glm::vec3 Spline3D::GetSplinePointWorldPosition(uint32_t index) const
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(const_cast<Spline3D*>(this), points);
+    if (index >= points.size() || points[index].node == nullptr)
+        return glm::vec3(0.0f);
+    return points[index].node->GetWorldPosition();
+}
+
+void Spline3D::SetSplinePointPosition(uint32_t index, const glm::vec3& localPosition)
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(this, points);
+    if (index >= points.size() || points[index].node == nullptr)
+        return;
+    points[index].node->SetPosition(localPosition);
+}
+
+Node3D* Spline3D::AddSplinePoint(const glm::vec3& localPosition)
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(this, points);
+
+    int32_t maxIndex = 0;
+    for (uint32_t i = 0; i < points.size(); ++i)
+    {
+        maxIndex = glm::max(maxIndex, points[i].index);
+    }
+
+    char newName[64];
+    snprintf(newName, sizeof(newName), "point%d", maxIndex + 1);
+
+    Box3D* newPoint = CreateChild<Box3D>(newName);
+    if (newPoint)
+    {
+        newPoint->SetExtents(glm::vec3(0.4f));
+        newPoint->SetPosition(localPosition);
+    }
+    return newPoint;
+}
+
+void Spline3D::ClearSplinePoints()
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(this, points);
+    for (uint32_t i = 0; i < points.size(); ++i)
+    {
+        if (points[i].node != nullptr)
+        {
+            points[i].node->Destroy();
+        }
+    }
+}
+
 void Spline3D::AddPoint(const glm::vec3& p)
 {
     mPoints.push_back(p);
