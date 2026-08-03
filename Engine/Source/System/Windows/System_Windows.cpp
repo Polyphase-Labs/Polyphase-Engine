@@ -992,7 +992,7 @@ bool SYS_CopyFile(const char* sourcePath, const char* destPath)
     return (stat(destPath, &info) == 0) && !(info.st_mode & S_IFDIR);
 }
 
-void SYS_MoveDirectory(const char* sourceDir, const char* destDir)
+bool SYS_MoveDirectory(const char* sourceDir, const char* destDir)
 {
     std::string source = sourceDir;
     std::string dest = destDir;
@@ -1011,7 +1011,7 @@ void SYS_MoveDirectory(const char* sourceDir, const char* destDir)
         }
     }
     std::string cmd = std::string("move \"") + source + "\" \"" + dest + "\"";
-    SYS_Exec(cmd.c_str());
+    return SYS_ExecFull(cmd.c_str(), nullptr, nullptr, nullptr);
 }
 
 void SYS_MoveFile(const char* sourcePath, const char* destPath)

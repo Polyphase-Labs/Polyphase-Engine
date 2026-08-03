@@ -24,6 +24,11 @@ struct Spline3D_Lua
     static int SetPoint(lua_State* L);
     static int GetPositionAt(lua_State* L);
     static int GetTangentAt(lua_State* L);
+    static int GetSplineLength(lua_State* L);
+    static int GetClosestDistanceAlong(lua_State* L);
+    static int GetNumSplinePoints(lua_State* L);
+    static int GetSplinePointPosition(lua_State* L);
+    static int GetSplinePointWorldPosition(lua_State* L);
     static int Play(lua_State* L);
     static int Stop(lua_State* L);
     static int SetPaused(lua_State* L);

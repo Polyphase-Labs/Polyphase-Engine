@@ -10421,12 +10421,49 @@ void ActionManager::DeleteAsset(AssetStub* stub)
     }
 }
 
+static bool IsAssetDirOrDescendant(AssetDir* candidate, AssetDir* target)
+{
+    while (candidate != nullptr)
+    {
+        if (candidate == target)
+            return true;
+        candidate = candidate->mParentDir;
+    }
+    return false;
+}
+
 void ActionManager::DeleteAssetDir(AssetDir* dir)
 {
     if (dir != nullptr &&
         dir->mParentDir != nullptr &&
         dir->mParentDir != AssetManager::Get()->GetRootDirectory())
     {
+        // DeleteSubdirectory()/Purge() below recursively deletes dir and its
+        // entire subtree. Scrub any cached pointers into that subtree first,
+        // otherwise they dangle the moment we free the memory.
+        EditorState* es = GetEditorState();
+        for (int i = 0; i < (int)AssetBrowserTab::Count; ++i)
+        {
+            if (IsAssetDirOrDescendant(es->mTabCurrentDir[i], dir))
+            {
+                es->mTabCurrentDir[i] = nullptr;
+            }
+        }
+        es->ClearAssetDirHistory();
+
+        for (auto it = es->mRevealAssetExpandDirs.begin(); it != es->mRevealAssetExpandDirs.end(); )
+        {
+            if (IsAssetDirOrDescendant(*it, dir))
+                it = es->mRevealAssetExpandDirs.erase(it);
+            else
+                ++it;
+        }
+
+        if (IsAssetDirOrDescendant(es->mMouseHoveredAssetDir, dir))
+        {
+            es->mMouseHoveredAssetDir = nullptr;
+        }
+
         std::string path = dir->mPath;
         dir->mParentDir->DeleteSubdirectory(dir->mName.c_str());
         SYS_RemoveDirectory(path.c_str());

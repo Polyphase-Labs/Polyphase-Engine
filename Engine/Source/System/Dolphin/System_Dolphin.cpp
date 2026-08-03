@@ -426,9 +426,12 @@ bool SYS_CopyFile(const char* sourcePath, const char* destPath)
     return true;
 }
 
-void SYS_MoveDirectory(const char* sourceDir, const char* destDir)
+bool SYS_MoveDirectory(const char* sourceDir, const char* destDir)
 {
-
+    // No-op on GameCube/Wii runtime (packaging happens on the host editor).
+    (void)sourceDir;
+    (void)destDir;
+    return true;
 }
 
 void SYS_MoveFile(const char* sourcePath, const char* destPath)

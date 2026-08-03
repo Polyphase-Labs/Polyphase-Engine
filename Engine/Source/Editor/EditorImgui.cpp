@@ -1794,6 +1794,13 @@ namespace EditorProgress
 
         es->mProgressLastPumpTime = ImGui::GetTime();
 
+        // Everything below runs nested inside the caller's long operation,
+        // which may be mid-way through rebuilding the scene tree. Flag it so
+        // handlers that must not reenter that work can bail out -- see
+        // EditorState.cpp's IsInsideProgressPump().
+        const bool prevPumping = es->mProgressPumping;
+        es->mProgressPumping = true;
+
         // Run a normal editor frame so the popup repaints and any time-
         // driven animation (sine marquee) advances. EditorImguiDraw owns
         // NewFrame/Render itself.
@@ -1805,6 +1812,8 @@ namespace EditorProgress
         {
             Renderer::Get()->Render(GetWorld(i), i);
         }
+
+        es->mProgressPumping = prevPumping;
     }
 
     void Begin(const char* title, const char* status, bool cancellable)
@@ -2211,7 +2220,8 @@ static bool MoveDirectoryToDirectory(AssetDir* dir, AssetDir* newParent)
     std::string newPath = newParent->mPath + dir->mName + "/";
 
     // Move on disk
-    SYS_MoveDirectory(oldPath.c_str(), newPath.c_str());
+    if (!SYS_MoveDirectory(oldPath.c_str(), newPath.c_str()))
+        return false;
 
     // Update tree: remove from old parent
     AssetDir* oldParent = dir->mParentDir;
@@ -6736,10 +6746,14 @@ static void DrawScenePanel()
     }
 }
 
-static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
+// Returns true if the passed-in stub/dir was deleted (and its memory freed)
+// as a result of drawing this popup. Callers must not touch stub/dir (or any
+// pointer known to alias them, e.g. a tree row's AssetDir) after that.
+static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 {
     bool setTextInputFocus = false;
     bool closeContextPopup = false;
+    bool itemDeleted = false;
     static TypeId sNewAssetType = INVALID_TYPE_ID;
     static bool sNewAssetIsSkybox = false;
     static bool sNewAssetIsPrototypeGrid = false;
@@ -7029,11 +7043,25 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 {
                     actMan->DeleteAsset(stub);
                 }
+
+                // stub is freed -- don't let the rest of this function (or
+                // curDir, which may alias it indirectly) touch it.
+                stub = nullptr;
+                itemDeleted = true;
             }
             else if (dir)
             {
                 actMan->DeleteAssetDir(dir);
-                GetEditorState()->ClearAssetDirHistory();
+
+                // dir (and its whole subtree) is freed. curDir was pointed at
+                // this same directory by the caller just before opening this
+                // popup, so it aliases dir here and must be scrubbed too.
+                if (curDir == dir)
+                {
+                    curDir = nullptr;
+                }
+                dir = nullptr;
+                itemDeleted = true;
             }
         }
 
@@ -7333,6 +7361,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     sNewAssetType = NodeGraphAsset::GetStaticType();
                     showPopup = true;
                 }
+                if (ImGui::Selectable("Data Asset", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sNewAssetType = DataAsset::GetStaticType();
+                    showPopup = true;
+                }
                 drawAddonAssetsInBucket("Logic");
                 ImGui::EndMenu();
             }
@@ -7605,6 +7638,8 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     assetName = "TL_Timeline";
                 else if (sNewAssetType == NodeGraphAsset::GetStaticType())
                     assetName = "NG_NodeGraph";
+                else if (sNewAssetType == DataAsset::GetStaticType())
+                    assetName = "DA_DataAsset";
                 else if (sNewAssetType == UIDocument::GetStaticType())
                     assetName = "UI_Document";
                 else if (sNewAssetType == InputPromptMap::GetStaticType())
@@ -7839,6 +7874,8 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
     {
         ImGui::CloseCurrentPopup();
     }
+
+    return itemDeleted;
 }
 
 // Flat directory picker for dialogs (e.g., Save Scene As)
@@ -8473,6 +8510,8 @@ static void DrawAssetDirTree(AssetDir* dir, const std::string& filterLower, bool
         dirFlags |= ImGuiTreeNodeFlags_DefaultOpen;
     if (isRoot)
         dirFlags |= ImGuiTreeNodeFlags_DefaultOpen;
+    if (dir == GetEditorState()->GetAssetDirectory())
+        dirFlags |= ImGuiTreeNodeFlags_Selected;
 
     // Check if directory has no children (leaf directory with no subdirs)
     bool hasChildren = !dir->mChildDirs.empty() || !dir->mAssetStubs.empty() || !dir->mLooseFiles.empty();
@@ -8490,6 +8529,14 @@ static void DrawAssetDirTree(AssetDir* dir, const std::string& filterLower, bool
     ImGui::PushID(dir);
     bool nodeOpen = ImGui::TreeNodeEx(dirLabel.c_str(), dirFlags);
     AlternatingRowBackground();
+
+    // Click to select -- makes this folder the target for New Folder / New
+    // Asset / drag-drop-to-root, and keeps it visually marked as such (see
+    // the Selected flag above). Mirrors DrawDirPickerTree's click handler.
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+    {
+        GetEditorState()->SetAssetDirectory(dir, true);
+    }
 
     // Record this row as the current OS file-drop target if the mouse is
     // over it -- consumed by FileDropImportModal on the next frame's drain.
@@ -8523,12 +8570,26 @@ static void DrawAssetDirTree(AssetDir* dir, const std::string& filterLower, bool
         ImGui::EndDragDropTarget();
     }
 
+    bool dirDeleted = false;
     if (ImGui::BeginPopupContextItem())
     {
         // Set current directory so context popup operations target this directory
         GetEditorState()->mTabCurrentDir[GetEditorState()->ActiveTab()] = dir;
-        DrawAssetsContextPopup(nullptr, dir);
+        dirDeleted = DrawAssetsContextPopup(nullptr, dir);
         ImGui::EndPopup();
+    }
+
+    // The popup above may have deleted this directory (and its whole
+    // subtree) via the "Delete" option -- dir is dangling past this point.
+    // Balance the ImGui tree/ID stacks and bail out without touching it.
+    if (dirDeleted)
+    {
+        if (nodeOpen)
+        {
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+        return;
     }
 
     if (nodeOpen)

@@ -36,7 +36,10 @@ void SYS_CopyDirectory(const char* sourceDir, const char* destDir);
 bool SYS_CopyFile(const char* sourcePath, const char* destPath);
 bool SYS_CopyDirectoryRecursive(const std::string& sourceDir,
                                 const std::string& destDir);
-void SYS_MoveDirectory(const char* sourceDir, const char* destDir);
+// Returns true if the move succeeded. A false return means the directory
+// (or part of its subtree) never moved -- callers must not update in-memory
+// state (e.g. an asset tree) as if it had. See SYS_CopyFile above.
+bool SYS_MoveDirectory(const char* sourceDir, const char* destDir);
 void SYS_MoveFile(const char* sourcePath, const char* destPath);
 void SYS_CloseDirectory(DirEntry& dirEntry);
 void SYS_RemoveFile(const char* path);

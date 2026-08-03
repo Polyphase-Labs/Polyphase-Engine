@@ -229,7 +229,16 @@
       "Bash(wc -l)",
       "Bash(echo \"=== bufPerSec/filled/queued progression \\(dedup\\) ===\")",
       "Bash(awk '!seen[$1]++')",
-      "Bash(timeout 60 bash -c '\nD=\"M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PS2/Packages/com.polyphase.build.target.ps2/Runtime/PS2/Graphics_PS2GS\"\necho \"=== texture upload / TexManager bind pattern ===\"\ngrep -rnE \"gsKit_TexManager_bind|gsKit_texture_upload|gsKit_TexManager_invalidate|TexManager|Vram|->Vram|gsKit_setup_tbw|CreateTextureResource\" \"$D\"/*.cpp 2>/dev/null | head -25')"
+      "Bash(timeout 60 bash -c '\nD=\"M:/Projects/Polyphase/Addons/BuildTargets/BuildTarget-PS2/Packages/com.polyphase.build.target.ps2/Runtime/PS2/Graphics_PS2GS\"\necho \"=== texture upload / TexManager bind pattern ===\"\ngrep -rnE \"gsKit_TexManager_bind|gsKit_texture_upload|gsKit_TexManager_invalidate|TexManager|Vram|->Vram|gsKit_setup_tbw|CreateTextureResource\" \"$D\"/*.cpp 2>/dev/null | head -25')",
+      "Bash(cd \"M:/Projects/Polyphase/Polyphase-Examples/CarController/CarController\" && ls -la && echo \"--- logs ---\" && ls *.log 2>/dev/null)",
+      "Bash(rm -f CarController.log)",
+      "Bash(./Polyphase.exe -project \"M:/Projects/Polyphase/Polyphase-Examples/CarController/CarController/CarController.octp\")",
+      "Bash(where cdb.exe)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Windows Kits/10/Debuggers/x64/**)",
+      "Read(//c/Program Files/Windows Kits/10/Debuggers/x64/**)",
+      "Bash(where procdump *)",
+      "Bash(\"/c/Program Files \\(x86\\)/Windows Kits/10/Debuggers/x64/cdb.exe\" -g -y \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\Standalone\\\\Build\\\\Windows\\\\x64\\\\DebugEditor\" -c \"sxe av; g; .lastevent; .ecxr; kn 40; q\" \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\Standalone\\\\Build\\\\Windows\\\\x64\\\\DebugEditor\\\\Polyphase.exe\" -project \"M:/Projects/Polyphase/Polyphase-Examples/CarController/CarController/CarController.octp\")",
+      "Bash(awk '/^void WorldStreamManifestImport::Draw/,/BeginPopupModal/' WorldStreamManifestImport.cpp)"
     ]
   }
 }

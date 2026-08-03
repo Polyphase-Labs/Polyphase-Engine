@@ -224,6 +224,11 @@ struct EditorState
     // by the EditorProgress::* API. Negative fraction = indeterminate sine
     // marquee; non-negative = determinate 0..1 fill.
     bool        mProgressActive = false;
+    // True only while EditorProgress is rendering one of its pumped frames.
+    // Everything drawn during that frame is running nested inside whatever
+    // long operation asked for the pump, so handlers that must not reenter
+    // that work check this. See IsInsideProgressPump() in EditorState.cpp.
+    bool        mProgressPumping = false;
     bool        mProgressCancellable = false;
     bool        mProgressCancelRequested = false;
     std::string mProgressTitle;

@@ -57,6 +57,29 @@ constexpr const char* kEditorSaveFile = "Editor.sav";
 constexpr int32_t kEditorProjectSaveVersion = 4;
 constexpr int32_t kEditorSaveVersion = 1;
 
+// Long editor operations animate their progress modal by pumping whole
+// editor frames (EditorProgress::Step -> EditorImguiDraw). Scene::Instantiate
+// does it every 32 nodes, and ActionManager wraps save/open the same way. A
+// pumped frame draws the scene tab bar, the outliner, the asset browser and
+// every addon editor hook -- any of which can start a scene open/close while
+// the operation that asked for the pump is only half-finished.
+//
+// That is never safe: opening shelves the active EditScene, destroys the
+// world root and respawns every scene-linked node, so the outer operation is
+// left holding raw Node* and external Property pointers into freed memory.
+// It showed up as garbage read out of a live node -- a std::string with a
+// bogus size field, or a WeakPtr<Node> whose ref count was already gone (AV
+// in WeakPtr::IsValid, reached from Datum::DeepCopy).
+//
+// Being inside a pumped frame is the whole test. Ordinary UI-driven opens
+// also run inside an ImGui frame, so "inside a frame" alone would reject
+// them too. Deferring costs nothing: the tab bar re-evaluates every frame,
+// so a switch skipped here just happens on the next real one.
+static bool IsInsideProgressPump()
+{
+    return GetEditorState()->mProgressPumping;
+}
+
 constexpr const uint32_t kMaxRecentProjects = 10;
 constexpr const uint32_t kMaxRecentScenes = 10;
 
@@ -1853,6 +1876,14 @@ void EditorState::RevertPropertyToSource(Node* node, const std::string& propName
 void CacheEditSceneLinkedProps(EditScene& editScene)
 {
     editScene.mLinkedSceneProps.clear();
+
+    // GatherNonDefaultProperties / GatherSubSceneOverrides instantiate the
+    // linked scene, and Scene::Instantiate pumps editor frames. Build the
+    // list in a local and only write it back once the walk is finished, so
+    // nothing in a pumped frame can reallocate the vector out from under a
+    // LinkedSceneProps& we're still filling in.
+    std::vector<LinkedSceneProps> gathered;
+
     auto saveSceneLinkedProps = [&](Node* node) -> bool
     {
         if (node->IsSceneLinked())
@@ -1860,10 +1891,13 @@ void CacheEditSceneLinkedProps(EditScene& editScene)
             Scene* linkedScene = node->GetScene();
             if (linkedScene != nullptr)
             {
-                editScene.mLinkedSceneProps.push_back(LinkedSceneProps());
-                LinkedSceneProps& linkedSceneProps = editScene.mLinkedSceneProps.back();
+                // The gather below can pump editor frames; keep the node
+                // alive for the duration so its external Property data can't
+                // be freed while we're reading through it.
+                NodePtr nodeRef = ResolvePtr(node);
+
+                LinkedSceneProps linkedSceneProps;
                 linkedSceneProps.mNode = node;
-                LogDebug(node->RuntimeName());
                 GatherNonDefaultProperties(node, linkedSceneProps.mProps);
 
                 // Cache subscene overrides of child nodes
@@ -1875,6 +1909,8 @@ void CacheEditSceneLinkedProps(EditScene& editScene)
                 }
 
                 RecordNodePaths(node, linkedSceneProps.mProps);
+
+                gathered.push_back(std::move(linkedSceneProps));
             }
 
             return false;
@@ -1887,10 +1923,15 @@ void CacheEditSceneLinkedProps(EditScene& editScene)
     {
         editScene.mRootNode->Traverse(saveSceneLinkedProps);
     }
+
+    editScene.mLinkedSceneProps = std::move(gathered);
 }
 
 void EditorState::OpenEditScene(Scene* scene)
 {
+    if (IsInsideProgressPump())
+        return;
+
     int32_t editSceneIdx = -1;
     EditScene* editScene = nullptr;
 
@@ -1982,6 +2023,9 @@ void EditorState::OpenEditScene(int32_t idx)
 {
     // Lock scene open/close during PIE
     if (mPlayInEditor)
+        return;
+
+    if (IsInsideProgressPump())
         return;
 
     // Shelve whatever we are working on.
@@ -2165,6 +2209,9 @@ void EditorState::CloseEditScene(int32_t idx)
     if (mPlayInEditor)
         return;
 
+    if (IsInsideProgressPump())
+        return;
+
     // The cached default trees may reference sub-scene assets that go out
     // of scope as scenes close; drop them all and let the next inspector
     // probe rebuild what it needs.
@@ -2235,6 +2282,11 @@ void EditorState::CloseEditScene(int32_t idx)
 //    OpenEditScene(int32_t(mEditScenes.size()) - 1);
 //}
 
+// Not an entry point -- only ever called as a step of OpenEditScene /
+// CloseEditScene / EndPlayInEditor, which do the reentrancy check themselves.
+// It must never bail out early: its callers destroy the world root right
+// after, and skipping the shelve orphans that tree ("Destroying nodes without
+// associated EditScene") and leaves the EditScene holding a freed root.
 void EditorState::ShelveEditScene()
 {
     if (mEditSceneIndex >= 0)

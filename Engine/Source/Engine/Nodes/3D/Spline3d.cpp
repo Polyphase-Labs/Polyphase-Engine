@@ -1938,6 +1938,110 @@ void Spline3D::ClearSplinePoints()
     }
 }
 
+static const int32_t kSplineArcLengthSamplesPerSegment = 16;
+
+float Spline3D::GetSplineLength() const
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(const_cast<Spline3D*>(this), points);
+
+    uint32_t numPoints = (uint32_t)points.size();
+    if (numPoints < 2)
+        return 0.0f;
+
+    uint32_t numSegments = numPoints - 1 + (mCloseLoop ? 1 : 0);
+
+    auto getPointPos = [&](int32_t idx) -> glm::vec3
+    {
+        if (mCloseLoop)
+        {
+            int32_t count = (int32_t)numPoints;
+            int32_t wrapped = (idx % count + count) % count;
+            return points[wrapped].node->GetWorldPosition();
+        }
+        idx = glm::clamp(idx, 0, (int32_t)numPoints - 1);
+        return points[idx].node->GetWorldPosition();
+    };
+
+    float length = 0.0f;
+    glm::vec3 prev = getPointPos(0);
+
+    for (uint32_t seg = 0; seg < numSegments; ++seg)
+    {
+        glm::vec3 a = getPointPos((int32_t)seg);
+        glm::vec3 b = getPointPos((int32_t)seg + 1);
+
+        for (int32_t s = 1; s <= kSplineArcLengthSamplesPerSegment; ++s)
+        {
+            float t = (float)s / (float)kSplineArcLengthSamplesPerSegment;
+            glm::vec3 pos = (mSmoothCurve && numPoints >= 4)
+                ? CatmullRom(getPointPos((int32_t)seg - 1), a, b, getPointPos((int32_t)seg + 2), t)
+                : glm::mix(a, b, t);
+
+            length += glm::distance(prev, pos);
+            prev = pos;
+        }
+    }
+
+    return length;
+}
+
+float Spline3D::GetClosestDistanceAlong(const glm::vec3& worldPos) const
+{
+    std::vector<SplinePointNode> points;
+    GatherSplinePointNodes(const_cast<Spline3D*>(this), points);
+
+    uint32_t numPoints = (uint32_t)points.size();
+    if (numPoints < 2)
+        return 0.0f;
+
+    uint32_t numSegments = numPoints - 1 + (mCloseLoop ? 1 : 0);
+
+    auto getPointPos = [&](int32_t idx) -> glm::vec3
+    {
+        if (mCloseLoop)
+        {
+            int32_t count = (int32_t)numPoints;
+            int32_t wrapped = (idx % count + count) % count;
+            return points[wrapped].node->GetWorldPosition();
+        }
+        idx = glm::clamp(idx, 0, (int32_t)numPoints - 1);
+        return points[idx].node->GetWorldPosition();
+    };
+
+    glm::vec3 first = getPointPos(0);
+    float accumDist = 0.0f;
+    glm::vec3 prev = first;
+    float bestDist = glm::distance(worldPos, first);
+    float bestArc = 0.0f;
+
+    for (uint32_t seg = 0; seg < numSegments; ++seg)
+    {
+        glm::vec3 a = getPointPos((int32_t)seg);
+        glm::vec3 b = getPointPos((int32_t)seg + 1);
+
+        for (int32_t s = 1; s <= kSplineArcLengthSamplesPerSegment; ++s)
+        {
+            float t = (float)s / (float)kSplineArcLengthSamplesPerSegment;
+            glm::vec3 pos = (mSmoothCurve && numPoints >= 4)
+                ? CatmullRom(getPointPos((int32_t)seg - 1), a, b, getPointPos((int32_t)seg + 2), t)
+                : glm::mix(a, b, t);
+
+            accumDist += glm::distance(prev, pos);
+            prev = pos;
+
+            float d = glm::distance(worldPos, pos);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                bestArc = accumDist;
+            }
+        }
+    }
+
+    return bestArc;
+}
+
 void Spline3D::AddPoint(const glm::vec3& p)
 {
     mPoints.push_back(p);

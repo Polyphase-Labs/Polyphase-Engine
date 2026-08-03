@@ -64,6 +64,48 @@ int Spline3D_Lua::GetTangentAt(lua_State* L)
     return 1;
 }
 
+int Spline3D_Lua::GetSplineLength(lua_State* L)
+{
+    Spline3D* spline = CHECK_SPLINE_3D(L, 1);
+    lua_pushnumber(L, spline->GetSplineLength());
+    return 1;
+}
+
+int Spline3D_Lua::GetClosestDistanceAlong(lua_State* L)
+{
+    Spline3D* spline = CHECK_SPLINE_3D(L, 1);
+    glm::vec3 worldPos = CHECK_VECTOR(L, 2);
+    lua_pushnumber(L, spline->GetClosestDistanceAlong(worldPos));
+    return 1;
+}
+
+int Spline3D_Lua::GetNumSplinePoints(lua_State* L)
+{
+    Spline3D* spline = CHECK_SPLINE_3D(L, 1);
+    lua_pushinteger(L, (int)spline->GetNumSplinePoints());
+    return 1;
+}
+
+int Spline3D_Lua::GetSplinePointPosition(lua_State* L)
+{
+    Spline3D* spline = CHECK_SPLINE_3D(L, 1);
+    int32_t index = CHECK_INTEGER(L, 2);
+    index--;
+    glm::vec3 p = spline->GetSplinePointPosition((uint32_t)index);
+    Vector_Lua::Create(L, p);
+    return 1;
+}
+
+int Spline3D_Lua::GetSplinePointWorldPosition(lua_State* L)
+{
+    Spline3D* spline = CHECK_SPLINE_3D(L, 1);
+    int32_t index = CHECK_INTEGER(L, 2);
+    index--;
+    glm::vec3 p = spline->GetSplinePointWorldPosition((uint32_t)index);
+    Vector_Lua::Create(L, p);
+    return 1;
+}
+
 int Spline3D_Lua::Play(lua_State* L)
 {
     Spline3D* spline = CHECK_SPLINE_3D(L, 1);
@@ -217,6 +259,11 @@ void Spline3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, SetPoint);
     REGISTER_TABLE_FUNC(L, mtIndex, GetPositionAt);
     REGISTER_TABLE_FUNC(L, mtIndex, GetTangentAt);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSplineLength);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetClosestDistanceAlong);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetNumSplinePoints);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSplinePointPosition);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSplinePointWorldPosition);
     REGISTER_TABLE_FUNC(L, mtIndex, Play);
     REGISTER_TABLE_FUNC(L, mtIndex, Stop);
     REGISTER_TABLE_FUNC(L, mtIndex, SetPaused);

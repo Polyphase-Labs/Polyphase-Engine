@@ -32,6 +32,14 @@ public:
     Node3D* AddSplinePoint(const glm::vec3& localPosition);       // appends a new pointN child
     void ClearSplinePoints();
 
+    // Brute-force arc-length queries over the authoritative pointN
+    // representation (world space). Not cached -- same convention as
+    // SplineLengthNode / SplineNearestPercentNode in NodeGraph/Nodes/SplineNodes.cpp,
+    // which re-sample every call rather than track a dirty flag against point
+    // nodes that can also move via the ordinary transform gizmo.
+    float GetSplineLength() const;
+    float GetClosestDistanceAlong(const glm::vec3& worldPos) const;
+
     void AddPoint(const glm::vec3& p);
     void ClearPoints();
     uint32_t GetPointCount() const;

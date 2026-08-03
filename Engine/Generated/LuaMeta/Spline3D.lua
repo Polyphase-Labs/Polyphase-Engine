@@ -27,6 +27,24 @@ function Spline3D:GetPositionAt(t) end
 ---@return Vector
 function Spline3D:GetTangentAt(t) end
 
+---@return number
+function Spline3D:GetSplineLength() end
+
+---@param worldPos Vector
+---@return number
+function Spline3D:GetClosestDistanceAlong(worldPos) end
+
+---@return integer
+function Spline3D:GetNumSplinePoints() end
+
+---@param index integer
+---@return Vector
+function Spline3D:GetSplinePointPosition(index) end
+
+---@param index integer
+---@return Vector
+function Spline3D:GetSplinePointWorldPosition(index) end
+
 function Spline3D:Play() end
 
 function Spline3D:Stop() end

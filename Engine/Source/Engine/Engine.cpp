@@ -283,6 +283,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(SpriteAnimation);
     FORCE_LINK_CALL(StaticMesh);
     FORCE_LINK_CALL(Texture);
+    FORCE_LINK_CALL(DataAsset);
     FORCE_LINK_CALL(InputPromptMap);
     FORCE_LINK_CALL(InputPromptStyle);
     FORCE_LINK_CALL(TileSet);
