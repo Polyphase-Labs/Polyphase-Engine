@@ -441,7 +441,19 @@ void GamePreview::Render()
 
     // Determine the selected camera to pass as override
     Camera3D* selectedCamera = nullptr;
-    if (mSelectedCameraIndex >= 0 && mSelectedCameraIndex < (int32_t)mCachedCameras.size())
+    if (mSelectedCameraIndex == -1)
+    {
+        // Follow whichever camera is actually active -- same source
+        // Viewport3D and fullscreen PIE render from -- instead of a pinned
+        // index that goes stale the moment a script switches cameras.
+        // Outside PIE, GetActiveCamera() deliberately returns the editor fly
+        // camera, which isn't useful here, so fall back to the Main-Camera
+        // scan (matching RenderSecondScreen's own no-override fallback) to
+        // preview the game camera's framing while editing.
+        selectedCamera = GetEditorState()->mPlayInEditor ? world->GetActiveCamera()
+                                                          : world->GetMainCamera();
+    }
+    else if (mSelectedCameraIndex >= 0 && mSelectedCameraIndex < (int32_t)mCachedCameras.size())
     {
         selectedCamera = mCachedCameras[mSelectedCameraIndex];
     }
@@ -770,7 +782,7 @@ void GamePreview::DrawPanel()
     {
         RefreshCameraList();
 
-        std::string camPreview = "(none)";
+        std::string camPreview = "(Active Camera)";
         if (mSelectedCameraIndex >= 0 && mSelectedCameraIndex < (int32_t)mCachedCameras.size())
         {
             camPreview = mCachedCameras[mSelectedCameraIndex]->GetName();
@@ -780,6 +792,16 @@ void GamePreview::DrawPanel()
         ImGui::SetNextItemWidth(180.0f);
         if (ImGui::BeginCombo("Camera", camPreview.c_str()))
         {
+            {
+                bool isSelected = (mSelectedCameraIndex == -1);
+                if (ImGui::Selectable("(Active Camera)", isSelected))
+                {
+                    mSelectedCameraIndex = -1;
+                }
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+
             for (int32_t i = 0; i < (int32_t)mCachedCameras.size(); ++i)
             {
                 const std::string& camName = mCachedCameras[i]->GetName();

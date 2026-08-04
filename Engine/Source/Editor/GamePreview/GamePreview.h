@@ -66,7 +66,10 @@ public:
 private:
     bool mEnabled = true;
     int32_t mSelectedPresetIndex = 0;
-    int32_t mSelectedCameraIndex = 0;
+    // -1 is a reserved sentinel meaning "Active Camera" (follow whichever
+    // camera is actually active, same as Viewport3D / fullscreen PIE),
+    // rather than a pinned index into mCachedCameras.
+    int32_t mSelectedCameraIndex = -1;
     bool mShowGizmos = false;
 
     // Render targets (recreated on resolution change)

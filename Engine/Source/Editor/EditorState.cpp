@@ -1014,6 +1014,28 @@ static void CopyPersistentUuids(Node* src, Node* dst)
     }
 }
 
+// A respawned sub-scene-linked node's children are instantiated fresh from
+// the same Scene asset, in the same order, as the old subtree about to be
+// destroyed -- so they can be paired up positionally, same as
+// CopyPersistentUuids above. Without this, only the linked node itself gets
+// a replacedNodeMap entry, so a Node-property reference to something INSIDE
+// the linked scene (e.g. "Car_Card_6/CarIcon") never finds its replacement
+// and is left pointing at a node that's about to be destroyed.
+static void MapReplacedNodeDescendants(Node* oldNode, Node* newNode, std::unordered_map<NodePtr, NodePtr>& replacedNodeMap)
+{
+    if (oldNode == nullptr || newNode == nullptr)
+        return;
+
+    uint32_t count = glm::min(oldNode->GetNumChildren(), newNode->GetNumChildren());
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        Node* oldChild = oldNode->GetChild(i);
+        Node* newChild = newNode->GetChild(i);
+        replacedNodeMap.insert({ResolvePtr(oldChild), ResolvePtr(newChild)});
+        MapReplacedNodeDescendants(oldChild, newChild, replacedNodeMap);
+    }
+}
+
 void EditorState::SnapshotAssetsForPie()
 {
     mPieAssetSnapshots.clear();
@@ -2104,6 +2126,7 @@ void EditorState::OpenEditScene(int32_t idx)
                 bool transient = node->IsTransient();
 
                 replacedNodeMap.insert({ResolvePtr(node), newNode});
+                MapReplacedNodeDescendants(node, newNode.Get(), replacedNodeMap);
                 node->Detach();
 
                 parent->AddChild(newNode.Get(), nodeIdx);
@@ -2171,12 +2194,12 @@ void EditorState::OpenEditScene(int32_t idx)
                     {
                         for (uint32_t nodeIdx = 0; nodeIdx < prop.GetCount(); ++nodeIdx)
                         {
-                            if (prop.GetNode() != nullptr)
+                            if (prop.GetNode(nodeIdx) != nullptr)
                             {
-                                auto it = replacedNodeMap.find(prop.GetNode().Lock());
+                                auto it = replacedNodeMap.find(prop.GetNode(nodeIdx).Lock());
                                 if (it != replacedNodeMap.end())
                                 {
-                                    prop.SetNode(it->second);
+                                    prop.SetNode(it->second, nodeIdx);
                                 }
                             }
                         }
