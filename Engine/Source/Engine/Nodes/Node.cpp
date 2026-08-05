@@ -605,6 +605,11 @@ void Node::OnInstanced()
 
 }
 
+void Node::OnSpawnedInEditor()
+{
+
+}
+
 VertexType Node::GetVertexType() const
 {
     return VertexType::Max;

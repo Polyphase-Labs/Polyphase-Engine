@@ -105,6 +105,13 @@ public:
     virtual void Render();
     virtual void OnInstanced();
 
+    // Called once, only for a node freshly created via the editor's Add Node
+    // menu (ActionSpawnNodes) -- unlike OnInstanced()/Create(), this is never
+    // called when reconstructing a node from a saved scene, subscene, or
+    // clone. Use this for starter child content that shouldn't be silently
+    // re-added every time a saved node is reloaded.
+    virtual void OnSpawnedInEditor();
+
     virtual VertexType GetVertexType() const;
 
     virtual void GatherProperties(std::vector<Property>& outProps) override;

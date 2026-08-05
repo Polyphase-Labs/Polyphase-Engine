@@ -12,6 +12,7 @@ public:
     DECLARE_NODE(Spline3D, Node3D);
 
     virtual void Create() override;
+    virtual void OnSpawnedInEditor() override;
     virtual void Start() override;
     virtual void Stop() override;
     virtual void Tick(float deltaTime) override;

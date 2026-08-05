@@ -11067,6 +11067,10 @@ void ActionSpawnNodes::Execute()
             {
                 NodePtr newNode = Node::Construct(mSrcTypes[i]);
                 OCT_ASSERT(newNode);
+                if (newNode)
+                {
+                    newNode->OnSpawnedInEditor();
+                }
                 mNodes.push_back(newNode);
             }
         }
@@ -11076,6 +11080,10 @@ void ActionSpawnNodes::Execute()
             {
                 NodePtr newNode = Node::Construct(mSrcTypeNames[i]);
                 OCT_ASSERT(newNode);
+                if (newNode)
+                {
+                    newNode->OnSpawnedInEditor();
+                }
                 mNodes.push_back(newNode);
             }
         }

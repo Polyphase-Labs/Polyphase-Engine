@@ -70,8 +70,17 @@ void Spline3D::Create()
     SetName("Spline");
 
     EnsureLinkSlots((uint32_t)glm::clamp<int32_t>(mGeneratedLinkCount, 1, 64));
+}
 
-    // Create initial point
+void Spline3D::OnSpawnedInEditor()
+{
+    Node3D::OnSpawnedInEditor();
+
+    // Give a freshly-added-from-menu spline a starter point. This must NOT
+    // live in Create() -- Create() also runs when reconstructing a saved
+    // node during Scene::Instantiate(), which can't tell "fresh spawn" from
+    // "reload," so a Create()-time point silently reappeared here every time
+    // the scene was reloaded, even after the user deleted it and saved.
     Box3D* p1 = CreateChild<Box3D>("point1");
     if (p1)
     {
@@ -1959,7 +1968,7 @@ float Spline3D::GetSplineLength() const
             int32_t wrapped = (idx % count + count) % count;
             return points[wrapped].node->GetWorldPosition();
         }
-        idx = glm::clamp(idx, 0, (int32_t)numPoints - 1);
+        idx = glm::clamp(idx, (int32_t)0, (int32_t)numPoints - 1);
         return points[idx].node->GetWorldPosition();
     };
 
@@ -2005,7 +2014,7 @@ float Spline3D::GetClosestDistanceAlong(const glm::vec3& worldPos) const
             int32_t wrapped = (idx % count + count) % count;
             return points[wrapped].node->GetWorldPosition();
         }
-        idx = glm::clamp(idx, 0, (int32_t)numPoints - 1);
+        idx = glm::clamp(idx, (int32_t)0, (int32_t)numPoints - 1);
         return points[idx].node->GetWorldPosition();
     };
 
