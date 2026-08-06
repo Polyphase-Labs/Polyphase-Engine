@@ -11517,7 +11517,15 @@ static void DrawMainMenuBar()
         // project-restart chokepoint (Edit > Reload Native Addons menu and the
         // AddonsWindow per-row Reload button) to avoid dangling vtables in
         // open scenes.
-        if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
+        // mProgressPumping guard: EditorProgress::Step renders full editor frames
+        // while a long operation (e.g. Reload All Scripts itself) is blocking the
+        // main loop. Input state does NOT advance during those pumped frames, so
+        // IsActionJustTriggered stays latched on the very Ctrl+R press that
+        // started the reload — without the guard this handler re-fires once per
+        // pumped frame, re-running the C# transpile (~1.5s dotnet spawn) and the
+        // directory refreshes between every single script load.
+        if (!GetEditorState()->mProgressPumping &&
+            EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
         {
             // C# pre-step: regenerate the .lua from any C# sources first so the
             // reload below picks up fresh output. One muscle-memory action covers
