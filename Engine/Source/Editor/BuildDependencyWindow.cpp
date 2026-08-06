@@ -167,6 +167,39 @@ void BuildDependencyWindow::CheckGradle()
     mDependencies.push_back(dep);
 }
 
+void BuildDependencyWindow::CheckDotnet()
+{
+    BuildDependency dep;
+    dep.mName = ".NET SDK";
+    dep.mDescription = "Required only for C# scripting (8.0 or newer)";
+#if PLATFORM_WINDOWS
+    dep.mInstallHint = "Install via: winget install Microsoft.DotNet.SDK.8";
+#else
+    dep.mInstallHint = "Install via: sudo apt install dotnet-sdk-8.0";
+#endif
+    dep.mInstallUrl = "https://dotnet.microsoft.com/download/dotnet/8.0";
+
+    std::string output;
+    SYS_Exec("dotnet --version", &output);
+
+    // Expect a bare version like "9.0.316".
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
+        output.pop_back();
+
+    if (!output.empty() && isdigit((unsigned char)output[0]))
+    {
+        int major = atoi(output.c_str());
+        dep.mStatus = (major >= 8) ? DependencyStatus::Found : DependencyStatus::NotFound;
+        dep.mVersion = ".NET SDK " + output;
+    }
+    else
+    {
+        dep.mStatus = DependencyStatus::NotFound;
+    }
+
+    mDependencies.push_back(dep);
+}
+
 void BuildDependencyWindow::RunChecks()
 {
     mDependencies.clear();
@@ -176,6 +209,7 @@ void BuildDependencyWindow::RunChecks()
     CheckDocker();
     CheckVisualStudio();
     CheckGradle();
+    CheckDotnet();
 
     // Log results
     for (const BuildDependency& dep : mDependencies)

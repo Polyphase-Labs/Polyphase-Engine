@@ -72,6 +72,7 @@
 #include "Viewport2d.h"
 #include "ActionManager.h"
 #include "EditorState.h"
+#include "CSharp/CSharpManager.h"
 #include "AssetFixup/AssetFixupModal.h"
 #include "TextureImportFixup/TextureImportFixupModal.h"
 #include "FileDropImport/FileDropImportModal.h"
@@ -9800,7 +9801,18 @@ struct ScriptFileEntry
     std::string mDisplayName; // relative name for display (e.g. "MyDir/Script.lua")
     std::string mFullPath;   // full path for opening
     std::string mOrigin;     // "Engine", "Project", or package name
+    bool mIsCSharp = false;  // generated from a sibling .cs source (PolyphaseSharp)
 };
+
+// A generated .lua sits next to its C# source (Scripts/CSharp/Foo.cs -> Foo.lua).
+// Computed once per panel refresh, not per frame.
+static bool HasSiblingCSharpSource(const std::string& luaPath)
+{
+    if (luaPath.size() < 4 || luaPath.compare(luaPath.size() - 4, 4, ".lua") != 0)
+        return false;
+    std::string csPath = luaPath.substr(0, luaPath.size() - 4) + ".cs";
+    return SYS_DoesFileExist(csPath.c_str(), false);
+}
 
 // File operations triggered from the script context menu. The tree walk holds
 // ScriptFileEntry pointers into the cached vector, so the menu only records the
@@ -10152,6 +10164,7 @@ static void DrawScriptsPanel()
                         entry.mOrigin = "Project";
                         entry.mDisplayName = (f.length() > projScriptsDir.length() && f.substr(0, projScriptsDir.length()) == projScriptsDir)
                             ? f.substr(projScriptsDir.length()) : f;
+                        entry.mIsCSharp = GetEngineConfig()->mCSharpScripting && HasSiblingCSharpSource(f);
                         newScripts.push_back(entry);
                     }
 
@@ -10386,6 +10399,12 @@ static void DrawScriptsPanel()
                         leafFlags |= ImGuiTreeNodeFlags_Selected;
 
                     std::string labelWithIcon = std::string(ICON_LUA) + " " + fileName;
+                    if (entry->mIsCSharp)
+                    {
+                        // Generated from a sibling .cs — one merged row; assignment
+                        // still uses the .lua class name, edits go to the C# source.
+                        labelWithIcon += "  [C#]";
+                    }
                     ImGui::TreeNodeEx(labelWithIcon.c_str(), leafFlags);
                     AlternatingRowBackground();
 
@@ -10423,14 +10442,30 @@ static void DrawScriptsPanel()
                         EditorsModule* ctxEditors = static_cast<EditorsModule*>(prefMod);
                         bool editorConfigured = ctxEditors && ctxEditors->IsLuaEditorConfigured();
 
+                        if (entry->mIsCSharp)
+                        {
+                            // The .cs is the real source; the .lua is generated output.
+                            std::string csPath = entry->mFullPath.substr(0, entry->mFullPath.size() - 4) + ".cs";
+                            if (ImGui::Selectable("Open C# Source"))
+                            {
+#if PLATFORM_WINDOWS
+                                std::string openCmd = "start \"\" \"" + csPath + "\"";
+#else
+                                std::string openCmd = "xdg-open \"" + csPath + "\"";
+#endif
+                                SYS_ExecDetached(openCmd.c_str());
+                            }
+                            ImGui::Separator();
+                        }
+
                         ImGui::BeginDisabled(!editorConfigured);
-                        if (ImGui::Selectable("Open in External Editor"))
+                        if (ImGui::Selectable(entry->mIsCSharp ? "Open Generated Lua in External Editor" : "Open in External Editor"))
                         {
                             ctxEditors->OpenLuaScript(entry->mFullPath);
                         }
                         ImGui::EndDisabled();
 
-                        if (ImGui::Selectable("Open in Script Editor"))
+                        if (ImGui::Selectable(entry->mIsCSharp ? "Open Generated Lua in Script Editor" : "Open in Script Editor"))
                         {
                             GetScriptEditorWindow()->OpenFile(entry->mFullPath);
                         }
@@ -11484,6 +11519,15 @@ static void DrawMainMenuBar()
         // open scenes.
         if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Edit_ReloadScripts))
         {
+            // C# pre-step: regenerate the .lua from any C# sources first so the
+            // reload below picks up fresh output. One muscle-memory action covers
+            // both script languages. No-op (and no dotnet dependency) when the
+            // project doesn't use C#.
+            if (GetEngineConfig()->mCSharpScripting)
+            {
+                CSharpManager::Get()->Transpile();
+            }
+
             GetEditorState()->RequestReloadAllScripts();
 
             // Refresh asset directories

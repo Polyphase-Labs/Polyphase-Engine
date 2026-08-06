@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -239,6 +239,9 @@
     </Filter>
     <Filter Include="Source Files\Editor\ControllerServer">
       <UniqueIdentifier>{f6a7b8c9-0d1e-2f3a-4b5c-d6e7f8a9b0c1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\CSharp">
+      <UniqueIdentifier>{b3f8a2c1-4e5d-4a6b-9c7e-8d1f2a3b4c5e}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Editor\Preferences\Network">
       <UniqueIdentifier>{a8b9c0d1-2e3f-4a5b-6c7d-e8f9a0b1c2d3}</UniqueIdentifier>
@@ -1420,6 +1423,9 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServer.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CSharp\CSharpManager.cpp">
+      <Filter>Source Files\Editor\CSharp</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
@@ -3011,6 +3017,9 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServer.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CSharp\CSharpManager.h">
+      <Filter>Source Files\Editor\CSharp</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerRoutes.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>

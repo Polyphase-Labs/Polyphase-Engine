@@ -26,6 +26,7 @@
 
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Packaging/PackagingWindow.h"
+#include "CSharp/CSharpManager.h"
 #include "AppSettings/AppSettingsWindow.h"
 #include "Addons/AddonsWindow.h"
 #include "Addons/AddonsMenu.h"
@@ -1037,6 +1038,59 @@ static void DrawToolsMenu()
         // the AddonsWindow per-row Reload button.
         GetEditorState()->RequestReloadAllScripts();
         InvalidateScriptPickerCache();
+    }
+
+    {
+        bool hasProject = GetEngineState()->mProjectDirectory != "";
+        bool csharpEnabled = GetEngineConfig()->mCSharpScripting;
+
+        if (hasProject && ImGui::BeginMenu("CSharp"))
+        {
+            if (csharpEnabled)
+            {
+                if (ImGui::MenuItem("Build C# Scripts", "Ctrl+R"))
+                {
+                    // Same path Ctrl+R takes: transpile, then reload everything so
+                    // the regenerated .lua is live.
+                    if (CSharpManager::Get()->Transpile())
+                    {
+                        GetEditorState()->RequestReloadAllScripts();
+                        InvalidateScriptPickerCache();
+                    }
+                }
+
+                if (ImGui::MenuItem("Open C# Solution"))
+                {
+                    // VS Code folder-open > Visual Studio Game.sln > OS fallback.
+                    // (A bare .csproj opened as a FILE in VS Code gives no
+                    // IntelliSense — its C# extension needs the workspace.)
+                    CSharpManager::Get()->OpenIde();
+                }
+            }
+
+            if (ImGui::MenuItem("Check Dependencies"))
+            {
+                std::string version;
+                if (CSharpManager::Get()->CheckDotnet(&version, true))
+                {
+                    LogDebug("[CSharp] .NET SDK %s found.", version.c_str());
+                }
+                else
+                {
+                    LogError("[CSharp] .NET SDK 8+ not found. Install with: %s  (or download: %s)",
+                        CSharpManager::GetDotnetInstallCommand(),
+                        CSharpManager::GetDotnetInstallUrl());
+                }
+                GetBuildDependencyWindow()->Open();
+            }
+
+            if (!csharpEnabled && ImGui::MenuItem("Enable C# for This Project"))
+            {
+                CSharpManager::Get()->EnableForProject();
+            }
+
+            ImGui::EndMenu();
+        }
     }
 
     ImGui::Separator();

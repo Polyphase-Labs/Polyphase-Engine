@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>PolyphaseSharp</RootNamespace>
+    <AssemblyName>polyphasesharp</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\External\CSharp.lua\CSharp.lua\CSharp.lua.csproj" />
+  </ItemGroup>
+
+  <!-- The Polyphase C# API sources double as transpile input: they carry the
+       @CSharpLua.Template doc comments. Ship them next to the exe. -->
+  <ItemGroup>
+    <Content Include="..\Polyphase.Engine\Polyphase\**\*.cs" Link="EngineApi\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <!-- CoreSystem Lua runtime, bundled into CSharpCore.lua at transpile time. -->
+    <Content Include="..\External\CSharp.lua\CSharp.lua\CoreSystem.Lua\**\*.lua" Link="CoreSystem.Lua\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

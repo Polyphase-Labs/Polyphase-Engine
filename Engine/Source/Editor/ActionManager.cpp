@@ -29,6 +29,7 @@
 #include <string>
 #include <functional>
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -47,6 +48,7 @@
 #include "AssetManager.h"
 #include "EditorState.h"
 #include "EditorUtils.h"
+#include "CSharp/CSharpManager.h"
 #include "TextureImportFixup/TextureImportFixupModal.h"
 #include "Input/PlayerInputSystem.h"
 #include "Assets/Scene.h"
@@ -2367,6 +2369,26 @@ void ActionManager::BuildPhase1()
     std::string embeddedSourcePath = projectDir + "Generated/EmbeddedAssets.cpp";
     GenerateEmbeddedAssetFiles(embeddedAssets, embeddedRawAssets, embeddedHeaderPath.c_str(), embeddedSourcePath.c_str());
 
+    // Transpile C# scripts (if the project uses them) BEFORE any script
+    // gathering/copying below — generated .lua land in Scripts/CSharp/ and flow
+    // through the embedded and loose-copy paths like hand-written Lua.
+    if (GetEngineConfig()->mCSharpScripting && CSharpManager::Get()->ProjectHasCSharpSources())
+    {
+        AppendBuildOutput("Transpiling C# scripts...\n");
+        std::string csharpLog;
+        bool csharpOk = CSharpManager::Get()->Transpile(false, &csharpLog);
+        if (!csharpLog.empty())
+        {
+            AppendBuildOutput(csharpLog.c_str());
+        }
+        if (!csharpOk)
+        {
+            AppendBuildOutput("ERROR: C# script compilation failed. Build aborted.\n");
+            mBuildState.mSuccess.store(false);
+            return;
+        }
+    }
+
     // Generate embedded script source files
     AppendBuildOutput("Copying scripts...\n");
     std::vector<std::string> scriptFiles;
@@ -2403,6 +2425,30 @@ void ActionManager::BuildPhase1()
     {
         SYS_CopyDirectory((polyphaseDirectory + "Engine/Scripts/").c_str(), (packagedDir + "Engine/Scripts/").c_str());
         SYS_CopyDirectory((projectDir + "Scripts/").c_str(), (packagedDir + projectName + "/Scripts/").c_str());
+
+        // Don't ship C# sources or project files — only the generated .lua
+        // belongs in the package (mirrors the LuaPanda.lua strip below).
+        {
+            std::string packagedScripts = packagedDir + projectName + "/Scripts/";
+            std::error_code stripEc;
+            if (std::filesystem::exists(packagedScripts, stripEc))
+            {
+                for (auto it = std::filesystem::recursive_directory_iterator(
+                         packagedScripts, std::filesystem::directory_options::skip_permission_denied, stripEc);
+                     it != std::filesystem::recursive_directory_iterator(); it.increment(stripEc))
+                {
+                    if (stripEc)
+                        break;
+                    if (!it->is_regular_file(stripEc))
+                        continue;
+                    std::string ext = it->path().extension().string();
+                    if (ext == ".cs" || ext == ".csproj")
+                    {
+                        std::filesystem::remove(it->path(), stripEc);
+                    }
+                }
+            }
+        }
 
         std::string packagesDir = projectDir + "Packages/";
         if (DoesDirExist(packagesDir.c_str()))

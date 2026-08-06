@@ -77,6 +77,48 @@ void EditorsModule::Render()
     ImGui::Spacing();
     ImGui::Spacing();
 
+    // C# IDE
+    ImGui::Text("C# IDE");
+    ImGui::Separator();
+
+    const char* csharpIdeNames[] = { "Visual Studio", "VS Code", "Custom" };
+    if (ImGui::Combo("IDE##CSharpIde", &mCSharpIde, csharpIdeNames, 3))
+    {
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("What Tools > CSharp > Open C# Solution launches.\n"
+                          "Visual Studio opens Game.sln; VS Code opens the Scripts/CSharp\n"
+                          "folder (its C# extension needs the workspace, not the file).");
+    }
+
+    if (mCSharpIde == (int)CSharpIde::Custom)
+    {
+        if (DrawPathInput("Path##CSharpIde", mCSharpIdePath, "Select C# IDE Executable"))
+        {
+            changed = true;
+        }
+
+        ImGui::SetNextItemWidth(-1);
+        char csIdeArgsBuffer[512];
+        strncpy(csIdeArgsBuffer, mCSharpIdeArgs.c_str(), sizeof(csIdeArgsBuffer) - 1);
+        csIdeArgsBuffer[sizeof(csIdeArgsBuffer) - 1] = '\0';
+        if (ImGui::InputText("Args##CSharpIde", csIdeArgsBuffer, sizeof(csIdeArgsBuffer)))
+        {
+            mCSharpIdeArgs = csIdeArgsBuffer;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Command-line arguments. Default: {editor} {folder}\n"
+                              "Placeholders: {editor}, {solution}, {project}, {folder}");
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
     // Internal Editor
     ImGui::Text("Internal Editor");
     ImGui::Separator();
@@ -105,6 +147,9 @@ void EditorsModule::LoadSettings(const rapidjson::Document& doc)
     mCppEditorPath = JsonSettings::GetString(doc, "cppEditorPath", "");
     mCppEditorArgs = JsonSettings::GetString(doc, "cppEditorArgs", "{editor} {project}");
     mUseInternalEditor = JsonSettings::GetBool(doc, "useInternalEditor", false);
+    mCSharpIde = JsonSettings::GetInt(doc, "csharpIde", (int)CSharpIde::VisualStudio);
+    mCSharpIdePath = JsonSettings::GetString(doc, "csharpIdePath", "");
+    mCSharpIdeArgs = JsonSettings::GetString(doc, "csharpIdeArgs", "{editor} {folder}");
 }
 
 void EditorsModule::SaveSettings(rapidjson::Document& doc)
@@ -114,6 +159,9 @@ void EditorsModule::SaveSettings(rapidjson::Document& doc)
     JsonSettings::SetString(doc, "cppEditorPath", mCppEditorPath);
     JsonSettings::SetString(doc, "cppEditorArgs", mCppEditorArgs);
     JsonSettings::SetBool(doc, "useInternalEditor", mUseInternalEditor);
+    JsonSettings::SetInt(doc, "csharpIde", mCSharpIde);
+    JsonSettings::SetString(doc, "csharpIdePath", mCSharpIdePath);
+    JsonSettings::SetString(doc, "csharpIdeArgs", mCSharpIdeArgs);
 }
 
 bool EditorsModule::IsLuaEditorConfigured() const
@@ -217,6 +265,115 @@ void EditorsModule::OpenCppFile(const std::string& filePath, const std::string& 
     std::string cmd = BuildCppOpenCommand(filePath, vcxprojPath);
     LogDebug("Opening C++ file: %s", cmd.c_str());
     SYS_ExecDetached(cmd.c_str());
+}
+
+void EditorsModule::OpenCSharpWorkspace(const std::string& csharpDir)
+{
+    std::string sln = csharpDir + "/Game.sln";
+    std::string csproj = csharpDir + "/Game.csproj";
+    bool haveSln = SYS_DoesFileExist(sln.c_str(), false);
+    bool haveCsproj = SYS_DoesFileExist(csproj.c_str(), false);
+
+    switch ((CSharpIde)mCSharpIde)
+    {
+        case CSharpIde::VSCode:
+        {
+            // Folder open — the C# extension needs the workspace to give
+            // IntelliSense; opening the .csproj as a file just shows XML.
+            static int sHasCode = -1;
+            if (sHasCode == -1)
+            {
+                std::string whereOut;
+#if PLATFORM_WINDOWS
+                SYS_Exec("where code", &whereOut);
+#else
+                SYS_Exec("which code", &whereOut);
+#endif
+                sHasCode = (!whereOut.empty() && whereOut.find("code") != std::string::npos) ? 1 : 0;
+            }
+            if (sHasCode != 1)
+            {
+                LogWarning("VS Code CLI ('code') not found on PATH. Install VS Code or switch "
+                           "the C# IDE in Preferences > External > Editors.");
+                return;
+            }
+            std::string cmd = "code \"" + csharpDir + "\"";
+            SYS_ExecDetached(cmd.c_str());
+            LogDebug("Opened %s in VS Code. IntelliSense needs the 'C# Dev Kit' (or 'C#') "
+                     "extension — VS Code will suggest it when it sees Game.csproj.",
+                csharpDir.c_str());
+            return;
+        }
+
+        case CSharpIde::Custom:
+        {
+            if (mCSharpIdePath.empty())
+            {
+                LogWarning("No custom C# IDE configured. Set one in Preferences > External > Editors.");
+                return;
+            }
+            std::string cmd = mCSharpIdeArgs.empty() ? "{editor} {folder}" : mCSharpIdeArgs;
+            ReplaceAll(cmd, "{editor}", "\"" + mCSharpIdePath + "\"");
+            ReplaceAll(cmd, "{solution}", "\"" + sln + "\"");
+            ReplaceAll(cmd, "{project}", "\"" + csproj + "\"");
+            ReplaceAll(cmd, "{folder}", "\"" + csharpDir + "\"");
+#if PLATFORM_WINDOWS
+            cmd = "start \"\" " + cmd;
+#endif
+            SYS_ExecDetached(cmd.c_str());
+            return;
+        }
+
+        case CSharpIde::VisualStudio:
+        default:
+        {
+            std::string target = haveSln ? sln : (haveCsproj ? csproj : "");
+            if (target.empty())
+            {
+                LogWarning("No Game.sln/Game.csproj under Scripts/CSharp/. "
+                           "Use Tools > CSharp > Enable C# for This Project first.");
+                return;
+            }
+#if PLATFORM_WINDOWS
+            // Launch devenv.exe explicitly (resolved once via vswhere).
+            // `start "" file.sln` obeys the FILE ASSOCIATION, which on machines
+            // with VS Code installed frequently points at VS Code — exactly what
+            // choosing "Visual Studio" here is supposed to override.
+            static std::string sDevenvExe;
+            static bool sDevenvProbed = false;
+            if (!sDevenvProbed)
+            {
+                sDevenvProbed = true;
+                std::string out;
+                SYS_Exec("External\\vswhere\\vswhere.exe -latest -property productPath", &out);
+                while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' '))
+                    out.pop_back();
+                if (out.size() > 4 && out.compare(out.size() - 4, 4, ".exe") == 0)
+                {
+                    sDevenvExe = out;
+                }
+            }
+
+            if (!sDevenvExe.empty())
+            {
+                std::string args = "\"" + target + "\"";
+                SYS_SpawnDetachedExecutable(sDevenvExe.c_str(), args.c_str());
+            }
+            else
+            {
+                LogWarning("Visual Studio not found (vswhere returned nothing) — falling back "
+                           "to the OS file association. Pick a different C# IDE in "
+                           "Preferences > External > Editors if this opens the wrong program.");
+                std::string cmd = "start \"\" \"" + target + "\"";
+                SYS_ExecDetached(cmd.c_str());
+            }
+#else
+            std::string cmd = "xdg-open \"" + target + "\"";
+            SYS_ExecDetached(cmd.c_str());
+#endif
+            return;
+        }
+    }
 }
 
 bool EditorsModule::DrawPathInput(const char* label, std::string& path, const char* dialogTitle)

@@ -87,6 +87,8 @@
 
 #if EDITOR
 #include "EditorState.h"
+#include "CSharp/CSharpManager.h"
+#include <chrono>
 #include "EditorImgui.h"
 #include "FileDropImport/FileDropImportModal.h"
 #include "EditorUIHookManager.h"
@@ -120,16 +122,41 @@ void SetDefaultSceneNames(const std::vector<std::string>& names)
     sDefaultSceneNames = names;
 }
 
+#if EDITOR
+// Debounced C# transpile request: a burst of .cs saves (IDE "save all") should
+// trigger exactly one transpiler run. Serviced in Update() right after the
+// watcher pump; <= 0 means idle. Uses raw chrono so it works before worlds exist.
+static std::chrono::steady_clock::time_point sCSharpTranspileDeadline{};
+static bool sCSharpTranspilePending = false;
+#endif
+
 // File watcher callback for script hot-reloading
 void OnScriptFileChanged(const FileChangeEvent& event)
 {
-    if (event.action != FileAction::Modified && event.action != FileAction::Added)
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty())
     {
         return;
     }
 
-    const std::string& projectDir = GetEngineState()->mProjectDirectory;
-    if (projectDir.empty())
+#if EDITOR
+    // C# source changed → schedule a transpile (any action, including deletes —
+    // the tool also removes orphaned generated .lua). The transpiler rewrites
+    // only content-changed .lua files, and THOSE events drive the normal
+    // per-file Lua hot reload below.
+    if (event.filePath.size() > 3 &&
+        event.filePath.compare(event.filePath.size() - 3, 3, ".cs") == 0)
+    {
+        if (GetEngineConfig()->mCSharpScripting)
+        {
+            sCSharpTranspilePending = true;
+            sCSharpTranspileDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+        }
+        return;
+    }
+#endif
+
+    if (event.action != FileAction::Modified && event.action != FileAction::Added)
     {
         return;
     }
@@ -906,6 +933,17 @@ bool Update()
     {
         GetFileWatcher()->Update();
     }
+
+    // Debounced C# transpile (scheduled by OnScriptFileChanged on .cs saves).
+    // The generated .lua writes are picked up by the watcher next poll and hot
+    // reload through the normal per-file Lua path.
+    if (sCSharpTranspilePending &&
+        std::chrono::steady_clock::now() >= sCSharpTranspileDeadline &&
+        !IsHeadless())
+    {
+        sCSharpTranspilePending = false;
+        CSharpManager::Get()->Transpile();
+    }
 #endif
 
     if (sEngineState.mSuspended)
@@ -1501,7 +1539,17 @@ void LoadProject(const std::string& path, bool discoverAssets)
 
         if (scriptsExists)
         {
-            GetFileWatcher()->WatchDirectory(scriptsDir, true);
+            // With C# enabled the same root also watches .cs sources — a save
+            // schedules a debounced transpile whose .lua output then hot-reloads
+            // through this very watcher.
+            if (GetEngineConfig()->mCSharpScripting)
+            {
+                GetFileWatcher()->WatchDirectory(scriptsDir, true, { ".lua", ".cs" });
+            }
+            else
+            {
+                GetFileWatcher()->WatchDirectory(scriptsDir, true);
+            }
         }
 
         // Also watch each addon's Scripts/ tree. Without this, edits to
@@ -1569,6 +1617,58 @@ void LoadProject(const std::string& path, bool discoverAssets)
                         luaMetaPath.c_str());
                     fclose(luarcFile);
                     luarcFile = nullptr;
+                }
+            }
+        }
+    }
+
+    // Keep the C# project's engine-API source reference pointing at THIS engine
+    // install — the path is machine-local, so a project moved between machines
+    // (or an engine moved on disk) would otherwise lose IntelliSense. The line
+    // is tagged with a marker comment by the scaffolder (CSharpManager).
+    if (sEngineState.mProjectDirectory != "" && sEngineConfig.mCSharpScripting)
+    {
+        std::string csprojPath = sEngineState.mProjectDirectory + "Scripts/CSharp/Game.csproj";
+        if (SYS_DoesFileExist(csprojPath.c_str(), false))
+        {
+            std::string engineDir = SYS_GetPolyphasePath();
+            std::replace(engineDir.begin(), engineDir.end(), '\\', '/');
+            if (!engineDir.empty() && engineDir.back() != '/')
+                engineDir += "/";
+            std::string wantInclude = "    <Compile Include=\"" + engineDir +
+                "Tools/PolyphaseSharp/Polyphase.Engine/Polyphase/**/*.cs\" Link=\"EngineApi/%(Filename)%(Extension)\" />";
+
+            Stream csprojStream;
+            if (csprojStream.ReadFile(csprojPath.c_str(), false))
+            {
+                std::string content(csprojStream.GetData(), csprojStream.GetSize());
+                const char* marker = "POLYPHASE_ENGINE_API";
+                size_t markerPos = content.find(marker);
+                if (markerPos != std::string::npos)
+                {
+                    size_t lineStart = content.find('\n', markerPos);
+                    if (lineStart != std::string::npos)
+                    {
+                        ++lineStart;
+                        size_t lineEnd = content.find('\n', lineStart);
+                        if (lineEnd != std::string::npos)
+                        {
+                            std::string currentLine = content.substr(lineStart, lineEnd - lineStart);
+                            while (!currentLine.empty() && currentLine.back() == '\r')
+                                currentLine.pop_back();
+                            if (currentLine != wantInclude)
+                            {
+                                content = content.substr(0, lineStart) + wantInclude + content.substr(lineEnd);
+                                FILE* csprojFile = fopen(csprojPath.c_str(), "wb");
+                                if (csprojFile != nullptr)
+                                {
+                                    fwrite(content.data(), 1, content.size(), csprojFile);
+                                    fclose(csprojFile);
+                                    LogDebug("[CSharp] refreshed engine API path in Game.csproj");
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1934,6 +2034,7 @@ void WriteEngineConfig(std::string path)
 
         fprintf(configIni, "EditorInterfaceScale=%f\n", sEngineConfig.mEditorInterfaceScale);
         fprintf(configIni, "ScriptHotReload=%d\n", sEngineConfig.mScriptHotReload);
+        fprintf(configIni, "CSharpScripting=%d\n", sEngineConfig.mCSharpScripting);
         fprintf(configIni, "ColorScale=%d\n", sEngineConfig.mColorScale);
         fprintf(configIni, "Icon=%s\n", sEngineConfig.mIconPath.c_str());
 
@@ -2052,6 +2153,8 @@ void ReadEngineConfig(std::string path)
                 sEngineConfig.mEditorInterfaceScale = (float)atof(value);
             else if (keyStr == "ScriptHotReload")
                 sEngineConfig.mScriptHotReload = strToBool(value);
+            else if (keyStr == "CSharpScripting")
+                sEngineConfig.mCSharpScripting = strToBool(value);
             else if (keyStr == "ColorScale")
                 sEngineConfig.mColorScale = atoi(value);
             else if (keyStr == "Icon")
