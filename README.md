@@ -18,3 +18,7 @@ This is a modernized fork of [Octave Game Engine by mholtkamp/octave](https://gi
 # Special Thanks
 
 - Octave logo designed by overcookedchips.
+
+## License
+
+Proposed: [MIT-PoU](LICENSE.md) (MIT + proof-of-usage) — see [PROOF_OF_USAGE.md](PROOF_OF_USAGE.md).
