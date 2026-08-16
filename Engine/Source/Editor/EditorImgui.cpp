@@ -11376,7 +11376,11 @@ static void DrawMainMenuBar()
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::N3DS, true, false);
                         break;
                     case PlayTarget::Standalone:
+#if PLATFORM_WINDOWS
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::Windows, false, false);
+#else
+                        GetPackagingWindow()->BuildAndRunWithProfile(Platform::Linux, false, false);
+#endif
                         break;
                     case PlayTarget::Send3dsLink:
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::N3DS, true, true);
