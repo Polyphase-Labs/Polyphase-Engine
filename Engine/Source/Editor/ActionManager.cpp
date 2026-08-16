@@ -1677,7 +1677,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
             switch (platform)
             {
             case Platform::Windows: extension = ".exe"; break;
-            case Platform::Linux: extension = ""; break;
+            case Platform::Linux: extension = ".elf"; break;
             case Platform::Android: extension = ".apk"; break;
             case Platform::GameCube: extension = ".dol"; break;
             case Platform::Wii: extension = ".dol"; break;
@@ -1761,6 +1761,15 @@ void ActionManager::BuildData(Platform platform, bool embedded)
                         else
                         {
                             LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
+                        }
+                    }
+                    else if (platform == Platform::Windows || platform == Platform::Linux)
+                    {
+                        // Desktop build: no emulator involved, run the packaged
+                        // game directly on the host.
+                        if (!LaunchDesktopBuild(platform, outputPath))
+                        {
+                            LogError("Cannot run a %s build on this host.", GetPlatformString(platform));
                         }
                     }
                     else
@@ -4452,6 +4461,15 @@ void ActionManager::FinalizeLocalBuild()
                     "  Typical Windows location: C:\\Android\\Sdk\\platform-tools\\adb.exe\n");
             }
         }
+        else if (platform == Platform::Windows || platform == Platform::Linux)
+        {
+            // Desktop build: no emulator involved, run the packaged game
+            // directly on the host.
+            if (!LaunchDesktopBuild(platform, outputPath))
+            {
+                LogError("Cannot run a %s build on this host.", GetPlatformString(platform));
+            }
+        }
         else
         {
             LaunchersModule* launchers = static_cast<LaunchersModule*>(
@@ -4471,6 +4489,37 @@ void ActionManager::FinalizeLocalBuild()
     }
 
     mShowBuildModal = false;
+}
+
+bool ActionManager::LaunchDesktopBuild(Platform platform, const std::string& outputPath)
+{
+#if PLATFORM_WINDOWS
+    if (platform != Platform::Windows)
+        return false;
+#elif PLATFORM_LINUX
+    if (platform != Platform::Linux)
+        return false;
+#else
+    return false;
+#endif
+
+    std::string packagedDir = outputPath;
+    size_t lastSlash = packagedDir.find_last_of("/\\");
+    if (lastSlash != std::string::npos)
+    {
+        packagedDir = packagedDir.substr(0, lastSlash);
+    }
+
+    // cd first: the game resolves Config.ini and the asset tree relative to
+    // its working directory.
+#if PLATFORM_WINDOWS
+    std::string cmd = "cd /d \"" + packagedDir + "\" && \"" + outputPath + "\"";
+#else
+    std::string cmd = "cd \"" + packagedDir + "\" && exec \"" + outputPath + "\"";
+#endif
+    LogDebug("Launching desktop build: %s", outputPath.c_str());
+    SYS_ExecDetached(cmd.c_str());
+    return true;
 }
 
 void ActionManager::DrawBuildModal()
