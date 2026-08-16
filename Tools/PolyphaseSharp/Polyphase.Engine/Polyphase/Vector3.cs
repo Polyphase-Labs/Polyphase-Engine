@@ -47,6 +47,33 @@ namespace Polyphase
 
         /// @CSharpLua.Template = "Vec({this}.x, {this}.y, {this}.z)"
         public extern Vector3 Clone();
+
+        /// @CSharpLua.Template = "{this}:Magnitude()"
+        public extern float Magnitude();
+
+        /// <summary>Squared length (cheaper than Magnitude).</summary>
+        /// @CSharpLua.Template = "{this}:Length2()"
+        public extern float Length2();
+
+        /// <summary>Returns a normalized copy (does not modify this vector).</summary>
+        /// @CSharpLua.Template = "{this}:Normalize()"
+        public extern Vector3 Normalize();
+
+        /// @CSharpLua.Template = "Vector.Dot({0}, {1})"
+        public static extern float Dot(Vector3 a, Vector3 b);
+
+        /// @CSharpLua.Template = "Vector.Cross({0}, {1})"
+        public static extern Vector3 Cross(Vector3 a, Vector3 b);
+
+        /// @CSharpLua.Template = "Vector.Lerp({0}, {1}, {2})"
+        public static extern Vector3 Lerp(Vector3 a, Vector3 b, float t);
+
+        /// <summary>Rotate a vector around an axis by degrees.</summary>
+        /// @CSharpLua.Template = "Vector.Rotate({0}, {1}, {2})"
+        public static extern Vector3 Rotate(Vector3 v, float degrees, Vector3 axis);
+
+        /// @CSharpLua.Template = "Vector.Distance({0}, {1})"
+        public static extern float Distance(Vector3 a, Vector3 b);
     }
 
     /// <summary>

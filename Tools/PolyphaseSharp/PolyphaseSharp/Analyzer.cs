@@ -33,6 +33,7 @@ namespace PolyphaseSharp
         private CSharpCompilation mCompilation;
         private INamedTypeSymbol mScriptBase;
         private INamedTypeSymbol mPropertyAttr;
+        private INamedTypeSymbol mButtonAttr;
 
         public CSharpCompilation Compile(IReadOnlyList<SyntaxTree> userTrees, IReadOnlyList<SyntaxTree> apiTrees)
         {
@@ -74,6 +75,7 @@ namespace PolyphaseSharp
 
             mScriptBase = mCompilation.GetTypeByMetadataName("Polyphase.Script");
             mPropertyAttr = mCompilation.GetTypeByMetadataName("Polyphase.PropertyAttribute");
+            mButtonAttr = mCompilation.GetTypeByMetadataName("Polyphase.ButtonAttribute");
             if (mScriptBase == null || mPropertyAttr == null)
             {
                 Error(null, 0, 0, "PS0001", "internal: Polyphase engine API sources not found in compilation");
@@ -92,6 +94,8 @@ namespace PolyphaseSharp
 
             if (HasErrors)
                 return unit; // compilation is broken; skip deeper analysis
+
+            unit.FinalizeOrder.AddRange(GetFinalizeOrder(tree));
 
             var model = mCompilation.GetSemanticModel(tree);
             var root = tree.GetCompilationUnitRoot();
@@ -178,6 +182,7 @@ namespace PolyphaseSharp
             }
 
             CollectPublicMethods(chain, script, tree.FilePath);
+            CollectButtons(chain, script);
 
             foreach (var (name, arity) in kLifecycle)
             {
@@ -196,6 +201,58 @@ namespace PolyphaseSharp
 
             unit.Script = script;
             return unit;
+        }
+
+        /// <summary>
+        /// Every type a source tree declares, as final Lua paths, base classes
+        /// before derived (inheritance-depth order). CoreSystem's System.init
+        /// resolves a class's base eagerly, so a batch that inits Camera3D
+        /// before Node3D fails with "base is nil" — the transpiler knows the
+        /// hierarchy and must hand the runtime an explicit order.
+        /// </summary>
+        public List<string> GetFinalizeOrder(SyntaxTree tree)
+            => GetFinalizeOrder(new[] { tree });
+
+        public List<string> GetFinalizeOrder(IEnumerable<SyntaxTree> trees)
+        {
+            var typed = new List<(string Path, int Depth, string Name)>();
+            foreach (var tree in trees)
+                CollectTypeOrder(tree, typed);
+
+            return typed
+                .OrderBy(t => t.Depth)
+                .ThenBy(t => t.Name, StringComparer.Ordinal)
+                .Select(t => t.Path)
+                .Distinct()
+                .ToList();
+        }
+
+        private void CollectTypeOrder(SyntaxTree tree, List<(string Path, int Depth, string Name)> typed)
+        {
+            var model = mCompilation.GetSemanticModel(tree);
+
+            foreach (var decl in tree.GetCompilationUnitRoot().DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
+            {
+                var symbol = model.GetDeclaredSymbol(decl) as INamedTypeSymbol;
+                if (symbol == null)
+                    continue;
+
+                int depth = 0;
+                for (var t = symbol.BaseType; t != null; t = t.BaseType)
+                    ++depth;
+
+                // Dotted path matching CoreSystem's modules key: namespace +
+                // nesting flattened with '.', default namespace applied.
+                string ns = symbol.ContainingNamespace != null && !symbol.ContainingNamespace.IsGlobalNamespace
+                    ? symbol.ContainingNamespace.ToDisplayString()
+                    : DefaultNamespace;
+                var nesting = new List<string> { symbol.Name };
+                for (var outer = symbol.ContainingType; outer != null; outer = outer.ContainingType)
+                    nesting.Insert(0, outer.Name);
+                string path = ns + "." + string.Join(".", nesting);
+
+                typed.Add((path, depth, symbol.Name));
+            }
         }
 
         private static readonly HashSet<string> kLuaKeywords = new(StringComparer.Ordinal)
@@ -257,6 +314,61 @@ namespace PolyphaseSharp
                 }
 
                 script.PublicMethods.Add(new ScriptMethod { Name = name, ParamNames = paramNames });
+            }
+        }
+
+        /// <summary>
+        /// [Button] methods become DatumType.Function inspector properties; the
+        /// editor's click handler calls the same-named method on the script's
+        /// class table, which the public-method forwarders provide.
+        /// </summary>
+        private void CollectButtons(List<INamedTypeSymbol> chain, ScriptClass script)
+        {
+            foreach (var type in chain)
+            {
+                foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+                {
+                    var attr = method.GetAttributes().FirstOrDefault(a =>
+                        SymbolEqualityComparer.Default.Equals(a.AttributeClass, mButtonAttr));
+                    if (attr == null)
+                        continue;
+
+                    var declSyntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+                    int line = declSyntax != null ? Line(declSyntax) : 0;
+                    int col = declSyntax != null ? Col(declSyntax) : 0;
+
+                    if (method.MethodKind != MethodKind.Ordinary || method.IsStatic ||
+                        method.Parameters.Length != 0 ||
+                        method.DeclaredAccessibility != Accessibility.Public)
+                    {
+                        Error(script.SourceFile, line, col, "PS1012",
+                            $"[Button] method '{method.Name}' must be a public, non-static instance " +
+                            "method with no parameters (a button click carries no arguments)");
+                        continue;
+                    }
+
+                    if (script.Buttons.Any(b => b.MethodName == method.Name))
+                        continue; // derived override of an already-collected base button
+
+                    string title = null;
+                    string tooltip = null;
+                    if (attr.ConstructorArguments.Length >= 1)
+                        title = attr.ConstructorArguments[0].Value as string;
+                    if (attr.ConstructorArguments.Length >= 2)
+                        tooltip = attr.ConstructorArguments[1].Value as string;
+                    foreach (var kv in attr.NamedArguments)
+                    {
+                        if (kv.Key == "Title") title = kv.Value.Value as string;
+                        if (kv.Key == "Tooltip") tooltip = kv.Value.Value as string;
+                    }
+
+                    script.Buttons.Add(new ScriptButton
+                    {
+                        MethodName = method.Name,
+                        Title = title,
+                        Tooltip = tooltip,
+                    });
+                }
             }
         }
 

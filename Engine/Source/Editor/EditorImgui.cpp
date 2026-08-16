@@ -3507,6 +3507,10 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     script->CallFunction(prop.mName.c_str());
                 }
             }
+            if (!prop.mTooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            {
+                ImGui::SetTooltip("%s", prop.mTooltip.c_str());
+            }
             ImGui::PopID();
             continue;
         }

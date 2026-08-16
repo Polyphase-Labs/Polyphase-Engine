@@ -290,8 +290,9 @@ namespace PolyphaseSharp
                 }
 
                 var droppedModules = new List<string>();
+                var apiTypeOrder = analyzer.GetFinalizeOrder(apiTrees);
                 string core = CoreSystemBundler.Build(coreSystemDir, new[] { apiModule },
-                    noTrim ? null : usage.ToString(), droppedModules);
+                    noTrim ? null : usage.ToString(), droppedModules, apiTypeOrder);
                 string corePath = Path.Combine(scriptsDir, "CSharpCore.lua");
                 produced.Add(Path.GetFullPath(corePath));
                 if (WriteIfChanged(corePath, core)) ++written; else ++unchanged;

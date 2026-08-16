@@ -42,7 +42,18 @@ namespace PolyphaseSharp
             sb.AppendLine();
             sb.AppendLine(moduleLua.TrimEnd());
             sb.AppendLine();
-            sb.AppendLine("CSharpCore.Finalize()");
+            if (unit.FinalizeOrder.Count > 0)
+            {
+                // Explicit inheritance-depth order — System.init resolves bases
+                // eagerly within a batch (see Analyzer.GetFinalizeOrder).
+                sb.Append("CSharpCore.Finalize({ ");
+                sb.Append(string.Join(", ", unit.FinalizeOrder.ConvertAll(n => "\"" + n + "\"")));
+                sb.AppendLine(" })");
+            }
+            else
+            {
+                sb.AppendLine("CSharpCore.Finalize()");
+            }
 
             var script = unit.Script;
             if (script == null)
@@ -72,7 +83,7 @@ namespace PolyphaseSharp
                 sb.AppendLine("    self.__cs:Create()");
             sb.AppendLine("end");
 
-            if (script.Properties.Count > 0)
+            if (script.Properties.Count > 0 || script.Buttons.Count > 0)
             {
                 sb.AppendLine();
                 sb.Append("function ").Append(cls).AppendLine(":GatherProperties()");
@@ -82,7 +93,19 @@ namespace PolyphaseSharp
                     sb.Append("        { name = \"").Append(prop.Name)
                       .Append("\", type = DatumType.").Append(prop.DatumType);
                     if (!string.IsNullOrEmpty(prop.DisplayName))
-                        sb.Append(", display_name = \"").Append(prop.DisplayName).Append('"');
+                        sb.Append(", display_name = ").Append(QuoteLua(prop.DisplayName));
+                    sb.AppendLine(" },");
+                }
+                foreach (var button in script.Buttons)
+                {
+                    // Function props are editor-only buttons; the click handler
+                    // calls the same-named class-table method (forwarded below).
+                    sb.Append("        { name = \"").Append(button.MethodName)
+                      .Append("\", type = DatumType.Function");
+                    if (!string.IsNullOrEmpty(button.Title))
+                        sb.Append(", display_name = ").Append(QuoteLua(button.Title));
+                    if (!string.IsNullOrEmpty(button.Tooltip))
+                        sb.Append(", tooltip = ").Append(QuoteLua(button.Tooltip));
                     sb.AppendLine(" },");
                 }
                 sb.AppendLine("    }");
@@ -114,6 +137,15 @@ namespace PolyphaseSharp
             }
 
             return sb.ToString();
+        }
+
+        private static string QuoteLua(string s)
+        {
+            return "\"" + s
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\n", "\\n")
+                .Replace("\r", "\\r") + "\"";
         }
     }
 }

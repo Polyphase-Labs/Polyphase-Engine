@@ -76,8 +76,10 @@ namespace PolyphaseSharp
         /// <param name="usageText">All generated user Lua concatenated — scanned for
         /// module-usage tokens. Null/empty disables trimming (full bundle).</param>
         /// <param name="droppedModules">Receives the names of modules left out.</param>
+        /// <param name="apiTypeOrder">API type Lua paths, base-before-derived.</param>
         public static string Build(string coreSystemDir, IEnumerable<string> apiModuleLua,
-                                   string usageText, List<string> droppedModules)
+                                   string usageText, List<string> droppedModules,
+                                   IReadOnlyList<string> apiTypeOrder)
         {
             string allFile = Path.Combine(coreSystemDir, "All.lua");
             if (!File.Exists(allFile))
@@ -170,6 +172,12 @@ namespace PolyphaseSharp
             }
 
             sb.AppendLine();
+            sb.Append("local POLYPHASE_API_TYPE_ORDER = { ");
+            if (apiTypeOrder != null)
+            {
+                sb.Append(string.Join(", ", apiTypeOrder.Select(n => "\"" + n + "\"")));
+            }
+            sb.AppendLine(" }");
             sb.AppendLine(@"-- ===== Engine glue =====
 
 -- Construct a companion instance with the node back-reference already in place,
@@ -188,10 +196,35 @@ end
 -- Finalize every type the current generated file just registered. Clears stale
 -- published globals first so the engine's per-file script hot reload can re-run
 -- a generated chunk without tripping CoreSystem's duplicate-publish asserts.
-function CSharpCore.Finalize()
-    local names = System.getRegisteredModuleNames()
-    if #names == 0 then return end
-    table.sort(names)
+-- `ordered` (optional array of dotted type names) is emitted by the transpiler
+-- in inheritance-depth order: System.init resolves a class's base eagerly, so
+-- initing a derived type before its same-batch base fails with 'base is nil'.
+-- Pending types missing from the list are appended (sorted) as a safety net;
+-- listed-but-unregistered names are skipped.
+function CSharpCore.Finalize(ordered)
+    local pending = {}
+    local pendingCount = 0
+    for _, n in ipairs(System.getRegisteredModuleNames()) do
+        pending[n] = true
+        pendingCount = pendingCount + 1
+    end
+    if pendingCount == 0 then return end
+
+    local names = {}
+    if ordered ~= nil then
+        for i = 1, #ordered do
+            local n = ordered[i]
+            if pending[n] then
+                names[#names + 1] = n
+                pending[n] = nil
+            end
+        end
+    end
+    local rest = {}
+    for n in pairs(pending) do rest[#rest + 1] = n end
+    table.sort(rest)
+    for i = 1, #rest do names[#names + 1] = rest[i] end
+
     for i = 1, #names do
         local scope, key = _G, nil
         for part in string.gmatch(names[i], ""[^%.]+"") do
@@ -208,8 +241,8 @@ function CSharpCore.Finalize()
     System.init({ types = names })
 end
 
--- Finalize the Polyphase API types registered above.
-CSharpCore.Finalize()");
+-- Finalize the Polyphase API types registered above (inheritance-depth order).
+CSharpCore.Finalize(POLYPHASE_API_TYPE_ORDER)");
 
             return sb.ToString();
         }

@@ -237,6 +237,11 @@ void BindDatumType()
     lua_pushinteger(L, (int)DatumType::Table);
     lua_setfield(L, tableIdx, "Table");
 
+    // Editor-only button: GatherProperties entries of this type render as a
+    // clickable button in the inspector that calls the same-named method.
+    lua_pushinteger(L, (int)DatumType::Function);
+    lua_setfield(L, tableIdx, "Function");
+
     lua_pushinteger(L, (int)DatumType::Node);
     lua_setfield(L, tableIdx, "Node");
 

@@ -29,7 +29,7 @@ System.namespace("Game", function (namespace)
   end)
 end)
 
-CSharpCore.Finalize()
+CSharpCore.Finalize({ "Game.Rotator" })
 
 Rotator = {}
 

@@ -20,6 +20,15 @@ namespace PolyphaseSharp
         public string[] ParamNames;  // sanitized to valid, non-keyword Lua identifiers
     }
 
+    /// <summary>An inspector button ([Button] method) — rendered via a
+    /// DatumType.Function property whose click calls the same-named method.</summary>
+    public sealed class ScriptButton
+    {
+        public string MethodName;
+        public string Title;    // null → method name
+        public string Tooltip;  // null → none
+    }
+
     /// <summary>A concrete class deriving from Polyphase.Script found in user sources.</summary>
     public sealed class ScriptClass
     {
@@ -30,6 +39,7 @@ namespace PolyphaseSharp
         public readonly List<string> OverriddenMethods = new();  // lifecycle names except Create
         public readonly List<ScriptProperty> Properties = new(); // whole chain, base-first
         public readonly List<ScriptMethod> PublicMethods = new(); // forwarded for cross-script calls
+        public readonly List<ScriptButton> Buttons = new();       // [Button] methods, chain order
     }
 
     /// <summary>Per-.cs-file transpile unit.</summary>
@@ -40,6 +50,10 @@ namespace PolyphaseSharp
         public string RewrittenText;              // source after [Property]/namespace rewrite
         public ScriptClass Script;                // at most one per file (validated); may be null (helper file)
         public readonly List<string> RequiredFiles = new(); // other generated files (no ext) this one must Require first
+        // Lua paths of every type this file registers, base classes before
+        // derived — System.init resolves bases eagerly within a batch, so
+        // Finalize must init in inheritance order, not alphabetical order.
+        public readonly List<string> FinalizeOrder = new();
     }
 
     public sealed class Diagnostic

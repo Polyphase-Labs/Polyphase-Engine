@@ -138,6 +138,9 @@ namespace Polyphase
         /// @CSharpLua.Template = "{this}:RotateAround({0}, {1}, {2})"
         public extern void RotateAround(Vector3 pivot, Vector3 axis, float degrees);
 
+        /// @CSharpLua.Template = "{this}:LookAt({0})"
+        public extern void LookAt(Vector3 worldPosition);
+
         /// @CSharpLua.Template = "{this}:LookAt({0}, {1})"
         public extern void LookAt(Vector3 worldPosition, Vector3 up);
 
@@ -149,5 +152,105 @@ namespace Polyphase
 
         /// @CSharpLua.Template = "{this}:GetUpVector()"
         public extern Vector3 GetUpVector();
+    }
+
+    /// <summary>
+    /// Result of a physics sweep or ray test. Phantom over the Lua result table
+    /// ({hitNode, hitNormal, hitPosition, hitFraction}).
+    /// </summary>
+    public sealed class HitResult
+    {
+        private HitResult() { }
+
+        /// <summary>The node hit, or null.</summary>
+        /// @CSharpLua.Get = "{this}.hitNode"
+        public extern Node HitNode { get; }
+
+        /// @CSharpLua.Get = "{this}.hitNormal"
+        public extern Vector3 HitNormal { get; }
+
+        /// @CSharpLua.Get = "{this}.hitPosition"
+        public extern Vector3 HitPosition { get; }
+
+        /// <summary>0..1 along the sweep/ray at the hit point.</summary>
+        /// @CSharpLua.Get = "{this}.hitFraction"
+        public extern float HitFraction { get; }
+    }
+
+    /// <summary>Handle to a Primitive3D (collision-capable node).</summary>
+    public class Primitive3D : Node3D
+    {
+        protected Primitive3D() { }
+
+        /// <summary>Sweep the collider to a world position; moves unless blocked.</summary>
+        /// @CSharpLua.Template = "{this}:SweepToWorldPosition({0})"
+        public extern HitResult SweepToWorldPosition(Vector3 worldPosition);
+
+        /// <summary>mask 0 = default; testOnly true = query without moving.</summary>
+        /// @CSharpLua.Template = "{this}:SweepToWorldPosition({0}, {1}, {2})"
+        public extern HitResult SweepToWorldPosition(Vector3 worldPosition, int collisionMask, bool testOnly);
+
+        /// @CSharpLua.Template = "{this}:EnableOverlaps({0})"
+        public extern void EnableOverlaps(bool enable);
+
+        /// @CSharpLua.Template = "{this}:EnableCollision({0})"
+        public extern void EnableCollision(bool enable);
+
+        /// @CSharpLua.Template = "{this}:EnablePhysics({0})"
+        public extern void EnablePhysics(bool enable);
+    }
+
+    /// <summary>Handle to a Camera3D.</summary>
+    public class Camera3D : Node3D
+    {
+        protected Camera3D() { }
+
+        /// @CSharpLua.Get = "{this}:GetFieldOfView()"
+        /// @CSharpLua.Set = "{this}:SetFieldOfView({0})"
+        public extern float FieldOfView { get; set; }
+    }
+
+    /// <summary>Handle to a SkeletalMesh3D (animated mesh).</summary>
+    public class SkeletalMesh3D : Node3D
+    {
+        protected SkeletalMesh3D() { }
+
+        /// @CSharpLua.Template = "{this}:PlayAnimation({0})"
+        public extern void PlayAnimation(string animName);
+
+        /// @CSharpLua.Template = "{this}:PlayAnimation({0}, {1}, {2})"
+        public extern void PlayAnimation(string animName, int priority, bool loop);
+
+        /// @CSharpLua.Template = "{this}:PlayAnimation({0}, {1}, {2}, {3}, {4})"
+        public extern void PlayAnimation(string animName, int priority, bool loop, float speed, float weight);
+
+        /// @CSharpLua.Template = "{this}:StopAnimation({0})"
+        public extern void StopAnimation(string animName);
+
+        /// @CSharpLua.Template = "{this}:StopAllAnimations()"
+        public extern void StopAllAnimations();
+
+        /// @CSharpLua.Template = "{this}:IsAnimationPlaying({0})"
+        public extern bool IsAnimationPlaying(string animName);
+
+        /// <summary>Queue an animation to play when a dependent one finishes.</summary>
+        /// @CSharpLua.Template = "{this}:QueueAnimation({0}, {1}, {2}, {3}, {4}, {5})"
+        public extern void QueueAnimation(string animName, string dependentAnim, int priority, bool loop, float speed, float weight);
+    }
+
+    /// <summary>Handle to the world a node lives in (Script.World).</summary>
+    public sealed class World
+    {
+        private World() { }
+
+        /// @CSharpLua.Template = "{this}:GetRootNode()"
+        public extern Node GetRootNode();
+
+        /// <summary>Ray test against physics. mask 0x02 = default environment group.</summary>
+        /// @CSharpLua.Template = "{this}:RayTest({0}, {1}, {2})"
+        public extern HitResult RayTest(Vector3 start, Vector3 end, int collisionMask);
+
+        /// @CSharpLua.Template = "{this}:FindNode({0})"
+        public extern Node FindNode(string name);
     }
 }

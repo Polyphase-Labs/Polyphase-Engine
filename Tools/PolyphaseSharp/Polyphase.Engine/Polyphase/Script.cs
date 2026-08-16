@@ -54,6 +54,10 @@ namespace Polyphase
         /// @CSharpLua.Get = "{this}.__node"
         public extern Node Node { get; }
 
+        /// <summary>The world the node lives in (engine sets `world` on every scripted node).</summary>
+        /// @CSharpLua.Get = "{this}.__node.world"
+        public extern World World { get; }
+
         // ---- Node API, bare-call surface (mirrors Polyphase.Node) ----
 
         /// @CSharpLua.Template = "{this}.__node:GetName()"

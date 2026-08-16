@@ -65,6 +65,18 @@ public class SpinnerCS : Script3D
   `gameObject`); other nodes are held/passed as `Node` / `Node3D` values.
 - `[Property]` fields appear in the inspector, serialize with the scene, and
   survive hot reload. `[Property(Display = "...")]` sets the inspector label.
+- `[Button("Title", "Tooltip")]` on a **public, parameterless** method renders a
+  clickable button in the Properties inspector that invokes the method (title
+  and tooltip optional — the method name is the default label):
+
+  ```csharp
+  [Button("Spin Faster", "Doubles the angular velocity")]
+  public void SpinFaster() { AngularVelocity = AngularVelocity * 2.0f; }
+  ```
+
+  Lua scripts can do the same by returning
+  `{ name = "MethodName", type = DatumType.Function, display_name = "...", tooltip = "..." }`
+  from `GatherProperties()`.
 - `Lua.GetGlobal / SetGlobal / Call` reach engine Lua APIs not yet wrapped in C#.
 
 Save the file — the editor transpiles automatically (about a second) and
