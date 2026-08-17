@@ -604,6 +604,18 @@ public:
      * GetCompileCommand → GetCompiledBinaryPath → PostPackage).
      */
     void BuildData(const std::string& targetId, bool embedded);
+    /**
+     * @brief Launch a packaged desktop (Windows/Linux) build directly.
+     *
+     * Desktop targets have no emulator — the packaged binary runs natively on
+     * the host. Launches detached with the packaged directory as the working
+     * directory so the game's cwd-relative project resolution (Config.ini,
+     * asset tree) works the same as a user launching it from a file manager.
+     *
+     * @return false when the target platform doesn't match the host (nothing
+     *         here can run it) — callers should report that; true otherwise.
+     */
+    static bool LaunchDesktopBuild(Platform platform, const std::string& outputPath);
     void DrawBuildModal();
     bool IsBuildRunning() const;
     LocalBuildState& GetBuildState() { return mBuildState; }

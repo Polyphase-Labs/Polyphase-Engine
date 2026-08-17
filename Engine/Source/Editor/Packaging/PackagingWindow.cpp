@@ -2079,6 +2079,17 @@ void PackagingWindow::FinalizeBuild()
                 LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
             }
         }
+        else if (mBuildState.mTargetPlatform == Platform::Windows ||
+                 mBuildState.mTargetPlatform == Platform::Linux)
+        {
+            // Desktop build: no emulator involved, run the packaged game
+            // directly on the host.
+            if (!ActionManager::LaunchDesktopBuild(mBuildState.mTargetPlatform, mBuildState.mOutputPath))
+            {
+                LogError("Cannot run a %s build on this host.",
+                         GetPlatformString(mBuildState.mTargetPlatform));
+            }
+        }
         else if (PlatformSupportsRun(mBuildState.mTargetPlatform))
         {
             // Launch emulator (GameCube/Wii via Dolphin, 3DS via Azahar/Citra).
