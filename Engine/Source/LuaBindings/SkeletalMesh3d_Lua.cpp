@@ -405,6 +405,124 @@ int SkeletalMesh3D_Lua::GetNumBones(lua_State* L)
     return 1;
 }
 
+int SkeletalMesh3D_Lua::GetNumSockets(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+
+    lua_pushinteger(L, (int)comp->GetNumSockets());
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetSocketName(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t index = CHECK_INDEX(L, 2);
+
+    if (index >= 0 && uint32_t(index) < comp->GetNumSockets())
+    {
+        lua_pushstring(L, comp->GetSocketName(uint32_t(index)).c_str());
+    }
+    else
+    {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetSocketPosition(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* socketName = CHECK_STRING(L, 2);
+
+    Vector_Lua::Create(L, comp->GetSocketPosition(socketName));
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetSocketRotation(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* socketName = CHECK_STRING(L, 2);
+
+    Vector_Lua::Create(L, comp->GetSocketRotationEuler(socketName));
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetAnimationTime(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+
+    lua_pushnumber(L, comp->GetAnimationTime(animName));
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetAnimationNormalizedTime(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+
+    lua_pushnumber(L, comp->GetAnimationNormalizedTime(animName));
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::SetAnimationTime(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+    float seconds = CHECK_NUMBER(L, 3);
+
+    comp->SetAnimationTime(animName, seconds);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::SetAnimationNormalizedTime(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+    float normalizedTime = CHECK_NUMBER(L, 3);
+
+    comp->SetAnimationNormalizedTime(animName, normalizedTime);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::AddAnimationNotify(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    const char* animName = CHECK_STRING(L, 2);
+    float normalizedTime = CHECK_NUMBER(L, 3);
+    CHECK_FUNCTION(L, 4);
+    ScriptFunc func(L, 4);
+
+    lua_pushinteger(L, comp->AddAnimationNotify(animName, normalizedTime, func));
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::RemoveAnimationNotify(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t handle = CHECK_INTEGER(L, 2);
+
+    comp->RemoveAnimationNotify(handle);
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::ClearAnimationNotifies(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+
+    if (lua_isnone(L, 2))
+    {
+        comp->ClearAnimationNotifies();
+    }
+    else
+    {
+        const char* animName = CHECK_STRING(L, 2);
+        comp->ClearAnimationNotifies(animName);
+    }
+
+    return 0;
+}
+
 int SkeletalMesh3D_Lua::SetAnimEventHandler(lua_State* L)
 {
     SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
@@ -573,6 +691,20 @@ void SkeletalMesh3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, SetBoneScale);
 
     REGISTER_TABLE_FUNC(L, mtIndex, GetNumBones);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetNumSockets);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSocketName);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSocketPosition);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSocketRotation);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAnimationTime);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAnimationNormalizedTime);
+    REGISTER_TABLE_FUNC(L, mtIndex, SetAnimationTime);
+    REGISTER_TABLE_FUNC(L, mtIndex, SetAnimationNormalizedTime);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, AddAnimationNotify);
+    REGISTER_TABLE_FUNC(L, mtIndex, RemoveAnimationNotify);
+    REGISTER_TABLE_FUNC(L, mtIndex, ClearAnimationNotifies);
 
     REGISTER_TABLE_FUNC(L, mtIndex, SetAnimEventHandler);
 

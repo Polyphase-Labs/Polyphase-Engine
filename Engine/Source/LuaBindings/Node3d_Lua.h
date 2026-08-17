@@ -17,6 +17,9 @@
 struct Node3D_Lua
 {
     static int AttachToBone(lua_State* L);
+    static int AttachToSocket(lua_State* L);
+    static int SetAttachSocket(lua_State* L);
+    static int GetAttachSocket(lua_State* L);
     static int UpdateTransform(lua_State* L);
 
     static int GetPosition(lua_State* L);

@@ -178,6 +178,37 @@ Sig: `Node3D:AttachToBone(skelMeshNode, boneName, keepWorldTransform=false, chil
  - Arg: `boolean keepWorldTransform` Whether to maintain the same world-space transform after attaching to skelMeshNode
  - Arg: `integer childIndex` The specific child index this node should be placed at in the parent's child array. If 0, place this node at the end of the array.
 ---
+### AttachToSocket
+Attach this node to a named socket on a SkeletalMesh3D node. A socket is a bone plus a constant offset authored on the SkeletalMesh asset, so the same socket gives every prop identical placement. If no socket by that name exists, the name is treated as a bone name.
+
+Use this for the initial attach. To move an already-attached node between sockets on the **same** parent (drawing and sheathing a weapon), use `SetAttachSocket` instead — it avoids a reparent.
+
+Sig: `Node3D:AttachToSocket(skelMeshNode, socketName, keepWorldTransform=false, childIndex=0)`
+ - Arg: `SkeletalMesh3D skelMeshNode` Mesh node to attach to
+ - Arg: `string socketName` Name of the socket (or bone) to attach to
+ - Arg: `boolean keepWorldTransform` Whether to maintain the same world-space transform after attaching
+ - Arg: `integer childIndex` The specific child index this node should be placed at in the parent's child array. If 0, place this node at the end of the array.
+---
+### SetAttachSocket
+Move this node to a different socket (or bone) on its current parent. Pass an empty string to detach from the bone and follow the parent's own transform again.
+
+This is the cheap path for weapon draw/sheathe — it changes the attachment in place without removing and re-adding the node to its parent.
+
+```lua
+sword:AttachToSocket(character, "Sheath_Back")   -- once, at spawn
+sword:SetAttachSocket("WeaponHand_R")            -- draw
+sword:SetAttachSocket("Sheath_Back")             -- sheathe
+```
+
+Sig: `Node3D:SetAttachSocket(socketName)`
+ - Arg: `string socketName` Name of the socket or bone. Empty string detaches.
+---
+### GetAttachSocket
+Get the name of the socket or bone this node is attached to. Returns an empty string if it isn't bone-attached.
+
+Sig: `socketName = Node3D:GetAttachSocket()`
+ - Ret: `string socketName` The socket or bone name
+---
 ### UpdateTransform
 Update this node's transformation matrix. When a Node3D has its position, rotation, or scale changed, its transform matrix will remain unchanged until it is needed. Generally, game code will not need to call this. Functions like GetWorldPosition() will automatically update the transform if it is dirty.
 

@@ -95,6 +95,21 @@ struct SkeletalMeshSection
     MaterialRef mMaterial;
 };
 
+// A named attachment point on the skeleton: a bone plus a constant local offset.
+// Authored once per rig so props (swords, shields, muzzle flashes) get consistent
+// placement without every instance hand-tuning its own transform.
+//
+// Keyed by bone NAME rather than index, like BoneMaskAsset, so re-importing a mesh
+// with a different bone order doesn't silently relocate everything attached to it.
+struct MeshSocket
+{
+    std::string mName;
+    std::string mBoneName;
+    glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
+    glm::vec3 mRotation = { 0.0f, 0.0f, 0.0f };     // euler degrees
+    glm::vec3 mScale = { 1.0f, 1.0f, 1.0f };
+};
+
 class POLYPHASE_API SkeletalMesh : public Asset
 {
 public:
@@ -140,6 +155,18 @@ public:
     const std::vector<Bone>& GetBones() const;
     const Bone& GetBone(int32_t index) const;
     uint32_t GetNumBones() const;
+
+    // Named attachment points. See MeshSocket.
+    uint32_t GetNumSockets() const;
+    const MeshSocket& GetSocket(uint32_t index) const;
+    MeshSocket& GetSocketMutable(uint32_t index);
+    const std::vector<MeshSocket>& GetSockets() const;
+    int32_t FindSocketIndex(const std::string& name) const;
+    // Returns the index of the added socket. The name is uniquified if it collides.
+    uint32_t AddSocket(const MeshSocket& socket);
+    void RemoveSocket(uint32_t index);
+    // The socket's constant offset relative to its bone, as a matrix.
+    glm::mat4 GetSocketLocalMatrix(uint32_t index) const;
 
     glm::mat4 GetInvRootTransform() const;
 
@@ -201,6 +228,7 @@ private:
     std::vector<Animation> mAnimations;
     std::vector<VertexSkinned> mVertices;
     std::vector<SkeletalMeshSection> mSections;
+    std::vector<MeshSocket> mSockets;
 
     glm::mat4 mInvRootTransform;
     std::vector<glm::mat4> mBindPoseMatrices;

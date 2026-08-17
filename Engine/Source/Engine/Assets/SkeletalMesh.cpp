@@ -248,6 +248,23 @@ void SkeletalMesh::LoadStream(Stream& stream, Platform platform)
         }
     }
 
+    mSockets.clear();
+    if (stream.GetAssetVersion() >= ASSET_VERSION_BONE_SOCKETS)
+    {
+        uint32_t numSockets = stream.ReadUint32();
+        mSockets.resize(numSockets);
+
+        for (uint32_t i = 0; i < numSockets; ++i)
+        {
+            MeshSocket& s = mSockets[i];
+            stream.ReadString(s.mName);
+            stream.ReadString(s.mBoneName);
+            s.mPosition = stream.ReadVec3();
+            s.mRotation = stream.ReadVec3();
+            s.mScale = stream.ReadVec3();
+        }
+    }
+
     // Legacy assets — and new assets that failed to write any section — get a
     // single default section spanning the whole index buffer so the renderer
     // can stay on the loop-sections path unconditionally.
@@ -380,6 +397,17 @@ void SkeletalMesh::SaveStream(Stream& stream, Platform platform)
         stream.WriteUint32(s.mBaseVertex);
         stream.WriteUint32(s.mVertexCount);
         stream.WriteAsset(s.mMaterial);
+    }
+
+    stream.WriteUint32(uint32_t(mSockets.size()));
+    for (uint32_t i = 0; i < uint32_t(mSockets.size()); ++i)
+    {
+        const MeshSocket& s = mSockets[i];
+        stream.WriteString(s.mName);
+        stream.WriteString(s.mBoneName);
+        stream.WriteVec3(s.mPosition);
+        stream.WriteVec3(s.mRotation);
+        stream.WriteVec3(s.mScale);
     }
 #endif
 }
@@ -592,6 +620,93 @@ const Bone& SkeletalMesh::GetBone(int32_t index) const
 uint32_t SkeletalMesh::GetNumBones() const
 {
     return uint32_t(mBones.size());
+}
+
+uint32_t SkeletalMesh::GetNumSockets() const
+{
+    return uint32_t(mSockets.size());
+}
+
+const MeshSocket& SkeletalMesh::GetSocket(uint32_t index) const
+{
+    return mSockets[index];
+}
+
+MeshSocket& SkeletalMesh::GetSocketMutable(uint32_t index)
+{
+    return mSockets[index];
+}
+
+const std::vector<MeshSocket>& SkeletalMesh::GetSockets() const
+{
+    return mSockets;
+}
+
+int32_t SkeletalMesh::FindSocketIndex(const std::string& name) const
+{
+    int32_t socketIndex = -1;
+
+    for (uint32_t i = 0; i < mSockets.size(); ++i)
+    {
+        if (mSockets[i].mName == name)
+        {
+            socketIndex = i;
+            break;
+        }
+    }
+
+    return socketIndex;
+}
+
+uint32_t SkeletalMesh::AddSocket(const MeshSocket& socket)
+{
+    MeshSocket newSocket = socket;
+
+    if (newSocket.mName.empty())
+    {
+        newSocket.mName = "Socket";
+    }
+
+    // Socket lookup is by name, so duplicates would make the second one
+    // unreachable. Suffix until unique.
+    if (FindSocketIndex(newSocket.mName) != -1)
+    {
+        const std::string baseName = newSocket.mName;
+        uint32_t suffix = 1;
+
+        do
+        {
+            newSocket.mName = baseName + "_" + std::to_string(suffix);
+            ++suffix;
+        }
+        while (FindSocketIndex(newSocket.mName) != -1);
+    }
+
+    mSockets.push_back(newSocket);
+    return uint32_t(mSockets.size() - 1);
+}
+
+void SkeletalMesh::RemoveSocket(uint32_t index)
+{
+    if (index < mSockets.size())
+    {
+        mSockets.erase(mSockets.begin() + index);
+    }
+}
+
+glm::mat4 SkeletalMesh::GetSocketLocalMatrix(uint32_t index) const
+{
+    glm::mat4 transform(1.0f);
+
+    if (index < mSockets.size())
+    {
+        const MeshSocket& socket = mSockets[index];
+        transform = glm::translate(transform, socket.mPosition);
+        transform *= glm::toMat4(glm::quat(socket.mRotation * DEGREES_TO_RADIANS));
+        transform = glm::scale(transform, socket.mScale);
+    }
+
+    return transform;
 }
 
 glm::mat4 SkeletalMesh::GetInvRootTransform() const

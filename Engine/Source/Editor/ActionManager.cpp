@@ -5488,7 +5488,7 @@ void ActionManager::EXE_DeleteNodes(const std::vector<Node*>& nodes)
     ActionManager::Get()->ExecuteAction(action);
 }
 
-void ActionManager::EXE_AttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex)
+void ActionManager::EXE_AttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex, const char* socketName)
 {
     if (node->IsSceneLinkedChild() || newParent->IsSceneLinkedChild())
     {
@@ -5496,7 +5496,7 @@ void ActionManager::EXE_AttachNode(Node* node, Node* newParent, int32_t childInd
         return;
     }
 
-    ActionAttachNode* action = new ActionAttachNode(node, newParent, childIndex, boneIndex);
+    ActionAttachNode* action = new ActionAttachNode(node, newParent, childIndex, boneIndex, socketName);
     ActionManager::Get()->ExecuteAction(action);
 }
 
@@ -7132,6 +7132,28 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
                 if (GetEditorState()->GetInspectedObject() == oldAsset)
                 {
                     GetEditorState()->InspectObject(nullptr, true);
+                }
+
+                // Sockets are hand-authored in the editor and have no counterpart
+                // in the source file, so a reimport would otherwise wipe them.
+                // They're keyed by bone NAME, so they stay valid even if the
+                // reimport changes bone ordering or count.
+                SkeletalMesh* oldSkel = oldAsset->As<SkeletalMesh>();
+                SkeletalMesh* newSkel = newAsset->As<SkeletalMesh>();
+
+                if (oldSkel != nullptr && newSkel != nullptr && oldSkel->GetNumSockets() > 0)
+                {
+                    for (uint32_t s = 0; s < oldSkel->GetNumSockets(); ++s)
+                    {
+                        const MeshSocket& socket = oldSkel->GetSocket(s);
+                        newSkel->AddSocket(socket);
+
+                        if (newSkel->FindBoneIndex(socket.mBoneName) == -1)
+                        {
+                            LogWarning("Reimport: socket '%s' references bone '%s' which no longer exists on %s",
+                                socket.mName.c_str(), socket.mBoneName.c_str(), assetName.c_str());
+                        }
+                    }
                 }
             }
 
@@ -10560,6 +10582,42 @@ bool ActionManager::DuplicateNodes(std::vector<Node*> srcNodes)
     return duplicated;
 }
 
+void ActionManager::AttachSelectedNodesToSocket(Node* newParent, const char* socketName)
+{
+    if (newParent == nullptr || socketName == nullptr)
+        return;
+
+    if (newParent->IsSceneLinked())
+    {
+        LogWarning("Cannot add child to scene-linked node. Unlink the scene first.");
+        return;
+    }
+
+    std::vector<Node*> selNodes = GetEditorState()->GetSelectedNodes();
+
+    for (uint32_t i = 0; i < selNodes.size(); ++i)
+    {
+        Node* child = selNodes[i];
+
+        if (child == newParent || newParent->GetParent() == child)
+            continue;
+
+        if (!child->IsNode3D())
+        {
+            LogWarning("Only Node3D-derived nodes can be attached to a socket.");
+            continue;
+        }
+
+        ActionManager::Get()->EXE_AttachNode(child, newParent, -1, -1, socketName);
+
+        // Reparenting breaks the scene link, matching AttachSelectedNodes.
+        if (newParent->GetParent() != GetWorld(0)->GetRootNode())
+        {
+            newParent->SetScene(nullptr);
+        }
+    }
+}
+
 void ActionManager::AttachSelectedNodes(Node* newParent, int32_t boneIdx)
 {
     if (newParent == nullptr)
@@ -11331,7 +11389,7 @@ void ActionDeleteNodes::Reverse()
     }
 }
 
-ActionAttachNode::ActionAttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex)
+ActionAttachNode::ActionAttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex, const char* socketName)
 {
     mNode = ResolvePtr(node);
     mNewParent = ResolvePtr(newParent);
@@ -11340,6 +11398,10 @@ ActionAttachNode::ActionAttachNode(Node* node, Node* newParent, int32_t childInd
     mPrevChildIndex = node->GetParent() ? node->GetParent()->FindChildIndex(node) : -1;
     mBoneIndex = boneIndex;
     mPrevBoneIndex = node->IsNode3D() ? node->As<Node3D>()->GetParentBoneIndex() : -1;
+    mSocketName = (socketName != nullptr) ? socketName : "";
+    // Captures the socket OR bone name -- AttachToBone records the bone's name
+    // too, so this restores either kind of attachment on undo.
+    mPrevSocketName = node->IsNode3D() ? node->As<Node3D>()->GetAttachSocket() : "";
     OCT_ASSERT(mNode);
     OCT_ASSERT(mNewParent);
 }
@@ -11348,14 +11410,15 @@ void ActionAttachNode::Execute()
 {
     Action::Execute();
 
-    if (mBoneIndex >= 0 &&
-        mNewParent != nullptr &&
-        mNewParent->As<SkeletalMesh3D>() &&
-        mNode->As<Node3D>())
-    {
-        Node3D* node3d = mNode->As<Node3D>();
-        SkeletalMesh3D* skParent = mNewParent->As<SkeletalMesh3D>();
+    Node3D* node3d = mNode->As<Node3D>();
+    SkeletalMesh3D* skParent = (mNewParent != nullptr) ? mNewParent->As<SkeletalMesh3D>() : nullptr;
 
+    if (!mSocketName.empty() && skParent != nullptr && node3d != nullptr)
+    {
+        node3d->AttachToSocket(skParent, mSocketName.c_str(), true, mChildIndex);
+    }
+    else if (mBoneIndex >= 0 && skParent != nullptr && node3d != nullptr)
+    {
         node3d->AttachToBone(skParent, mBoneIndex, true, mChildIndex);
     }
     else
@@ -11368,14 +11431,16 @@ void ActionAttachNode::Reverse()
 {
     Action::Reverse();
 
-    if (mPrevBoneIndex >= 0 &&
-        mPrevParent != nullptr &&
-        mPrevParent->As<SkeletalMesh3D>() &&
-        mNode->As<Node3D>())
+    Node3D* node3d = mNode->As<Node3D>();
+    SkeletalMesh3D* skPrevParent = (mPrevParent != nullptr) ? mPrevParent->As<SkeletalMesh3D>() : nullptr;
+
+    if (!mPrevSocketName.empty() && skPrevParent != nullptr && node3d != nullptr)
     {
-        Node3D* node3d = mNode->As<Node3D>();
-        SkeletalMesh3D* skParent = mPrevParent->As<SkeletalMesh3D>();
-        node3d->AttachToBone(skParent, mPrevBoneIndex, true, mPrevChildIndex);
+        node3d->AttachToSocket(skPrevParent, mPrevSocketName.c_str(), true, mPrevChildIndex);
+    }
+    else if (mPrevBoneIndex >= 0 && skPrevParent != nullptr && node3d != nullptr)
+    {
+        node3d->AttachToBone(skPrevParent, mPrevBoneIndex, true, mPrevChildIndex);
     }
     else
     {

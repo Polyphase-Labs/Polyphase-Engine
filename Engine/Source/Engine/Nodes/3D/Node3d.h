@@ -32,6 +32,14 @@ public:
     void AttachToBone(SkeletalMesh3D* parent, const char* boneName, bool keepWorldTransform = false, int32_t childIndex = -1);
     void AttachToBone(SkeletalMesh3D* parent, int32_t boneIndex, bool keepWorldTransform = false, int32_t childIndex = -1);
 
+    // Attach to a named socket (or, if no socket by that name exists, a bone of
+    // that name) on `parent`. Use this for the initial attach; once attached,
+    // prefer SetAttachSocket() to move between sockets on the SAME parent -- it
+    // avoids the RemoveChild/AddChild round trip that reorders siblings.
+    void AttachToSocket(SkeletalMesh3D* parent, const char* socketName, bool keepWorldTransform = false, int32_t childIndex = -1);
+    void SetAttachSocket(const char* socketName);
+    const std::string& GetAttachSocket() const;
+
     void MarkTransformDirty();
     bool IsTransformDirty() const;
     virtual void UpdateTransform(bool updateChildren);
@@ -43,6 +51,7 @@ public:
 #if EDITOR
     virtual void OnDrawGizmos();
     virtual void OnDrawGizmosSelected();
+    virtual bool DrawCustomProperty(Property& prop) override;
 #endif
 
     glm::vec3 GetPosition() const;
@@ -119,9 +128,26 @@ protected:
     glm::quat mRotationQuat;
     
     glm::mat4 mTransform;
+
+    // Bone/socket attachment. mAttachSocket is the authoritative, serialized
+    // value -- it names either a socket or a bare bone on the parent skeletal
+    // mesh. The two indices are a lazily-resolved cache, rebuilt on demand in
+    // ResolveAttachSocket() and invalidated whenever the name or parent changes.
+    // Resolving by name (rather than storing an index) means a mesh reimport
+    // that reorders bones can't silently move attached props.
+    std::string mAttachSocket;
     int32_t mParentBoneIndex;
-    
+    int32_t mAttachSocketIndex = -1;
+    bool mAttachResolved = false;
+
     bool mInheritTransform = true;
 
     bool mTransformDirty;
+
+private:
+
+    // Resolves mAttachSocket against the parent skeletal mesh into
+    // mParentBoneIndex / mAttachSocketIndex. Cheap no-op once resolved.
+    void ResolveAttachSocket();
+    void InvalidateAttachSocket();
 };

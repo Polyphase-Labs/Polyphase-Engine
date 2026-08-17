@@ -2246,6 +2246,30 @@ static bool MoveDirectoryToDirectory(AssetDir* dir, AssetDir* newParent)
     return true;
 }
 
+// Resolve the stub set an asset-browser drag or context action operates on.
+// Grabbing a stub that's part of a multi-selection carries the whole
+// selection; grabbing anything else carries just that stub. Mirrors
+// GatherHierarchyActionNodes in the scene panel.
+static std::vector<AssetStub*> GatherAssetActionStubs(AssetStub* stub)
+{
+    std::vector<AssetStub*> stubs;
+
+    if (stub == nullptr)
+        return stubs;
+
+    const std::vector<AssetStub*>& selStubs = GetEditorState()->GetSelectedAssetStubs();
+    if (selStubs.size() > 1 && GetEditorState()->IsAssetStubSelected(stub))
+    {
+        stubs = selStubs;
+    }
+    else
+    {
+        stubs.push_back(stub);
+    }
+
+    return stubs;
+}
+
 static const char* AnchorModeToCSS(AnchorMode mode)
 {
     switch (mode)
@@ -5247,6 +5271,52 @@ static void AlternatingRowBackground()
     sAltRowIndex++;
 }
 
+// Resolve the node set a hierarchy drag or context action operates on.
+// Grabbing a node that's part of a multi-selection carries the whole
+// selection; grabbing anything else carries just that node. Descendants of
+// another node in the set are dropped -- moving the ancestor already takes
+// them along, and reattaching them afterwards would yank them back out.
+static std::vector<Node*> GatherHierarchyActionNodes(Node* node)
+{
+    std::vector<Node*> nodes;
+
+    if (node == nullptr)
+        return nodes;
+
+    const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
+    if (selNodes.size() > 1 && GetEditorState()->IsNodeSelected(node))
+    {
+        nodes = selNodes;
+    }
+    else
+    {
+        nodes.push_back(node);
+    }
+
+    // RemoveRedundantDescendants only strips direct children, so it would let a
+    // grandchild through and reattach it out of its own moving parent. Build the
+    // filtered result separately -- the test reads the unfiltered set.
+    std::vector<Node*> roots;
+    roots.reserve(nodes.size());
+    for (Node* n : nodes)
+    {
+        bool coveredByAncestor = false;
+        for (Node* other : nodes)
+        {
+            if (other != n && n->HasAncestor(other))
+            {
+                coveredByAncestor = true;
+                break;
+            }
+        }
+
+        if (!coveredByAncestor)
+            roots.push_back(n);
+    }
+
+    return roots;
+}
+
 static void DrawScenePanel()
 {
     ActionManager* am = ActionManager::Get();
@@ -5259,6 +5329,12 @@ static void DrawScenePanel()
     static ImVec2 sDropHighlightMin, sDropHighlightMax;
     sDropZone = SceneDropZone::None;
     sDropTargetNode = nullptr;
+
+    // Deferred single-select. Pressing an already-multi-selected row must not
+    // collapse the selection -- that press is how a group drag starts. The
+    // press records the node here and the collapse only happens on mouse-up,
+    // or not at all if a drag began. NOT reset per frame.
+    static Node* sPendingSelectNode = nullptr;
 
     // Quick-spawn toolbar. The "+" opens the full Add Node menu (same one
     // as the right-click context). The remaining buttons spawn the most-used
@@ -5486,6 +5562,16 @@ static void DrawScenePanel()
             AlternatingRowBackground();
             bool nodeClicked = ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen();
             bool nodeMiddleClicked = ImGui::IsItemClicked(ImGuiMouseButton_Middle);
+
+            // Right-click acts on the row under the cursor. Pull it into the
+            // selection first (unless it's already there) so the multi-node
+            // entries below never operate on a set the user can't see.
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !nodeSelected)
+            {
+                GetEditorState()->SetSelectedNode(node);
+                nodeSelected = true;
+            }
+
             ImGui::PushID((void*)node);
             ImGui::OpenPopupOnItemClick("##NodeCtx", ImGuiPopupFlags_MouseButtonRight);
             ImGui::PopID();
@@ -5499,9 +5585,23 @@ static void DrawScenePanel()
             // Drag source for node references - must be right after TreeNodeEx while it's the "last item"
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
+                // A drag started, so the press that began it must never collapse
+                // the selection on release.
+                sPendingSelectNode = nullptr;
+
+                // The payload stays a single Node* so every existing consumer
+                // (viewport, inspector, timeline) keeps working. Drop handlers
+                // that support groups re-derive the full set from the selection
+                // via GatherHierarchyActionNodes.
                 Node* dragNode = node;
                 ImGui::SetDragDropPayload(DRAGDROP_NODE, &dragNode, sizeof(Node*));
-                ImGui::Text("%s", node->GetName().c_str());
+
+                size_t dragCount = GatherHierarchyActionNodes(node).size();
+                if (dragCount > 1)
+                    ImGui::Text("%s (+%d more)", node->GetName().c_str(), int(dragCount) - 1);
+                else
+                    ImGui::Text("%s", node->GetName().c_str());
+
                 ImGui::EndDragDropSource();
             }
 
@@ -5560,10 +5660,22 @@ static void DrawScenePanel()
                         if (const ImGuiPayload* deliverPayload = ImGui::AcceptDragDropPayload(DRAGDROP_NODE))
                         {
                             Node* droppedNode = *(Node**)deliverPayload->Data;
+                            std::vector<Node*> droppedNodes = GatherHierarchyActionNodes(droppedNode);
 
                             if (zone == SceneDropZone::Into)
                             {
-                                am->EXE_AttachNode(droppedNode, node, -1, -1);
+                                for (Node* dropped : droppedNodes)
+                                {
+                                    // The peek above only validated the primary
+                                    // drag node -- the rest of the group needs
+                                    // the same self/descendant/sub-scene guards.
+                                    if (dropped == node ||
+                                        node->HasAncestor(dropped) ||
+                                        dropped->IsSceneLinkedChild())
+                                        continue;
+
+                                    am->EXE_AttachNode(dropped, node, -1, -1);
+                                }
                             }
                             else
                             {
@@ -5571,15 +5683,28 @@ static void DrawScenePanel()
                                 int32_t siblingIndex = targetParent->FindChildIndex(node);
                                 int32_t insertIndex = (zone == SceneDropZone::Below) ? siblingIndex + 1 : siblingIndex;
 
-                                // If dragging within the same parent, account for removal shift
-                                if (droppedNode->GetParent() == targetParent)
+                                for (Node* dropped : droppedNodes)
                                 {
-                                    int32_t draggedIndex = targetParent->FindChildIndex(droppedNode);
-                                    if (draggedIndex < insertIndex)
-                                        insertIndex--;
-                                }
+                                    if (dropped == targetParent ||
+                                        targetParent->HasAncestor(dropped) ||
+                                        dropped->IsSceneLinkedChild())
+                                        continue;
 
-                                am->EXE_AttachNode(droppedNode, targetParent, insertIndex, -1);
+                                    // If dragging within the same parent, account for removal shift
+                                    int32_t nodeIndex = insertIndex;
+                                    if (dropped->GetParent() == targetParent)
+                                    {
+                                        int32_t draggedIndex = targetParent->FindChildIndex(dropped);
+                                        if (draggedIndex < nodeIndex)
+                                            nodeIndex--;
+                                    }
+
+                                    am->EXE_AttachNode(dropped, targetParent, nodeIndex, -1);
+
+                                    // Land the next one just after it so the
+                                    // group keeps its relative order.
+                                    insertIndex = nodeIndex + 1;
+                                }
                             }
 
                             sDropZone = SceneDropZone::None;
@@ -5736,16 +5861,49 @@ static void DrawScenePanel()
                     ImGui::BeginMenu("Move"))
                 {
                     Node* parent = node->GetParent();
-                    int32_t childSlot = parent->FindChildIndex(node);
+
+                    // Reorder every selected sibling as a block. Nodes under a
+                    // different parent are dropped -- "Up" has no meaning for
+                    // them relative to this row.
+                    std::vector<Node*> moveNodes = GatherHierarchyActionNodes(node);
+                    moveNodes.erase(
+                        std::remove_if(moveNodes.begin(), moveNodes.end(),
+                            [parent](Node* n) { return n->GetParent() != parent; }),
+                        moveNodes.end());
+
+                    // Sort by current slot so the block keeps its relative order.
+                    std::sort(moveNodes.begin(), moveNodes.end(),
+                        [parent](Node* a, Node* b)
+                        { return parent->FindChildIndex(a) < parent->FindChildIndex(b); });
 
                     if (ImGui::Selectable("Top"))
-                        am->EXE_AttachNode(node, parent, 0, -1);
+                    {
+                        for (uint32_t i = 0; i < moveNodes.size(); ++i)
+                            am->EXE_AttachNode(moveNodes[i], parent, (int32_t)i, -1);
+                    }
                     if (ImGui::Selectable("Up"))
-                        am->EXE_AttachNode(node, parent, glm::max<int32_t>(childSlot - 1, 0), -1);
+                    {
+                        for (Node* n : moveNodes)
+                        {
+                            int32_t slot = parent->FindChildIndex(n);
+                            am->EXE_AttachNode(n, parent, glm::max<int32_t>(slot - 1, 0), -1);
+                        }
+                    }
                     if (ImGui::Selectable("Down"))
-                        am->EXE_AttachNode(node, parent, childSlot + 1, -1);
+                    {
+                        // Walk the block bottom-up so each move lands past the
+                        // sibling below instead of past its own neighbour.
+                        for (auto it = moveNodes.rbegin(); it != moveNodes.rend(); ++it)
+                        {
+                            int32_t slot = parent->FindChildIndex(*it);
+                            am->EXE_AttachNode(*it, parent, slot + 1, -1);
+                        }
+                    }
                     if (ImGui::Selectable("Bottom"))
-                        am->EXE_AttachNode(node, parent, -1, -1);
+                    {
+                        for (Node* n : moveNodes)
+                            am->EXE_AttachNode(n, parent, -1, -1);
+                    }
 
                     ImGui::EndMenu();
                 }
@@ -5767,6 +5925,43 @@ static void DrawScenePanel()
                 if (!nodeSceneLinked && !inSubScene && ImGui::Selectable("Attach Selected"))
                 {
                     am->AttachSelectedNodes(node, -1);
+                }
+
+                // Promote a hand-placed bone attachment into a reusable named
+                // socket. This is the intended authoring flow: attach the prop to
+                // a bone, nudge it into place with the gizmo, then bake that
+                // offset onto the rig so every other prop can reuse it.
+                {
+                    Node3D* node3d = node->As<Node3D>();
+                    SkeletalMesh3D* parentSk = (node3d != nullptr && node3d->GetParent() != nullptr) ?
+                        node3d->GetParent()->As<SkeletalMesh3D>() : nullptr;
+                    SkeletalMesh* parentMesh = (parentSk != nullptr) ? parentSk->GetSkeletalMesh() : nullptr;
+                    const int32_t attachedBone = (node3d != nullptr) ? node3d->GetParentBoneIndex() : -1;
+
+                    if (parentMesh != nullptr && attachedBone >= 0 &&
+                        ImGui::Selectable("Create Socket From Selection"))
+                    {
+                        MeshSocket socket;
+                        socket.mName = node->GetName();
+                        socket.mBoneName = parentMesh->GetBone(attachedBone).mName;
+                        socket.mPosition = node3d->GetPosition();
+                        socket.mRotation = node3d->GetRotationEuler();
+                        socket.mScale = node3d->GetScale();
+
+                        uint32_t socketIndex = parentMesh->AddSocket(socket);
+                        parentMesh->SetDirtyFlag();
+
+                        // Re-point the node at the new socket and zero its local
+                        // transform -- the offset now lives on the socket, so
+                        // keeping it here too would double-apply it.
+                        node3d->SetAttachSocket(parentMesh->GetSocket(socketIndex).mName.c_str());
+                        node3d->SetPosition(glm::vec3(0.0f));
+                        node3d->SetRotation(glm::vec3(0.0f));
+                        node3d->SetScale(glm::vec3(1.0f));
+
+                        LogDebug("Created socket '%s' on bone '%s'",
+                            parentMesh->GetSocket(socketIndex).mName.c_str(), socket.mBoneName.c_str());
+                    }
                 }
 
                 // Parent Selected With submenu
@@ -5890,6 +6085,33 @@ static void DrawScenePanel()
 
                 if (!nodeSceneLinked && !inSubScene && node->As<SkeletalMesh3D>())
                 {
+                    // Sockets first -- attaching to an authored socket is the
+                    // intended flow; raw bone attach stays for one-offs.
+                    SkeletalMesh3D* skNode = node->As<SkeletalMesh3D>();
+                    SkeletalMesh* skMesh = skNode->GetSkeletalMesh();
+
+                    if (skMesh != nullptr && skMesh->GetNumSockets() > 0 &&
+                        ImGui::BeginMenu("Attach Selected To Socket"))
+                    {
+                        for (uint32_t i = 0; i < skMesh->GetNumSockets(); ++i)
+                        {
+                            const MeshSocket& socket = skMesh->GetSocket(i);
+                            ImGui::PushID(int(i));
+                            if (ImGui::MenuItem(socket.mName.c_str()))
+                            {
+                                am->AttachSelectedNodesToSocket(skNode, socket.mName.c_str());
+                                closeContextPopup = true;
+                            }
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::SetTooltip("Bone: %s", socket.mBoneName.c_str());
+                            }
+                            ImGui::PopID();
+                        }
+
+                        ImGui::EndMenu();
+                    }
+
                     if (ImGui::Selectable("Attach Selected To Bone", false, ImGuiSelectableFlags_DontClosePopups))
                     {
                         ImGui::OpenPopup("Attach Selected To Bone");
@@ -5910,7 +6132,11 @@ static void DrawScenePanel()
                 }
                 if (!inSubScene && ImGui::Selectable("Delete"))
                 {
-                    am->EXE_DeleteNode(node);
+                    std::vector<Node*> deleteNodes = GatherHierarchyActionNodes(node);
+                    if (deleteNodes.size() > 1)
+                        am->EXE_DeleteNodes(deleteNodes);
+                    else
+                        am->EXE_DeleteNode(node);
                 }
                 if (!inSubScene &&
                     node->As<StaticMesh3D>() &&
@@ -6374,6 +6600,13 @@ static void DrawScenePanel()
                             GetEditorState()->AddSelectedNode(node, false);
                         }
                     }
+                    else if (nodeSelected && GetEditorState()->GetSelectedNodes().size() > 1)
+                    {
+                        // IsItemClicked() is a PRESS edge. Collapsing to a single
+                        // selection here would destroy the group the user is
+                        // about to drag, so defer it to mouse-up.
+                        sPendingSelectNode = node;
+                    }
                     else
                     {
                         // Regular click: single select
@@ -6404,6 +6637,18 @@ static void DrawScenePanel()
         ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 6.0f);
         drawTree(rootNode, nullptr);
         ImGui::PopStyleVar();
+    }
+
+    // Resolve a deferred single-select: the user pressed on a row that was
+    // already part of a multi-selection and let go without dragging. If a drag
+    // had started, the drag source cleared this and the group survives.
+    if (sPendingSelectNode != nullptr && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    {
+        if (!sPendingSelectNode->IsDestroyed())
+        {
+            GetEditorState()->SetSelectedNode(sPendingSelectNode);
+        }
+        sPendingSelectNode = nullptr;
     }
 
     // Draw drag-and-drop visual indicators
@@ -6437,11 +6682,13 @@ static void DrawScenePanel()
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_NODE))
             {
                 Node* droppedNode = *(Node**)payload->Data;
-                if (droppedNode != nullptr &&
-                    droppedNode != rootNode &&
-                    !droppedNode->IsSceneLinkedChild())
+                for (Node* dropped : GatherHierarchyActionNodes(droppedNode))
                 {
-                    am->EXE_AttachNode(droppedNode, rootNode, -1, -1);
+                    if (dropped != rootNode &&
+                        !dropped->IsSceneLinkedChild())
+                    {
+                        am->EXE_AttachNode(dropped, rootNode, -1, -1);
+                    }
                 }
             }
 
@@ -6494,22 +6741,39 @@ static void DrawScenePanel()
 
         const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
 
-        // Move Up/Down selected node.
-        if (selNodes.size() == 1 &&
+        // Move Up/Down the selected nodes. Only siblings of the primary
+        // selection move as a block -- reordering across parents is undefined.
+        if (!selNodes.empty() &&
             selNodes[0]->GetParent() != nullptr)
         {
-            Node* node = selNodes[0];
-            Node* parent = node->GetParent();
-            int32_t childIndex = parent->FindChildIndex(node);
+            Node* parent = selNodes[0]->GetParent();
+
+            std::vector<Node*> reorderNodes;
+            for (Node* n : selNodes)
+            {
+                if (n->GetParent() == parent)
+                    reorderNodes.push_back(n);
+            }
+            std::sort(reorderNodes.begin(), reorderNodes.end(),
+                [parent](Node* a, Node* b)
+                { return parent->FindChildIndex(a) < parent->FindChildIndex(b); });
 
             EditorHotkeyMap* hotkeys = EditorHotkeyMap::Get();
             if (hotkeys->IsActionJustTriggered(EditorAction::Hier_ReorderUp))
             {
-                am->EXE_AttachNode(node, parent, glm::max<int32_t>(childIndex - 1, 0), -1);
+                for (Node* n : reorderNodes)
+                {
+                    int32_t childIndex = parent->FindChildIndex(n);
+                    am->EXE_AttachNode(n, parent, glm::max<int32_t>(childIndex - 1, 0), -1);
+                }
             }
             else if (hotkeys->IsActionJustTriggered(EditorAction::Hier_ReorderDown))
             {
-                am->EXE_AttachNode(node, parent, childIndex + 1, -1);
+                for (auto it = reorderNodes.rbegin(); it != reorderNodes.rend(); ++it)
+                {
+                    int32_t childIndex = parent->FindChildIndex(*it);
+                    am->EXE_AttachNode(*it, parent, childIndex + 1, -1);
+                }
             }
         }
 
@@ -7019,10 +7283,16 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
     {
         if (stub && ImGui::Selectable("Save"))
         {
-            if (stub->mAsset == nullptr)
-                AssetManager::Get()->LoadAsset(*stub);
+            for (AssetStub* s : GatherAssetActionStubs(stub))
+            {
+                if (s->mEngineAsset)
+                    continue;
 
-            assMan->SaveAsset(*stub);
+                if (s->mAsset == nullptr)
+                    AssetManager::Get()->LoadAsset(*s);
+
+                assMan->SaveAsset(*s);
+            }
         }
         if (ImGui::Selectable("Rename", false, ImGuiSelectableFlags_DontClosePopups))
         {
@@ -7035,18 +7305,11 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         {
             if (stub)
             {
-                const auto& selectedStubs = GetEditorState()->GetSelectedAssetStubs();
-                if (selectedStubs.size() > 1 && GetEditorState()->IsAssetStubSelected(stub))
+                // Copy first -- DeleteAsset mutates the selection vector.
+                std::vector<AssetStub*> toDelete = GatherAssetActionStubs(stub);
+                for (AssetStub* s : toDelete)
                 {
-                    std::vector<AssetStub*> toDelete = selectedStubs;
-                    for (AssetStub* s : toDelete)
-                    {
-                        actMan->DeleteAsset(s);
-                    }
-                }
-                else
-                {
-                    actMan->DeleteAsset(stub);
+                    actMan->DeleteAsset(s);
                 }
 
                 // stub is freed -- don't let the rest of this function (or
@@ -7072,12 +7335,26 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
         if (stub && ImGui::Selectable("Duplicate", false, ImGuiSelectableFlags_DontClosePopups))
         {
-            sDuplicateAssetStub = stub;
-            ImGui::OpenPopup("Duplicate Asset (Context)");
-            std::string defaultName = stub->mName + "_00";
-            strncpy(sPopupInputBuffer, defaultName.c_str(), kPopupInputBufferSize - 1);
-            sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
-            setTextInputFocus = true;
+            // Prompting for a name only makes sense for one asset -- a
+            // multi-selection duplicates straight to auto-generated names.
+            std::vector<AssetStub*> toDuplicate = GatherAssetActionStubs(stub);
+            if (toDuplicate.size() > 1)
+            {
+                for (AssetStub* s : toDuplicate)
+                {
+                    GetEditorState()->DuplicateAsset(s);
+                }
+                closeContextPopup = true;
+            }
+            else
+            {
+                sDuplicateAssetStub = stub;
+                ImGui::OpenPopup("Duplicate Asset (Context)");
+                std::string defaultName = stub->mName + "_00";
+                strncpy(sPopupInputBuffer, defaultName.c_str(), kPopupInputBufferSize - 1);
+                sPopupInputBuffer[kPopupInputBufferSize - 1] = '\0';
+                setTextInputFocus = true;
+            }
         }
     }
 
@@ -8232,11 +8509,30 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
             }
         }
 
+        // Right-click acts on the row under the cursor. Pull it into the
+        // selection first (unless it's already there) so the context menu's
+        // multi-asset entries match what the user sees highlighted.
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) &&
+            !GetEditorState()->IsAssetStubSelected(stub))
+        {
+            GetEditorState()->SetSelectedAssetStub(stub);
+            sSelectedLooseFile.clear();
+        }
+
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
         {
+            // Payload stays a single AssetStub* so every existing consumer
+            // (AssetRefPicker, viewport, hierarchy) keeps working. Folder drop
+            // targets re-derive the full set via GatherAssetActionStubs.
             AssetStub* dragStub = stub;
             ImGui::SetDragDropPayload(DRAGDROP_ASSET, &dragStub, sizeof(AssetStub*));
-            ImGui::Text("%s", stub->mName.c_str());
+
+            size_t dragCount = GatherAssetActionStubs(stub).size();
+            if (dragCount > 1)
+                ImGui::Text("%s (+%d more)", stub->mName.c_str(), int(dragCount) - 1);
+            else
+                ImGui::Text("%s", stub->mName.c_str());
+
             ImGui::EndDragDropSource();
         }
 
@@ -8565,7 +8861,10 @@ static void DrawAssetDirTree(AssetDir* dir, const std::string& filterLower, bool
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
         {
             AssetStub* droppedStub = *(AssetStub**)payload->Data;
-            MoveAssetToDirectory(droppedStub, dir);
+            for (AssetStub* dropped : GatherAssetActionStubs(droppedStub))
+            {
+                MoveAssetToDirectory(dropped, dir);
+            }
         }
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_DIR))
         {
@@ -8647,7 +8946,10 @@ static void DrawAssetBrowser(AssetDir* rootDir, const std::string& filterLower, 
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_ASSET))
                 {
                     AssetStub* droppedStub = *(AssetStub**)payload->Data;
-                    MoveAssetToDirectory(droppedStub, rootDir);
+                    for (AssetStub* dropped : GatherAssetActionStubs(droppedStub))
+                    {
+                        MoveAssetToDirectory(dropped, rootDir);
+                    }
                 }
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(DRAGDROP_DIR))
                 {
@@ -9531,6 +9833,87 @@ static void DrawPropertiesPanel()
                     }
 
                     const std::vector<Bone>& bones = skelMesh->GetBones();
+
+                    // Sockets: named bone + constant offset. Authored here once per
+                    // rig so every prop attached to a socket lands identically.
+                    ImGui::Text("Sockets (%u)", skelMesh->GetNumSockets());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("+##addsocket"))
+                    {
+                        MeshSocket socket;
+                        socket.mName = "Socket";
+                        socket.mBoneName = bones.empty() ? "" : bones[0].mName;
+                        skelMesh->AddSocket(socket);
+                        skelMesh->SetDirtyFlag();
+                    }
+
+                    ImGui::Indent();
+                    for (uint32_t i = 0; i < skelMesh->GetNumSockets(); ++i)
+                    {
+                        MeshSocket& socket = skelMesh->GetSocketMutable(i);
+                        ImGui::PushID(int(0x50C4E70 + i));
+
+                        std::string socketName = socket.mName;
+                        ImGui::SetNextItemWidth(180.0f);
+                        if (ImGui::InputText("Name", &socketName))
+                        {
+                            socket.mName = socketName;
+                            skelMesh->SetDirtyFlag();
+                        }
+
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X"))
+                        {
+                            skelMesh->RemoveSocket(i);
+                            skelMesh->SetDirtyFlag();
+                            ImGui::PopID();
+                            break;
+                        }
+
+                        ImGui::SetNextItemWidth(180.0f);
+                        if (ImGui::BeginCombo("Bone", socket.mBoneName.c_str()))
+                        {
+                            for (uint32_t b = 0; b < bones.size(); ++b)
+                            {
+                                const bool selected = (bones[b].mName == socket.mBoneName);
+                                if (ImGui::Selectable(bones[b].mName.c_str(), selected))
+                                {
+                                    socket.mBoneName = bones[b].mName;
+                                    skelMesh->SetDirtyFlag();
+                                }
+                                if (selected)
+                                {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        if (ImGui::DragFloat3("Position", &socket.mPosition[0], 0.01f))
+                        {
+                            skelMesh->SetDirtyFlag();
+                        }
+                        if (ImGui::DragFloat3("Rotation", &socket.mRotation[0], 0.5f))
+                        {
+                            skelMesh->SetDirtyFlag();
+                        }
+                        if (ImGui::DragFloat3("Scale", &socket.mScale[0], 0.01f))
+                        {
+                            skelMesh->SetDirtyFlag();
+                        }
+
+                        if (skelMesh->FindBoneIndex(socket.mBoneName) == -1)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                "Bone '%s' not found on this mesh", socket.mBoneName.c_str());
+                        }
+
+                        ImGui::Separator();
+                        ImGui::PopID();
+                    }
+                    ImGui::Unindent();
+                    ImGui::NewLine();
+
                     ImGui::Text("Bones (%zu)", bones.size());
                     if (!bones.empty())
                     {
@@ -9987,16 +10370,44 @@ static void DrawScriptsPanel()
 
     // --- Script reveal state ---
     static std::set<std::string> sRevealExpandPaths;
+    // Selection is keyed by full path -- display names collide across origins
+    // (Engine/Foo.lua and Project/Foo.lua share one display name).
+    // sSelectedScript is the primary/anchor row (drives reveal scroll and
+    // shift-range); sSelectedScripts is the full multi-selection, and the
+    // primary is always a member of it unless the set is empty.
     static std::string sSelectedScript = "";
+    static std::vector<std::string> sSelectedScripts;
     static std::string sPendingRevealName;
     static std::string sPendingRevealPath;
     static double sPendingRevealExpire = 0.0;
+
+    // Full paths of the leaf rows in the order they were drawn last frame.
+    // Shift-range selection resolves against the previous frame because a row
+    // below the click hasn't been drawn yet when the click is handled.
+    static std::vector<std::string> sVisibleScriptOrder;
+    static std::vector<std::string> sPrevVisibleScriptOrder;
+
+    auto isScriptSelected = [](const std::string& fullPath)
+    {
+        return std::find(sSelectedScripts.begin(), sSelectedScripts.end(), fullPath) != sSelectedScripts.end();
+    };
+
+    auto setSingleScriptSelection = [](const std::string& fullPath)
+    {
+        sSelectedScripts.clear();
+        sSelectedScripts.push_back(fullPath);
+        sSelectedScript = fullPath;
+    };
 
     // --- Deferred file operations (recorded by the context menu, run after the tree draws) ---
     static ScriptFileAction sPendingScriptAction = ScriptFileAction::None;
     static bool sOpenScriptActionPopup = false;
     static std::string sScriptActionPath;
     static std::string sScriptActionDisplayName;
+    // Populated for multi-row operations (currently Delete). Parallel arrays;
+    // empty means the action is single-row and uses sScriptActionPath.
+    static std::vector<std::string> sScriptActionPaths;
+    static std::vector<std::string> sScriptActionDisplayNames;
     static char sScriptActionNameBuffer[128] = "";
     static std::string sScriptActionError;
 
@@ -10254,7 +10665,7 @@ static void DrawScriptsPanel()
                     // Resolve the request to a display name here -- callers that
                     // reveal by path never have to derive one. Runs before the
                     // leaf draws below, so the highlight lands this frame.
-                    sSelectedScript = entry.mDisplayName;
+                    setSingleScriptSelection(entry.mFullPath);
 
                     // Add origin as first path to expand
                     sRevealExpandPaths.insert(entry.mOrigin);
@@ -10395,8 +10806,10 @@ static void DrawScriptsPanel()
                         fileName = fileName.substr(lastSlash + 1);
 
                     // Check if this script is selected
-                    bool isSelected = (entry->mDisplayName == sSelectedScript);
+                    bool isSelected = isScriptSelected(entry->mFullPath);
                     bool isRevealTarget = matchesReveal(*entry);
+
+                    sVisibleScriptOrder.push_back(entry->mFullPath);
 
                     ImGuiTreeNodeFlags leafFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
                     if (isSelected)
@@ -10413,10 +10826,57 @@ static void DrawScriptsPanel()
                     AlternatingRowBackground();
 
                     // Handle click to select. Right-click selects too so the highlight
-                    // always matches the file the context menu is about to act on.
-                    if (ImGui::IsItemClicked(0) || ImGui::IsItemClicked(1))
+                    // always matches the file the context menu is about to act on --
+                    // but only when the row isn't already part of the selection, so
+                    // right-clicking inside a multi-selection doesn't collapse it.
+                    if (ImGui::IsItemClicked(1))
                     {
-                        sSelectedScript = entry->mDisplayName;
+                        if (!isSelected)
+                            setSingleScriptSelection(entry->mFullPath);
+                    }
+                    else if (ImGui::IsItemClicked(0))
+                    {
+                        const std::string& clickedName = entry->mFullPath;
+
+                        if (ImGui::GetIO().KeyCtrl)
+                        {
+                            // Ctrl+click: toggle this row in the selection.
+                            auto it = std::find(sSelectedScripts.begin(), sSelectedScripts.end(), clickedName);
+                            if (it != sSelectedScripts.end())
+                            {
+                                sSelectedScripts.erase(it);
+                                if (sSelectedScript == clickedName)
+                                    sSelectedScript = sSelectedScripts.empty() ? "" : sSelectedScripts.back();
+                            }
+                            else
+                            {
+                                sSelectedScripts.push_back(clickedName);
+                                sSelectedScript = clickedName;
+                            }
+                        }
+                        else if (ImGui::GetIO().KeyShift && !sSelectedScript.empty())
+                        {
+                            // Shift+click: select the run between the anchor and
+                            // this row, using last frame's visible order.
+                            auto begin = std::find(sPrevVisibleScriptOrder.begin(), sPrevVisibleScriptOrder.end(), sSelectedScript);
+                            auto end = std::find(sPrevVisibleScriptOrder.begin(), sPrevVisibleScriptOrder.end(), clickedName);
+
+                            if (begin != sPrevVisibleScriptOrder.end() && end != sPrevVisibleScriptOrder.end())
+                            {
+                                if (end < begin)
+                                    std::swap(begin, end);
+
+                                sSelectedScripts.assign(begin, end + 1);
+                            }
+                            else
+                            {
+                                setSingleScriptSelection(clickedName);
+                            }
+                        }
+                        else
+                        {
+                            setSingleScriptSelection(clickedName);
+                        }
                     }
 
                     // Scroll to revealed script and clear reveal state
@@ -10428,11 +10888,17 @@ static void DrawScriptsPanel()
                         sRevealExpandPaths.clear();
                     }
 
-                    // Drag source for script files
+                    // Drag source for script files. The payload stays a single
+                    // display name -- a Script property can only hold one.
                     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
                     {
                         ImGui::SetDragDropPayload(DRAGDROP_SCRIPT, entry->mDisplayName.c_str(), entry->mDisplayName.size() + 1);
-                        ImGui::Text("%s", fileName.c_str());
+
+                        if (isSelected && sSelectedScripts.size() > 1)
+                            ImGui::Text("%s (+%d more)", fileName.c_str(), int(sSelectedScripts.size()) - 1);
+                        else
+                            ImGui::Text("%s", fileName.c_str());
+
                         ImGui::EndDragDropSource();
                     }
 
@@ -10445,6 +10911,17 @@ static void DrawScriptsPanel()
                         PreferencesModule* prefMod = PreferencesManager::Get()->FindModule("External/Editors");
                         EditorsModule* ctxEditors = static_cast<EditorsModule*>(prefMod);
                         bool editorConfigured = ctxEditors && ctxEditors->IsLuaEditorConfigured();
+
+                        // Rows this menu acts on: the whole selection when the
+                        // right-clicked row is part of it, else just that row.
+                        // The click handler above already guarantees membership.
+                        std::vector<std::string> ctxPaths;
+                        if (isSelected && sSelectedScripts.size() > 1)
+                            ctxPaths = sSelectedScripts;
+                        else
+                            ctxPaths.push_back(entry->mFullPath);
+
+                        const bool ctxMulti = (ctxPaths.size() > 1);
 
                         if (entry->mIsCSharp)
                         {
@@ -10465,24 +10942,30 @@ static void DrawScriptsPanel()
                         ImGui::BeginDisabled(!editorConfigured);
                         if (ImGui::Selectable(entry->mIsCSharp ? "Open Generated Lua in External Editor" : "Open in External Editor"))
                         {
-                            ctxEditors->OpenLuaScript(entry->mFullPath);
+                            for (const std::string& p : ctxPaths)
+                                ctxEditors->OpenLuaScript(p);
                         }
                         ImGui::EndDisabled();
 
                         if (ImGui::Selectable(entry->mIsCSharp ? "Open Generated Lua in Script Editor" : "Open in Script Editor"))
                         {
-                            GetScriptEditorWindow()->OpenFile(entry->mFullPath);
+                            for (const std::string& p : ctxPaths)
+                                GetScriptEditorWindow()->OpenFile(p);
                         }
 
                         if (!readOnly)
                         {
                             ImGui::Separator();
 
+                            // Rename/Duplicate need a name, so they stay
+                            // single-row and always target the clicked entry.
                             if (ImGui::Selectable("Rename..."))
                             {
                                 sPendingScriptAction = ScriptFileAction::Rename;
                                 sScriptActionPath = entry->mFullPath;
                                 sScriptActionDisplayName = entry->mDisplayName;
+                                sScriptActionPaths.clear();
+                                sScriptActionDisplayNames.clear();
                                 sScriptActionError.clear();
                                 sOpenScriptActionPopup = true;
 
@@ -10496,6 +10979,8 @@ static void DrawScriptsPanel()
                                 sPendingScriptAction = ScriptFileAction::Duplicate;
                                 sScriptActionPath = entry->mFullPath;
                                 sScriptActionDisplayName = entry->mDisplayName;
+                                sScriptActionPaths.clear();
+                                sScriptActionDisplayNames.clear();
                                 sScriptActionError.clear();
                                 sOpenScriptActionPopup = true;
 
@@ -10504,13 +10989,31 @@ static void DrawScriptsPanel()
                                 sScriptActionNameBuffer[sizeof(sScriptActionNameBuffer) - 1] = '\0';
                             }
 
-                            if (ImGui::Selectable("Delete"))
+                            if (ImGui::Selectable(ctxMulti ? "Delete Selected" : "Delete"))
                             {
                                 sPendingScriptAction = ScriptFileAction::Delete;
-                                sScriptActionPath = entry->mFullPath;
-                                sScriptActionDisplayName = entry->mDisplayName;
                                 sScriptActionError.clear();
                                 sOpenScriptActionPopup = true;
+
+                                // Engine scripts are read-only, so filter them
+                                // out of a mixed selection rather than failing.
+                                sScriptActionPaths.clear();
+                                sScriptActionDisplayNames.clear();
+                                for (const std::string& p : ctxPaths)
+                                {
+                                    for (const ScriptFileEntry& e : sLuaScripts)
+                                    {
+                                        if (e.mFullPath == p && e.mOrigin != "Engine")
+                                        {
+                                            sScriptActionPaths.push_back(e.mFullPath);
+                                            sScriptActionDisplayNames.push_back(e.mDisplayName);
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                sScriptActionPath = sScriptActionPaths.empty() ? "" : sScriptActionPaths[0];
+                                sScriptActionDisplayName = sScriptActionDisplayNames.empty() ? "" : sScriptActionDisplayNames[0];
                             }
                         }
 
@@ -10527,10 +11030,23 @@ static void DrawScriptsPanel()
                             SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
 #endif
                         }
-                        if (ImGui::Selectable("Copy Path"))
+                        if (ImGui::Selectable(ctxMulti ? "Copy Paths" : "Copy Path"))
                         {
-                            // Copy the script reference path (relative to Scripts folder)
-                            ImGui::SetClipboardText(entry->mDisplayName.c_str());
+                            // Copy the script reference path(s) (relative to Scripts folder)
+                            std::string clip;
+                            for (const std::string& p : ctxPaths)
+                            {
+                                for (const ScriptFileEntry& e : sLuaScripts)
+                                {
+                                    if (e.mFullPath == p)
+                                    {
+                                        if (!clip.empty()) clip += "\n";
+                                        clip += e.mDisplayName;
+                                        break;
+                                    }
+                                }
+                            }
+                            ImGui::SetClipboardText(clip.c_str());
                         }
                         ImGui::EndPopup();
                     }
@@ -10554,7 +11070,9 @@ static void DrawScriptsPanel()
 
             ImGui::BeginChild("##LuaScriptsList", ImVec2(0, 0), false);
             BeginAlternatingRows();
+            sVisibleScriptOrder.clear();
             drawTree(root, "");
+            sPrevVisibleScriptOrder = sVisibleScriptOrder;
             ImGui::EndChild();
 
             // Deferred file operations. Opened here rather than inside the tree so the
@@ -10646,13 +11164,14 @@ static void DrawScriptsPanel()
 
                         LogDebug("Renamed Lua script: %s -> %s", sScriptActionPath.c_str(), newPath.c_str());
 
-                        if (sSelectedScript == sScriptActionDisplayName)
+                        // Selection is keyed by full path, so follow the rename.
+                        for (std::string& sel : sSelectedScripts)
                         {
-                            size_t slash = sScriptActionDisplayName.find_last_of('/');
-                            sSelectedScript = (slash == std::string::npos)
-                                ? (newStem + ".lua")
-                                : (sScriptActionDisplayName.substr(0, slash + 1) + newStem + ".lua");
+                            if (sel == sScriptActionPath)
+                                sel = newPath;
                         }
+                        if (sSelectedScript == sScriptActionPath)
+                            sSelectedScript = newPath;
 
                         sLuaLastUpdate = 0.0;
                         sPendingScriptAction = ScriptFileAction::None;
@@ -10730,18 +11249,41 @@ static void DrawScriptsPanel()
             }
             if (ImGui::BeginPopupModal("Delete Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
             {
-                ImGui::Text("Delete \"%s\"?", sScriptActionDisplayName.c_str());
-                ImGui::TextDisabled("This permanently deletes the file from disk and cannot be undone.\nNodes that reference this script will fail to load.");
+                if (sScriptActionPaths.size() > 1)
+                {
+                    ImGui::Text("Delete %d scripts?", (int)sScriptActionPaths.size());
+                    ImGui::BeginChild("##DeleteScriptList", ImVec2(420.0f, 120.0f), true);
+                    for (const std::string& name : sScriptActionDisplayNames)
+                        ImGui::TextUnformatted(name.c_str());
+                    ImGui::EndChild();
+                }
+                else
+                {
+                    ImGui::Text("Delete \"%s\"?", sScriptActionDisplayName.c_str());
+                }
+                ImGui::TextDisabled("This permanently deletes the file(s) from disk and cannot be undone.\nNodes that reference them will fail to load.");
                 ImGui::Spacing();
 
                 if (ImGui::Button("Delete"))
                 {
-                    SYS_RemoveFile(sScriptActionPath.c_str());
-                    LogDebug("Deleted Lua script: %s", sScriptActionPath.c_str());
+                    for (const std::string& path : sScriptActionPaths)
+                    {
+                        SYS_RemoveFile(path.c_str());
+                        LogDebug("Deleted Lua script: %s", path.c_str());
 
-                    if (sSelectedScript == sScriptActionDisplayName)
-                        sSelectedScript.clear();
+                        auto it = std::find(sSelectedScripts.begin(), sSelectedScripts.end(), path);
+                        if (it != sSelectedScripts.end())
+                            sSelectedScripts.erase(it);
 
+                        if (sSelectedScript == path)
+                            sSelectedScript.clear();
+                    }
+
+                    if (sSelectedScript.empty() && !sSelectedScripts.empty())
+                        sSelectedScript = sSelectedScripts.back();
+
+                    sScriptActionPaths.clear();
+                    sScriptActionDisplayNames.clear();
                     sLuaLastUpdate = 0.0;
                     sPendingScriptAction = ScriptFileAction::None;
                     ImGui::CloseCurrentPopup();

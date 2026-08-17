@@ -301,4 +301,6 @@ Override slots are addressed by **section index** (1-based in Lua, 0-based in C+
 - [Lua API: SkeletalAnimationAsset](../Lua/Assets/SkeletalAnimationAsset.md)
 - [Lua API: HumanoidAvatarAsset](../Lua/Assets/HumanoidAvatarAsset.md)
 - [Lua API: SkeletalMesh3D](../Lua/Nodes/3D/SkeletalMesh3D.md)
+- [Bone Sockets](BoneSockets.md) — attaching props to bones, and animation-time notifies
+- [Bone Mask](BoneMask.md) — per-bone masks and layered playback
 - Design doc: `.dev/animation/skeletalanimationmultimesh.md`

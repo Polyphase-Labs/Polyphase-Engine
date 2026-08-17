@@ -165,7 +165,9 @@ void Scene::LoadStream(Stream& stream, Platform platform)
         stream.ReadAsset(def.mScene);
         stream.ReadString(def.mName);
         def.mExposeVariable = stream.ReadBool();
-        def.mParentBone = stream.ReadInt8();
+        def.mParentBone = (mVersion >= ASSET_VERSION_BONE_SOCKETS) ?
+            stream.ReadInt32() :
+            int32_t(stream.ReadInt8());
 
         if (mVersion >= ASSET_VERSION_NODE_PERSISTENT_UUID)
         {
@@ -369,7 +371,7 @@ void Scene::SaveStream(Stream& stream, Platform platform)
         stream.WriteAsset(def.mScene);
         stream.WriteString(def.mName);
         stream.WriteBool(def.mExposeVariable);
-        stream.WriteInt8(def.mParentBone);
+        stream.WriteInt32(def.mParentBone);
         stream.WriteUint64(def.mPersistentUuid);
 
         stream.WriteUint32((uint32_t)def.mProperties.size());
@@ -728,16 +730,29 @@ NodePtr Scene::Instantiate()
                 OCT_ASSERT(parent != nullptr);
 
                 // Note: We call AddChild even if the node already existed natively to ensure the order matches scene order.
-                if (mNodeDefs[i].mParentBone >= 0)
+                Node3D* node3d = node->IsNode3D() ? static_cast<Node3D*>(node) : nullptr;
+
+                // The "Attach Socket" property was already applied above and is
+                // authoritative -- it resolves lazily against the parent mesh, so a
+                // plain AddChild is all that's needed. Going through AttachToBone
+                // here would clear that name and overwrite it with a bone name,
+                // dropping any socket offset.
+                const bool hasAttachSocket = (node3d != nullptr) && !node3d->GetAttachSocket().empty();
+
+                if (mNodeDefs[i].mParentBone >= 0 && !hasAttachSocket)
                 {
+                    // Legacy (pre-socket) scenes carry only the bone index.
                     SkeletalMesh3D* parentSk = parent->As<SkeletalMesh3D>();
 
                     OCT_ASSERT(node->IsNode3D());
                     OCT_ASSERT(parentSk != nullptr);
-                    if (node->IsNode3D())
+                    if (node3d != nullptr && parentSk != nullptr)
                     {
-                        Node3D* node3d = static_cast<Node3D*>(node);
                         node3d->AttachToBone(parentSk, mNodeDefs[i].mParentBone, false);
+                    }
+                    else
+                    {
+                        parent->AddChild(node);
                     }
                 }
                 else
@@ -976,7 +991,7 @@ void Scene::AddNodeDef(Node* node, Platform platform, std::vector<Node*>& nodeLi
 
         nodeDef.mType = node->GetType();
         nodeDef.mParentIndex = FindNodeIndex(parent, nodeList);
-        nodeDef.mParentBone = node->IsNode3D() ? ((int8_t) static_cast<Node3D*>(node)->GetParentBoneIndex()) : -1;
+        nodeDef.mParentBone = node->IsNode3D() ? static_cast<Node3D*>(node)->GetParentBoneIndex() : -1;
 
         Scene* scene = nullptr;
 #if EDITOR

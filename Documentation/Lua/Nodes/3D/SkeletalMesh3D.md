@@ -182,6 +182,96 @@ Get the number of bones this mesh node is using.
 Sig: `numBones = SkeletalMesh3D:GetNumBones()`
  - Ret: `integer numBones` The number of bones in the mesh asset
 ---
+### GetNumSockets
+Get the number of named sockets on the assigned SkeletalMesh asset.
+
+Sig: `numSockets = SkeletalMesh3D:GetNumSockets()`
+ - Ret: `integer numSockets` Number of sockets
+---
+### GetSocketName
+Get the name of a socket by index.
+
+Sig: `name = SkeletalMesh3D:GetSocketName(index)`
+ - Arg: `integer index` 1-based socket index
+ - Ret: `string name` Socket name, or nil if the index is out of range
+---
+### GetSocketPosition
+Get the world-space position of a named socket. Falls back to treating the name as a bone name if no such socket exists.
+
+Use this to spawn effects at a socket without reparenting anything to it — muzzle flashes, hit sparks, footstep dust.
+
+Sig: `position = SkeletalMesh3D:GetSocketPosition(socketName)`
+ - Arg: `string socketName` Name of the socket or bone
+ - Ret: `Vector position` World-space position
+---
+### GetSocketRotation
+Get the world-space euler rotation of a named socket.
+
+Sig: `rotation = SkeletalMesh3D:GetSocketRotation(socketName)`
+ - Arg: `string socketName` Name of the socket or bone
+ - Ret: `Vector rotation` World-space euler rotation in degrees
+---
+### GetAnimationTime
+Get the current playback time of an animation, in seconds. Returns -1 if that animation isn't playing.
+
+Sig: `time = SkeletalMesh3D:GetAnimationTime(animName)`
+ - Arg: `string animName` Name of the animation
+ - Ret: `number time` Playback time in seconds, or -1
+---
+### GetAnimationNormalizedTime
+Get how far through an animation playback currently is, from 0 to 1. Returns -1 if that animation isn't playing.
+
+Sig: `t = SkeletalMesh3D:GetAnimationNormalizedTime(animName)`
+ - Arg: `string animName` Name of the animation
+ - Ret: `number t` Progress from 0 to 1, or -1
+---
+### SetAnimationTime
+Scrub a playing animation to a specific time in seconds.
+
+Sig: `SkeletalMesh3D:SetAnimationTime(animName, seconds)`
+ - Arg: `string animName` Name of the animation
+ - Arg: `number seconds` Time to scrub to
+---
+### SetAnimationNormalizedTime
+Scrub a playing animation to a normalized (0 to 1) point in its timeline.
+
+Sig: `SkeletalMesh3D:SetAnimationNormalizedTime(animName, t)`
+ - Arg: `string animName` Name of the animation
+ - Arg: `number t` Progress from 0 to 1
+---
+### AddAnimationNotify
+Register a function to be called each time playback of an animation crosses a normalized point in its timeline. Returns a handle you can pass to `RemoveAnimationNotify`.
+
+This is the runtime-authored counterpart to the `Event_*` anim-event system: it needs no DCC changes, so gameplay beats can be retimed from script. It handles looping clips, reverse playback, and frames long enough to step past the threshold.
+
+```lua
+function Player:Start()
+    self.mesh:AddAnimationNotify("DrawSword", 0.4, function()
+        self.sword:SetAttachSocket("WeaponHand_R")
+    end)
+end
+```
+
+**Important:** notifies only fire while the animation's time is advancing. Under the default `AnimationUpdateMode.OnlyUpdateWhenRendered` an off-screen character never advances its animation, so the notify never fires. For gameplay-critical notifies call `SetAnimationUpdateMode(AnimationUpdateMode.AlwaysUpdateTime)`. A warning is logged if you register a notify on a node that can't fire it.
+
+Sig: `handle = SkeletalMesh3D:AddAnimationNotify(animName, normalizedTime, callback)`
+ - Arg: `string animName` Name of the animation to watch
+ - Arg: `number normalizedTime` Point in the clip from 0 to 1
+ - Arg: `function callback` Function called when playback crosses that point
+ - Ret: `integer handle` Handle for removal, or -1 if registration failed
+---
+### RemoveAnimationNotify
+Remove a previously registered animation notify.
+
+Sig: `SkeletalMesh3D:RemoveAnimationNotify(handle)`
+ - Arg: `integer handle` Handle returned by AddAnimationNotify
+---
+### ClearAnimationNotifies
+Remove all animation notifies, or just those registered for one animation.
+
+Sig: `SkeletalMesh3D:ClearAnimationNotifies(animName)`
+ - Arg: `string animName` Optional. If omitted, every notify on this node is removed.
+---
 ### SetAnimEventHandler
 Set an animation event handler. An animation event can be setup by creating a bone with the name "Event_MyAnimEvent". When any animation event is triggered on this node, the given function will be called so that you can handle it.
 

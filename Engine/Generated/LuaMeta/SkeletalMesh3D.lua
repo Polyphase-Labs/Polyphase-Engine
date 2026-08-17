@@ -120,6 +120,49 @@ function SkeletalMesh3D:SetBoneScale(boneName, value) end
 ---@return integer
 function SkeletalMesh3D:GetNumBones() end
 
+---@return integer
+function SkeletalMesh3D:GetNumSockets() end
+
+---@param index integer
+---@return nil
+function SkeletalMesh3D:GetSocketName(index) end
+
+---@param socketName string
+---@return Vector
+function SkeletalMesh3D:GetSocketPosition(socketName) end
+
+---@param socketName string
+---@return Vector
+function SkeletalMesh3D:GetSocketRotation(socketName) end
+
+---@param animName string
+---@return number
+function SkeletalMesh3D:GetAnimationTime(animName) end
+
+---@param animName string
+---@return number
+function SkeletalMesh3D:GetAnimationNormalizedTime(animName) end
+
+---@param animName string
+---@param seconds number
+function SkeletalMesh3D:SetAnimationTime(animName, seconds) end
+
+---@param animName string
+---@param normalizedTime number
+function SkeletalMesh3D:SetAnimationNormalizedTime(animName, normalizedTime) end
+
+---@param animName string
+---@param normalizedTime number
+---@param arg3 function
+---@return integer
+function SkeletalMesh3D:AddAnimationNotify(animName, normalizedTime, arg3) end
+
+---@param handle integer
+function SkeletalMesh3D:RemoveAnimationNotify(handle) end
+
+---@param animName? string
+function SkeletalMesh3D:ClearAnimationNotifies(animName) end
+
 ---@param arg1 function
 function SkeletalMesh3D:SetAnimEventHandler(arg1) end
 

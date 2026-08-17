@@ -163,6 +163,11 @@ end
 - **Mask names depend on your rig.** A mask authored against a Mixamo skeleton with bones named `mixamorig:Spine` will not resolve on a custom rig that names the same bone `Spine_01`. Re-author or use a HumanoidAvatarAsset bone-name remap.
 - **`SkeletalMesh3D::Tick` does not drive the blend** — the renderer's frustum-cull pass does, gated by `AnimationUpdateMode`. Out-of-frustum characters skip the blend by default unless you change `mAnimationUpdateMode` on the node.
 
+## Related
+
+- [Skeletal Animation](SkeletalAnimation.md) — multi-section meshes, animation assets, retargeting
+- [Bone Sockets](BoneSockets.md) — attaching props to bones, and animation-time notifies
+
 ## File reference
 
 Internal architecture, blend-loop refactor proof, asset-version gate, per-platform notes: see `.llm/BoneMask.md`.

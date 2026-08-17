@@ -81,6 +81,19 @@ struct QueuedAnimation
 
 typedef void(*AnimEventHandlerFP)(const AnimEvent& animEvent);
 
+// A script callback registered to fire when playback of a given clip crosses a
+// normalized (0..1) point in its timeline. Unlike the Event_* anim-event system
+// -- which needs a bone named Event_Foo authored in the DCC and the rig
+// re-exported -- notifies are registered at runtime, so gameplay beats
+// (swap the sword into the hand, spawn a footstep) can be retimed from script.
+struct AnimationNotify
+{
+    std::string mAnimName;
+    float mNormalizedTime = 0.0f;
+    ScriptFunc mCallback;
+    int32_t mHandle = -1;
+};
+
 // Local, decomposed (TRS) bone pose shared between SkeletalMesh3D's animation
 // blend loop and any registered ISkeletalPoseModifier. Kept in the public header
 // so native addons (e.g. the procedural-rig / jiggle-bones addon) can read and
@@ -207,6 +220,36 @@ public:
     uint32_t GetNumBones() const;
     BoneInfluenceMode GetBoneInfluenceMode() const;
 
+    // Bone world matrix: node world * skinning matrix * bind pose. This is the
+    // single source of truth for "where is bone N right now"; GetBonePosition /
+    // RotationQuat / Scale below are decompositions of it.
+    glm::mat4 GetBoneWorldMatrix(int32_t boneIndex) const;
+
+    // Named sockets. A socket is a bone plus a constant authored offset; see
+    // MeshSocket. These return world space, so effects can be spawned at a
+    // socket without reparenting anything to it.
+    int32_t FindSocketIndex(const std::string& name) const;
+    uint32_t GetNumSockets() const;
+    std::string GetSocketName(uint32_t index) const;
+    glm::mat4 GetSocketTransform(const std::string& name) const;
+    glm::vec3 GetSocketPosition(const std::string& name) const;
+    glm::quat GetSocketRotationQuat(const std::string& name) const;
+    glm::vec3 GetSocketRotationEuler(const std::string& name) const;
+
+    // Playback time of an active clip. Returns -1 when the clip isn't playing.
+    // Time is in seconds; normalized time is 0..1 across the clip's duration.
+    float GetAnimationTime(const char* animName) const;
+    float GetAnimationNormalizedTime(const char* animName);
+    void SetAnimationTime(const char* animName, float seconds);
+    void SetAnimationNormalizedTime(const char* animName, float normalizedTime);
+    float GetAnimationDurationSeconds(const char* animName);
+
+    // Fire `callback` each time playback of `animName` crosses `normalizedTime`.
+    // Returns a handle for removal. Multiple notifies may share a clip and time.
+    int32_t AddAnimationNotify(const char* animName, float normalizedTime, const ScriptFunc& callback);
+    void RemoveAnimationNotify(int32_t handle);
+    void ClearAnimationNotifies(const char* animName = nullptr);
+
     AnimationUpdateMode GetAnimationUpdateMode() const;
     void SetAnimationUpdateMode(AnimationUpdateMode mode);
 
@@ -270,6 +313,13 @@ protected:
     void UpdateAttachedChildren(float deltaTime);
     void CpuSkinVertices();
 
+    // Collects notifies whose normalized threshold lies in the interval the slot
+    // just advanced through. Appends to mPendingNotifies; dispatch happens after
+    // the blend loop so a callback can safely mutate mActiveAnimations.
+    void DetectTriggeredNotifies(const ActiveAnimation& active, float prevTime, float curTime, float durationSeconds);
+    void DispatchPendingNotifies();
+    void WarnIfNotifiesCantFire();
+
     // External SkeletalAnimationAsset references. Resolution order in
     // FindAnimation: embedded mesh animations first (preserves existing
     // PlayAnimation behaviour), then animation-lookup-mesh chain, then
@@ -298,6 +348,15 @@ protected:
     bool mAnimBindingsValid = false;
 
     ScriptableFP<AnimEventHandlerFP> mAnimEventHandler;
+
+    // Runtime-registered animation notifies. mPendingNotifies is a member rather
+    // than a file-static (the pattern the legacy anim-event path uses) because
+    // UpdateAnimation re-enters itself through the inherit-pose path and a
+    // callback can re-enter too -- a shared static would corrupt across that.
+    std::vector<AnimationNotify> mAnimationNotifies;
+    std::vector<ScriptFunc> mPendingNotifies;
+    int32_t mNextNotifyHandle = 1;
+    bool mWarnedNotifyUpdateMode = false;
     std::string mDefaultAnimation;
     float mAnimationSpeed = 1.0f;
     std::vector<ActiveAnimation> mActiveAnimations;

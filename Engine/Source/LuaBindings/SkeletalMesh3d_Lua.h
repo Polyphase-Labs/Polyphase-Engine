@@ -46,6 +46,20 @@ struct SkeletalMesh3D_Lua
     static int SetBoneRotation(lua_State* L);
     static int SetBoneScale(lua_State* L);
     static int GetNumBones(lua_State* L);
+    static int GetNumSockets(lua_State* L);
+    static int GetSocketName(lua_State* L);
+    static int GetSocketPosition(lua_State* L);
+    static int GetSocketRotation(lua_State* L);
+
+    static int GetAnimationTime(lua_State* L);
+    static int GetAnimationNormalizedTime(lua_State* L);
+    static int SetAnimationTime(lua_State* L);
+    static int SetAnimationNormalizedTime(lua_State* L);
+
+    static int AddAnimationNotify(lua_State* L);
+    static int RemoveAnimationNotify(lua_State* L);
+    static int ClearAnimationNotifies(lua_State* L);
+
     static int SetAnimEventHandler(lua_State* L);
     static int SetBoundsRadiusOverride(lua_State* L);
     static int GetBoundsRadiusOverride(lua_State* L);
