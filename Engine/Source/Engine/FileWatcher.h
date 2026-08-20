@@ -58,8 +58,11 @@ public:
     // Shutdown the file watcher
     void Shutdown();
 
-    // Add a directory to watch
-    bool WatchDirectory(const std::string& directory, bool recursive = true);
+    // Add a directory to watch. `extensions` filters which files emit events
+    // (case-sensitive, with leading dot); the default preserves the historical
+    // .lua-only behavior for every existing call site. Empty list = all files.
+    bool WatchDirectory(const std::string& directory, bool recursive = true,
+                        const std::vector<std::string>& extensions = { ".lua" });
 
     // Remove a directory from watching
     void UnwatchDirectory(const std::string& directory);
@@ -83,6 +86,7 @@ private:
     {
         std::string path;       // always ends in '/'
         bool recursive = true;
+        std::vector<std::string> extensions; // empty = every file
     };
 
     struct FileSnapshot
@@ -96,7 +100,8 @@ private:
     void ProcessEvents();
 
     // Worker-thread only. Walks a watched root, marking and diffing snapshots.
-    void ScanDirRecursive(const std::string& dir, bool recursive, std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth = 0);
+    void ScanDirRecursive(const std::string& dir, bool recursive, const std::vector<std::string>& extensions,
+                          std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth = 0);
     void QueueEvents(const std::vector<FileChangeEvent>& events);
 
     std::thread mWatcherThread;
@@ -137,6 +142,7 @@ void DestroyFileWatcher();
 // ---------------------------------------------------------------------------
 
 #include <string>
+#include <vector>
 
 enum class FileAction { Added, Modified, Removed, Renamed };
 
@@ -157,7 +163,8 @@ class FileWatcher
 public:
     bool Initialize()                                                       { return false; }
     void Shutdown()                                                         {}
-    bool WatchDirectory(const std::string&, bool = true)                    { return false; }
+    bool WatchDirectory(const std::string&, bool = true,
+                        const std::vector<std::string>& = {})               { return false; }
     void UnwatchDirectory(const std::string&)                               {}
     void UnwatchAll()                                                       {}
     void SetFileChangeCallback(FileChangeCallback)                          {}

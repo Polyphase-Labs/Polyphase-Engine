@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -239,6 +239,9 @@
     </Filter>
     <Filter Include="Source Files\Editor\ControllerServer">
       <UniqueIdentifier>{f6a7b8c9-0d1e-2f3a-4b5c-d6e7f8a9b0c1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Editor\CSharp">
+      <UniqueIdentifier>{b3f8a2c1-4e5d-4a6b-9c7e-8d1f2a3b4c5e}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files\Editor\Preferences\Network">
       <UniqueIdentifier>{a8b9c0d1-2e3f-4a5b-6c7d-e8f9a0b1c2d3}</UniqueIdentifier>
@@ -567,6 +570,9 @@
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Http_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LuaBindings\WebSocket_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp">
@@ -1154,6 +1160,21 @@
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp">
       <Filter>Source Files\Network</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketClient.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketFraming.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketHandshake.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketWss_Linux.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketWss_Windows.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\PaintManager.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -1420,6 +1441,9 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServer.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CSharp\CSharpManager.cpp">
+      <Filter>Source Files\Editor\CSharp</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\ControllerServer\ControllerServerRoutes.cpp">
       <Filter>Source Files\Editor\ControllerServer</Filter>
@@ -2433,6 +2457,9 @@
     <ClInclude Include="Source\LuaBindings\Http_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\WebSocket_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\Network_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
@@ -2509,6 +2536,21 @@
       <Filter>Source Files\Network</Filter>
     </ClInclude>
     <ClInclude Include="Source\Network\Network.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketClient.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketFraming.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketHandshake.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketTransport.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketTypes.h">
       <Filter>Source Files\Network</Filter>
     </ClInclude>
     <ClInclude Include="Source\Network\Http\HttpClient.h">
@@ -3011,6 +3053,9 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServer.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CSharp\CSharpManager.h">
+      <Filter>Source Files\Editor\CSharp</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ControllerServer\ControllerServerRoutes.h">
       <Filter>Source Files\Editor\ControllerServer</Filter>

@@ -27,7 +27,28 @@ SocketHandle NET_SocketCreateStream();
 bool         NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs);
 int32_t      NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size);
 
+// Begin a non-blocking connect on a stream socket. Returns false on immediate
+// failure. Poll with NET_SocketConnectPoll each frame. The socket is left
+// non-blocking afterwards, which is what a per-frame pump (WebSocket) wants -
+// NET_SocketConnect above is the blocking-with-timeout variant and restores
+// blocking mode, so worker-thread callers should keep using that one.
+bool         NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port);
+
+// -1 = failed, 0 = still connecting, 1 = connected.
+int32_t      NET_SocketConnectPoll(SocketHandle socketHandle);
+
+// Classify a negative NET_SocketSend / NET_SocketRecv result. A non-blocking
+// stream socket returns a negative count both when it is merely out of data
+// and when the connection is dead, and there is no portable way to tell those
+// apart from the count alone. Pass the value the call returned - libogc
+// reports the error in the return value while the BSD platforms use errno /
+// WSAGetLastError. True means "still healthy, just nothing to do".
+bool         NET_SocketWouldBlock(SocketHandle socketHandle, int32_t opResult);
+
 // Synchronous DNS resolve. Returns 0 on failure. Hostname may be a literal IP.
+// NOTE: this blocks. Callers that pump per frame should either connect at a
+// moment where a stall is acceptable (menu / level load) or pass a numeric IP,
+// which bypasses the resolver on every platform.
 uint32_t     NET_ResolveHost(const char* hostname);
 
 uint32_t NET_IpStringToUint32(const char* ipString);

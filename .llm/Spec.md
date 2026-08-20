@@ -62,6 +62,7 @@ polyphase-engine/
 | Loading Menu | [LoadingMenu.md](LoadingMenu.md) | `Engine/Source/Engine/LoadingMenu.{h,cpp}` | Scene-overlay loading screen orchestrator: persistent menu node, queued root swap, `Loading.*` SignalBus channels, AppSettings min-display + timeout |
 | Skeletal Animation | [SkeletalAnimation.md](SkeletalAnimation.md) | `Engine/Source/Engine/Assets/SkeletalMesh.{h,cpp}`, `SkeletalAnimationAsset.{h,cpp}`, `HumanoidAvatarAsset.{h,cpp}` | Multi-section skinned meshes with per-section materials; reusable bone-animation clip assets; Mecanim-style humanoid avatars; tier-1 name-remap + tier-2 world-space retarget bake pipeline |
 | Bone Mask Layering | [BoneMask.md](BoneMask.md) | `Engine/Source/Engine/Assets/BoneMaskAsset.{h,cpp}`, `Engine/Source/Engine/Nodes/3D/SkeletalMesh3d.{h,cpp}`, `Engine/Source/Editor/BoneMaskEditor/` | Per-bone subtree masks, 8-slot layered playback with Replace + Additive modes, smooth weight fades, editor bone-tree picker with live 3D preview |
+| Bone Sockets | [BoneSockets.md](BoneSockets.md) | `Engine/Source/Engine/Assets/SkeletalMesh.{h,cpp}`, `Engine/Source/Engine/Nodes/3D/Node3d.{h,cpp}` | Named bone+offset attachment points on a rig; name-keyed `Attach Socket` on Node3D; runtime socket swap (weapon draw/sheathe); animation-time queries and normalized-time notifies. Also fixes the bone-attached gizmo scale blow-up |
 
 ## Key Entry Points
 
@@ -120,7 +121,7 @@ Editor builds define `EDITOR=1`; game builds define `EDITOR=0`.
 
 ## Asset Versioning
 
-Current: `ASSET_VERSION_CURRENT = 36`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions), v35 (MaterialLite UV source), v36 (SkeletalMesh sections). See [AssetSystem.md](AssetSystem.md).
+Current: `ASSET_VERSION_CURRENT = 39`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions), v35 (MaterialLite UV source), v36 (SkeletalMesh sections), v37 (bone masks), v38 (SoundWave streaming), v39 (bone sockets + widened scene bone index). See [AssetSystem.md](AssetSystem.md).
 
 ## Maintenance
 

@@ -6,6 +6,7 @@
 #include "Engine.h"
 #include "Log.h"
 #include "System/System.h"
+#include "CSharp/CSharpManager.h"
 #include "../PlayerInputEditor.h"
 #include "../PlayerInputDebugger.h"
 
@@ -306,6 +307,45 @@ void AppSettingsWindow::DrawRuntimeSection()
     {
         SetScriptHotReloadEnabled(hotReloadEnabled);
         changed = true;
+    }
+
+    // Enabling scaffolds Scripts/CSharp (Game.csproj + sample) and probes for the
+    // .NET SDK; EnableForProject writes Config.ini itself so the flag sticks even
+    // if the window is closed without Save. Disabling only stops future
+    // transpiles — generated .lua stay in place and keep working.
+    bool csharpEnabled = config->mCSharpScripting;
+    if (Polyphase::Checkbox("C# Scripting", &csharpEnabled))
+    {
+        if (csharpEnabled)
+        {
+            CSharpManager::Get()->EnableForProject();
+        }
+        else
+        {
+            config->mCSharpScripting = false;
+        }
+        changed = true;
+    }
+    if (config->mCSharpScripting)
+    {
+        std::string dotnetVersion;
+        if (!CSharpManager::Get()->CheckDotnet(&dotnetVersion))
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                ".NET SDK 8+ not found");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Install"))
+            {
+#if PLATFORM_WINDOWS
+                SYS_ExecDetached(CSharpManager::GetDotnetInstallCommand());
+#else
+                std::string openUrl = std::string("xdg-open \"") + CSharpManager::GetDotnetInstallUrl() + "\"";
+                SYS_ExecDetached(openUrl.c_str());
+#endif
+                LogDebug("[CSharp] running: %s — use Tools > CSharp > Check Dependencies to re-probe when done.",
+                    CSharpManager::GetDotnetInstallCommand());
+            }
+        }
     }
 
     if (Polyphase::Checkbox("Use Asset Registry", &config->mUseAssetRegistry))

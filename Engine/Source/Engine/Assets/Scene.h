@@ -27,7 +27,12 @@ struct SceneNodeDef
     std::vector<Property> mProperties;
     std::vector<uint8_t> mExtraData;
     std::vector<SubSceneOverride> mSubSceneOverrides;
-    int8_t mParentBone = -1;
+    // Legacy bone attachment. Was int8_t, which silently corrupted any rig with
+    // more than 127 bones (routine once fingers and twist bones are present).
+    // Widened at ASSET_VERSION_BONE_SOCKETS. New content carries the attachment
+    // in Node3D's "Attach Socket" string property instead; this is kept so old
+    // scenes still load and so index-only attachments keep working.
+    int32_t mParentBone = -1;
     bool mExposeVariable = false;
     uint64_t mPersistentUuid = 0;
 };

@@ -2169,19 +2169,16 @@ bool NativeAddonManager::StageShadowCopy(const std::string& sourceModulePath,
                                          std::string& outShadowModulePath,
                                          std::string& outError)
 {
-    // Make sure the destination tree exists. SYS_CreateDirectory only creates
-    // a single level; walk and create intermediate components.
+    // Make sure the destination tree exists. CreateDirectoryRecursive skips
+    // components that already exist and refuses to mkdir a bare drive root --
+    // the hand-rolled prefix walk this replaced did both on every launch,
+    // producing a "_mkdir error: Permission denied" plus a run of "File
+    // exists" warnings per addon at startup. It also ignored every failure, so
+    // an uncreatable shadow dir surfaced later as a confusing copy error.
+    if (!CreateDirectoryRecursive(shadowDir))
     {
-        std::string path;
-        for (size_t i = 0; i < shadowDir.size(); ++i)
-        {
-            char c = shadowDir[i];
-            path.push_back(c);
-            if ((c == '/' || c == '\\') && path.size() > 1)
-            {
-                SYS_CreateDirectory(path.c_str());
-            }
-        }
+        outError = "could not create shadow dir " + shadowDir;
+        return false;
     }
 
     // Destination DLL path (same basename inside shadow dir).

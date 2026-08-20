@@ -42,6 +42,28 @@ public:
     /** @brief Use internal editor (WIP, non-functional) */
     bool mUseInternalEditor = false;
 
+    enum class CSharpIde : int
+    {
+        VisualStudio = 0,  // opens Game.sln via the OS association (default)
+        VSCode = 1,        // opens the Scripts/CSharp FOLDER via the `code` CLI
+        Custom = 2,        // user-supplied executable + args
+    };
+
+    /** @brief Which IDE "Open C# Solution" launches. */
+    int mCSharpIde = (int)CSharpIde::VisualStudio;
+
+    /** @brief Custom C# IDE executable (CSharpIde::Custom only). */
+    std::string mCSharpIdePath;
+
+    /** @brief Custom C# IDE args. Supports: {editor}, {solution}, {project}, {folder} */
+    std::string mCSharpIdeArgs = "{editor} {folder}";
+
+    /**
+     * @brief Open the project's C# workspace in the configured IDE.
+     * @param csharpDir Full path to <Project>/Scripts/CSharp
+     */
+    void OpenCSharpWorkspace(const std::string& csharpDir);
+
     /** @brief Check if a Lua editor path is configured. */
     bool IsLuaEditorConfigured() const;
 

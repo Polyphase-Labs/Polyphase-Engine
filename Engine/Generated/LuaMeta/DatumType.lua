@@ -12,6 +12,7 @@ DatumType = {
     Asset = 0,
     Byte = 0,
     Table = 0,
+    Function = 0,
     Node = 0,
     Node3D = 0,
     Audio3D = 0,

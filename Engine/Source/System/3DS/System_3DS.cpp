@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <malloc.h>
 #include <cstring>
+#include <cerrno>
 
 #define ENABLE_SYSTEM_CONSOLE 0
 
@@ -229,7 +230,17 @@ void SYS_SetWorkingDirectory(const std::string& dirPath)
 
 bool SYS_CreateDirectory(const char* dirPath)
 {
-    return (mkdir(dirPath, 0777) == 0);
+    int32_t ret = mkdir(dirPath, 0777);
+
+    // EEXIST is never actionable -- nearly every caller uses this as "ensure
+    // it exists" and ignores the return. Anything else is worth surfacing,
+    // but only with the path attached.
+    if (ret < 0 && errno != EEXIST)
+    {
+        LogWarning("mkdir failed for '%s': %s", dirPath, strerror(errno));
+    }
+
+    return (ret == 0);
 }
 
 void SYS_RemoveDirectory(const char* dirPath)
@@ -254,8 +265,12 @@ void SYS_OpenDirectory(const std::string& dirPath, DirEntry& outDirEntry)
     outDirEntry.mDir = opendir(dirPath.c_str());
     if (outDirEntry.mDir == nullptr)
     {
-        LogError("Could not open directory.");
-        closedir(outDirEntry.mDir);
+        // Directory does not exist or cannot be opened -- not an error, the
+        // caller checks mValid. Startup speculatively probes several optional
+        // dirs (Packages/, Scripts/, the console engine-content fallback) that
+        // are expected to miss, so logging here spammed an error every boot.
+        // No closedir() either: opendir failed, there is no handle to release
+        // and closedir(nullptr) is undefined behaviour on newlib.
         return;
     }
 

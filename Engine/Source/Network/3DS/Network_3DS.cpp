@@ -8,6 +8,9 @@
 #include <malloc.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 #include <3ds.h>
 
@@ -82,6 +85,66 @@ bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port
 
     int32_t rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
     return rc == 0;
+}
+
+bool NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
+{
+    if (socketHandle < 0) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    // soc:u honours FIONBIO, which is what NET_SocketSetBlocking already uses
+    // on this platform - prefer it over fcntl, whose newlib shim is thinner.
+    int32_t nonBlocking = 1;
+    ioctl(socketHandle, FIONBIO, &nonBlocking);
+
+    const int32_t rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    if (rc == 0)
+    {
+        return true;
+    }
+
+    return errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK;
+}
+
+int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
+{
+    if (socketHandle < 0) return -1;
+
+    fd_set wfds;
+    fd_set efds;
+    FD_ZERO(&wfds);
+    FD_SET(socketHandle, &wfds);
+    FD_ZERO(&efds);
+    FD_SET(socketHandle, &efds);
+
+    struct timeval tv = {};
+    const int32_t sel = select(socketHandle + 1, nullptr, &wfds, &efds, &tv);
+    if (sel < 0)  return (errno == EINTR) ? 0 : -1;
+    if (sel == 0) return 0;
+
+    if (FD_ISSET(socketHandle, &efds))
+    {
+        return -1;
+    }
+
+    if (FD_ISSET(socketHandle, &wfds))
+    {
+        int32_t soErr = 0;
+        socklen_t soErrLen = sizeof(soErr);
+        getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen);
+        return (soErr == 0) ? 1 : -1;
+    }
+
+    return 0;
+}
+
+bool NET_SocketWouldBlock(SocketHandle, int32_t)
+{
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
 }
 
 int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)

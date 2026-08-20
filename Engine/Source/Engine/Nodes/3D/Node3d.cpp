@@ -11,6 +11,12 @@
 
 #include "Nodes/3D/SkeletalMesh3d.h"
 
+#if EDITOR
+#include "Gizmos.h"
+#include "ActionManager.h"
+#include "imgui.h"
+#endif
+
 FORCE_LINK_DEF(Node3D);
 DEFINE_NODE(Node3D, Node);
 
@@ -40,6 +46,21 @@ bool HandleTransformPropChange(Datum* datum, uint32_t index, const void* newValu
     transformComp->MarkTransformDirty();
 
     return success;
+}
+
+bool HandleAttachSocketPropChange(Datum* datum, uint32_t index, const void* newValue)
+{
+    Property* prop = static_cast<Property*>(datum);
+    OCT_ASSERT(prop != nullptr);
+    Node3D* node3d = static_cast<Node3D*>(prop->mOwner);
+
+    // Returning true tells Datum we've written the value ourselves -- which we
+    // have, via SetAttachSocket(), so the resolve cache gets invalidated and the
+    // transform re-dirtied. Letting Datum blind-write the string would leave a
+    // stale bone index behind.
+    node3d->SetAttachSocket(((const std::string*)newValue)->c_str());
+
+    return true;
 }
 
 bool Node3D::OnRep_RootPosition(Datum* datum, uint32_t index, const void* newValue)
@@ -131,6 +152,7 @@ void Node3D::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Vector, "Rotation", this, &mRotationEuler, 1, HandleTransformPropChange));
     outProps.push_back(Property(DatumType::Vector, "Scale", this, &mScale, 1, HandleTransformPropChange));
     outProps.push_back(Property(DatumType::Bool, "Inherit Transform", this, &mInheritTransform));
+    outProps.push_back(Property(DatumType::String, "Attach Socket", this, &mAttachSocket, 1, HandleAttachSocketPropChange));
 }
 
 void Node3D::GatherReplicatedData(std::vector<NetDatum>& outData)
@@ -165,12 +187,129 @@ void Node3D::AttachToBone(SkeletalMesh3D* parent, int32_t boneIndex, bool keepWo
     }
 
     Attach(parent, keepWorldTransform, childIndex);
+
     mParentBoneIndex = boneIndex;
+    mAttachSocketIndex = -1;
+
+    // Record the bone NAME so the attachment round-trips through a scene save and
+    // survives a mesh reimport that reorders bones. The index above stays as the
+    // already-resolved cache, so this costs nothing at runtime.
+    SkeletalMesh* mesh = (parent != nullptr) ? parent->GetSkeletalMesh() : nullptr;
+    if (mesh != nullptr && boneIndex >= 0 && boneIndex < int32_t(mesh->GetNumBones()))
+    {
+        mAttachSocket = mesh->GetBone(boneIndex).mName;
+    }
+    else
+    {
+        mAttachSocket.clear();
+    }
+
+    mAttachResolved = true;
 
     if (keepWorldTransform)
     {
         SetTransform(origWorldTransform);
     }
+}
+
+void Node3D::AttachToSocket(SkeletalMesh3D* parent, const char* socketName, bool keepWorldTransform, int32_t childIndex)
+{
+    glm::mat4 origWorldTransform;
+    if (keepWorldTransform)
+    {
+        origWorldTransform = GetTransform();
+    }
+
+    Attach(parent, keepWorldTransform, childIndex);
+
+    mAttachSocket = (socketName != nullptr) ? socketName : "";
+    InvalidateAttachSocket();
+
+    if (keepWorldTransform)
+    {
+        SetTransform(origWorldTransform);
+    }
+}
+
+void Node3D::SetAttachSocket(const char* socketName)
+{
+    const char* newName = (socketName != nullptr) ? socketName : "";
+
+    if (mAttachSocket == newName)
+    {
+        return;
+    }
+
+    mAttachSocket = newName;
+    InvalidateAttachSocket();
+    MarkTransformDirty();
+}
+
+const std::string& Node3D::GetAttachSocket() const
+{
+    return mAttachSocket;
+}
+
+void Node3D::InvalidateAttachSocket()
+{
+    mAttachResolved = false;
+    mParentBoneIndex = -1;
+    mAttachSocketIndex = -1;
+}
+
+void Node3D::ResolveAttachSocket()
+{
+    if (mAttachResolved)
+    {
+        return;
+    }
+
+    mParentBoneIndex = -1;
+    mAttachSocketIndex = -1;
+
+    if (mAttachSocket.empty() || mParent == nullptr)
+    {
+        // Nothing to resolve, but don't latch mAttachResolved -- the parent may
+        // not have had its mesh assigned yet during scene instantiation.
+        mAttachResolved = mAttachSocket.empty();
+        return;
+    }
+
+    SkeletalMesh3D* skComp = mParent->As<SkeletalMesh3D>();
+    SkeletalMesh* mesh = (skComp != nullptr) ? skComp->GetSkeletalMesh() : nullptr;
+
+    if (mesh == nullptr)
+    {
+        return;
+    }
+
+    // Sockets win over bones on a name collision -- a socket is the more
+    // specific, deliberately authored thing.
+    int32_t socketIndex = mesh->FindSocketIndex(mAttachSocket);
+
+    if (socketIndex != -1)
+    {
+        mAttachSocketIndex = socketIndex;
+        mParentBoneIndex = mesh->FindBoneIndex(mesh->GetSocket(socketIndex).mBoneName);
+
+        if (mParentBoneIndex == -1)
+        {
+            LogWarning("Socket '%s' references missing bone '%s'",
+                mAttachSocket.c_str(), mesh->GetSocket(socketIndex).mBoneName.c_str());
+        }
+    }
+    else
+    {
+        mParentBoneIndex = mesh->FindBoneIndex(mAttachSocket);
+
+        if (mParentBoneIndex == -1)
+        {
+            LogWarning("Node '%s' is attached to '%s', which is not a socket or bone on the parent mesh",
+                GetName().c_str(), mAttachSocket.c_str());
+        }
+    }
+
+    mAttachResolved = true;
 }
 
 void Node3D::MarkTransformDirty()
@@ -335,6 +474,118 @@ void Node3D::OnDrawGizmosSelected()
     {
         script->CallFunction("OnDrawGizmosSelected");
     }
+
+    // Draw this mesh's sockets as RGB axes so their authored offsets are visible
+    // while placing props. Gizmos are immediate-mode and already gated on
+    // selection by the renderer, so there's no lifetime bookkeeping here.
+    SkeletalMesh3D* skComp = As<SkeletalMesh3D>();
+    SkeletalMesh* mesh = (skComp != nullptr) ? skComp->GetSkeletalMesh() : nullptr;
+
+    if (mesh != nullptr)
+    {
+        const float axisLength = 0.25f;
+
+        for (uint32_t i = 0; i < mesh->GetNumSockets(); ++i)
+        {
+            glm::mat4 socketTransform = skComp->GetSocketTransform(mesh->GetSocket(i).mName);
+            glm::vec3 origin = Maths::ExtractPosition(socketTransform);
+
+            // Direction columns, normalized so socket scale doesn't change the
+            // on-screen size of the marker.
+            glm::vec3 axisX = Maths::SafeNormalize(glm::vec3(socketTransform[0]));
+            glm::vec3 axisY = Maths::SafeNormalize(glm::vec3(socketTransform[1]));
+            glm::vec3 axisZ = Maths::SafeNormalize(glm::vec3(socketTransform[2]));
+
+            Gizmos::SetColor(glm::vec4(1.0f, 0.2f, 0.2f, 1.0f));
+            Gizmos::DrawLine(origin, origin + axisX * axisLength);
+            Gizmos::SetColor(glm::vec4(0.2f, 1.0f, 0.2f, 1.0f));
+            Gizmos::DrawLine(origin, origin + axisY * axisLength);
+            Gizmos::SetColor(glm::vec4(0.2f, 0.4f, 1.0f, 1.0f));
+            Gizmos::DrawLine(origin, origin + axisZ * axisLength);
+        }
+
+        Gizmos::ResetState();
+    }
+}
+
+bool Node3D::DrawCustomProperty(Property& prop)
+{
+    if (prop.mName != "Attach Socket")
+        return false;
+
+    // A String property gets no mEnumStrings combo path in the inspector, so the
+    // socket/bone list has to be drawn here. Only meaningful under a skeletal
+    // mesh parent, so hide the row entirely otherwise -- an always-present text
+    // box on every Node3D would be noise.
+    SkeletalMesh3D* parentSk = (mParent != nullptr) ? mParent->As<SkeletalMesh3D>() : nullptr;
+    SkeletalMesh* mesh = (parentSk != nullptr) ? parentSk->GetSkeletalMesh() : nullptr;
+
+    if (parentSk == nullptr)
+    {
+        return true;
+    }
+
+    ImGui::Text("Attach Socket");
+
+    const char* preview = mAttachSocket.empty() ? "(None)" : mAttachSocket.c_str();
+
+    // Route assignments through ActionManager so the change is undoable and
+    // multi-select works. The property's change handler calls SetAttachSocket(),
+    // which is what actually invalidates the resolve cache.
+    std::string newSocket;
+    bool changed = false;
+
+    if (ImGui::BeginCombo("##AttachSocket", preview))
+    {
+        if (ImGui::Selectable("(None)", mAttachSocket.empty()))
+        {
+            newSocket = "";
+            changed = true;
+        }
+
+        if (mesh != nullptr)
+        {
+            // Sockets first -- they're the intended attach targets. Bones stay
+            // available for one-off placements that don't warrant a socket.
+            if (mesh->GetNumSockets() > 0)
+            {
+                ImGui::SeparatorText("Sockets");
+
+                for (uint32_t i = 0; i < mesh->GetNumSockets(); ++i)
+                {
+                    const std::string& name = mesh->GetSocket(i).mName;
+                    if (ImGui::Selectable(name.c_str(), mAttachSocket == name))
+                    {
+                        newSocket = name;
+                        changed = true;
+                    }
+                }
+            }
+
+            ImGui::SeparatorText("Bones");
+
+            const std::vector<Bone>& bones = mesh->GetBones();
+            for (uint32_t i = 0; i < bones.size(); ++i)
+            {
+                ImGui::PushID(int(i));
+                if (ImGui::Selectable(bones[i].mName.c_str(), mAttachSocket == bones[i].mName))
+                {
+                    newSocket = bones[i].mName;
+                    changed = true;
+                }
+                ImGui::PopID();
+            }
+        }
+
+        ImGui::EndCombo();
+    }
+
+    if (changed)
+    {
+        ActionManager::Get()->EXE_EditProperty(this, PropertyOwnerType::Node, "Attach Socket", 0, newSocket);
+    }
+
+    return true;
 }
 #endif
 
@@ -507,15 +758,12 @@ void Node3D::SetWorldRotation(glm::quat rotation)
     // Convert the world rotation to relative rotation
     if (mParent != nullptr && mParent->IsNode3D() && mInheritTransform)
     {
-        Node3D* parent = static_cast<Node3D*>(mParent.Get());
-        glm::quat parentWorldRot = parent->GetWorldRotationQuat();
-
-        if (mParentBoneIndex != -1 &&
-            mParent->GetType() == SkeletalMesh3D::GetStaticType())
-        {
-            SkeletalMesh3D* skComp = (SkeletalMesh3D*) parent;
-            parentWorldRot = parentWorldRot * skComp->GetBoneRotationQuat(mParentBoneIndex);
-        }
+        // Derive the parent basis from the same source UpdateTransform and
+        // SetWorldPosition use. The previous code multiplied the parent's world
+        // rotation by GetBoneRotationQuat(), but that getter already bakes in the
+        // mesh node's own world matrix -- so the character's rotation was applied
+        // twice. Harmless at identity rotation, wrong as soon as it turns.
+        glm::quat parentWorldRot = Maths::ExtractRotation(GetParentTransform());
 
         newRelativeRot = glm::inverse(parentWorldRot) * rotation;
     }
@@ -532,20 +780,20 @@ void Node3D::SetWorldScale(glm::vec3 scale)
 {
     if (mParent != nullptr && mParent->IsNode3D() && mInheritTransform)
     {
-#if 0
-        // Old code that was causing some problems.
-        glm::mat4 invParentTrans = glm::inverse(GetParentTransform());
-        glm::vec4 scale4 = glm::vec4(scale, 0.0f);
-        glm::vec4 relScale4 = invParentTrans * scale4;
-        SetScale(glm::vec3(relScale4.x, relScale4.y, relScale4.z));
-#else
-        glm::vec3 parentScale = static_cast<Node3D*>(mParent.Get())->GetWorldScale();
+        // Must use GetParentTransform(), not the parent's world scale. When this
+        // node is bone-attached the parent basis includes the bone matrix (which
+        // carries the mesh's inverse root transform -- a 100x unit conversion on
+        // Mixamo rigs). Dividing by the parent node's scale alone leaves that
+        // factor baked into the relative scale, and since the gizmo re-applies
+        // SetTransform every frame of a drag it compounds: the node explodes.
+        // For a non-bone-attached node GetParentTransform() is exactly the
+        // parent's world matrix, so this matches the previous behaviour.
+        glm::vec3 parentScale = Maths::ExtractScale(GetParentTransform());
         glm::vec3 relScale;
         relScale.x = (parentScale.x != 0.0f) ? scale.x / parentScale.x : 0.0f;
         relScale.y = (parentScale.y != 0.0f) ? scale.y / parentScale.y : 0.0f;
         relScale.z = (parentScale.z != 0.0f) ? scale.z / parentScale.z : 0.0f;
         SetScale(relScale);
-#endif
     }
     else
     {
@@ -692,24 +940,37 @@ glm::mat4 Node3D::GetParentTransform()
 {
     glm::mat4 transform(1);
 
+    ResolveAttachSocket();
+
     if (mParent != nullptr && mParent->IsNode3D())
     {
         Node3D* parent3d = static_cast<Node3D*>(mParent.Get());
-        if (mParentBoneIndex == -1)
-        {
-            transform = parent3d->GetTransform();
-        }
-        else if (mParent->GetType() == SkeletalMesh3D::GetStaticType())
-        {
-            SkeletalMesh3D* skComp = (SkeletalMesh3D*)parent3d;
 
-            if (mParentBoneIndex >= 0 &&
-                mParentBoneIndex < int32_t(skComp->GetNumBones()) &&
-                skComp->GetSkeletalMesh() != nullptr)
+        // Always seed from the parent's world transform. The bone term below is
+        // an additional factor, not an alternative -- falling through to identity
+        // when the bone can't be resolved would teleport this node to the origin.
+        transform = parent3d->GetTransform();
+
+        if (mParentBoneIndex != -1)
+        {
+            // As<> rather than an exact GetType() compare so SkeletalMesh3D
+            // subclasses still drive their attached children.
+            SkeletalMesh3D* skComp = mParent->As<SkeletalMesh3D>();
+            SkeletalMesh* mesh = (skComp != nullptr) ? skComp->GetSkeletalMesh() : nullptr;
+
+            if (mesh != nullptr &&
+                mParentBoneIndex < int32_t(skComp->GetNumBones()))
             {
-                transform = parent3d->GetTransform() *
+                transform = transform *
                     skComp->GetBoneTransform(mParentBoneIndex) *
-                    skComp->GetSkeletalMesh()->GetBone(mParentBoneIndex).mInvOffsetMatrix;
+                    mesh->GetBone(mParentBoneIndex).mInvOffsetMatrix;
+
+                // A named socket adds a constant offset on top of the bone.
+                if (mAttachSocketIndex >= 0 &&
+                    mAttachSocketIndex < int32_t(mesh->GetNumSockets()))
+                {
+                    transform = transform * mesh->GetSocketLocalMatrix(mAttachSocketIndex);
+                }
             }
         }
     }
@@ -755,7 +1016,11 @@ void Node3D::Attach(Node* parent, bool keepWorldTransform, int32_t index)
         }
     }
 
-    mParentBoneIndex = -1;
+    // Reparenting drops any bone/socket attachment. AttachToBone / AttachToSocket
+    // re-apply theirs immediately after calling this.
+    mAttachSocket.clear();
+    InvalidateAttachSocket();
+    mAttachResolved = true;
 
     // Attach to new parent
     if (parent != nullptr)
@@ -776,5 +1041,9 @@ void Node3D::Attach(Node* parent, bool keepWorldTransform, int32_t index)
 void Node3D::SetParent(Node* parent)
 {
     Node::SetParent(parent);
+
+    // The cached bone/socket indices belong to the old parent's mesh.
+    InvalidateAttachSocket();
+
     MarkTransformDirty();
 }

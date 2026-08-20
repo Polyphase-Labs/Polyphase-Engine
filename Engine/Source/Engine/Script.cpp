@@ -244,6 +244,13 @@ void Script::GatherScriptProperties()
                                 newProp.mDisplayName = lua_tostring(L, -1);
                             }
                             lua_pop(L, 1);
+
+                            lua_getfield(L, propIdx, "tooltip");
+                            if (lua_isstring(L, -1))
+                            {
+                                newProp.mTooltip = lua_tostring(L, -1);
+                            }
+                            lua_pop(L, 1);
 #endif
 
                             newProp.mOwner = this;

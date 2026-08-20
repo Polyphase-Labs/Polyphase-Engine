@@ -38,9 +38,22 @@ static int64_t GetFileModTime(const std::string& path)
     return (int64_t)st.st_mtime;
 }
 
-static bool HasLuaExtension(const std::string& path)
+static bool MatchesExtensions(const std::string& path, const std::vector<std::string>& extensions)
 {
-    return path.size() >= 4 && path.compare(path.size() - 4, 4, ".lua") == 0;
+    if (extensions.empty())
+    {
+        return true;
+    }
+    for (uint32_t i = 0; i < extensions.size(); ++i)
+    {
+        const std::string& ext = extensions[i];
+        if (path.size() >= ext.size() &&
+            path.compare(path.size() - ext.size(), ext.size(), ext) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 static FileWatcher* sFileWatcher = nullptr;
@@ -137,7 +150,8 @@ static std::string NormalizeWatchPath(const std::string& directory)
     return path;
 }
 
-bool FileWatcher::WatchDirectory(const std::string& directory, bool recursive)
+bool FileWatcher::WatchDirectory(const std::string& directory, bool recursive,
+                                 const std::vector<std::string>& extensions)
 {
     if (!mRunning)
     {
@@ -159,6 +173,7 @@ bool FileWatcher::WatchDirectory(const std::string& directory, bool recursive)
             if (mWatchDirs[i].path == path)
             {
                 mWatchDirs[i].recursive = recursive;
+                mWatchDirs[i].extensions = extensions;
                 return true;
             }
         }
@@ -166,6 +181,7 @@ bool FileWatcher::WatchDirectory(const std::string& directory, bool recursive)
         WatchDir watchDir;
         watchDir.path = path;
         watchDir.recursive = recursive;
+        watchDir.extensions = extensions;
         mWatchDirs.push_back(watchDir);
     }
 
@@ -265,7 +281,7 @@ void FileWatcher::WatcherThread()
 
             for (uint32_t i = 0; i < watchDirs.size() && mRunning; ++i)
             {
-                ScanDirRecursive(watchDirs[i].path, watchDirs[i].recursive, events, rebaseline);
+                ScanDirRecursive(watchDirs[i].path, watchDirs[i].recursive, watchDirs[i].extensions, events, rebaseline);
             }
 
             if (mRunning)
@@ -301,7 +317,8 @@ void FileWatcher::WatcherThread()
     }
 }
 
-void FileWatcher::ScanDirRecursive(const std::string& dir, bool recursive, std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth)
+void FileWatcher::ScanDirRecursive(const std::string& dir, bool recursive, const std::vector<std::string>& extensions,
+                                   std::vector<FileChangeEvent>& outEvents, bool rebaseline, uint32_t depth)
 {
     // A symlinked directory pointing back at an ancestor would otherwise spin
     // this worker forever while mSnapshots grows without bound. No real Scripts
@@ -333,10 +350,10 @@ void FileWatcher::ScanDirRecursive(const std::string& dir, bool recursive, std::
             {
                 if (recursive)
                 {
-                    ScanDirRecursive(path + "/", true, outEvents, rebaseline, depth + 1);
+                    ScanDirRecursive(path + "/", true, extensions, outEvents, rebaseline, depth + 1);
                 }
             }
-            else if (HasLuaExtension(path))
+            else if (MatchesExtensions(path, extensions))
             {
                 const int64_t modTime = GetFileModTime(path);
                 auto it = mSnapshots.find(path);

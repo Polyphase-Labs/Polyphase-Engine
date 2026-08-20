@@ -55,6 +55,7 @@ Property::Property(const Property& src) :
     mName = src.mName;
 #if EDITOR
     mDisplayName = src.mDisplayName;
+    mTooltip = src.mTooltip;
 #endif
 
     mVector = src.mVector;
@@ -83,6 +84,7 @@ Property& Property::operator=(const Property& src)
         mName = src.mName;
 #if EDITOR
         mDisplayName = src.mDisplayName;
+        mTooltip = src.mTooltip;
 #endif
         // Other Property-owned members (mExtra, mVector, mMinCount/Max,
         // mIsVector, mEnumCount, mEnumStrings) are handled by Property::DeepCopy,

@@ -53,7 +53,7 @@ private:
     // Create New Project state
     char mProjectNameBuffer[256] = {};
     char mProjectPathBuffer[512] = {};
-    int mProjectType = 0;  // 0 = Lua, 1 = C++
+    int mProjectType = 0;  // 0 = Lua, 1 = C++ (hidden in UI), 2 = C#
     bool mInitGitRepo = false;
     int mSelectedTemplateIndex = -1;
 

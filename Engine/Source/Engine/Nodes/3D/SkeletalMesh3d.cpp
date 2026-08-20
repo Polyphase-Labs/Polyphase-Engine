@@ -139,6 +139,12 @@ void SkeletalMesh3D::Destroy()
     // destruction, this is just a safety net if the mesh outlives that contract.
     mPoseModifiers.clear();
 
+    // Notify callbacks are Lua refs that typically capture this node. Release
+    // them here rather than waiting on the destructor so the refs don't outlive
+    // the node they close over.
+    mAnimationNotifies.clear();
+    mPendingNotifies.clear();
+
     GFX_DestroySkeletalMeshCompResource(this);
 
     Mesh3D::Destroy();
@@ -641,6 +647,205 @@ std::vector<ActiveAnimation>& SkeletalMesh3D::GetActiveAnimations()
     return mActiveAnimations;
 }
 
+float SkeletalMesh3D::GetAnimationTime(const char* animName) const
+{
+    for (uint32_t i = 0; i < mActiveAnimations.size(); ++i)
+    {
+        if (mActiveAnimations[i].mName == animName)
+        {
+            return mActiveAnimations[i].mTime;
+        }
+    }
+
+    return -1.0f;
+}
+
+float SkeletalMesh3D::GetAnimationDurationSeconds(const char* animName)
+{
+    const Animation* anim = FindAnimation(animName);
+
+    if (anim != nullptr && anim->mTicksPerSecond != 0.0f)
+    {
+        return anim->mDuration / anim->mTicksPerSecond;
+    }
+
+    return 0.0f;
+}
+
+float SkeletalMesh3D::GetAnimationNormalizedTime(const char* animName)
+{
+    float time = GetAnimationTime(animName);
+
+    if (time < 0.0f)
+    {
+        return -1.0f;
+    }
+
+    float duration = GetAnimationDurationSeconds(animName);
+
+    return (duration > 0.0f) ? glm::clamp(time / duration, 0.0f, 1.0f) : 0.0f;
+}
+
+void SkeletalMesh3D::SetAnimationTime(const char* animName, float seconds)
+{
+    ActiveAnimation* active = FindActiveAnimation(animName);
+
+    if (active != nullptr)
+    {
+        active->mTime = seconds;
+    }
+}
+
+void SkeletalMesh3D::SetAnimationNormalizedTime(const char* animName, float normalizedTime)
+{
+    SetAnimationTime(animName, glm::clamp(normalizedTime, 0.0f, 1.0f) * GetAnimationDurationSeconds(animName));
+}
+
+int32_t SkeletalMesh3D::AddAnimationNotify(const char* animName, float normalizedTime, const ScriptFunc& callback)
+{
+    if (animName == nullptr || !callback.IsValid())
+    {
+        return -1;
+    }
+
+    AnimationNotify notify;
+    notify.mAnimName = animName;
+    notify.mNormalizedTime = glm::clamp(normalizedTime, 0.0f, 1.0f);
+    notify.mCallback = callback;
+    notify.mHandle = mNextNotifyHandle++;
+
+    mAnimationNotifies.push_back(notify);
+
+    WarnIfNotifiesCantFire();
+
+    return notify.mHandle;
+}
+
+void SkeletalMesh3D::RemoveAnimationNotify(int32_t handle)
+{
+    for (uint32_t i = 0; i < mAnimationNotifies.size(); ++i)
+    {
+        if (mAnimationNotifies[i].mHandle == handle)
+        {
+            mAnimationNotifies.erase(mAnimationNotifies.begin() + i);
+            break;
+        }
+    }
+}
+
+void SkeletalMesh3D::ClearAnimationNotifies(const char* animName)
+{
+    if (animName == nullptr)
+    {
+        mAnimationNotifies.clear();
+        return;
+    }
+
+    for (int32_t i = int32_t(mAnimationNotifies.size()) - 1; i >= 0; --i)
+    {
+        if (mAnimationNotifies[i].mAnimName == animName)
+        {
+            mAnimationNotifies.erase(mAnimationNotifies.begin() + i);
+        }
+    }
+}
+
+void SkeletalMesh3D::WarnIfNotifiesCantFire()
+{
+    // Under the default OnlyUpdateWhenRendered, UpdateAnimation is never called
+    // for an off-screen mesh -- time doesn't advance, so notifies never fire and
+    // an off-screen character "draws" a sword that stays on its back. Gameplay
+    // beats need the time to keep running regardless of visibility.
+    if (!mWarnedNotifyUpdateMode &&
+        !mAnimationNotifies.empty() &&
+        mAnimationUpdateMode == AnimationUpdateMode::OnlyUpdateWhenRendered)
+    {
+        mWarnedNotifyUpdateMode = true;
+        LogWarning("SkeletalMesh3D '%s' has animation notifies but uses OnlyUpdateWhenRendered; "
+                   "they will not fire while the mesh is off-screen. "
+                   "Call SetAnimationUpdateMode(AlwaysUpdateTime) for gameplay-critical notifies.",
+                   GetName().c_str());
+    }
+}
+
+void SkeletalMesh3D::DetectTriggeredNotifies(const ActiveAnimation& active, float prevTime, float curTime, float durationSeconds)
+{
+    if (mAnimationNotifies.empty() || durationSeconds <= 0.0f)
+    {
+        return;
+    }
+
+    const float prevNorm = prevTime / durationSeconds;
+    const float curNorm = curTime / durationSeconds;
+
+    // Deliberately sign-agnostic rather than branching on speed like
+    // DetectTriggeredAnimEvents does. That predicate requires a strict sign, so
+    // timeline-scrubbed playback (which sets mSpeed = 0 and drives mTime
+    // directly) emits nothing at all. Testing the interval the clip actually
+    // moved through also catches a frame spike that steps past the threshold.
+    const bool wrapped = active.mLoop && (glm::abs(curNorm - prevNorm) > 0.5f);
+    const float lo = glm::min(prevNorm, curNorm);
+    const float hi = glm::max(prevNorm, curNorm);
+
+    for (uint32_t i = 0; i < mAnimationNotifies.size(); ++i)
+    {
+        const AnimationNotify& notify = mAnimationNotifies[i];
+
+        if (notify.mAnimName != active.mName)
+        {
+            continue;
+        }
+
+        bool crossed = false;
+
+        if (wrapped)
+        {
+            // The clip looped this frame, so the interval it covered is the two
+            // outer segments, not the span between prev and cur. This is the case
+            // the legacy event predicate misses: it fires only the tail above
+            // prevNorm and silently drops every key near t=0 on each loop.
+            crossed = (notify.mNormalizedTime >= hi) || (notify.mNormalizedTime <= lo);
+        }
+        else
+        {
+            crossed = (notify.mNormalizedTime > lo) && (notify.mNormalizedTime <= hi);
+
+            // A threshold sitting exactly at 0 would never satisfy the half-open
+            // test on the very first step away from 0.
+            if (!crossed && notify.mNormalizedTime <= 0.0f && prevNorm <= 0.0f && hi > 0.0f)
+            {
+                crossed = true;
+            }
+        }
+
+        if (crossed)
+        {
+            mPendingNotifies.push_back(notify.mCallback);
+        }
+    }
+}
+
+void SkeletalMesh3D::DispatchPendingNotifies()
+{
+    if (mPendingNotifies.empty())
+    {
+        return;
+    }
+
+    // Swap out first: a callback is free to add/remove notifies, stop the
+    // animation, or reparent nodes, any of which would invalidate iteration.
+    std::vector<ScriptFunc> toFire;
+    toFire.swap(mPendingNotifies);
+
+    for (uint32_t i = 0; i < toFire.size(); ++i)
+    {
+        if (toFire[i].IsValid())
+        {
+            toFire[i].Call();
+        }
+    }
+}
+
 QueuedAnimation* SkeletalMesh3D::FindQueuedAnimation(const char* animName, const char* dependName)
 {
     QueuedAnimation* anim = nullptr;
@@ -861,7 +1066,7 @@ glm::vec3 SkeletalMesh3D::GetBoneScale(const std::string& name) const
 
 glm::mat4 SkeletalMesh3D::GetBoneTransform(int32_t index) const
 {
-    glm::mat4 retTransform;
+    glm::mat4 retTransform(1.0f);
     if (index >= 0 && index < (int32_t)mBoneMatrices.size())
     {
         retTransform = mBoneMatrices[index];
@@ -869,41 +1074,32 @@ glm::mat4 SkeletalMesh3D::GetBoneTransform(int32_t index) const
     return retTransform;
 }
 
-glm::vec3 SkeletalMesh3D::GetBonePosition(int32_t boneIndex) const
+glm::mat4 SkeletalMesh3D::GetBoneWorldMatrix(int32_t boneIndex) const
 {
-    glm::vec3 retPosition(0.0f, 0.0f, 0.0f);
-    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+    glm::mat4 transform(1.0f);
 
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
     if (mesh != nullptr &&
         boneIndex >= 0 &&
         boneIndex < (int32_t)mBoneMatrices.size())
     {
-        glm::mat4 offset = glm::inverse(mesh->GetBone(boneIndex).mOffsetMatrix);
-        glm::mat4 transform = mTransform * mBoneMatrices[boneIndex] * offset;
-        retPosition.x = transform[3][0];
-        retPosition.y = transform[3][1];
-        retPosition.z = transform[3][2];
+        // mBoneMatrices holds skinning matrices; right-multiplying by the bind
+        // pose recovers the bone's own pose. mInvOffsetMatrix is the cached
+        // inverse of mOffsetMatrix, so no per-call glm::inverse is needed.
+        transform = mTransform * mBoneMatrices[boneIndex] * mesh->GetBone(boneIndex).mInvOffsetMatrix;
     }
 
-    return retPosition;
+    return transform;
+}
+
+glm::vec3 SkeletalMesh3D::GetBonePosition(int32_t boneIndex) const
+{
+    return Maths::ExtractPosition(GetBoneWorldMatrix(boneIndex));
 }
 
 glm::quat SkeletalMesh3D::GetBoneRotationQuat(int32_t boneIndex) const
 {
-    glm::quat retRotation(0.0f, 0.0f, 0.0f, 1.0f);
-
-    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
-    if (mesh != nullptr &&
-        boneIndex >= 0 &&
-        boneIndex < (int32_t)mBoneMatrices.size())
-    {
-        glm::mat4 offset = glm::inverse(mesh->GetBone(boneIndex).mOffsetMatrix);
-        glm::mat4 transform = mTransform * mBoneMatrices[boneIndex] * offset;
-
-        retRotation = Maths::ExtractRotation(transform);
-    }
-
-    return retRotation;
+    return Maths::ExtractRotation(GetBoneWorldMatrix(boneIndex));
 }
 
 glm::vec3 SkeletalMesh3D::GetBoneRotationEuler(int32_t boneIndex) const
@@ -918,20 +1114,70 @@ glm::vec3 SkeletalMesh3D::GetBoneRotationEuler(int32_t boneIndex) const
 
 glm::vec3 SkeletalMesh3D::GetBoneScale(int32_t boneIndex) const
 {
-    glm::vec3 retScale = glm::vec3(0, 0, 0);
+    return Maths::ExtractScale(GetBoneWorldMatrix(boneIndex));
+}
 
+int32_t SkeletalMesh3D::FindSocketIndex(const std::string& name) const
+{
     SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
-    if (mesh != nullptr &&
-        boneIndex >= 0 &&
-        boneIndex < (int32_t)mBoneMatrices.size())
-    {
-        glm::mat4 offset = glm::inverse(mesh->GetBone(boneIndex).mOffsetMatrix);
-        glm::mat4 transform = mTransform * mBoneMatrices[boneIndex] * offset;
+    return (mesh != nullptr) ? mesh->FindSocketIndex(name) : -1;
+}
 
-        retScale = Maths::ExtractScale(transform);
+uint32_t SkeletalMesh3D::GetNumSockets() const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+    return (mesh != nullptr) ? mesh->GetNumSockets() : 0;
+}
+
+std::string SkeletalMesh3D::GetSocketName(uint32_t index) const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+
+    if (mesh != nullptr && index < mesh->GetNumSockets())
+    {
+        return mesh->GetSocket(index).mName;
     }
 
-    return retScale;
+    return "";
+}
+
+glm::mat4 SkeletalMesh3D::GetSocketTransform(const std::string& name) const
+{
+    SkeletalMesh* mesh = mSkeletalMesh.Get<SkeletalMesh>();
+
+    if (mesh == nullptr)
+    {
+        return mTransform;
+    }
+
+    int32_t socketIndex = mesh->FindSocketIndex(name);
+
+    // Fall back to treating the name as a bone, matching how Node3D resolves an
+    // attach socket -- so GetSocketTransform("hand_r") works without authoring a
+    // socket first.
+    if (socketIndex == -1)
+    {
+        return GetBoneWorldMatrix(mesh->FindBoneIndex(name));
+    }
+
+    int32_t boneIndex = mesh->FindBoneIndex(mesh->GetSocket(socketIndex).mBoneName);
+
+    return GetBoneWorldMatrix(boneIndex) * mesh->GetSocketLocalMatrix(socketIndex);
+}
+
+glm::vec3 SkeletalMesh3D::GetSocketPosition(const std::string& name) const
+{
+    return Maths::ExtractPosition(GetSocketTransform(name));
+}
+
+glm::quat SkeletalMesh3D::GetSocketRotationQuat(const std::string& name) const
+{
+    return Maths::ExtractRotation(GetSocketTransform(name));
+}
+
+glm::vec3 SkeletalMesh3D::GetSocketRotationEuler(const std::string& name) const
+{
+    return glm::eulerAngles(GetSocketRotationQuat(name)) * RADIANS_TO_DEGREES;
 }
 
 void SkeletalMesh3D::SetBoneTransform(int32_t boneIndex, const glm::mat4& transform)
@@ -1452,6 +1698,13 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
                         }
                     }
 
+                    // Outside the weight > 0 guard on purpose. DetectTriggeredAnimEvents
+                    // below sits inside it, so a slot that is still fading in emits
+                    // nothing -- fine for a footstep, wrong for "put the sword in the
+                    // hand". animationTime is already loop-wrapped at this point, which
+                    // DetectTriggeredNotifies accounts for.
+                    DetectTriggeredNotifies(active, prevAnimTime, animationTime, durationSeconds);
+
                     if (weight > 0.0f)
                     {
                         float tickTime = animationTime * anim->mTicksPerSecond;
@@ -1669,6 +1922,12 @@ void SkeletalMesh3D::UpdateAnimation(float deltaTime, bool updateBones)
     }
 
     mHasAnimatedThisFrame = true;
+
+    // Last, after the pose is finalized and mHasAnimatedThisFrame is latched: a
+    // notify callback commonly reattaches a node to a different socket, and it
+    // should see this frame's bone matrices. The latch also stops a callback that
+    // re-enters UpdateAnimation from running the blend loop twice in one frame.
+    DispatchPendingNotifies();
 }
 
 void SkeletalMesh3D::UpdateAttachedChildren(float deltaTime)
@@ -1683,7 +1942,10 @@ void SkeletalMesh3D::UpdateAttachedChildren(float deltaTime)
         {
             Node3D* child3D = mChildren[i]->IsNode3D() ? static_cast<Node3D*>(mChildren[i].Get()) : nullptr;
 
-            if (child3D && child3D->GetParentBoneIndex() != -1)
+            // Also check the socket name: a freshly loaded child hasn't resolved
+            // its bone index yet, so keying only off the index would leave it
+            // stuck at bind pose until something else dirtied it.
+            if (child3D && (child3D->GetParentBoneIndex() != -1 || !child3D->GetAttachSocket().empty()))
             {
                 child3D->MarkTransformDirty();
             }

@@ -46,6 +46,7 @@ nav:
       - Mesh Instancing: Development/MeshInstancing.md
       - Skeletal Animation: Development/SkeletalAnimation.md
       - Bone Mask: Development/BoneMask.md
+      - Bone Sockets: Development/BoneSockets.md
       - Shadows: Development/Shadows.md
       - 3D Nodes:
           - Terrain3D: Development/Terrain3D.md

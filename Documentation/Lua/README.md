@@ -70,6 +70,7 @@
 
 * [Setting Up a Multiplayer Game](Networking/Multiplayer.md)
 * [Http](Networking/Http.md)
+* [WebSocket](Networking/WebSocket.md)
 
 ## Misc
 

@@ -290,7 +290,7 @@ public:
     void EXE_DeleteNode(Node* node);
     std::vector<Node*> EXE_SpawnNodes(const std::vector<Node*>& nodes);
     void EXE_DeleteNodes(const std::vector<Node*>& nodes);
-    void EXE_AttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex);
+    void EXE_AttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex, const char* socketName = nullptr);
     void EXE_SetRootNode(Node* newRoot);
     void EXE_SetWorldRotation(Node3D* node, glm::quat rot);
     void EXE_SetWorldPosition(Node3D* node, glm::vec3 pos);
@@ -628,6 +628,7 @@ public:
     void DeleteAssetDir(AssetDir* dir);
     bool DuplicateNodes(std::vector<Node*> nodes);
     void AttachSelectedNodes(Node* newParent, int32_t boneIdx);
+    void AttachSelectedNodesToSocket(Node* newParent, const char* socketName);
 
     // Project upgrade functions
     bool CheckProjectNeedsUpgrade();
@@ -775,7 +776,9 @@ class ActionAttachNode : public Action
 {
 public:
     DECLARE_ACTION_INTERFACE(AttachNode)
-    ActionAttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex);
+    // socketName attaches to a named socket instead of a raw bone index. Passing
+    // it keeps the reparent and the socket assignment in a single undo step.
+    ActionAttachNode(Node* node, Node* newParent, int32_t childIndex, int32_t boneIndex, const char* socketName = nullptr);
 protected:
     NodePtr mNode = nullptr;
     NodePtr mNewParent = nullptr;
@@ -784,6 +787,8 @@ protected:
     int32_t mPrevChildIndex = -1;
     int32_t mBoneIndex = -1;
     int32_t mPrevBoneIndex = -1;
+    std::string mSocketName;
+    std::string mPrevSocketName;
 };
 
 class ActionSetRootNode : public Action

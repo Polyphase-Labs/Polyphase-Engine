@@ -15,6 +15,7 @@
 
 #include <sys/stat.h>
 #include <ctime>
+#include <filesystem>
 
 BuildCache* BuildCache::sInstance = nullptr;
 
@@ -141,6 +142,36 @@ void BuildCache::GatherScriptFiles(std::vector<FileEntry>& outScripts)
             SYS_IterateDirectory(dirEntry);
         }
         SYS_CloseDirectory(dirEntry);
+    }
+
+    // C# sources: the transpiler runs during BuildPhase1, so editing a .cs must
+    // invalidate the cache exactly like editing the .lua it generates. They ride
+    // in mScripts as ordinary FileEntry rows (no manifest format change — old
+    // manifests simply mismatch once and rebuild).
+    if (GetEngineConfig()->mCSharpScripting)
+    {
+        std::string csharpDir = projectDir + "Scripts/CSharp";
+        std::error_code ec;
+        if (std::filesystem::exists(csharpDir, ec))
+        {
+            for (auto it = std::filesystem::recursive_directory_iterator(
+                     csharpDir, std::filesystem::directory_options::skip_permission_denied, ec);
+                 it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+            {
+                if (ec)
+                    break;
+                if (!it->is_regular_file(ec))
+                    continue;
+                std::string pathStr = it->path().generic_string();
+                if (pathStr.find("/obj/") != std::string::npos || pathStr.find("/bin/") != std::string::npos)
+                    continue;
+                std::string ext = it->path().extension().string();
+                if (ext == ".cs")
+                {
+                    scriptPaths.push_back(pathStr);
+                }
+            }
+        }
     }
 
     for (const auto& path : scriptPaths)

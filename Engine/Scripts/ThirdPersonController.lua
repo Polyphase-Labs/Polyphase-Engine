@@ -45,6 +45,19 @@ function ThirdPersonController:Create()
     self.moveVelocity = Vec()
     self.meshYaw = 0.0
 
+    if self.animationFall == nil then
+        self.animationFall = "Fall"
+    end
+    if self.animationJump == nil then
+        self.animationJump = "Jump"
+    end
+    if self.animationRun == nil then
+        self.animationRun = "Run"
+    end
+    if self.animationIdle == nil then
+        self.animationIdle = "Idle"
+    end
+
 end
 
 function ThirdPersonController:GatherProperties()
@@ -72,9 +85,14 @@ function ThirdPersonController:GatherProperties()
         { name = "enableFollowCam", type = DatumType.Bool },
         { name = "enableCameraTrace", type = DatumType.Bool },
         { name = "mouseSensitivity", type = DatumType.Float },
+        { name = "animationFall", type = DatumType.String },
+        { name = "animationJump", type = DatumType.String },
+        { name = "animationRun", type = DatumType.String },
+        { name = "animationIdle", type = DatumType.String }
     }
 
 end
+
 
 function ThirdPersonController:Start()
 
@@ -363,13 +381,13 @@ function ThirdPersonController:UpdateMesh(deltaTime)
         -- Don't play fall animation if jump animation is playing.
         -- Wait until it finishes so that we get a seamless transition between
         -- the end of the jump animation and the beginning of the fall animation.
-        if (not self.mesh:IsAnimationPlaying("Jump")) then
-            self.mesh:PlayAnimation("Fall", 0, true, 1, 1)
+        if (not self.mesh:IsAnimationPlaying(self.animationJump)) then
+            self.mesh:PlayAnimation(self.animationFall, 0, true, 1, 1)
         end
     elseif (self.moveVelocity:Length2() > 1.0) then
-        self.mesh:PlayAnimation("Run", 0, true, 1.5, 1)
+        self.mesh:PlayAnimation(self.animationRun, 0, true, 1.5, 1)
     else
-        self.mesh:PlayAnimation("Idle", 0, true, 1, 1)
+        self.mesh:PlayAnimation(self.animationIdle, 0, true, 1, 1)
     end
 end
 
@@ -414,9 +432,9 @@ function ThirdPersonController:Jump()
         self:SetGrounded(false)
         self.ignoreGroundingTimer = 0.2
 
-        self.mesh:StopAnimation("Fall")
-        self.mesh:PlayAnimation("Jump", 1, false)
-        self.mesh:QueueAnimation("Fall", "Jump", 0, true, 1, 1)
+        self.mesh:StopAnimation(self.animationFall)
+        self.mesh:PlayAnimation(self.animationJump, 1, false)
+        self.mesh:QueueAnimation(self.animationFall, self.animationJump, 0, true, 1, 1)
     end
 
 end

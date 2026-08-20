@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Polyphase</RootNamespace>
+    <AssemblyName>Polyphase.Engine</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- extern members without DllImport: this assembly is an IntelliSense/transpile
+         surface only, never executed by the .NET runtime. -->
+    <NoWarn>CS0626;CS0824;CS0169;CS0649</NoWarn>
+  </PropertyGroup>
+
+</Project>

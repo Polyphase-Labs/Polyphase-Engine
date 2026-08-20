@@ -9,6 +9,18 @@ Node3D = {}
 ---@param childIndex? integer
 function Node3D:AttachToBone(newParent, boneName, keepWorldTransform, childIndex) end
 
+---@param newParent SkeletalMesh3D
+---@param socketName string
+---@param keepWorldTransform? boolean
+---@param childIndex? integer
+function Node3D:AttachToSocket(newParent, socketName, keepWorldTransform, childIndex) end
+
+---@param socketName string
+function Node3D:SetAttachSocket(socketName) end
+
+---@return string
+function Node3D:GetAttachSocket() end
+
 function Node3D:UpdateTransform() end
 
 ---@return Vector

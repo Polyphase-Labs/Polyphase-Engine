@@ -37,6 +37,7 @@ private:
     void CheckDocker();
     void CheckVisualStudio();
     void CheckGradle();
+    void CheckDotnet();
 
     bool mIsOpen = false;
     std::vector<BuildDependency> mDependencies;

@@ -8,6 +8,7 @@
 #include "../EditorIcons.h"
 #include "EditorState.h"
 #include "ActionManager.h"
+#include "CSharp/CSharpManager.h"
 #include "Engine.h"
 #include "System/System.h"
 #include "Log.h"
@@ -300,10 +301,12 @@ void ProjectSelectWindow::DrawCreateProject()
     ImGui::Separator();
     //ImGui::Spacing();
 
-    //ImGui::Text("Project Type:");
-    //ImGui::RadioButton("Lua", &mProjectType, 0);
-    //ImGui::SameLine();
-    //ImGui::RadioButton("C++", &mProjectType, 1);
+    ImGui::Text("Scripting:");
+    ImGui::RadioButton("Lua", &mProjectType, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("C#", &mProjectType, 2);
+    // The old C++ project type (mProjectType == 1) stays hidden — it clones a
+    // standalone engine copy and is being reworked.
 
     ImGui::Spacing();
 
@@ -311,6 +314,11 @@ void ProjectSelectWindow::DrawCreateProject()
     {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
             "C++ projects create a standalone copy of the engine.");
+    }
+    else if (mProjectType == 2)
+    {
+        ImGui::TextDisabled("C# scripts transpile to Lua and run on every platform.");
+        ImGui::TextDisabled("Authoring needs the .NET SDK 8+ (guided install if missing).");
     }
 
     ImGui::Spacing();
@@ -842,6 +850,14 @@ void ProjectSelectWindow::OnCreateNewProject()
     // Close if project was created successfully
     if (!GetEngineState()->mProjectPath.empty())
     {
+        if (mProjectType == 2)
+        {
+            // C# project: same layout as Lua plus Scripts/CSharp scaffolding,
+            // CSharpScripting=1 in Config.ini, and a dotnet probe with install
+            // guidance in the log if the SDK is missing.
+            CSharpManager::Get()->EnableForProject();
+        }
+
         if (mInitGitRepo)
         {
             GitService* gitService = GitService::Get();

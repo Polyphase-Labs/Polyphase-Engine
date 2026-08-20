@@ -29,6 +29,48 @@ int Node3D_Lua::AttachToBone(lua_State* L)
     return 0;
 }
 
+int Node3D_Lua::AttachToSocket(lua_State* L)
+{
+    Node3D* comp = CHECK_NODE_3D(L, 1);
+    SkeletalMesh3D* newParent = CHECK_SKELETAL_MESH_3D(L, 2);
+    const char* socketName = CHECK_STRING(L, 3);
+    bool keepWorldTransform = false;
+    int32_t childIndex = -1;
+
+    if (!lua_isnone(L, 4))
+    {
+        keepWorldTransform = CHECK_BOOLEAN(L, 4);
+    }
+
+    if (!lua_isnone(L, 5))
+    {
+        childIndex = CHECK_INTEGER(L, 5);
+    }
+
+    comp->AttachToSocket(newParent, socketName, keepWorldTransform, childIndex);
+
+    return 0;
+}
+
+int Node3D_Lua::SetAttachSocket(lua_State* L)
+{
+    Node3D* comp = CHECK_NODE_3D(L, 1);
+    const char* socketName = CHECK_STRING(L, 2);
+
+    comp->SetAttachSocket(socketName);
+
+    return 0;
+}
+
+int Node3D_Lua::GetAttachSocket(lua_State* L)
+{
+    Node3D* comp = CHECK_NODE_3D(L, 1);
+
+    lua_pushstring(L, comp->GetAttachSocket().c_str());
+
+    return 1;
+}
+
 int Node3D_Lua::UpdateTransform(lua_State* L)
 {
     Node3D* comp = CHECK_NODE_3D(L, 1);
@@ -360,6 +402,9 @@ void Node3D_Lua::Bind()
     Node_Lua::BindCommon(L, mtIndex);
 
     REGISTER_TABLE_FUNC(L, mtIndex, AttachToBone);
+    REGISTER_TABLE_FUNC(L, mtIndex, AttachToSocket);
+    REGISTER_TABLE_FUNC(L, mtIndex, SetAttachSocket);
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAttachSocket);
 
     REGISTER_TABLE_FUNC(L, mtIndex, UpdateTransform);
 
