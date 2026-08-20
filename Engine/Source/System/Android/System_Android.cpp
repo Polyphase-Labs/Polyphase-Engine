@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string>
 #include <cstring>
+#include <cerrno>
 #include <assert.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -573,7 +574,17 @@ void SYS_SetWorkingDirectory(const std::string& dirPath)
 
 bool SYS_CreateDirectory(const char* dirPath)
 {
-    return (mkdir(dirPath, 0777) == 0);
+    int32_t ret = mkdir(dirPath, 0777);
+
+    // EEXIST is never actionable -- nearly every caller uses this as "ensure
+    // it exists" and ignores the return. Anything else is worth surfacing,
+    // but only with the path attached.
+    if (ret < 0 && errno != EEXIST)
+    {
+        LogWarning("mkdir failed for '%s': %s", dirPath, strerror(errno));
+    }
+
+    return (ret == 0);
 }
 
 void SYS_RemoveDirectory(const char* dirPath)

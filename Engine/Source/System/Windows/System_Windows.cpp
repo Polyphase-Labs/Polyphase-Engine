@@ -614,9 +614,13 @@ bool SYS_CreateDirectory(const char* dirPath)
 {
     int32_t ret = _mkdir(dirPath);
 
-    if (ret < 0)
+    // EEXIST is never actionable -- nearly every caller uses this as "ensure
+    // it exists" and ignores the return. Anything else is worth surfacing,
+    // but only with the path attached; a bare strerror string is
+    // unidentifiable in the log.
+    if (ret < 0 && errno != EEXIST)
     {
-        LogWarning("_mkdir error: %s", strerror(errno));
+        LogWarning("_mkdir failed for '%s': %s", dirPath, strerror(errno));
     }
 
     return (ret == 0);
