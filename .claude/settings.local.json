@@ -238,7 +238,16 @@
       "Read(//c/Program Files/Windows Kits/10/Debuggers/x64/**)",
       "Bash(where procdump *)",
       "Bash(\"/c/Program Files \\(x86\\)/Windows Kits/10/Debuggers/x64/cdb.exe\" -g -y \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\Standalone\\\\Build\\\\Windows\\\\x64\\\\DebugEditor\" -c \"sxe av; g; .lastevent; .ecxr; kn 40; q\" \"M:\\\\Projects\\\\Polyphase\\\\Polyphase\\\\CODE\\\\mergePolyphase\\\\polyphase-engine\\\\Standalone\\\\Build\\\\Windows\\\\x64\\\\DebugEditor\\\\Polyphase.exe\" -project \"M:/Projects/Polyphase/Polyphase-Examples/CarController/CarController/CarController.octp\")",
-      "Bash(awk '/^void WorldStreamManifestImport::Draw/,/BeginPopupModal/' WorldStreamManifestImport.cpp)"
+      "Bash(awk '/^void WorldStreamManifestImport::Draw/,/BeginPopupModal/' WorldStreamManifestImport.cpp)",
+      "Bash(nm /home/uai/Projects/Octave/Polyphase-Engine/Engine/Build/Linux/libEngineEditor.a)",
+      "Bash(nm --defined-only /home/uai/Projects/Octave/Polyphase-Engine/Engine/Build/Linux/libEngineEditor.a)",
+      "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux -j 16)",
+      "Bash(nm --defined-only Build/Linux/libEngineEditor.a)",
+      "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux --eval='dbg: ; @echo [$\\(filter CSharp%,$\\(CPPFILES\\)\\)] [$\\(filter %CSharp,$\\(SOURCES\\)\\)]' dbg)",
+      "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)] VPATH-CSHARP=[$\\(filter %CSharp,$\\(subst :, ,$\\(VPATH\\)\\)\\)]\\)' dbg --eval='dbg: ; @true')",
+      "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)]\\)' --eval='dbg: ; @true' dbg)",
+      "Bash(POLYPHASE_EDITOR=1 make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)]\\)' --eval='dbg: ; @true' dbg)",
+      "Bash(POLYPHASE_EDITOR=1 make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux)"
     ]
   }
 }
