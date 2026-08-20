@@ -13,6 +13,19 @@
 #include <gccore.h>
 #include <network.h>
 
+// Wii and GameCube build against two DIFFERENT libogc trees (Engine/Makefile_Wii
+// uses devkitPPC/wii_rules -> libogc; Engine/Makefile_GCN uses
+// devkitPro/libogc2/gamecube_rules -> libogc2), and their network.h files are not
+// interchangeable:
+//   - libogc's (Wii) network.h does NOT define the POLL* event flags; they only
+//     exist in the separate <poll.h>, which the Wii tree ships.
+//   - libogc2's (GameCube) network.h defines POLLOUT/POLLERR/etc. itself, and
+//     that tree does not ship a <poll.h> at all - including it is a hard
+//     compile failure on GCN.
+#if PLATFORM_WII
+#include <poll.h>
+#endif
+
 static uint32_t sLocalIp = 0;
 static uint32_t sGateway = 0;
 static uint32_t sSubnetMask = 0;
@@ -22,6 +35,10 @@ static bool sActive = false;
 void NET_Initialize()
 {
     struct in_addr localIp, netMask, gateway;
+
+    // Different signature per libogc tree (see the network.h comment above):
+    // libogc's (Wii) if_configex takes a trailing max_retries; libogc2's
+    // (GameCube) does not.
 #if PLATFORM_WII
     int32_t result = if_configex(&localIp, &netMask, &gateway, true, 1);
 #else
@@ -35,6 +52,26 @@ void NET_Initialize()
         sGateway = ntohl(gateway.s_addr);
 
         sActive = true;
+
+        // Log the interface config. Without it, "connect failed" is
+        // indistinguishable between a wrong address, a subnet the target isn't
+        // on, and a missing default gateway -- and a missing gateway fails
+        // instantly rather than timing out, so it looks nothing like a network
+        // problem from the caller's side.
+        char ipString[32] = {};
+        char maskString[32] = {};
+        char gatewayString[32] = {};
+        NET_IpUint32ToString(sLocalIp, ipString);
+        NET_IpUint32ToString(sSubnetMask, maskString);
+        NET_IpUint32ToString(sGateway, gatewayString);
+
+        LogDebug("Network up: ip=%s mask=%s gateway=%s", ipString, maskString, gatewayString);
+
+        if (sGateway == 0)
+        {
+            LogWarning("No default gateway. Only hosts on this subnet are reachable; "
+                       "anything off-subnet will fail to connect immediately.");
+        }
     }
     else
     {
@@ -58,109 +95,212 @@ bool NET_IsActive()
     return sActive;
 }
 
+// Two libogc quirks, both of which turn into silent failures much further
+// downstream:
+//
+//  - IOS wants IPPROTO_IP (0) as the protocol for BOTH socket types. libogc's
+//    own TCP sample creates its stream socket with socket(AF_INET, SOCK_STREAM,
+//    IPPROTO_IP); passing the BSD-conventional IPPROTO_TCP gets rejected.
+//  - net_socket reports failure as a negated errno, not as -1. The engine's
+//    callers test `== NET_INVALID_SOCKET`, so an error code like -22 sails
+//    through as a "valid" handle and every later call on it fails for no
+//    visible reason. Normalise to NET_INVALID_SOCKET here and say what broke.
+static SocketHandle CreateDolphinSocket(u32 type, const char* what)
+{
+    const s32 sock = net_socket(AF_INET, type, IPPROTO_IP);
+
+    if (sock < 0)
+    {
+        LogError("net_socket(%s) failed: rc=%d (errno %d)", what, (int)sock, (int)(-sock));
+        // -1, matching NET_INVALID_SOCKET (NetworkConstants.h) and what every
+        // caller in this file already tests SocketHandle against.
+        return SocketHandle(-1);
+    }
+
+    return SocketHandle(sock);
+}
+
 SocketHandle NET_SocketCreate()
 {
-    return net_socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    return CreateDolphinSocket(SOCK_DGRAM, "udp");
 }
 
 SocketHandle NET_SocketCreateStream()
 {
-    return net_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    return CreateDolphinSocket(SOCK_STREAM, "tcp");
 }
 
-bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t /*timeoutMs*/)
+// Wii sockets live in IOS, and IOS connects are asynchronous: net_connect
+// hands back -EINPROGRESS immediately and completion is observed separately
+// with net_poll. libogc's net_* report errors as a negated errno in the return
+// value rather than through errno itself, so the obvious `rc == 0` test reads
+// a perfectly healthy in-progress connect as a hard failure -- which is why
+// every TCP connect on this platform used to fail a few milliseconds after it
+// started, looking nothing like the timeout a real unreachable host produces.
+#define NET_DOLPHIN_CONNECT_TIMEOUT_MS 15000
+
+// libogc's headers (lwip/arch.h) list EINPROGRESS=115, EALREADY=114 - lwIP's
+// own internal numbering. That is NOT what the compiled net_connect actually
+// returns: confirmed on-device, an in-progress connect comes back as -119,
+// which is newlib <errno.h>'s EINPROGRESS. Whatever translation happens inside
+// libogc's net.c, callers observe newlib numbers, so use <errno.h> directly
+// rather than the lwIP header's constants.
+static bool IsConnectInProgress(int32_t rc)
 {
-    if (socketHandle < 0) return false;
+    const int32_t err = (rc < 0) ? -rc : 0;
 
-    // libogc's net_connect blocks. Without a portable non-blocking-connect
-    // path on devkitPPC the simplest correct behaviour is to honour the kernel
-    // default and ignore the caller-provided timeout.
-    struct sockaddr_in addr = {};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(ipAddr);
-    addr.sin_port = htons(port);
-
-    int32_t rc = net_connect(socketHandle, (struct sockaddr*)&addr, sizeof(addr));
-    return rc == 0;
-}
-
-// libogc's net_connect always blocks and devkitPPC has no portable
-// non-blocking connect for it. The sanctioned fallback (documented in
-// Network.h) is to run the blocking connect inside Async and have Poll hand
-// back the stored result - a per-frame pump still works, it just eats one
-// connect stall. Slots are freed by NET_SocketClose.
-#define NET_DOLPHIN_MAX_PENDING_CONNECTS 8
-
-struct DolphinConnectResult
-{
-    SocketHandle mSocket = -1;
-    int32_t      mResult = 0;
-};
-
-static DolphinConnectResult sConnectResults[NET_DOLPHIN_MAX_PENDING_CONNECTS];
-
-static DolphinConnectResult* FindDolphinConnectSlot(SocketHandle socketHandle, bool allocate)
-{
-    for (int32_t i = 0; i < NET_DOLPHIN_MAX_PENDING_CONNECTS; ++i)
-    {
-        if (sConnectResults[i].mSocket == socketHandle)
-        {
-            return &sConnectResults[i];
-        }
-    }
-
-    if (!allocate)
-    {
-        return nullptr;
-    }
-
-    for (int32_t i = 0; i < NET_DOLPHIN_MAX_PENDING_CONNECTS; ++i)
-    {
-        if (sConnectResults[i].mSocket < 0)
-        {
-            sConnectResults[i].mSocket = socketHandle;
-            sConnectResults[i].mResult = 0;
-            return &sConnectResults[i];
-        }
-    }
-
-    return nullptr;
+    return err == EINPROGRESS ||
+           err == EALREADY    ||
+           err == EAGAIN      ||
+           err == EISCONN;
 }
 
 bool NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
 {
     if (socketHandle < 0) return false;
 
-    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, true);
-    if (slot == nullptr)
+    // Not every IOS revision honours ioctl(FIONBIO) on its sockets, so keep the
+    // result: if this failed, the connect below may still be running blocking
+    // and the return code needs reading in that light.
+    int32_t nonBlocking = 1;
+    const int32_t ioctlRc = net_ioctl(socketHandle, FIONBIO, &nonBlocking);
+
+    struct sockaddr_in addr = {};
+    addr.sin_len = sizeof(addr);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    const int32_t rc = net_connect(socketHandle, (struct sockaddr*)&addr, sizeof(addr));
+
+    if (rc == 0 || IsConnectInProgress(rc))
     {
-        LogError("Too many pending stream connects");
-        return false;
+        return true;
     }
 
-    const bool connected = NET_SocketConnect(socketHandle, ipAddr, port, 0);
-    slot->mResult = connected ? 1 : -1;
+    // libogc reports failures as a negated errno in the return value. Print it
+    // raw: "connect failed" on its own says nothing about whether IOS refused
+    // the socket, the address, or the route.
+    LogDebug("net_connect failed: rc=%d (errno %d), FIONBIO rc=%d",
+        (int)rc, (int)((rc < 0) ? -rc : 0), (int)ioctlRc);
 
-    if (connected)
-    {
-        // Leave the socket non-blocking, matching the other platforms.
-        NET_SocketSetBlocking(socketHandle, false);
-    }
-
-    return connected;
+    return false;
 }
+
+#if PLATFORM_WII
 
 int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
 {
-    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, false);
-    return slot != nullptr ? slot->mResult : -1;
+    if (socketHandle < 0) return -1;
+
+    struct pollsd sd = {};
+    sd.socket = socketHandle;
+    sd.events = POLLOUT;
+
+    const int32_t rc = net_poll(&sd, 1, 0);
+    if (rc < 0)  return -1;
+    if (rc == 0) return 0;
+
+    if (sd.revents & (POLLERR | POLLHUP | POLLNVAL))
+    {
+        return -1;
+    }
+
+    if (sd.revents & POLLOUT)
+    {
+        // Writable can still mean "connect finished, and it failed".
+        int32_t soErr = 0;
+        socklen_t soErrLen = sizeof(soErr);
+        if (net_getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen) == 0 &&
+            soErr != 0)
+        {
+            return -1;
+        }
+
+        return 1;
+    }
+
+    return 0;
+}
+
+#else  // GameCube
+
+// libogc2's GameCube network.h DECLARES net_poll, but the BBA driver
+// (libbba.a) never implements it - linking anything that calls it fails with
+// "undefined reference to net_poll". net_select is what the driver actually
+// ships, so GameCube polls a writability check through that instead. Same
+// completion semantics as the Wii POLLOUT + SO_ERROR path above.
+int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
+{
+    if (socketHandle < 0) return -1;
+
+    fd_set writeSet;
+    FD_ZERO(&writeSet);
+    FD_SET(socketHandle, &writeSet);
+
+    struct timeval timeout = {};
+
+    const int32_t rc = net_select(socketHandle + 1, nullptr, &writeSet, nullptr, &timeout);
+    if (rc < 0)  return -1;
+    if (rc == 0) return 0;
+
+    if (!FD_ISSET(socketHandle, &writeSet))
+    {
+        return 0;
+    }
+
+    // Writable can still mean "connect finished, and it failed".
+    int32_t soErr = 0;
+    socklen_t soErrLen = sizeof(soErr);
+    if (net_getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen) == 0 &&
+        soErr != 0)
+    {
+        return -1;
+    }
+
+    return 1;
+}
+
+#endif  // PLATFORM_WII
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs)
+{
+    if (socketHandle < 0) return false;
+
+    if (!NET_SocketConnectAsync(socketHandle, ipAddr, port))
+    {
+        return false;
+    }
+
+    // Blocking-with-timeout contract, matching the desktop platforms: spin the
+    // async poll until it resolves, then hand the socket back in blocking mode
+    // the way callers like HttpBackend_Dolphin expect it.
+    const int32_t waitMs = (timeoutMs > 0) ? timeoutMs : NET_DOLPHIN_CONNECT_TIMEOUT_MS;
+    int32_t elapsedMs = 0;
+    int32_t poll = 0;
+
+    while (elapsedMs < waitMs)
+    {
+        poll = NET_SocketConnectPoll(socketHandle);
+        if (poll != 0)
+        {
+            break;
+        }
+
+        usleep(1000);
+        elapsedMs += 1;
+    }
+
+    NET_SocketSetBlocking(socketHandle, true);
+    return poll == 1;
 }
 
 bool NET_SocketWouldBlock(SocketHandle, int32_t opResult)
 {
-    // libogc's net_* return the negated errno rather than setting errno.
+    // Negated errno in the return value, same as the connect path above.
+    // Confirmed on-device to be newlib's numbering (see IsConnectInProgress).
     const int32_t err = (opResult < 0) ? -opResult : 0;
-    return err == EAGAIN || err == EWOULDBLOCK || err == EINTR;
+    return err == EAGAIN || err == EINTR;
 }
 
 int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
@@ -251,13 +391,6 @@ int32_t NET_SocketSendTo(SocketHandle socketHandle, const char* buffer, uint32_t
 
 void NET_SocketClose(SocketHandle socketHandle)
 {
-    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, false);
-    if (slot != nullptr)
-    {
-        slot->mSocket = -1;
-        slot->mResult = 0;
-    }
-
     net_close(socketHandle);
 }
 

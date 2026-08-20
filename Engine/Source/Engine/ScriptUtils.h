@@ -44,6 +44,12 @@ public:
     static EmbeddedFile* FindEmbeddedScript(const std::string& className);
     static bool RunScript(const char* fileName, Datum* ret = nullptr);
 
+    // Reads a script's decoded source from whichever source holds it: the
+    // embedded table first, then Content.pak / disk. Used by the require()
+    // searcher in LuaBindings.cpp, which cannot go through Lua's own
+    // package.path -- a packaged build has no loose .lua files to find.
+    static bool ReadScriptSource(const char* fileName, std::string& outSource);
+
     static uint32_t GetNextScriptInstanceNumber();
 
     static void CallMethod(Node* node, const char* funcName, uint32_t numParams, const Datum** params, Datum* ret);

@@ -106,6 +106,10 @@
 #include "LuaBindings/TinyLLM_Lua.h"
 #include "LuaBindings/LoadingMenu_Lua.h"
 
+#include "ScriptUtils.h"
+
+#include <string.h>
+
 static std::string sOriginalPath;
 
 void BindLuaInterface()
@@ -244,6 +248,65 @@ void UpdateLuaPath()
     }
 }
 
+// Lua's stock searchers only know package.path, i.e. loose .lua files sitting on
+// a filesystem. That works in the editor and then fails in every packaged build,
+// where scripts live in the embedded table (gEmbeddedScripts) or inside
+// Content.pak and there is nothing on disk to find -- require() reports
+// "module 'Foo' not found" for a script the build definitely shipped. Resolve
+// through ScriptUtils instead, which knows all three sources.
+//
+// Dotted module names are left alone: Lua maps those onto directory paths, which
+// the flat class-name registry has no equivalent for. They keep falling through
+// to the stock searchers.
+static int EngineScriptSearcher(lua_State* L)
+{
+    const char* moduleName = luaL_checkstring(L, 1);
+
+    std::string source;
+    if (strchr(moduleName, '.') != nullptr ||
+        !ScriptUtils::ReadScriptSource(moduleName, source))
+    {
+        lua_pushfstring(L, "\n\tno engine script '%s' (embedded table, Content.pak, or Scripts/)", moduleName);
+        return 1;
+    }
+
+    const std::string chunkName = std::string("@") + moduleName + ".lua";
+
+    if (luaL_loadbuffer(L, source.c_str(), source.size(), chunkName.c_str()) != LUA_OK)
+    {
+        return luaL_error(L, "error loading module '%s':\n\t%s", moduleName, lua_tostring(L, -1));
+    }
+
+    // require calls the loader as loader(name, extraValue).
+    lua_pushstring(L, moduleName);
+    return 2;
+}
+
+// Appended after the stock searchers, not ahead of them, so a loose .lua on disk
+// still wins in the editor and script edits keep taking effect without a
+// repackage. The engine sources are the fallback.
+static void InstallEngineScriptSearcher()
+{
+    lua_State* L = GetLua();
+
+    if (L == nullptr)
+    {
+        return;
+    }
+
+    lua_getglobal(L, "package");            // 1
+    lua_getfield(L, -1, "searchers");       // 2
+
+    if (lua_istable(L, -1))
+    {
+        const int numSearchers = (int)lua_rawlen(L, -1);
+        lua_pushcfunction(L, EngineScriptSearcher);
+        lua_rawseti(L, -2, numSearchers + 1);
+    }
+
+    lua_pop(L, 2);
+}
+
 void SetupLuaPath()
 {
     // Grab and save the initial path so we can update it if the project changes.
@@ -259,6 +322,8 @@ void SetupLuaPath()
 
     // Then update the package.path variable to include our script folders.
     UpdateLuaPath();
+
+    InstallEngineScriptSearcher();
 }
 
 #endif

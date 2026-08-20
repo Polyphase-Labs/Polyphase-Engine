@@ -513,6 +513,70 @@ static bool ScriptFileExists(const std::string& path)
     return ContentPak::Exists(path.c_str()) || SYS_DoesFileExist(path.c_str(), true);
 }
 
+// A Static build obfuscates the embedded script table too. The caller already
+// holds a copy of the rodata bytes, so this decodes in place. Disk and pak
+// sources need nothing -- Stream::ReadFile decodes on the way in.
+static bool DecodeEmbeddedScript(std::string& source, const char* className)
+{
+    if (!ContentObfuscation::IsContainer(source.data(), uint32_t(source.size())))
+    {
+        return true;
+    }
+
+    uint32_t decodedSize = 0;
+
+    if (!ContentObfuscation::DecodeInPlace(&source[0], uint32_t(source.size()), &decodedSize, nullptr))
+    {
+        LogError("Failed to decode obfuscated script: %s", className);
+        return false;
+    }
+
+    source.resize(decodedSize);
+    return true;
+}
+
+bool ScriptUtils::ReadScriptSource(const char* fileName, std::string& outSource)
+{
+    outSource.clear();
+
+    const std::string className = GetClassNameFromFileName(fileName);
+    const std::string relativeFileName = AppendLuaExtension(className);
+
+    if (sEmbeddedScripts != nullptr &&
+        sNumEmbeddedScripts > 0)
+    {
+        EmbeddedFile* embeddedScript = FindEmbeddedScript(className);
+
+        if (embeddedScript != nullptr)
+        {
+            outSource.assign(embeddedScript->mData, embeddedScript->mSize);
+            return DecodeEmbeddedScript(outSource, className.c_str());
+        }
+    }
+
+    // Only the two plain roots. RunScript's extra Packages/{addon}/{script}
+    // resolution exists for scene-authored script paths; a require() module
+    // name is always a bare class name, so it never reaches those branches.
+    const std::string candidates[] =
+    {
+        GetEngineState()->mProjectDirectory + "Scripts/" + relativeFileName,
+        GetEngineContentDir("Scripts/") + relativeFileName
+    };
+
+    for (const std::string& path : candidates)
+    {
+        if (ScriptFileExists(path))
+        {
+            Stream luaStream;
+            luaStream.ReadFile(path.c_str(), true);
+            outSource.assign(luaStream.GetData(), luaStream.GetSize());
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
 {
     bool successful = false;
@@ -612,20 +676,9 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
         {
             luaString.assign(embeddedScript->mData, embeddedScript->mSize);
 
-            // A Static build obfuscates the embedded script table too. luaString
-            // is already a copy of the rodata bytes, so it decodes in place.
-            // The disk branch below needs nothing -- Stream::ReadFile decodes.
-            if (ContentObfuscation::IsContainer(luaString.data(), uint32_t(luaString.size())))
+            if (!DecodeEmbeddedScript(luaString, className.c_str()))
             {
-                uint32_t decodedSize = 0;
-
-                if (!ContentObfuscation::DecodeInPlace(&luaString[0], uint32_t(luaString.size()), &decodedSize, nullptr))
-                {
-                    LogError("Failed to decode obfuscated script: %s", className.c_str());
-                    return false;
-                }
-
-                luaString.resize(decodedSize);
+                return false;
             }
         }
         else

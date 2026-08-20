@@ -17,6 +17,7 @@
 #include "Log.h"
 
 #include <deque>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -57,7 +58,24 @@ namespace
             {
                 NET_SocketClose(mSocket);
                 mSocket = SocketHandle(NET_INVALID_SOCKET);
-                outError = "Connect to '" + url.mHost + "' failed";
+
+                // Report what we actually dialled. "Connect to 'localhost'
+                // failed" reads like a name-resolution problem when the real
+                // story is usually that loopback means this machine, which on a
+                // console is the console and not the dev box running the server.
+                char ipString[32] = {};
+                NET_IpUint32ToString(ip, ipString);
+
+                char detail[80];
+                snprintf(detail, sizeof(detail), "' (%s:%u) failed", ipString, (unsigned)url.mPort);
+
+                outError = "Connect to '" + url.mHost + detail;
+
+                if ((ip >> 24) == 127)
+                {
+                    outError += ". A loopback address points at the machine running this build";
+                }
+
                 return false;
             }
 
