@@ -83,6 +83,64 @@ bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port
     return connected;
 }
 
+bool NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
+{
+    if (socketHandle < 0) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    const int flags = fcntl(socketHandle, F_GETFL, 0);
+    fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK);
+
+    const int rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    if (rc == 0)
+    {
+        return true;
+    }
+
+    return errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK;
+}
+
+int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
+{
+    if (socketHandle < 0) return -1;
+
+    fd_set wfds;
+    fd_set efds;
+    FD_ZERO(&wfds);
+    FD_SET(socketHandle, &wfds);
+    FD_ZERO(&efds);
+    FD_SET(socketHandle, &efds);
+
+    struct timeval tv = {};
+    const int sel = select(socketHandle + 1, nullptr, &wfds, &efds, &tv);
+    if (sel < 0)  return (errno == EINTR) ? 0 : -1;
+    if (sel == 0) return 0;
+
+    if (FD_ISSET(socketHandle, &efds))
+    {
+        return -1;
+    }
+
+    if (FD_ISSET(socketHandle, &wfds))
+    {
+        int soErr = 0;
+        socklen_t soErrLen = sizeof(soErr);
+        getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen);
+        return (soErr == 0) ? 1 : -1;
+    }
+
+    return 0;
+}
+
+bool NET_SocketWouldBlock(SocketHandle, int32_t)
+{
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+}
+
 int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
 {
     return (int32_t)send(socketHandle, buffer, size, 0);

@@ -89,7 +89,7 @@ bool ScriptUtils::CallLuaFunc(int numArgs, int numResults)
     return success;
 }
 
-bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string& className)
+bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string& className, bool reportMissingClass)
 {
     bool successful = false;
 
@@ -108,7 +108,7 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
                        "(contains '.'); recomputing to '%s'. Fix the caller -- class names "
                        "cannot contain dots.",
                        className.c_str(), fileName.c_str(), fixed.c_str());
-            return LoadScriptFile(fileName, fixed);
+            return LoadScriptFile(fileName, fixed, reportMissingClass);
         }
         // Couldn't recover -- both the passed-in className and the recomputed one
         // are malformed. Bail loudly so the bad call site can be found.
@@ -157,7 +157,18 @@ bool ScriptUtils::LoadScriptFile(const std::string& fileName, const std::string&
         }
         else
         {
-            LogError("Could not find table named %s in script file %s", className.c_str(), AppendLuaExtension(fileName).c_str());
+            // No global table named className. For a class script that's a real
+            // error; for a module/library/boot script swept off disk it's the
+            // normal shape, so don't spam the log with it.
+            if (reportMissingClass)
+            {
+                LogError("Could not find table named %s in script file %s", className.c_str(), AppendLuaExtension(fileName).c_str());
+            }
+            else
+            {
+                LogDebug("%s defines no class table -- treating as a module script.", AppendLuaExtension(fileName).c_str());
+            }
+
             lua_pop(L, 1);
             successful = false;
         }
@@ -220,6 +231,41 @@ static void GatherAddonScriptFilesRecursive(
     }
 }
 
+bool ScriptUtils::IsReloadExcludedScript(const std::string& fileName)
+{
+    // These are run exactly once, by Engine::Initialize / LoadProject. The
+    // reload sweep walks every .lua on disk, so without this filter Ctrl+R
+    // re-executes them -- and their side effects outlive the reload:
+    //   StartLuaPanda -> LuaPanda.start() reopens the VS Code socket and
+    //                    lua_sethook's LuaPanda's own hook over the top of
+    //                    LuaDebugger's, which only installs at boot.
+    //   LuaPanda      -> a fresh chunk orphans the closure the live hook holds
+    //                    and re-wraps coroutine.create one layer deeper.
+    //   EngineStartup / Startup -> one-shot boot hooks; re-running them
+    //                    re-applies whatever the project did at load time.
+    //   DataAssetTemplate -> a copy-me template, never a class.
+    static const char* kExcluded[] =
+    {
+        "EngineStartup",
+        "Startup",
+        "StartLuaPanda",
+        "LuaPanda",
+        "DataAssetTemplate",
+    };
+
+    std::string className = GetClassNameFromFileName(fileName);
+
+    for (uint32_t i = 0; i < sizeof(kExcluded) / sizeof(kExcluded[0]); ++i)
+    {
+        if (className == kExcluded[i])
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
 {
     std::vector<std::string> fileNames;
@@ -228,8 +274,17 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
     // addon-scoped scripts re-route through RunScript's Packages/ branch on reload).
     for (const auto& kv : sLoadedLuaFiles)
     {
-        fileNames.push_back(kv.second);
+        if (!IsReloadExcludedScript(kv.second))
+        {
+            fileNames.push_back(kv.second);
+        }
     }
+
+    // Everything queued so far came from sLoadedLuaFiles, i.e. it loaded as a
+    // class script at least once. A missing class table on those IS an error.
+    // Files appended below are discovered on disk and may legitimately be
+    // plain modules, so their class-table check stays quiet.
+    const size_t numKnownClassScripts = fileNames.size();
 
     std::unordered_set<std::string> alreadyQueued(fileNames.begin(), fileNames.end());
 
@@ -249,7 +304,7 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
             {
                 f.erase(0, stripPrefix.size());
             }
-            if (alreadyQueued.insert(f).second)
+            if (!IsReloadExcludedScript(f) && alreadyQueued.insert(f).second)
             {
                 fileNames.push_back(f);
             }
@@ -285,7 +340,7 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
                     GatherAddonScriptFilesRecursive(addonName, addonScriptsRoot, "", addonFiles);
                     for (const std::string& f : addonFiles)
                     {
-                        if (alreadyQueued.insert(f).second)
+                        if (!IsReloadExcludedScript(f) && alreadyQueued.insert(f).second)
                         {
                             fileNames.push_back(f);
                         }
@@ -313,7 +368,7 @@ void ScriptUtils::ReloadAllScriptFiles(const ReloadProgressFn& onProgress)
             break;
         }
         std::string className = GetClassNameFromFileName(fileNames[i]);
-        LoadScriptFile(fileNames[i], className);
+        LoadScriptFile(fileNames[i], className, size_t(i) < numKnownClassScripts);
     }
 
     // This doesn't re-gather the NetFuncs for this script file.
@@ -580,6 +635,12 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
             luaString.assign(luaStream.GetData(), luaStream.GetSize());
         }
 
+        // The chunk runs with LUA_MULTRET, so a module-style script ("return M")
+        // leaves its results on the stack -- and a failed load leaves the error
+        // object. Neither was ever popped, so every reload sweep grew the main
+        // thread's stack by a slot per script. Snapshot the top, restore it below.
+        const int stackTop = lua_gettop(L);
+
         std::string chunkName = "@" + className + ".lua";
         if (luaL_loadbuffer(L, luaString.c_str(), luaString.size(), chunkName.c_str()) || lua_pcall(L, 0, LUA_MULTRET, 0))
         {
@@ -595,11 +656,12 @@ bool ScriptUtils::RunScript(const char* fileName, Datum* ret)
             successful = true;
         }
 
-        if (successful && ret != nullptr)
+        if (successful && ret != nullptr && lua_gettop(L) > stackTop)
         {
             LuaObjectToDatum(L, -1, *ret);
-            lua_pop(L, 1);
         }
+
+        lua_settop(L, stackTop);
     }
 #endif
 

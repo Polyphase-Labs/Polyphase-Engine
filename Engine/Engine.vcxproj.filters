@@ -572,6 +572,9 @@
     <ClCompile Include="Source\LuaBindings\Http_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
+    <ClCompile Include="Source\LuaBindings\WebSocket_Lua.cpp">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
@@ -1155,6 +1158,21 @@
       <Filter>Source Files\Network</Filter>
     </ClCompile>
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketClient.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketFraming.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketHandshake.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketWss_Linux.cpp">
+      <Filter>Source Files\Network</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Network\WebSocketWss_Windows.cpp">
       <Filter>Source Files\Network</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\PaintManager.cpp">
@@ -2439,6 +2457,9 @@
     <ClInclude Include="Source\LuaBindings\Http_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
+    <ClInclude Include="Source\LuaBindings\WebSocket_Lua.h">
+      <Filter>Source Files\LuaBindings</Filter>
+    </ClInclude>
     <ClInclude Include="Source\LuaBindings\Network_Lua.h">
       <Filter>Source Files\LuaBindings</Filter>
     </ClInclude>
@@ -2515,6 +2536,21 @@
       <Filter>Source Files\Network</Filter>
     </ClInclude>
     <ClInclude Include="Source\Network\Network.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketClient.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketFraming.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketHandshake.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketTransport.h">
+      <Filter>Source Files\Network</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Network\WebSocketTypes.h">
       <Filter>Source Files\Network</Filter>
     </ClInclude>
     <ClInclude Include="Source\Network\Http\HttpClient.h">

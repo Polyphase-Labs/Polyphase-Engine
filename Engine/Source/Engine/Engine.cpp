@@ -45,6 +45,7 @@
 #include "ContentPak.h"
 #include "NetworkManager.h"
 #include "Network/Http/HttpClient.h"
+#include "Network/WebSocketClient.h"
 #include "SerialManager.h"
 #include "WindowManager.h"
 #include "ToolTipManager.h"
@@ -208,6 +209,16 @@ void OnScriptFileChanged(const FileChangeEvent& event)
     }
     else
     {
+        return;
+    }
+
+    // Same exclusion the reload-all sweep uses: a save on a one-shot boot
+    // script must not re-execute it. StartLuaPanda.lua in particular would
+    // reopen the debugger socket and take the Lua hook away from LuaDebugger
+    // for the rest of the session.
+    if (ScriptUtils::IsReloadExcludedScript(relativePath))
+    {
+        LogDebug("Skipping hot-reload of boot script: %s", relativePath.c_str());
         return;
     }
 
@@ -750,6 +761,11 @@ bool Initialize()
         Http::Initialize();
     }
 
+    {
+        SCOPED_STAT("WebSocket::Initialize");
+        WebSocket::Initialize();
+    }
+
 #if EDITOR
     if (!IsHeadless())
     {
@@ -1000,6 +1016,11 @@ bool Update()
     }
 
     {
+        SCOPED_FRAME_STAT("WebSocketTick");
+        WebSocket::Tick();
+    }
+
+    {
         SCOPED_FRAME_STAT("SerialPre");
         SerialManager::Get()->PreTickUpdate(sClock.DeltaTime());
     }
@@ -1236,6 +1257,7 @@ void Shutdown()
 #endif
 
     Http::Shutdown();
+    WebSocket::Shutdown();
     NET_Shutdown();
     AudioManager::Shutdown();
     if (!IsHeadless())

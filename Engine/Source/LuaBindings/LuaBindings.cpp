@@ -13,6 +13,7 @@
 #include "LuaBindings/Maths_Lua.h"
 #include "LuaBindings/Network_Lua.h"
 #include "LuaBindings/Http_Lua.h"
+#include "LuaBindings/WebSocket_Lua.h"
 #include "LuaBindings/Serial_Lua.h"
 #include "LuaBindings/Renderer_Lua.h"
 #include "LuaBindings/System_Lua.h"
@@ -122,6 +123,7 @@ void BindLuaInterface()
     Maths_Lua::Bind();
     Network_Lua::Bind();
     Http_Lua::Bind();
+    WebSocket_Lua::Bind();
     Serial_Lua::Bind();
     Renderer_Lua::Bind();
     System_Lua::Bind();

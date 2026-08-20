@@ -7,6 +7,7 @@
 #include <malloc.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #include <ogcsys.h>
 #include <gccore.h>
@@ -81,6 +82,85 @@ bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port
 
     int32_t rc = net_connect(socketHandle, (struct sockaddr*)&addr, sizeof(addr));
     return rc == 0;
+}
+
+// libogc's net_connect always blocks and devkitPPC has no portable
+// non-blocking connect for it. The sanctioned fallback (documented in
+// Network.h) is to run the blocking connect inside Async and have Poll hand
+// back the stored result - a per-frame pump still works, it just eats one
+// connect stall. Slots are freed by NET_SocketClose.
+#define NET_DOLPHIN_MAX_PENDING_CONNECTS 8
+
+struct DolphinConnectResult
+{
+    SocketHandle mSocket = -1;
+    int32_t      mResult = 0;
+};
+
+static DolphinConnectResult sConnectResults[NET_DOLPHIN_MAX_PENDING_CONNECTS];
+
+static DolphinConnectResult* FindDolphinConnectSlot(SocketHandle socketHandle, bool allocate)
+{
+    for (int32_t i = 0; i < NET_DOLPHIN_MAX_PENDING_CONNECTS; ++i)
+    {
+        if (sConnectResults[i].mSocket == socketHandle)
+        {
+            return &sConnectResults[i];
+        }
+    }
+
+    if (!allocate)
+    {
+        return nullptr;
+    }
+
+    for (int32_t i = 0; i < NET_DOLPHIN_MAX_PENDING_CONNECTS; ++i)
+    {
+        if (sConnectResults[i].mSocket < 0)
+        {
+            sConnectResults[i].mSocket = socketHandle;
+            sConnectResults[i].mResult = 0;
+            return &sConnectResults[i];
+        }
+    }
+
+    return nullptr;
+}
+
+bool NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
+{
+    if (socketHandle < 0) return false;
+
+    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, true);
+    if (slot == nullptr)
+    {
+        LogError("Too many pending stream connects");
+        return false;
+    }
+
+    const bool connected = NET_SocketConnect(socketHandle, ipAddr, port, 0);
+    slot->mResult = connected ? 1 : -1;
+
+    if (connected)
+    {
+        // Leave the socket non-blocking, matching the other platforms.
+        NET_SocketSetBlocking(socketHandle, false);
+    }
+
+    return connected;
+}
+
+int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
+{
+    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, false);
+    return slot != nullptr ? slot->mResult : -1;
+}
+
+bool NET_SocketWouldBlock(SocketHandle, int32_t opResult)
+{
+    // libogc's net_* return the negated errno rather than setting errno.
+    const int32_t err = (opResult < 0) ? -opResult : 0;
+    return err == EAGAIN || err == EWOULDBLOCK || err == EINTR;
 }
 
 int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
@@ -171,6 +251,13 @@ int32_t NET_SocketSendTo(SocketHandle socketHandle, const char* buffer, uint32_t
 
 void NET_SocketClose(SocketHandle socketHandle)
 {
+    DolphinConnectResult* slot = FindDolphinConnectSlot(socketHandle, false);
+    if (slot != nullptr)
+    {
+        slot->mSocket = -1;
+        slot->mResult = 0;
+    }
+
     net_close(socketHandle);
 }
 

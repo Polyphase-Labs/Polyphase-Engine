@@ -14,7 +14,12 @@ public:
     static bool IsScriptLoaded(const std::string& className);
     static bool ReloadScriptFile(const std::string& fileName);
     static bool CallLuaFunc(int numArgs, int numResults = 0);
-    static bool LoadScriptFile(const std::string& fileName, const std::string& className);
+    // reportMissingClass: log an error when the chunk ran but never defined a
+    // global table named className. True for anything a Script component asked
+    // for (a class script that lost its table IS a bug). False for speculative
+    // loads -- the disk sweep in ReloadAllScriptFiles also picks up plain
+    // module/library scripts, which legitimately have no class table.
+    static bool LoadScriptFile(const std::string& fileName, const std::string& className, bool reportMissingClass = true);
     // Optional progress callback. Called once per file with (fileName, done,
     // total). Return false to abort the loop after the current file. Default
     // nullptr keeps non-editor callers unchanged.
@@ -30,6 +35,11 @@ public:
     static void ClearLoadedScripts();
 
     static std::string GetClassNameFromFileName(const std::string& fileName);
+    // True for scripts that are executed once at boot (or are pure templates)
+    // and must never be re-executed by the reload-all sweep. Re-running them
+    // has session-persistent side effects -- StartLuaPanda.lua reopens the
+    // debugger socket and steals the debug hook back from LuaDebugger.
+    static bool IsReloadExcludedScript(const std::string& fileName);
     static void SetEmbeddedScripts(EmbeddedFile* embeddedScripts, uint32_t numEmbeddedScripts);
     static EmbeddedFile* FindEmbeddedScript(const std::string& className);
     static bool RunScript(const char* fileName, Datum* ret = nullptr);

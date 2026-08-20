@@ -1331,6 +1331,7 @@
     <ClCompile Include="Source\LuaBindings\Misc_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Http_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Network_Lua.cpp" />
+    <ClCompile Include="Source\LuaBindings\WebSocket_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Serial_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\Particle3d_Lua.cpp" />
     <ClCompile Include="Source\LuaBindings\ParticleSystemInstance_Lua.cpp" />
@@ -1407,6 +1408,11 @@
     <ClCompile Include="Source\Network\NetPlatformEpic.cpp" />
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp" />
     <ClCompile Include="Source\Network\Windows\Network_Windows.cpp" />
+    <ClCompile Include="Source\Network\WebSocketClient.cpp" />
+    <ClCompile Include="Source\Network\WebSocketFraming.cpp" />
+    <ClCompile Include="Source\Network\WebSocketHandshake.cpp" />
+    <ClCompile Include="Source\Network\WebSocketWss_Linux.cpp" />
+    <ClCompile Include="Source\Network\WebSocketWss_Windows.cpp" />
     <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp" />
     <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp" />
     <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp" />
@@ -1918,6 +1924,7 @@
     <ClInclude Include="Source\LuaBindings\Misc_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Http_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Network_Lua.h" />
+    <ClInclude Include="Source\LuaBindings\WebSocket_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Serial_Lua.h" />
     <ClInclude Include="Source\LuaBindings\Particle3d_Lua.h" />
     <ClInclude Include="Source\LuaBindings\ParticleSystemInstance_Lua.h" />
@@ -1989,6 +1996,11 @@
     <ClInclude Include="Source\Network\NetworkConstants.h" />
     <ClInclude Include="Source\Network\NetworkTypes.h" />
     <ClInclude Include="Source\Network\NetPlatform.h" />
+    <ClInclude Include="Source\Network\WebSocketClient.h" />
+    <ClInclude Include="Source\Network\WebSocketFraming.h" />
+    <ClInclude Include="Source\Network\WebSocketHandshake.h" />
+    <ClInclude Include="Source\Network\WebSocketTransport.h" />
+    <ClInclude Include="Source\Network\WebSocketTypes.h" />
     <ClInclude Include="Source\Swap.h" />
     <ClInclude Include="Source\System\System.h" />
     <ClInclude Include="Source\System\SystemConstants.h" />
