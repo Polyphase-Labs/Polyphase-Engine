@@ -42,6 +42,7 @@ public:
     // or the current build profile's target platform, or a 640x480 default.
     uint32_t GetSelectedPresetWidth();
     uint32_t GetSelectedPresetHeight();
+    std::string GetSelectedPresetName();
 
     // Capture the current color target into RGBA bytes (no disk write).
     // Returns false if the preview is not currently rendered (no color target).

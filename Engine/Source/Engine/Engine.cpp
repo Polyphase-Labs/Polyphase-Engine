@@ -284,6 +284,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(DirectionalLight3D);
     FORCE_LINK_CALL(Particle3D);
     FORCE_LINK_CALL(PointLight3D);
+    FORCE_LINK_CALL(SpotLight3D);
     FORCE_LINK_CALL(SkeletalMesh3D);
     FORCE_LINK_CALL(Sphere3D);
     FORCE_LINK_CALL(StaticMesh3D);

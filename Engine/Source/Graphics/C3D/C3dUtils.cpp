@@ -26,6 +26,17 @@ static inline float LinearAttenFunc(float dist, float maxDist, float none)
     return (1.0f - (dist / maxDist));
 }
 
+// LightLut_FromFunc only forwards one param, so the cone cosines are passed via statics.
+// LUT generation is synchronous, so this is safe.
+static float sSpotLutCosInner = 1.0f;
+static float sSpotLutCosOuter = 0.0f;
+
+static float SpotAttenFunc(float x, float param)
+{
+    float denom = glm::max(sSpotLutCosInner - sSpotLutCosOuter, 0.0001f);
+    return glm::clamp((x - sSpotLutCosOuter) / denom, 0.0f, 1.0f);
+}
+
 uint32_t CalculateShininessLevel(float shininess)
 {
     shininess = glm::max<uint32_t>(shininess, 2);
@@ -480,6 +491,31 @@ void SetupLightEnv(LightEnv& lightEnv, uint8_t lightingChannels, bool bakedLight
         C3D_LightInit(&light, &lightEnv.mLightEnv);
         C3D_LightColor(&light, lightColor.r, lightColor.g, lightColor.b);
         C3D_LightPosition(&light, &lightVec);
+
+        if (lightData.mType == LightType::Spot)
+        {
+            // Spot direction needs to be view space like the position (rotation only, w = 0).
+            glm::vec4 lightDirVS = cameraComp->GetViewMatrix() * glm::vec4(lightData.mDirection, 0.0f);
+            C3D_LightSpotDir(&light, lightDirVS.x, lightDirVS.y, lightDirVS.z);
+
+            // Generate a new Lut if the cone angles are different than last setup.
+            if (lightEnv.mLightSpotInner[lightIndex] != lightData.mInnerConeAngle ||
+                lightEnv.mLightSpotOuter[lightIndex] != lightData.mOuterConeAngle)
+            {
+                lightEnv.mLightSpotInner[lightIndex] = lightData.mInnerConeAngle;
+                lightEnv.mLightSpotOuter[lightIndex] = lightData.mOuterConeAngle;
+                sSpotLutCosInner = cosf(glm::radians(lightData.mInnerConeAngle));
+                sSpotLutCosOuter = cosf(glm::radians(lightData.mOuterConeAngle));
+                LightLut_FromFunc(&lightEnv.mLightSpotLuts[lightIndex], SpotAttenFunc, 0.0f, true);
+            }
+
+            C3D_LightSpotLut(&light, &lightEnv.mLightSpotLuts[lightIndex]);
+            C3D_LightSpotEnable(&light, true);
+        }
+        else
+        {
+            C3D_LightSpotEnable(&light, false);
+        }
 
         if (lightData.mType == LightType::Directional)
         {

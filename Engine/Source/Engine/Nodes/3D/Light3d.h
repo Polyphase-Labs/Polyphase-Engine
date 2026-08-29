@@ -17,6 +17,7 @@ public:
     virtual bool IsLight3D() const;
     virtual bool IsPointLight3D() const = 0;
     virtual bool IsDirectionalLight3D() const = 0;
+    virtual bool IsSpotLight3D() const;
 
     void SetColor(glm::vec4 color);
     glm::vec4 GetColor() const;

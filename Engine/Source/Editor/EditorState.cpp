@@ -1,6 +1,7 @@
 #if EDITOR
 #include <vector>
 #include <algorithm>
+#include <cctype>
 #include <ctime>
 #include <cstring>
 #include <functional>
@@ -34,6 +35,7 @@
 #include "TimerManager.h"
 #include "AudioManager.h"
 #include "GamePreview/GamePreview.h"
+#include "Packaging/PackagingSettings.h"
 #include "Assets/Scene.h"
 #include "EditorUtils.h"
 #include "EditorImgui.h"
@@ -2878,6 +2880,64 @@ Viewport3D* EditorState::GetViewport3D()
 Viewport2D* EditorState::GetViewport2D()
 {
     return mViewport2D;
+}
+
+// Case-insensitive check for retro console names in a build-target id
+// (e.g. "homebrew.dreamcast") or a Game Preview preset name (e.g. "PSP  480x272").
+static bool IsConsoleLookName(const std::string& name)
+{
+    static const char* kConsoleTokens[] =
+    {
+        "gamecube", "gcn", "wii", "3ds", "psp", "ps2", "ps1", "psx", "ps3",
+        "n64", "dreamcast", "saturn", "genesis", "megadrive", "xbox", "nds"
+    };
+
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+
+    for (const char* token : kConsoleTokens)
+    {
+        if (lower.find(token) != std::string::npos)
+            return true;
+    }
+
+    return false;
+}
+
+bool EditorState::ShouldPreviewConsoleLighting()
+{
+    // The project's current build target is authoritative when one is set.
+    PackagingSettings* pkgSettings = PackagingSettings::Get();
+    BuildProfile* target = pkgSettings ? pkgSettings->GetCurrentTargetProfile() : nullptr;
+
+    if (target != nullptr)
+    {
+        if (!target->mTargetId.empty())
+            return IsConsoleLookName(target->mTargetId);
+
+        switch (target->mTargetPlatform)
+        {
+        case Platform::GameCube:
+        case Platform::Wii:
+        case Platform::N3DS:
+        case Platform::Psp:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // No build target set: fall back to the Game Preview's selected preset.
+    // Console presets are named after their platform ("GameCube  640x480",
+    // addon-registered "PSP  480x272", ...); the synthetic "* Project
+    // Settings" preset and the desktop presets never match.
+    GamePreview* preview = GetGamePreview();
+    if (preview != nullptr)
+    {
+        return IsConsoleLookName(preview->GetSelectedPresetName());
+    }
+
+    return false;
 }
 
 bool EditorState::IsDirFavorited(const std::string& dirPath)

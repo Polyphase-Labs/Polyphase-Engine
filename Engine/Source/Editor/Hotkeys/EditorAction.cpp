@@ -149,6 +149,7 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "Spawn: Particle",      "Spawn",  "Spawn a Particle node",               "Spawn_Particle",         KB(POLYPHASE_KEY_8, false, false, true) },
     { "Spawn: Audio",         "Spawn",  "Spawn an Audio node",                 "Spawn_Audio",            KB(POLYPHASE_KEY_9, false, false, true) },
     { "Spawn: Scene Instance","Spawn",  "Spawn a sub-scene instance",          "Spawn_Scene",            KB(POLYPHASE_KEY_0, false, false, true) },
+    { "Spawn: Spot Light",    "Spawn",  "Spawn a Spot Light node",             "Spawn_SpotLight",        KB(POLYPHASE_KEY_2, true, false, true) },
 
     // ----- Spawn Menus -----
     { "Spawn Menu: Basic 3D", "Spawn",  "Open the basic 3D spawn menu",        "Spawn_Basic3DMenu",      KB(POLYPHASE_KEY_Q, false, true,  false) },

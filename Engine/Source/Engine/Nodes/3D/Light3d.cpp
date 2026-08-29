@@ -43,6 +43,11 @@ bool Light3D::IsLight3D() const
     return true;
 }
 
+bool Light3D::IsSpotLight3D() const
+{
+    return false;
+}
+
 void Light3D::SetColor(glm::vec4 color)
 {
     mColor = color;

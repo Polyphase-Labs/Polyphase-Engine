@@ -191,7 +191,7 @@ void main()
                 float shadowVis = SampleDirShadow(inPosition);
                 totalLight += dirLighting * shadowVis;
             }
-            else if (light.mType == LIGHT_TYPE_POINT)
+            else if (light.mType == LIGHT_TYPE_POINT || light.mType == LIGHT_TYPE_SPOT)
             {
                 vec3 lightPos = light.mPosition;
                 vec4 lightColor = light.mColor * light.mIntensity;
@@ -202,6 +202,12 @@ void main()
 
                 vec3 L = normalize(toLight);
                 float attenuation =  1.0 - clamp(dist / lightRadius, 0.0, 1.0);
+
+                if (light.mType == LIGHT_TYPE_SPOT)
+                {
+                    float coneDot = dot(normalize(light.mDirection), -L);
+                    attenuation *= clamp((coneDot - light.mConeCosOuter) / max(light.mConeCosInner - light.mConeCosOuter, 0.0001), 0.0, 1.0);
+                }
 
                 totalLight += CalculateLighting(shadingModel, L, N, V, lightColor, attenuation);
             }

@@ -61,7 +61,19 @@ void SetupLights()
 
         GX_InitLightPos(&gxLight, lightPosVS.x, lightPosVS.y, lightPosVS.z);
         GX_InitLightColor(&gxLight, gxLightColor);
-        GX_InitLightSpot(&gxLight, 0.0f, GX_SP_OFF);
+
+        if (lightData.mType == LightType::Spot)
+        {
+            // Spot direction needs to be in view space like the position (rotation only, w = 0).
+            glm::vec4 lightDirVS = cameraComp->GetViewMatrix() * glm::vec4(lightData.mDirection, 0.0f);
+            GX_InitLightDir(&gxLight, lightDirVS.x, lightDirVS.y, lightDirVS.z);
+            float cutoff = glm::clamp(lightData.mOuterConeAngle, 1.0f, 89.0f);
+            GX_InitLightSpot(&gxLight, cutoff, GX_SP_COS2);
+        }
+        else
+        {
+            GX_InitLightSpot(&gxLight, 0.0f, GX_SP_OFF);
+        }
 
         if (lightData.mType == LightType::Directional)
         {

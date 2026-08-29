@@ -12,6 +12,7 @@
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/SpotLight3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 
 void RayTracer::CreateStaticRayTraceResources()
@@ -263,7 +264,25 @@ void RayTracer::UpdateRayTracingScene(
         }
         else if (lightComp && lightComp->GetLightingDomain() != LightingDomain::Dynamic)
         {
-            if (lightComp->Is(PointLight3D::ClassRuntimeId()))
+            if (lightComp->Is(SpotLight3D::ClassRuntimeId()))
+            {
+                SpotLight3D* spotLightComp = lightComp->As<SpotLight3D>();
+
+                lightData.push_back(RayTraceLight());
+                RayTraceLight& light = lightData.back();
+                light.mPosition = spotLightComp->GetWorldPosition();
+                light.mRadius = spotLightComp->GetRadius();
+                light.mColor = spotLightComp->GetColor();
+                light.mDirection = spotLightComp->GetDirection();
+                light.mLightType = uint32_t(RayTraceLightType::Spot);
+                light.mCastShadows = (uint32_t)spotLightComp->ShouldCastShadows();
+                light.mIntensity = spotLightComp->GetIntensity();
+                float outerAngle = glm::clamp(spotLightComp->GetOuterAngle(), 0.1f, 89.9f);
+                float innerAngle = glm::clamp(spotLightComp->GetInnerAngle(), 0.0f, outerAngle);
+                light.mConeCosInner = cosf(glm::radians(innerAngle));
+                light.mConeCosOuter = cosf(glm::radians(outerAngle));
+            }
+            else if (lightComp->Is(PointLight3D::ClassRuntimeId()))
             {
                 PointLight3D* pointLightComp = lightComp->As<PointLight3D>();
 

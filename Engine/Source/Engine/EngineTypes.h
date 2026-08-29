@@ -349,6 +349,8 @@ struct LightData
     glm::vec3 mDirection;
     float mRadius;
     float mIntensity;
+    float mInnerConeAngle; // Spot only, half angle in degrees.
+    float mOuterConeAngle; // Spot only, half angle in degrees.
 };
 
 struct DebugDraw

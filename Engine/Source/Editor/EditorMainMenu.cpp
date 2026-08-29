@@ -606,10 +606,14 @@ static void DrawViewMenu()
         ToggleGrid();
     if (ImGui::MenuItem("Stats"))
         renderer->EnableStatsOverlay(!renderer->IsStatsOverlayEnabled());
-    if (ImGui::MenuItem("Preview Lighting"))
     {
-        GetEditorState()->mPreviewLighting = !GetEditorState()->mPreviewLighting;
-        LogDebug("Preview lighting %s", GetEditorState()->mPreviewLighting ? "enabled." : "disabled.");
+        bool consolePreview = GetEditorState()->ShouldPreviewConsoleLighting();
+        const char* previewLightingLabel = consolePreview ? "Preview Lighting (off: console target)" : "Preview Lighting";
+        if (ImGui::MenuItem(previewLightingLabel, nullptr, false, !consolePreview))
+        {
+            GetEditorState()->mPreviewLighting = !GetEditorState()->mPreviewLighting;
+            LogDebug("Preview lighting %s", GetEditorState()->mPreviewLighting ? "enabled." : "disabled.");
+        }
     }
 
     if (GetEditorState()->GetEditorMode() == EditorMode::Scene2D)

@@ -221,6 +221,11 @@ uint32_t GamePreview::GetSelectedPresetHeight()
     return GetCurrentPreset().mHeight;
 }
 
+std::string GamePreview::GetSelectedPresetName()
+{
+    return GetCurrentPreset().mName;
+}
+
 // Returns the canonical preview resolution for a target platform.
 void GamePreview::GetPlatformResolution(Platform platform, uint32_t& outWidth, uint32_t& outHeight, const char*& outName)
 {

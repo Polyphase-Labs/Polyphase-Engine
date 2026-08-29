@@ -29,6 +29,7 @@
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/3D/Spline3d.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/SpotLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/Audio3d.h"
@@ -200,6 +201,7 @@ static const char* GetNodeIcon(Node* node)
     if (node->As<SkeletalMesh3D>())           return ICON_SKELETON;
     if (node->As<TextMesh3D>())               return ICON_TEXTMESH;
     if (node->As<StaticMesh3D>())             return ICON_STATIC_MESH;
+    if (node->As<SpotLight3D>())              return ICON_LUCIDE_SPOTLIGHT;
     if (node->As<PointLight3D>())             return ICON_LIGHTBULB;
     if (node->As<DirectionalLight3D>())       return ICON_SUN;
     if (node->As<Camera3D>())                 return ICON_IX_VIDEO_CAMERA_FILLED;
@@ -4825,6 +4827,8 @@ void DrawSpawnBasic3dMenu(Node* node, bool setFocusPos)
         am->SpawnBasicNode(BASIC_SKELETAL_MESH, node, selAsset, setFocusPos, spawnPos);
     if (ImGui::MenuItem(BASIC_POINT_LIGHT))
         am->SpawnBasicNode(BASIC_POINT_LIGHT, node, selAsset, setFocusPos, spawnPos);
+    if (ImGui::MenuItem(BASIC_SPOT_LIGHT))
+        am->SpawnBasicNode(BASIC_SPOT_LIGHT, node, selAsset, setFocusPos, spawnPos);
     if (ImGui::MenuItem(BASIC_DIRECTIONAL_LIGHT))
         am->SpawnBasicNode(BASIC_DIRECTIONAL_LIGHT, node, selAsset, setFocusPos, spawnPos);
     if (ImGui::MenuItem(BASIC_PARTICLE))

@@ -105,6 +105,9 @@ struct LightEnv
     C3D_LightEnv mLightEnv = {};
     C3D_LightLutDA mLightAttenuationLuts[8] = {};
     float mLightRadii[8] = {};
+    C3D_LightLut mLightSpotLuts[8] = {};
+    float mLightSpotInner[8] = {};
+    float mLightSpotOuter[8] = {};
     C3D_Light mLights[8] = {};
     // Initialize to 0 so first draw triggers SetupLighting (primitives default to 0x01)
     uint8_t mLightingChannels = 0;

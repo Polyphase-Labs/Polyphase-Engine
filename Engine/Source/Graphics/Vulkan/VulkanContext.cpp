@@ -1881,6 +1881,8 @@ void VulkanContext::UpdateGlobalUniformData()
                 lightUni.mDirection = light.mDirection;
                 lightUni.mType = (uint32_t)light.mType;
                 lightUni.mIntensity = light.mIntensity;
+                lightUni.mConeCosInner = cosf(glm::radians(light.mInnerConeAngle));
+                lightUni.mConeCosOuter = cosf(glm::radians(light.mOuterConeAngle));
             }
             else
             {
@@ -1890,6 +1892,8 @@ void VulkanContext::UpdateGlobalUniformData()
                 lightUni.mDirection = glm::vec3(1.0f, 0.0f, 0.0f);
                 lightUni.mType = (uint32_t)LightType::Count;
                 lightUni.mIntensity = 0.0f;
+                lightUni.mConeCosInner = 1.0f;
+                lightUni.mConeCosOuter = 1.0f;
             }
         }
 

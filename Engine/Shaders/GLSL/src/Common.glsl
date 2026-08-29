@@ -95,8 +95,8 @@ struct LightData
     uint mType;
 
     float mIntensity;
-    float mPad0;
-    float mPad1;
+    float mConeCosInner;
+    float mConeCosOuter;
     float mPad2;
 };
 

@@ -492,6 +492,10 @@ void Viewport3D::HandleDefaultControls()
         {
             ActionManager::Get()->SpawnBasicNode(BASIC_NODE_3D, nullptr, nullptr, true, spawnPos);
         }
+        else if (hotkeys->IsActionJustTriggered(EditorAction::Spawn_SpotLight))
+        {
+            ActionManager::Get()->SpawnBasicNode(BASIC_SPOT_LIGHT, nullptr, nullptr, true, spawnPos);
+        }
         else if (hotkeys->IsActionJustTriggered(EditorAction::Spawn_DirLight))
         {
             ActionManager::Get()->SpawnBasicNode(BASIC_DIRECTIONAL_LIGHT, nullptr, nullptr, true, spawnPos);

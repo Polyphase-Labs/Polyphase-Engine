@@ -106,8 +106,8 @@ struct LightUniformData
     uint32_t mType;
 
     float mIntensity;
-    float mPad0;
-    float mPad1;
+    float mConeCosInner;
+    float mConeCosOuter;
     float mPad2;
 };
 
@@ -298,6 +298,7 @@ enum class RayTraceLightType
 {
     Point,
     Directional,
+    Spot,
 
     Count
 };
@@ -347,8 +348,8 @@ struct RayTraceLight
 
     uint32_t mCastShadows = 1;
     float mIntensity = 1.0f;
-    uint32_t mPad0 = 1337;
-    uint32_t mPad1 = 1338;
+    float mConeCosInner = 1.0f;
+    float mConeCosOuter = 1.0f;
 };
 
 struct LightBakeVertex

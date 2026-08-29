@@ -33,6 +33,7 @@
 #include "LuaBindings/Light3d_Lua.h"
 #include "LuaBindings/DirectionalLight3d_Lua.h"
 #include "LuaBindings/PointLight3d_Lua.h"
+#include "LuaBindings/SpotLight3d_Lua.h"
 #include "LuaBindings/Audio3d_Lua.h"
 #include "LuaBindings/Box3d_Lua.h"
 #include "LuaBindings/Capsule3d_Lua.h"
@@ -156,6 +157,7 @@ void BindLuaInterface()
     Light3D_Lua::Bind();
     DirectionalLight3D_Lua::Bind();
     PointLight3D_Lua::Bind();
+    SpotLight3D_Lua::Bind();
     Audio3D_Lua::Bind();
     Box3D_Lua::Bind();
     Capsule3D_Lua::Bind();

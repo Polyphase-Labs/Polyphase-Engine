@@ -84,6 +84,7 @@
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/Skybox3D.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/SpotLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/Node3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
@@ -4925,6 +4926,17 @@ Node* ActionManager::SpawnBasicNode(const std::string& name, Node* parent, Asset
         
         spawnedNode = pointLight;
     }
+    else if (name == BASIC_SPOT_LIGHT)
+    {
+        // Spawn spot light actor
+        SpotLight3D* spotLight = EXE_SpawnNode(SpotLight3D::GetStaticType())->As<SpotLight3D>();
+
+        spotLight->SetColor(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+        spotLight->SetRadius(10.0f);
+        spotLight->SetLightingDomain(LightingDomain::All);
+
+        spawnedNode = spotLight;
+    }
     else if (name == BASIC_NODE_3D)
     {
         spawnedNode = EXE_SpawnNode(Node3D::GetStaticType())->As<Node3D>();
@@ -8761,6 +8773,37 @@ Asset* ActionManager::ImportScene(const SceneImportOptions& options)
                         pointLight->UpdateTransform(true);
 
                         pointLight->SetName(aLight->mName.C_Str());
+                    }
+                    else if (aLight->mType == aiLightSource_SPOT)
+                    {
+                        SpotLight3D* spotLight = rootNode->CreateChild<SpotLight3D>();
+
+                        glm::vec3 lightColor;
+                        lightColor.r = aLight->mColorDiffuse.r;
+                        lightColor.g = aLight->mColorDiffuse.g;
+                        lightColor.b = aLight->mColorDiffuse.b;
+                        lightColor = Maths::SafeNormalize(lightColor);
+                        spotLight->SetColor(glm::vec4(lightColor, 1.0f));
+
+                        spotLight->SetLightingDomain(LightingDomain::All);
+                        spotLight->SetRadius(50.0f);
+
+                        // Assimp cone angles are half-angles in radians.
+                        spotLight->SetOuterAngle(glm::degrees(aLight->mAngleOuterCone));
+                        spotLight->SetInnerAngle(glm::degrees(aLight->mAngleInnerCone));
+
+                        glm::mat4 lightTransform(1);
+                        aiNode* lightNode = scene->mRootNode->FindNode(aLight->mName.C_Str());
+
+                        if (lightNode)
+                        {
+                            lightTransform = GetNodeTransform(lightNode);
+                        }
+
+                        spotLight->SetTransform(lightTransform);
+                        spotLight->UpdateTransform(true);
+
+                        spotLight->SetName(aLight->mName.C_Str());
                     }
                 }
                 

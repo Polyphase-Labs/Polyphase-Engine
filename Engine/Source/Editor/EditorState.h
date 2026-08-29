@@ -558,6 +558,13 @@ struct EditorState
     Viewport3D* GetViewport3D();
     Viewport2D* GetViewport2D();
 
+    // True when the editor viewport should render lighting faithfully to a
+    // retro console target instead of applying desktop conveniences (the
+    // synthetic preview directional light, unclamped HDR light colors).
+    // Driven by the project's current build target, or - when no target is
+    // set - by the Game Preview panel's selected console resolution preset.
+    bool ShouldPreviewConsoleLighting();
+
     bool IsDirFavorited(const std::string& dirPath);
     void AddFavoriteDir(const std::string& dirPath);
     void RemoveFavoriteDir(const std::string& dirPath);

@@ -2,6 +2,7 @@
 
 #define BASIC_STATIC_MESH "Static Mesh"
 #define BASIC_POINT_LIGHT "Point Light"
+#define BASIC_SPOT_LIGHT "Spot Light"
 #define BASIC_NODE_3D "Node 3D"
 #define BASIC_DIRECTIONAL_LIGHT "Directional Light"
 #define BASIC_SKELETAL_MESH "Skeletal Mesh"

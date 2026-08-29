@@ -1,6 +1,7 @@
 
 #define RAY_TRACE_LIGHT_POINT 0
 #define RAY_TRACE_LIGHT_DIRECTIONAL 1
+#define RAY_TRACE_LIGHT_SPOT 2
 
 struct Ray
 {
@@ -53,8 +54,8 @@ struct RayTraceLight
 
     uint mCastShadows;
     float mIntensity;
-    uint mPad0;
-    uint mPad1;
+    float mConeCosInner;
+    float mConeCosOuter;
 };
 
 struct LightBakeVertex

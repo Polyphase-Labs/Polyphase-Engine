@@ -9,6 +9,7 @@
 #include "Nodes/Widgets/StatsOverlay.h"
 #include "Assets/Font.h"
 #include "Nodes/3D/PointLight3d.h"
+#include "Nodes/3D/SpotLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 #include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/Particle3d.h"
@@ -839,7 +840,17 @@ static void SetLightData(LightData& lightData, Light3D* comp)
         lightData.mType = LightType::Point;
         lightData.mRadius = pointComp->GetRadius();
         lightData.mDirection = { 0.0f, 0.0f, 0.0f };
-
+        lightData.mInnerConeAngle = 0.0f;
+        lightData.mOuterConeAngle = 0.0f;
+    }
+    else if (id == SpotLight3D::ClassRuntimeId())
+    {
+        SpotLight3D* spotComp = comp->As<SpotLight3D>();
+        lightData.mType = LightType::Spot;
+        lightData.mRadius = spotComp->GetRadius();
+        lightData.mDirection = spotComp->GetDirection();
+        lightData.mOuterConeAngle = glm::clamp(spotComp->GetOuterAngle(), 0.1f, 89.9f);
+        lightData.mInnerConeAngle = glm::clamp(spotComp->GetInnerAngle(), 0.0f, lightData.mOuterConeAngle);
     }
     else if (id == DirectionalLight3D::ClassRuntimeId())
     {
@@ -847,6 +858,8 @@ static void SetLightData(LightData& lightData, Light3D* comp)
         lightData.mType = LightType::Directional;
         lightData.mDirection = dirComp->GetDirection();
         lightData.mRadius = 0.0f;
+        lightData.mInnerConeAngle = 0.0f;
+        lightData.mOuterConeAngle = 0.0f;
     }
 }
 
@@ -1030,8 +1043,30 @@ void Renderer::GatherLightData(World* world)
     }
 
 #if EDITOR
+    // When the project targets a retro console (or the Game Preview panel is set
+    // to a console resolution), render lighting the way that console will: no
+    // synthetic preview light, and light colors clamped to the fixed-function
+    // headroom (color * intensity caps at colorScale on GX/C3D/PSP/PS2, while
+    // desktop shaders are unclamped HDR).
+    bool consolePreview = GetEditorState()->ShouldPreviewConsoleLighting();
+
+    if (consolePreview)
+    {
+        float lightCap = glm::max(GetColorScale(), 1.0f);
+
+        for (uint32_t i = 0; i < mLightData.size(); ++i)
+        {
+            LightData& light = mLightData[i];
+            glm::vec4 combined = light.mColor * light.mIntensity;
+            combined = glm::min(combined, glm::vec4(lightCap));
+            combined.a = light.mColor.a;
+            light.mColor = combined;
+            light.mIntensity = 1.0f;
+        }
+    }
+
     // If preview lighting is enabled, and there is no directional light in the scene, add a preview dir light.
-    if (GetEditorState()->mPreviewLighting && !IsPlayingInEditor())
+    if (GetEditorState()->mPreviewLighting && !IsPlayingInEditor() && !consolePreview)
     {
         bool hasDirLight = false;
         for (uint32_t i = 0; i < mLightData.size(); ++i)
@@ -1053,6 +1088,8 @@ void Renderer::GatherLightData(World* world)
             previewLight.mPosition = glm::vec3(0.0f, 0.0f, 0.0f);
             previewLight.mRadius = 0.0f;
             previewLight.mIntensity = 1.0f;
+            previewLight.mInnerConeAngle = 0.0f;
+            previewLight.mOuterConeAngle = 0.0f;
             previewLight.mType = LightType::Directional;
             mLightData.push_back(previewLight);
         }

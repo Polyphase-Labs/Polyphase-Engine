@@ -124,6 +124,7 @@ enum class EditorAction : int32_t
     Spawn_Particle,
     Spawn_Audio,
     Spawn_Scene,
+    Spawn_SpotLight,
 
     // ----- Spawn Menus -----
     Spawn_Basic3DMenu,
