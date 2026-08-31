@@ -27,6 +27,7 @@ std::string EditorGetAssetNameFromPath(const std::string& path);
 void RemoveRedundantDescendants(std::vector<Node*>& nodes);
 std::string GetDevkitproPath();
 std::string GetDevenvPath();
+bool CreateDirectoryRecursive(const std::string& path);
 
 bool IsAiCollisionMesh(const aiMesh* mesh);
 

@@ -73,6 +73,80 @@ void BuildDependencyWindow::CheckDevkitPro()
     mDependencies.push_back(dep);
 }
 
+// Checks that a devkitPro compiler binary actually exists under the devkitPro
+// root. A devkitPro install without the toolchain meta-package (wii-dev /
+// 3ds-dev) passes CheckDevkitPro but fails partway through make.
+static void CheckDevkitToolchain(
+    std::vector<BuildDependency>& deps,
+    const char* name,
+    const char* description,
+    const char* subDir,
+    const char* compiler,
+    const char* pacmanPackage)
+{
+    BuildDependency dep;
+    dep.mName = name;
+    dep.mDescription = description;
+    dep.mInstallHint = std::string("In the devkitPro MSYS2 shell run: pacman -S ") + pacmanPackage;
+    dep.mInstallUrl = "https://devkitpro.org/wiki/Getting_Started";
+
+    std::string dkpPath = GetDevkitproPath();
+
+    // The Windows path comes from cygpath output, so trim trailing whitespace.
+    while (!dkpPath.empty() &&
+        (dkpPath.back() == '\n' || dkpPath.back() == '\r' || dkpPath.back() == ' '))
+    {
+        dkpPath.pop_back();
+    }
+
+    if (dkpPath.empty())
+    {
+        dep.mStatus = DependencyStatus::NotFound;
+        dep.mInstallHint = "Install devkitPro first";
+    }
+    else
+    {
+        std::string compilerPath = dkpPath + "/" + subDir + "/bin/" + compiler;
+#if PLATFORM_WINDOWS
+        compilerPath += ".exe";
+#endif
+
+        if (SYS_DoesFileExist(compilerPath.c_str(), false))
+        {
+            dep.mStatus = DependencyStatus::Found;
+            dep.mVersion = compilerPath;
+        }
+        else
+        {
+            dep.mStatus = DependencyStatus::NotFound;
+        }
+    }
+
+    deps.push_back(dep);
+}
+
+void BuildDependencyWindow::CheckDevkitPPC()
+{
+    CheckDevkitToolchain(
+        mDependencies,
+        "devkitPPC",
+        "Compiler for GameCube / Wii builds (powerpc-eabi-g++)",
+        "devkitPPC",
+        "powerpc-eabi-g++",
+        "wii-dev");
+}
+
+void BuildDependencyWindow::CheckDevkitARM()
+{
+    CheckDevkitToolchain(
+        mDependencies,
+        "devkitARM",
+        "Compiler for 3DS builds (arm-none-eabi-g++)",
+        "devkitARM",
+        "arm-none-eabi-g++",
+        "3ds-dev");
+}
+
 void BuildDependencyWindow::CheckDocker()
 {
     BuildDependency dep;
@@ -206,6 +280,8 @@ void BuildDependencyWindow::RunChecks()
 
     CheckMake();
     CheckDevkitPro();
+    CheckDevkitPPC();
+    CheckDevkitARM();
     CheckDocker();
     CheckVisualStudio();
     CheckGradle();

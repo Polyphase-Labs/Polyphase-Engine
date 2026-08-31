@@ -34,6 +34,8 @@ public:
 private:
     void CheckMake();
     void CheckDevkitPro();
+    void CheckDevkitPPC();
+    void CheckDevkitARM();
     void CheckDocker();
     void CheckVisualStudio();
     void CheckGradle();

@@ -48,36 +48,42 @@ sudo apt install libvulkan-dev
 
 #### Install devkitPro
 
-1. Install devkitPro Pacman
-```
-wget [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman) (May 403 fail, if so just download the file manually)
-chmod +x ./install-devkitpro-pacman
-sudo ./install-devkitpro-pacman
-```
-   
-2. Install Wii/3DS development libraries (Optional) ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started))
-``` 
-  sudo dkp-pacman -S wii-dev 3ds-dev
-```
+1. Install devkitPro Pacman ([https://devkitpro.org/wiki/devkitPro_pacman](https://devkitpro.org/wiki/devkitPro_pacman))
+
+   ```bash
+   wget https://apt.devkitpro.org/install-devkitpro-pacman
+   chmod +x ./install-devkitpro-pacman
+   sudo ./install-devkitpro-pacman
+   ```
+
+   The `wget` may fail with a 403 — if so, just download the file manually in a browser from [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman) and continue from `chmod`.
+
+2. Install the Wii/3DS toolchains ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started)). Skip this only if you will never package for a console — it is **required for GameCube too**: `wii-dev` provides devkitPPC (`powerpc-eabi-g++`), which the GameCube build compiles with even though its libraries come from `libogc2` in step 3.
+
+   ```bash
+   sudo dkp-pacman -S wii-dev 3ds-dev
+   ```
+
    - Restart computer
 3. If you want to package for GameCube, install `libogc2` ([https://github.com/extremscorner/pacman-packages#readme](https://github.com/extremscorner/pacman-packages#readme))
-```
-sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
-sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
-```
-   - Put this entry in `/opt/devkitpro/pacman/etc/pacman.conf` above the `[dkp-libs]` entry:
 
-     ```
+   ```bash
+   sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
+   sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
+   ```
+   - Add this entry to `/opt/devkitpro/pacman/etc/pacman.conf` above the existing `[dkp-libs]` entry. This is **file content, not commands** — the two `Server` lines are mirrors of the same repository (pacman falls back to the second if the first is unreachable), and both lines belong in the file:
+
+     ```ini
      [libogc2-devkitpro]
      Server = https://packages.libogc2.org/devkitpro/linux/$arch
      Server = https://packages.extremscorner.org/devkitpro/linux/$arch
      ```
-   - Run these
-   ```
-   sudo dkp-pacman -Syuu
-   sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
-   ```
-     - Accept overwriting if asked.
+   - Then sync and install (accept overwriting if asked):
+
+     ```bash
+     sudo dkp-pacman -Syuu
+     sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
+     ```
 
 #### Compile Shaders, libgit2, and Standalone embedded-asset stubs
 

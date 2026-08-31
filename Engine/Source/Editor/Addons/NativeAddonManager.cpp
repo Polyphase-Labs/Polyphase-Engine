@@ -4,6 +4,7 @@
 #include "AddonManager.h"
 #include "AddonDependencyResolver.h"
 #include "ActionManager.h"
+#include "EditorUtils.h"
 #include "EditorImgui.h"      // EditorProgress::Step for per-addon status during load
 #include "EditorState.h"
 #include "Engine/Assets/Scene.h"
@@ -68,57 +69,6 @@ extern "C" {
 #include <fstream>
 
 NativeAddonManager* NativeAddonManager::sInstance = nullptr;
-
-// Helper function to create directories recursively
-static bool CreateDirectoryRecursive(const std::string& path)
-{
-    if (path.empty())
-    {
-        return false;
-    }
-
-    // Normalize path separators
-    std::string normalizedPath = path;
-    for (char& c : normalizedPath)
-    {
-        if (c == '\\')
-        {
-            c = '/';
-        }
-    }
-
-    // Remove trailing slash for processing
-    if (normalizedPath.back() == '/')
-    {
-        normalizedPath.pop_back();
-    }
-
-    // If directory already exists, we're done
-    if (DoesDirExist(normalizedPath.c_str()))
-    {
-        return true;
-    }
-
-    // Find parent directory
-    size_t lastSlash = normalizedPath.find_last_of('/');
-    if (lastSlash != std::string::npos && lastSlash > 0)
-    {
-        std::string parentPath = normalizedPath.substr(0, lastSlash);
-
-        // Skip drive letter on Windows (e.g., "M:")
-        bool isDriveRoot = (parentPath.length() == 2 && parentPath[1] == ':');
-        if (!isDriveRoot && !DoesDirExist(parentPath.c_str()))
-        {
-            if (!CreateDirectoryRecursive(parentPath))
-            {
-                return false;
-            }
-        }
-    }
-
-    // Create this directory
-    return SYS_CreateDirectory(normalizedPath.c_str());
-}
 
 // Helper function to convert addon name to export macro name
 // e.g., "inventory-system-runtime" -> "INVENTORY_SYSTEM_RUNTIME_EXPORTS"

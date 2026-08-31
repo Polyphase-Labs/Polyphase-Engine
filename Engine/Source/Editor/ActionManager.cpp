@@ -5837,7 +5837,7 @@ void ActionManager::CreateNewProject(const char* folderPath, bool cpp, const cha
             if (!DoesDirExist(newProjDir.c_str()))
             {
                 LogDebug("The specified folder was not found, it will now be created @ %s",newProjDir.c_str());
-                SYS_CreateDirectory(newProjDir.c_str());
+                CreateDirectoryRecursive(newProjDir);
             }
         }
 
@@ -5846,8 +5846,8 @@ void ActionManager::CreateNewProject(const char* folderPath, bool cpp, const cha
         // Now that we have the folder, we need to populate it with an Assets and Scripts folder
         std::string assetsFolder = newProjDir + "Assets";
         std::string scriptsFolder = newProjDir + "Scripts";
-        SYS_CreateDirectory(assetsFolder.c_str());
-        SYS_CreateDirectory(scriptsFolder.c_str());
+        CreateDirectoryRecursive(assetsFolder);
+        CreateDirectoryRecursive(scriptsFolder);
 
         // Also we need to create an octp so that user can open the project with Ctrl+P
         std::string projectFile = newProjDir + newProjName.c_str() + ".octp";
@@ -5957,7 +5957,7 @@ void ActionManager::CreateNewProject(const char* folderPath, bool cpp, const cha
 
         // Create the Scenes folder and default scene for the new project
         std::string scenesFolder = assetsFolder + "/Scenes/";
-        SYS_CreateDirectory(scenesFolder.c_str());
+        CreateDirectoryRecursive(scenesFolder);
         CreateAndSaveDefaultScene(scenesFolder + std::string(defaultSceneName) + ".oct", defaultSceneName);
 
         // Finally, open the project

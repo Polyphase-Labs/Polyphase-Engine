@@ -48,17 +48,19 @@ Instructions for building from source below.
    - Open your Start Menu and launch `devkitPro > MSys2`
    - `pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com`
    - `pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE`
-   - Put this entry in `C:\devkitPro\msys2\etc\pacman.conf` above the `[dkp-libs]` entry:
+   - Add this entry to `C:\devkitPro\msys2\etc\pacman.conf` above the existing `[dkp-libs]` entry (file content, not commands — the two `Server` lines are mirrors of the same repository):
 
-   ```
-      [extremscorner-devkitpro]
-      Server = https://packages.extremscorner.org/devkitpro/windows/$arch
+   ```ini
+   [libogc2-devkitpro]
+   Server = https://packages.libogc2.org/devkitpro/windows/$arch
+   Server = https://packages.extremscorner.org/devkitpro/windows/$arch
    ```
 
    - `pacman -Syuu`
-   - `pacman -S gamecube-tools-git libogc2 libogc2-libdvm`
+   - `pacman -S wii-dev 3ds-dev gamecube-tools-git libogc2 libogc2-libdvm`
      - Accept overwriting if asked.
-   - Restart computer if you've opened Visual Studio prior to installing `libogc2` to make sure the environment variables are found.
+     - `wii-dev` / `3ds-dev` pull in the actual compilers (devkitPPC's `powerpc-eabi-g++`, devkitARM's `arm-none-eabi-g++`); the `libogc2` packages are only the libraries.
+   - Restart computer if you've opened Visual Studio prior to installing the toolchains to make sure the environment variables are found.
 3. Build shaders by running compile.bat in `/Engine/Shaders/GLSL`.
 4. Open Polyphase.sln.
 5. Switch to the DebugEditor solution configuration.
@@ -91,23 +93,28 @@ Instructions for building from source below.
 
 1. Install devkitPro Pacman for GameCube/Wii/3DS development (Optional) ([https://devkitpro.org/wiki/devkitPro_pacman](https://devkitpro.org/wiki/devkitPro_pacman))
 
-   - wget [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman)
-   - chmod +x ./install-devkitpro-pacman
-   - sudo ./install-devkitpro-pacman
-2. Install Wii/3DS development libraries (Optional) ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started))
+   ```bash
+   wget https://apt.devkitpro.org/install-devkitpro-pacman
+   chmod +x ./install-devkitpro-pacman
+   sudo ./install-devkitpro-pacman
+   ```
+2. Install the Wii/3DS toolchains ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started)). Required for GameCube too — `wii-dev` provides devkitPPC (`powerpc-eabi-g++`), which the GameCube build compiles with even though its libraries come from `libogc2` in step 3.
 
-   - sudo dkp-pacman -S wii-dev
-   - sudo dkp-pacman -S 3ds-dev
+   ```bash
+   sudo dkp-pacman -S wii-dev 3ds-dev
+   ```
+
    - Restart computer
 3. If you want to package for GameCube, install `libogc2` ([https://github.com/extremscorner/pacman-packages#readme](https://github.com/extremscorner/pacman-packages#readme))
 
    - `sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com`
    - `sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE`
-   - Put this entry in `/opt/devkitpro/pacman/etc/pacman.conf` above the `[dkp-libs]` entry:
+   - Add this entry to `/opt/devkitpro/pacman/etc/pacman.conf` above the existing `[dkp-libs]` entry (file content, not commands — the two `Server` lines are mirrors of the same repository):
 
-   ```
-      [extremscorner-devkitpro]
-      Server = https://packages.extremscorner.org/devkitpro/linux/$arch
+   ```ini
+   [libogc2-devkitpro]
+   Server = https://packages.libogc2.org/devkitpro/linux/$arch
+   Server = https://packages.extremscorner.org/devkitpro/linux/$arch
    ```
 
    - `sudo dkp-pacman -Syuu`
