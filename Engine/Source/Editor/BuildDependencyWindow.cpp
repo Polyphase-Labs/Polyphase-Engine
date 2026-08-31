@@ -12,6 +12,8 @@
 
 #include "imgui.h"
 
+#include <cstdlib>
+
 static BuildDependencyWindow sBuildDependencyWindow;
 
 BuildDependencyWindow* GetBuildDependencyWindow()
@@ -76,12 +78,22 @@ void BuildDependencyWindow::CheckDevkitPro()
 // Checks that a devkitPro compiler binary actually exists under the devkitPro
 // root. A devkitPro install without the toolchain meta-package (wii-dev /
 // 3ds-dev) passes CheckDevkitPro but fails partway through make.
+//
+// Also independently checks the DEVKITPPC / DEVKITARM environment variable
+// that the Makefiles read directly (e.g. `include $(DEVKITPPC)/wii_rules` in
+// Engine/Makefile_Wii) — make never goes through GetDevkitproPath(), so a
+// correct devkitPro install can still fail mid-build if that variable is
+// missing or points at the wrong folder (e.g. the `bin` subfolder instead of
+// the devkitPPC root), which this check surfaces before packaging is even
+// attempted instead of a cryptic "No such file or directory" from make.
 static void CheckDevkitToolchain(
     std::vector<BuildDependency>& deps,
     const char* name,
     const char* description,
     const char* subDir,
     const char* compiler,
+    const char* envVarName,
+    const char* rulesFile,
     const char* pacmanPackage)
 {
     BuildDependency dep;
@@ -111,14 +123,78 @@ static void CheckDevkitToolchain(
         compilerPath += ".exe";
 #endif
 
-        if (SYS_DoesFileExist(compilerPath.c_str(), false))
+        if (!SYS_DoesFileExist(compilerPath.c_str(), false))
         {
-            dep.mStatus = DependencyStatus::Found;
-            dep.mVersion = compilerPath;
+            dep.mStatus = DependencyStatus::NotFound;
         }
         else
         {
-            dep.mStatus = DependencyStatus::NotFound;
+            const char* envVal = getenv(envVarName);
+
+            if (envVal == nullptr)
+            {
+                dep.mStatus = DependencyStatus::NotFound;
+                dep.mInstallHint = std::string(envVarName) +
+                    " is not set. Restart your computer so the devkitPro installer's "
+                    "environment variables are picked up.";
+            }
+            else
+            {
+                // The env var may be MSYS-style (/opt/devkitpro/devkitPPC — the
+                // devkitPro installer default) or Windows-style (C:\devkitPro\devkitPPC).
+                // Both work for make (devkitPro's MSYS2 make resolves /opt/devkitpro
+                // via its mount table), but Win32 file checks can't see MSYS paths,
+                // so convert those through cygpath first.
+                std::string envDir = envVal;
+                bool checkable = true;
+
+#if PLATFORM_WINDOWS
+                if (!envDir.empty() && envDir[0] == '/')
+                {
+                    std::string converted;
+                    std::string cmd = std::string("cygpath.exe -w %") + envVarName + "%";
+                    SYS_Exec(cmd.c_str(), &converted);
+
+                    while (!converted.empty() &&
+                        (converted.back() == '\n' || converted.back() == '\r' || converted.back() == ' '))
+                    {
+                        converted.pop_back();
+                    }
+
+                    if (converted.empty())
+                    {
+                        // cygpath unavailable — the env var can't be verified from
+                        // here, but make may still resolve it fine. Don't flag a
+                        // possibly-working setup; the compiler check above passed.
+                        checkable = false;
+                    }
+                    else
+                    {
+                        envDir = converted;
+                    }
+                }
+#endif
+
+                while (!envDir.empty() && (envDir.back() == '/' || envDir.back() == '\\'))
+                {
+                    envDir.pop_back();
+                }
+                std::string rulesPath = envDir + "/" + rulesFile;
+
+                if (checkable && !SYS_DoesFileExist(rulesPath.c_str(), false))
+                {
+                    dep.mStatus = DependencyStatus::NotFound;
+                    dep.mInstallHint = std::string(envVarName) + " is set to '" + envVal +
+                        "', but " + rulesFile + " isn't there. It must point directly at the " +
+                        subDir + " folder (e.g. C:\\devkitPro\\" + subDir + "), not a subfolder "
+                        "like \\bin. Fix it in Windows Environment Variables, then restart the editor.";
+                }
+                else
+                {
+                    dep.mStatus = DependencyStatus::Found;
+                    dep.mVersion = compilerPath;
+                }
+            }
         }
     }
 
@@ -133,6 +209,8 @@ void BuildDependencyWindow::CheckDevkitPPC()
         "Compiler for GameCube / Wii builds (powerpc-eabi-g++)",
         "devkitPPC",
         "powerpc-eabi-g++",
+        "DEVKITPPC",
+        "wii_rules",
         "wii-dev");
 }
 
@@ -144,6 +222,8 @@ void BuildDependencyWindow::CheckDevkitARM()
         "Compiler for 3DS builds (arm-none-eabi-g++)",
         "devkitARM",
         "arm-none-eabi-g++",
+        "DEVKITARM",
+        "3ds_rules",
         "3ds-dev");
 }
 
