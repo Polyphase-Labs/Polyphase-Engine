@@ -220,6 +220,25 @@ def stage(platform, output_dir, engine_root, verbose=False):
     n = copy_tree(engine_root / "External", dist / "External", verbose)
     log(f"  {n} files", verbose)
 
+    # --- Prebuilt console mbedTLS libs ---
+    # The global .a exclusion above strips build *outputs*, but these are
+    # checked-in *inputs*: they are produced offline by build_dolphin.sh
+    # (devkitPPC cross-compile) and the Wii/GameCube make chain links them
+    # without being able to rebuild them (Standalone/Makefile_Wii LIBDIRS).
+    # Without these, every installed copy fails Wii/GCN packaging at link
+    # time with "ld.exe: cannot find -lmbedtls".
+    print("Staging prebuilt mbedTLS console libs...")
+    n = 0
+    for libdir in ("lib-wii", "lib-gcn"):
+        src_dir = engine_root / "External" / "mbedtls" / libdir
+        if not src_dir.is_dir():
+            print(f"  WARNING: {src_dir} not found - Wii/GCN builds from the installed engine will fail to link")
+            continue
+        for lib in sorted(src_dir.glob("*.a")):
+            if copy_file(lib, dist / "External" / "mbedtls" / libdir / lib.name, verbose):
+                n += 1
+    log(f"  {n} files", verbose)
+
     # --- Template ---
     print("Staging Template/...")
     n = copy_tree(engine_root / "Template", dist / "Template", verbose)
