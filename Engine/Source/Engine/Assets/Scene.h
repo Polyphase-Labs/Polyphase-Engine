@@ -66,6 +66,10 @@ public:
 
     void ApplyRenderSettings(World* world);
 
+    // The scene's own ambient colour (the value ApplyRenderSettings hands the
+    // world when mSetAmbientLightColor is on). Returns whether it is set.
+    bool GetAmbientLightColor(glm::vec4& outColor) const { outColor = mAmbientLightColor; return mSetAmbientLightColor; }
+
 protected:
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);

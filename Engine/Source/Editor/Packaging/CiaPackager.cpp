@@ -64,7 +64,10 @@ namespace CiaPackager
         constexpr const char* kMakeromUrlLinux = "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip";
         constexpr const char* kBannertoolUrlWin   = "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-windows.zip";
         constexpr const char* kBannertoolUrlLinux = "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz";
-        constexpr const char* kPycgfxUrl       = "https://github.com/skyfloogle/pycgfx/archive/refs/heads/main.zip";
+        // Pinned to a commit: the engine's banner_cgfx.py calls into pycgfx's
+        // internals (convert_gltf / write / CFLT), so an unannounced upstream
+        // change must not reach users through the download button.
+        constexpr const char* kPycgfxUrl       = "https://github.com/skyfloogle/pycgfx/archive/1f78850086f3a77c41e07162e842f97a5bf3c18a.zip";
         constexpr const char* kCwavtoolUrl     = "https://github.com/PabloMK7/cwavtool/releases/download/1.0.0/cwavtool.zip";
 
         // HOME Menu banner limits. The tune MUST be 44.1 kHz: a 32 kHz CWAV
@@ -1053,7 +1056,26 @@ namespace CiaPackager
             const std::string cgfx = workDir + "banner.cgfx";
             SYS_RemoveFile(cgfx.c_str());
             std::string out;
-            bool ok = RunTool(python, Quoted(pycgfx + "main.py") + " " + Quoted(gltf) + " " + Quoted(cgfx), &out);
+            // The engine's driver script runs pycgfx's conversion and then applies
+            // the scene's directional light and ambient colour (pycgfx alone
+            // gives a white headlight from the camera and black ambient).
+            const std::string engineDir = WithSlash(ctx->engineDir != nullptr ? ctx->engineDir : "");
+            const std::string driver = engineDir + "Standalone/3DS/banner_cgfx.py";
+            // No trailing slash inside the quotes: on Windows `\"` would escape
+            // the closing quote and glue the next argument on.
+            std::string pycgfxDir = pycgfx;
+            while (!pycgfxDir.empty() && (pycgfxDir.back() == '/' || pycgfxDir.back() == '\\')) pycgfxDir.pop_back();
+
+            bool ok = false;
+            if (FileExists(driver))
+            {
+                ok = RunTool(python, Quoted(driver) + " " + Quoted(pycgfxDir) + " " + Quoted(gltf) + " " + Quoted(cgfx), &out);
+            }
+            else
+            {
+                LogWarning("CIA banner: %s missing; converting with pycgfx directly (default lighting).", driver.c_str());
+                ok = RunTool(python, Quoted(pycgfx + "main.py") + " " + Quoted(gltf) + " " + Quoted(cgfx), &out);
+            }
             if (!ok || !FileExists(cgfx))
             {
                 LogWarning("pycgfx output:\n%s", out.c_str());

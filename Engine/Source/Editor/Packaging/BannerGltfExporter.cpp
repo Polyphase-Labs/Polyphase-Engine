@@ -14,6 +14,7 @@
 #include "Nodes/3D/Node3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
+#include "Nodes/3D/DirectionalLight3d.h"
 #include "Graphics/GraphicsTypes.h"
 #include "Vertex.h"
 #include "Log.h"
@@ -104,8 +105,21 @@ namespace BannerGltfExporter
             std::vector<int> mChildren;
         };
 
+        // Scene lighting handed to Standalone/3DS/banner_cgfx.py through the
+        // glTF root "extras" (glTF itself has no core light objects and pycgfx
+        // ignores KHR_lights_punctual).
+        struct Lighting
+        {
+            bool mHasLight = false;
+            glm::vec3 mDirection = glm::vec3(0.0f, 0.0f, -1.0f);   // travel direction, world space
+            glm::vec3 mColor = glm::vec3(1.0f);
+            bool mHasAmbient = false;
+            glm::vec3 mAmbient = glm::vec3(0.1f);
+        };
+
         struct Builder
         {
+            Lighting mLighting;
             std::vector<uint8_t> mBin;
             std::vector<BufferView> mViews;
             std::vector<Accessor> mAccessors;
@@ -375,6 +389,25 @@ namespace BannerGltfExporter
             w.Key("generator"); w.String("Polyphase BannerGltfExporter");
             w.EndObject();
 
+            if (b.mLighting.mHasLight || b.mLighting.mHasAmbient)
+            {
+                w.Key("extras");
+                w.StartObject();
+                w.Key("polyphase");
+                w.StartObject();
+                if (b.mLighting.mHasLight)
+                {
+                    w.Key("lightDirection"); WriteVec(w, &b.mLighting.mDirection.x, 3);
+                    w.Key("lightColor");     WriteVec(w, &b.mLighting.mColor.x, 3);
+                }
+                if (b.mLighting.mHasAmbient)
+                {
+                    w.Key("ambient"); WriteVec(w, &b.mLighting.mAmbient.x, 3);
+                }
+                w.EndObject();
+                w.EndObject();
+            }
+
             w.Key("scene"); w.Int(0);
             w.Key("scenes");
             w.StartArray();
@@ -640,11 +673,36 @@ namespace BannerGltfExporter
         glm::vec3 sceneMax(-FLT_MAX);
         int skippedSkeletal = 0;
 
+        // Scene ambient: the value the scene would hand the world. When the
+        // scene doesn't override it the world default is used, which is the
+        // same value the field is initialised with.
+        {
+            glm::vec4 ambient;
+            scene->GetAmbientLightColor(ambient);
+            b.mLighting.mHasAmbient = true;
+            b.mLighting.mAmbient = glm::vec3(ambient);
+        }
+
         root->Traverse([&](Node* node) -> bool
         {
             if (!node->IsVisible())
             {
                 return false;
+            }
+
+            // First visible directional light drives the banner's single
+            // CGFX light. Its forward vector is the direction light travels.
+            if (DirectionalLight3D* light = node->As<DirectionalLight3D>())
+            {
+                if (!b.mLighting.mHasLight)
+                {
+                    glm::vec3 dir = light->GetDirection();
+                    float len = glm::length(dir);
+                    b.mLighting.mHasLight = len > 0.0001f;
+                    b.mLighting.mDirection = b.mLighting.mHasLight ? dir / len : b.mLighting.mDirection;
+                    b.mLighting.mColor = glm::vec3(light->GetColor()) * light->GetIntensity();
+                }
+                return true;
             }
 
             if (node->As<SkeletalMesh3D>() != nullptr)
@@ -727,12 +785,22 @@ namespace BannerGltfExporter
         int animOutput = -1;
         if (hasAnimation)
         {
+            // pycgfx writes key times as frame numbers (time * 60). The HOME
+            // Menu froze on a 1 s sway sampled into 17 keys (3.75 frames
+            // apart, fractional), while 5 keys 180 whole frames apart played
+            // fine. So: every key lands on a whole frame, keys are at least
+            // kMinFramesPerKey apart (fewer sine samples for short cycles),
+            // and a cycle is never shorter than one second.
+            const int kMinFramesPerKey = 15;
+            const int kMinCycleFrames = 60;
+            const int kMaxSegments = 16;
+
             std::vector<float> times;
             std::vector<float> quats;
-            auto addKey = [&](float t, float angleDeg)
+            auto addKey = [&](int frame, float angleDeg)
             {
                 const float angle = glm::radians(angleDeg);
-                times.push_back(t);
+                times.push_back((float)frame / 60.0f);
                 quats.push_back(0.0f);
                 quats.push_back(0.0f);
                 quats.push_back(std::sin(angle * 0.5f));
@@ -741,23 +809,23 @@ namespace BannerGltfExporter
 
             if (fullSpin)
             {
-                const float period = 360.0f / speed;
                 const float dir = options.mSpinDegreesPerSec < 0.0f ? -1.0f : 1.0f;
+                const int cycleFrames = std::max(kMinCycleFrames, (int)std::lround(360.0f / speed * 60.0f));
                 for (int i = 0; i < 5; ++i)
                 {
-                    addKey(period * (float)i / 4.0f, rotMin + dir * 90.0f * (float)i);
+                    addKey((int)std::lround((float)cycleFrames * (float)i / 4.0f), rotMin + dir * 90.0f * (float)i);
                 }
             }
             else
             {
-                const int kSegments = 16;
                 const float mid = 0.5f * (rotMin + rotMax);
                 const float amp = 0.5f * range;
-                const float period = 2.0f * range / speed;   // one there-and-back per cycle
-                for (int i = 0; i <= kSegments; ++i)
+                const int cycleFrames = std::max(kMinCycleFrames, (int)std::lround(2.0f * range / speed * 60.0f));   // one there-and-back
+                const int segments = std::max(2, std::min(kMaxSegments, cycleFrames / kMinFramesPerKey));
+                for (int i = 0; i <= segments; ++i)
                 {
-                    const float phase = 2.0f * glm::pi<float>() * (float)i / (float)kSegments;
-                    addKey(period * (float)i / (float)kSegments, mid + amp * std::sin(phase));
+                    const float phase = 2.0f * glm::pi<float>() * (float)i / (float)segments;
+                    addKey((int)std::lround((float)cycleFrames * (float)i / (float)segments), mid + amp * std::sin(phase));
                 }
             }
 
@@ -793,9 +861,11 @@ namespace BannerGltfExporter
             return "";
         }
 
-        LogDebug("Banner export: %d mesh node(s), %d material(s), %d texture(s), %zu KB of vertex data -> %s",
+        LogDebug("Banner export: %d mesh node(s), %d material(s), %d texture(s), %zu KB of vertex data, %s -> %s",
                  (int)b.mNodes[kFitNode].mChildren.size(), (int)b.mMaterials.size(), (int)b.mImages.size(),
-                 b.mBin.size() / 1024, gltfPath.c_str());
+                 b.mBin.size() / 1024,
+                 b.mLighting.mHasLight ? "directional light + ambient from scene" : "no directional light (pycgfx default headlight), ambient from scene",
+                 gltfPath.c_str());
         return gltfPath;
     }
 }
