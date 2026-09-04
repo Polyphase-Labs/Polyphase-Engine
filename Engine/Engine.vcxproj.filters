@@ -1631,6 +1631,12 @@
     <ClCompile Include="Source\Editor\Packaging\AppImagePackager.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\CiaPackager.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\BannerGltfExporter.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\BuildDependencyWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -3277,6 +3283,12 @@
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\AppImagePackager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\CiaPackager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\BannerGltfExporter.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\AppSettings\AppSettingsWindow.h">

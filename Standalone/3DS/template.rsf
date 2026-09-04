@@ -1,0 +1,228 @@
+# Polyphase Nintendo 3DS CIA descriptor, consumed by makerom.
+#
+# The editor's "Nintendo 3DS (CIA)" build target copies this file into
+# <Project>/Intermediate/3DS_CIA/app.rsf and substitutes the four
+# placeholders below in-engine before invoking makerom:
+#
+#   $(APP_TITLE)         exheader process name (8 bytes; the HOME Menu title
+#                        comes from the SMDH instead)
+#   $(APP_PRODUCT_CODE)  CTR-P-XXXX product code
+#   $(APP_UNIQUE_ID)     unique part of the title id (0xFF000-0xFFFFF is the
+#                        homebrew block that never collides with retail titles)
+#   $(APP_ROMFS)         directory whose contents become romfs:/
+#
+# A profile can point "cia.rsfPath" at its own copy to change anything else
+# (save data size, services, memory mode, ...).
+
+BasicInfo:
+  Title                   : "$(APP_TITLE)"
+  ProductCode             : "$(APP_PRODUCT_CODE)"
+  Logo                    : Homebrew
+
+TitleInfo:
+  Category                : Application
+  UniqueId                : $(APP_UNIQUE_ID)
+
+Option:
+  UseOnSD                 : true
+  FreeProductCode         : true
+  MediaFootPadding        : false
+  EnableCrypt             : false
+  EnableCompress          : true
+
+AccessControlInfo:
+  CoreVersion                   : 2
+  DescVersion                   : 2
+  ReleaseKernelMajor            : "02"
+  ReleaseKernelMinor            : "33"
+  MemoryType                    : Application
+  # 64MB is the largest application region an Old 3DS offers. A New 3DS can
+  # hand out 124MB via SystemModeExt; consoles without the extra memory ignore
+  # it and keep the 64MB above.
+  SystemMode                    : 64MB
+  SystemModeExt                 : 124MB
+  IdealProcessor                : 0
+  AffinityMask                  : 1
+  Priority                      : 16
+  MaxCpu                        : 0
+  HandleTableSize               : 512
+  DisableDebug                  : true
+  EnableForceDebug              : false
+  CanWriteSharedPage            : true
+  CanUsePrivilegedPriority      : false
+  CanUseNonAlphabetAndNumber    : true
+  PermitMainFunctionArgument    : true
+  CanShareDeviceMemory          : true
+  RunnableOnSleep               : false
+  SpecialMemoryArrange          : true
+  ResourceLimitCategory         : Application
+  CpuSpeed                      : 804MHz
+  EnableL2Cache                 : true
+  CanAccessCore2                : true
+  # DSP shared memory (0x1FF50000+, used by ndspInit) and a read-only VRAM
+  # window. Without the IO mapping ndspInit data-aborts at 0x1FF5xxxx on
+  # startup; the Homebrew Launcher's exheader carries both, which is why the
+  # same .elf runs fine as a .3dsx.
+  IORegisterMapping:
+   - 1ff00000-1ff7ffff
+  MemoryMapping:
+   - 1f000000-1f5fffff:r
+  FileSystemAccess:
+   - CategorySystemApplication
+   - CategoryHardwareCheck
+   - CategoryFileSystemTool
+   - Debug
+   - TwlCardBackup
+   - TwlNandData
+   - Boss
+   - DirectSdmc
+   - Core
+   - CtrNandRo
+   - CtrNandRw
+   - CtrNandRoWrite
+   - CategorySystemSettings
+   - CardBoard
+   - ExportImportIvs
+   - DirectSdmcWrite
+   - SwitchCleanup
+   - SaveDataMove
+   - Shop
+   - Shell
+   - CategoryHomeMenu
+  IoAccessControl:
+   - FsMountNand
+   - FsMountNandRoWrite
+   - FsMountTwln
+   - FsMountWnand
+   - FsMountCardSpi
+   - UseSdif3
+   - CreateSeed
+   - UseCardSpi
+  SystemCallAccess:
+    ArbitrateAddress: 34
+    Break: 60
+    CancelTimer: 28
+    ClearEvent: 25
+    ClearTimer: 29
+    CloseHandle: 35
+    ConnectToPort: 45
+    ControlMemory: 1
+    CreateAddressArbiter: 33
+    CreateEvent: 23
+    CreateMemoryBlock: 30
+    CreateMutex: 19
+    CreateSemaphore: 21
+    CreateThread: 8
+    CreateTimer: 26
+    DuplicateHandle: 39
+    ExitProcess: 3
+    ExitThread: 9
+    GetCurrentProcessorNumber: 17
+    GetHandleInfo: 41
+    GetProcessId: 53
+    GetProcessIdOfThread: 54
+    GetProcessIdealProcessor: 6
+    GetProcessInfo: 43
+    GetResourceLimit: 56
+    GetResourceLimitCurrentValues: 58
+    GetResourceLimitLimitValues: 57
+    GetSystemInfo: 42
+    GetSystemTick: 40
+    GetThreadContext: 59
+    GetThreadId: 55
+    GetThreadIdealProcessor: 15
+    GetThreadInfo: 44
+    GetThreadPriority: 11
+    MapMemoryBlock: 31
+    OutputDebugString: 61
+    QueryMemory: 2
+    ReleaseMutex: 20
+    ReleaseSemaphore: 22
+    SendSyncRequest1: 46
+    SendSyncRequest2: 47
+    SendSyncRequest3: 48
+    SendSyncRequest4: 49
+    SendSyncRequest: 50
+    SetThreadPriority: 12
+    SetTimer: 27
+    SignalEvent: 24
+    SleepThread: 10
+    UnmapMemoryBlock: 32
+    WaitSynchronization1: 36
+    WaitSynchronizationN: 37
+  InterruptNumbers:
+  ServiceAccessControl:
+   - APT:U
+   - ac:u
+   - am:net
+   - boss:U
+   - cam:u
+   - cecd:u
+   - cfg:nor
+   - cfg:u
+   - csnd:SND
+   - dsp::DSP
+   - frd:u
+   - fs:USER
+   - gsp::Gpu
+   - gsp::Lcd
+   - hid:USER
+   - http:C
+   - ir:rst
+   - ir:u
+   - ir:USER
+   - mic:u
+   - ndm:u
+   - news:u
+   - nwm::UDS
+   - ptm:sysm
+   - ptm:u
+   - pxi:dev
+   - soc:U
+   - ssl:C
+   - y2r:u
+
+SystemControlInfo:
+  SaveDataSize: 0K
+  RemasterVersion: 0
+  # The 3dsx crt0 gives the main thread 32 KiB; a CIA takes the number from
+  # here instead. 256 KiB matches the homebrew default.
+  StackSize: 0x40000
+  Dependency:
+    ac: 0x0004013000002402
+    am: 0x0004013000001502
+    boss: 0x0004013000003402
+    camera: 0x0004013000001602
+    cecd: 0x0004013000002602
+    cfg: 0x0004013000001702
+    codec: 0x0004013000001802
+    csnd: 0x0004013000002702
+    dlp: 0x0004013000002802
+    dsp: 0x0004013000001a02
+    friends: 0x0004013000003202
+    gpio: 0x0004013000001b02
+    gsp: 0x0004013000001c02
+    hid: 0x0004013000001d02
+    http: 0x0004013000002902
+    i2c: 0x0004013000001e02
+    ir: 0x0004013000003302
+    mcu: 0x0004013000001f02
+    mic: 0x0004013000002002
+    ndm: 0x0004013000002b02
+    news: 0x0004013000003502
+    nfc: 0x0004013000004002
+    nim: 0x0004013000002c02
+    nwm: 0x0004013000002d02
+    pdn: 0x0004013000002102
+    ps: 0x0004013000003102
+    ptm: 0x0004013000002202
+    qtm: 0x0004013000004202
+    ro: 0x0004013000003702
+    socket: 0x0004013000002e02
+    spi: 0x0004013000002302
+    ssl: 0x0004013000002f02
+
+# makerom builds the RomFS image itself from this directory. The raw romfs
+# binary that 3dsxtool embeds is a different container and is rejected.
+RomFs:
+  RootPath: $(APP_ROMFS)

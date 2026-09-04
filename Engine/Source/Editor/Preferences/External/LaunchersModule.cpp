@@ -2,6 +2,7 @@
 
 #include "LaunchersModule.h"
 #include "../JsonSettings.h"
+#include "Packaging/CiaPackager.h"
 
 #include "System/System.h"
 #include "Log.h"
@@ -98,6 +99,94 @@ void LaunchersModule::Render()
         ImGui::SetTooltip("Optional. IP address shown by Homebrew Launcher's netloader (Y).\n"
                           "Leave blank to broadcast — required if broadcast discovery fails\n"
                           "(multiple NICs, AP client isolation, firewall).");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    // ── 3DS CIA tools ───────────────────────────────────────────────────────
+    ImGui::Text("3DS CIA Tools");
+    ImGui::Separator();
+    ImGui::TextDisabled("Used by the \"Nintendo 3DS (CIA)\" build target. Leave paths blank to auto-detect");
+    ImGui::TextDisabled("(editor tools folder, devkitPro/tools/bin, PATH).");
+
+    {
+        bool toolsChanged = false;
+        ImGui::Text("makerom:");
+        if (DrawPathInput("Path##Makerom", mMakeromPath, "Select makerom executable")) { toolsChanged = true; }
+        ImGui::Text("bannertool (optional, HOME Menu banner):");
+        if (DrawPathInput("Path##Bannertool", mBannertoolPath, "Select bannertool executable")) { toolsChanged = true; }
+        ImGui::Text("cwavtool (optional, DSP-ADPCM banner tune):");
+        if (DrawPathInput("Path##Cwavtool", mCwavtoolPath, "Select cwavtool executable")) { toolsChanged = true; }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Only used when a profile enables the experimental DSP-ADPCM tune option.");
+        }
+        ImGui::Text("Python 3 (optional, 3D banners):");
+        if (DrawPathInput("Path##Python", mPythonPath, "Select python executable")) { toolsChanged = true; }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Executable path or a command such as \"py -3\". Needs: pip install gltflib pillow");
+        }
+        ImGui::Text("pycgfx folder (optional, 3D banners):");
+        if (DrawPathInput("Path##Pycgfx", mPycgfxPath, "Select pycgfx main.py")) { toolsChanged = true; }
+
+        if (toolsChanged)
+        {
+            SyncCiaToolOverrides();
+            changed = true;
+        }
+
+        auto status = [](const char* label, CiaPackager::Tool tool)
+        {
+            std::string found = CiaPackager::ResolveTool(tool);
+            if (found.empty())
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "  %s: not found", label);
+            }
+            else
+            {
+                ImGui::TextDisabled("  %s: %s", label, found.c_str());
+            }
+        };
+        status("makerom", CiaPackager::Tool::Makerom);
+        status("bannertool", CiaPackager::Tool::Bannertool);
+        status("cwavtool", CiaPackager::Tool::Cwavtool);
+        status("python", CiaPackager::Tool::Python);
+        status("pycgfx", CiaPackager::Tool::Pycgfx);
+
+        const bool installing = CiaPackager::IsToolInstallRunning();
+        if (installing) ImGui::BeginDisabled();
+        if (ImGui::Button("Download makerom + bannertool + cwavtool##CiaTools"))
+        {
+            CiaPackager::StartToolInstall(CiaPackager::ToolInstall_Makerom | CiaPackager::ToolInstall_Bannertool |
+                                          CiaPackager::ToolInstall_Cwavtool);
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Fetches makerom v0.19.0 (3DSGuy/Project_CTR), bannertool 1.2.3\n"
+                              "(carstene1ns/3ds-bannertool) and cwavtool 1.0.0 (PabloMK7/cwavtool)\n"
+                              "from their GitHub releases into\n%s",
+                              CiaPackager::GetToolsDirectory().c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Install pycgfx##CiaTools"))
+        {
+            CiaPackager::StartToolInstall(CiaPackager::ToolInstall_Pycgfx);
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Downloads github.com/skyfloogle/pycgfx (main branch; the project has no\n"
+                              "license file) and runs `python -m pip install --user gltflib pillow`.\n"
+                              "Needed only for 3D HOME Menu banners.");
+        }
+        if (installing) ImGui::EndDisabled();
+
+        std::string installStatus = CiaPackager::GetToolInstallStatus();
+        if (!installStatus.empty())
+        {
+            ImGui::TextWrapped("%s%s", installing ? "Working: " : "", installStatus.c_str());
+        }
     }
 
     ImGui::Spacing();
@@ -311,10 +400,32 @@ void LaunchersModule::LoadSettings(const rapidjson::Document& doc)
     mAutoOpenLogcat = JsonSettings::GetBool(doc, "autoOpenLogcat", true);
     mLogcatAutoClear = JsonSettings::GetBool(doc, "logcatAutoClear", true);
     mLogcatFilter = JsonSettings::GetString(doc, "logcatFilter", "Polyphase:V *:E");
+
+    mMakeromPath = JsonSettings::GetString(doc, "makeromPath", "");
+    mBannertoolPath = JsonSettings::GetString(doc, "bannertoolPath", "");
+    mCwavtoolPath = JsonSettings::GetString(doc, "cwavtoolPath", "");
+    mPythonPath = JsonSettings::GetString(doc, "pythonPath", "");
+    mPycgfxPath = JsonSettings::GetString(doc, "pycgfxPath", "");
+    SyncCiaToolOverrides();
+}
+
+void LaunchersModule::SyncCiaToolOverrides()
+{
+    CiaPackager::SetToolOverride(CiaPackager::Tool::Makerom, mMakeromPath);
+    CiaPackager::SetToolOverride(CiaPackager::Tool::Bannertool, mBannertoolPath);
+    CiaPackager::SetToolOverride(CiaPackager::Tool::Cwavtool, mCwavtoolPath);
+    CiaPackager::SetToolOverride(CiaPackager::Tool::Python, mPythonPath);
+    CiaPackager::SetToolOverride(CiaPackager::Tool::Pycgfx, mPycgfxPath);
 }
 
 void LaunchersModule::SaveSettings(rapidjson::Document& doc)
 {
+    JsonSettings::SetString(doc, "makeromPath", mMakeromPath);
+    JsonSettings::SetString(doc, "bannertoolPath", mBannertoolPath);
+    JsonSettings::SetString(doc, "cwavtoolPath", mCwavtoolPath);
+    JsonSettings::SetString(doc, "pythonPath", mPythonPath);
+    JsonSettings::SetString(doc, "pycgfxPath", mPycgfxPath);
+
     JsonSettings::SetString(doc, "dolphinPath", mDolphinPath);
     JsonSettings::SetString(doc, "dolphinArgs", mDolphinArgs);
     JsonSettings::SetString(doc, "azaharPath", mAzaharPath);

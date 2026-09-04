@@ -147,13 +147,13 @@ Copies to packaged directory:
 2. Copies shader binaries to `{PackagedDir}/Engine/Shaders/GLSL/bin/`
 
 #### Static Content / Content Pak
-If the profile enables **Static Content**, shipped content is obfuscated here —
+If the profile enables **Static Content**, shipped content is obfuscated here:
 either wrapped in place (`ObfuscatePackagedContent`) or folded into a single
 `Content.pak` with the loose copies deleted (`PackPackagedContent`).
 
 **This step's position is load-bearing:**
 - It must run **after** Step 5 (embedded generators). `ConvertFileToByteString`
-  reads cooked files back through `Stream::ReadFile`, which decodes — sweeping
+  reads cooked files back through `Stream::ReadFile`, which decodes; sweeping
   first would make the generators emit plaintext byte arrays.
 - It must run **before** the romfs copy below, which clones the whole packaged
   directory. Running after it ships 3DS in the clear.
@@ -167,8 +167,8 @@ If `useRomfs` (N3DS + embedded):
 
 Note `useRomfs = (platform == N3DS) && embedded`, and the embedded byte arrays in
 Step 5 are gated on `embedded && !useRomfs`. So on 3DS "embedded" routes content
-through romfs as **loose files** rather than compiling it into the executable —
-anything that treats `embedded` as "content is in the binary" is wrong there.
+through romfs as **loose files** rather than compiling it into the executable.
+Anything that treats `embedded` as "content is in the binary" is wrong there.
 
 **Intermediate Directory:**
 - Standalone: `{PolyphaseDir}/Standalone/Intermediate`
@@ -279,6 +279,7 @@ Uses DevkitPro toolchain (Makefile_GCN, Makefile_Wii, Makefile_3DS)
 | GameCube | `Build/GCN/` | `.dol` |
 | Wii | `Build/Wii/` | `.dol` |
 | N3DS | `Build/3DS/` | `.3dsx` |
+| N3DS (CIA target) | `Build/3DS/` (`.elf` + `.smdh` consumed by makerom in PostPackage) | `.3dsx` + `.cia` |
 
 ### Generated Files
 ```

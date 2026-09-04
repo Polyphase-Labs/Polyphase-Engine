@@ -467,6 +467,7 @@ struct EngineConfig
     bool mHeadless = false;
     Platform mBuildPlatform = Platform::Count;  // Count = no build requested
     bool mBuildEmbedded = false;
+    std::string mBuildTargetId;                 // -build <targetId> (e.g. polyphase.n3ds.cia); empty = platform build
 
     // Set when the editor was launched with --addon-recovery=<pid>. Value is
     // the PID of the prior editor process whose sentinel JSON we should look

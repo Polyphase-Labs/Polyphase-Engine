@@ -56,6 +56,17 @@ To send games directly to your 3DS:
 2. Select **Hardware** under "3DS Launch Method"
 3. When you Build & Run, ensure your 3DS has Homebrew Launcher open and ready
 
+### 3DS Targets and Options
+
+Two built-in targets share the 3DS platform:
+
+| Target | Output | Use |
+|--------|--------|-----|
+| Nintendo 3DS | `Packaged/N3DS/<Project>.3dsx` | Homebrew Launcher / 3dslink / Azahar |
+| Nintendo 3DS (CIA) | `Packaged/polyphase.n3ds.cia/<Project>.3dsx` + `.cia` | Installable HOME Menu title (FBI, Azahar File > Install CIA) |
+
+Both show a **3DS Target Options** block for the SMDH metadata (Title, Description, Author, 48x48 Icon). The CIA target adds product code, unique id, version, an optional custom RSF, and the HOME Menu banner settings (image or 3D scene, tune, loop). The CIA target needs `makerom` (and optionally `bannertool`, Python + pycgfx for banners). Install them from **Preferences > External > Launchers > 3DS CIA Tools** with the download buttons, or see [3DS Overview](../Development/Platforms/3DS/Overview.md#installable-cia) for manual setup on Windows and Linux.
+
 ## Docker Builds
 ### Requirements
 

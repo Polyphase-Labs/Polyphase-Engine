@@ -113,6 +113,7 @@
 #include "EditorUIHookManager.h"
 #include "Packaging/BuildTargetRegistry.h"
 #include "Packaging/BuiltInBuildTargets.h"
+#include "Packaging/CiaPackager.h"
 #include "Plugins/PolyphaseBuildTargetAPI.h"
 #include "Packaging/PackagingWindow.h"
 #include "Preferences/PreferencesManager.h"
@@ -1523,12 +1524,18 @@ namespace
     {
         const RegisteredBuildTarget* target = FindBuildTarget(targetId);
 
-        if (target == nullptr || IsCanonicalTargetForPlatform(target))
+        const bool canonical = (target == nullptr || IsCanonicalTargetForPlatform(target));
+
+        // A canonical target with no options keeps its historical manifest
+        // name. With options set (3DS title/icon, Android app id) the hash
+        // below has to participate, otherwise editing them reports "up to
+        // date" and the new metadata never reaches the binary.
+        if (canonical && options.empty())
         {
             return "";
         }
 
-        std::string key = targetId;
+        std::string key = canonical ? std::string("opts") : targetId;
         for (char& c : key)
         {
             if (c == '.' || c == '/' || c == '\\' || c == ':') c = '-';
@@ -1647,6 +1654,27 @@ static bool VerifyBuildDirWritable(const std::string& dir, std::string& outError
     return true;
 }
 
+// Directory the toolchain drops the compiled binary in (trailing slash).
+static std::string ResolveCompiledBinaryDir(Platform platform, const std::string& buildProjDir, bool useSteam)
+{
+    if (platform == Platform::Android)
+    {
+        return buildProjDir + "Android/app/build/outputs/apk/release/";
+    }
+
+    std::string dir = buildProjDir + "/Build/";
+    switch (platform)
+    {
+    case Platform::Windows: dir += (useSteam ? "Windows/x64/ReleaseSteam/" : "Windows/x64/Release/"); break;
+    case Platform::Linux: dir += "Linux/"; break;
+    case Platform::GameCube: dir += "GCN/"; break;
+    case Platform::Wii: dir += "Wii/"; break;
+    case Platform::N3DS: dir += "3DS/"; break;
+    default: OCT_ASSERT(0); break;
+    }
+    return dir;
+}
+
 void ActionManager::BuildData(Platform platform, bool embedded)
 {
     if (IsBuildRunning())
@@ -1689,6 +1717,25 @@ void ActionManager::BuildData(Platform platform, bool embedded)
             }
 
             std::string outputPath = packagedDir + projectName + extension;
+
+            // The manifest only tracks assets, scripts and profile options. A
+            // packager's other inputs (the CIA RSF template, banner image /
+            // audio files, tool versions) are not in it, so re-run the wrap
+            // step even when cook + compile are skipped. It is cheap (makerom
+            // ~1 s) and keeps "edit banner.png, press Build" working.
+            {
+                const std::string buildProjDir = engineState->mStandalone
+                    ? SYS_GetPolyphasePath() + "Standalone/"
+                    : projectDir;
+                const std::string compiledBinaryDir =
+                    ResolveCompiledBinaryDir(platform, buildProjDir, GetEngineConfig()->mPackageForSteam);
+
+                if (!RunPostPackage(platform, projectName, projectDir, packagedDir, compiledBinaryDir))
+                {
+                    mBuildState.Reset();
+                    return;
+                }
+            }
 
             if (!IsHeadless())
             {
@@ -3897,6 +3944,60 @@ void ActionManager::BuildPhase1()
             mBuildState.mCompileCommand = std::string("make -C \"") + buildProjDir + "\" -f Makefile_TEMP -j 12";
             mBuildState.mTmpMakefile = tmpMakefile;
 
+            if (platform == Platform::N3DS)
+            {
+                // SMDH metadata (HOME Menu / Homebrew Launcher title, description,
+                // author, 48x48 icon). Passed on the make command line: command-line
+                // variables override the Makefile's `APP_TITLE := ...` and propagate
+                // into the inner `make -C $(BUILD)` pass, so Makefile_TEMP needs no
+                // further rewriting. Only set values are appended, so a profile that
+                // never touched the 3DS options builds exactly as before.
+                auto getOpt = [&](const char* k, const std::string& fallback) -> std::string {
+                    auto it = mBuildState.mTargetOptions.find(k);
+                    if (it == mBuildState.mTargetOptions.end() || it->second.empty()) return fallback;
+                    return it->second;
+                };
+                auto sanitize = [](const std::string& in) -> std::string {
+                    std::string out;
+                    for (char c : in)
+                    {
+                        unsigned char uc = (unsigned char)c;
+                        if (uc >= 0x20 && uc < 0x7f && c != '"' && c != '$' && c != '`' && c != '\\')
+                        {
+                            out += c;
+                        }
+                    }
+                    return out;
+                };
+
+                const std::string title = sanitize(getOpt("n3ds.title", ""));
+                const std::string description = sanitize(getOpt("n3ds.description", ""));
+                const std::string author = sanitize(getOpt("n3ds.author", ""));
+                if (!title.empty())       mBuildState.mCompileCommand += " APP_TITLE=\"" + title + "\"";
+                if (!description.empty()) mBuildState.mCompileCommand += " APP_DESCRIPTION=\"" + description + "\"";
+                if (!author.empty())      mBuildState.mCompileCommand += " APP_AUTHOR=\"" + author + "\"";
+
+                // smdhtool wants exactly 48x48. Generated outside $(BUILD) so
+                // `make clean` / Force Rebuild's wipe can't race it.
+                std::string iconSource = getOpt("n3ds.iconPath", GetEngineConfig()->mIconPath);
+                if (!iconSource.empty())
+                {
+                    // Image file (anything stb reads) or an imported Texture asset;
+                    // a Windows .ico (the App Settings default) falls through to
+                    // libctru's default icon.
+                    const std::string iconOut = buildProjDir + "Intermediate/3DS_Icon/icon.png";
+                    if (CiaPackager::WriteSmdhIcon(iconSource, projectDir, iconOut))
+                    {
+                        mBuildState.mCompileCommand += " ICON=Intermediate/3DS_Icon/icon.png";
+                        AppendBuildOutput("Using custom 3DS icon.\n");
+                    }
+                    else
+                    {
+                        LogDebug("3DS icon: '%s' is neither an image the packager can read nor a Texture asset; using the default icon.", iconSource.c_str());
+                    }
+                }
+            }
+
             if (platform == Platform::Linux)
             {
                 std::string exeName = standalone ? "Polyphase" : projectName;
@@ -3905,22 +4006,7 @@ void ActionManager::BuildPhase1()
         }
 
         // Compute exe source path and extension for post-build
-        std::string exeSrc = buildProjDir + "/Build/";
-        if (platform == Platform::Android)
-        {
-            exeSrc = buildProjDir;
-        }
-
-        switch (platform)
-        {
-        case Platform::Windows: exeSrc += (useSteam ? "Windows/x64/ReleaseSteam/" : "Windows/x64/Release/"); break;
-        case Platform::Linux: exeSrc += "Linux/"; break;
-        case Platform::Android: exeSrc += "Android/app/build/outputs/apk/release/"; break;
-        case Platform::GameCube: exeSrc += "GCN/"; break;
-        case Platform::Wii: exeSrc += "Wii/"; break;
-        case Platform::N3DS: exeSrc += "3DS/"; break;
-        default: OCT_ASSERT(0); break;
-        }
+        std::string exeSrc = ResolveCompiledBinaryDir(platform, buildProjDir, useSteam);
 
         std::string exeNameBase = standalone ? "Polyphase" : projectName;
         std::string extension = ".exe";
@@ -3963,19 +4049,7 @@ void ActionManager::BuildPhase1()
         AppendBuildOutput("Reusing pre-compiled executable.\n");
 
         // Compute exe path for the no-compile case
-        std::string exeSrc = buildProjDir + "/Build/";
-        if (platform == Platform::Android) exeSrc = buildProjDir;
-
-        switch (platform)
-        {
-        case Platform::Windows: exeSrc += (useSteam ? "Windows/x64/ReleaseSteam/" : "Windows/x64/Release/"); break;
-        case Platform::Linux: exeSrc += "Linux/"; break;
-        case Platform::Android: exeSrc += "Android/app/build/outputs/apk/release/"; break;
-        case Platform::GameCube: exeSrc += "GCN/"; break;
-        case Platform::Wii: exeSrc += "Wii/"; break;
-        case Platform::N3DS: exeSrc += "3DS/"; break;
-        default: OCT_ASSERT(0); break;
-        }
+        std::string exeSrc = ResolveCompiledBinaryDir(platform, buildProjDir, useSteam);
 
         std::string exeNameBase = standalone ? "Polyphase" : projectName;
         std::string extension = ".exe";
@@ -4152,6 +4226,58 @@ void ActionManager::BuildCompileThreadFunc()
 #endif
 }
 
+bool ActionManager::RunPostPackage(Platform platform, const std::string& projectName, const std::string& projectDir,
+                                   const std::string& packagedDir, const std::string& compiledBinaryDir)
+{
+    // PostPackage: gives a target a chance to wrap the packaged dir into its
+    // native distributable — a console image (Dreamcast .cdi, PS2 .iso, Xbox
+    // .xbe / .xiso, 3DS .cia, NDS .nds-rom, ...) or a Linux package (.rpm,
+    // .AppImage). Dispatch is on the callback being present, not on where the
+    // target came from: the six legacy built-ins leave PostPackage null and
+    // skip this block, while built-in packagers that set it run just like an
+    // addon's would.
+    if (mBuildState.mTargetId.empty() || EditorUIHookManager::Get() == nullptr)
+    {
+        return true;
+    }
+
+    const RegisteredBuildTarget* buildTarget =
+        EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
+    if (buildTarget == nullptr || buildTarget->mDesc.PostPackage == nullptr)
+    {
+        return true;
+    }
+
+    const std::string engineDirForCtx = SYS_GetPolyphasePath();
+
+    PolyphaseBuildContext ctx{};
+    ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
+    ctx.targetId         = buildTarget->mDesc.targetId;
+    ctx.projectName      = projectName.c_str();
+    ctx.projectDir       = projectDir.c_str();
+    ctx.packageOutputDir = packagedDir.c_str();
+    ctx.engineDir        = engineDirForCtx.c_str();
+    ctx.compiledBinaryDir = compiledBinaryDir.c_str();
+    ctx.basePlatform     = buildTarget->mDesc.basePlatform;
+    ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
+    ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
+    sBuildCtxOptions     = &mBuildState.mTargetOptions;
+    sBuildCtxOwner       = this;
+    ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
+    ctx.WriteOutputLine  = &BuildCtx_WriteOutputLine;
+    ctx.Log              = &BuildCtx_Log;
+
+    if (buildTarget->mDesc.PostPackage(&ctx) == 0)
+    {
+        LogError("Target '%s' PostPackage returned failure.", buildTarget->mDesc.targetId);
+        AppendBuildOutput("ERROR: PostPackage failed.\n");
+        return false;
+    }
+
+    (void)platform;
+    return true;
+}
+
 void ActionManager::FinalizeLocalBuild()
 {
     // Join thread if joinable
@@ -4318,46 +4444,30 @@ void ActionManager::FinalizeLocalBuild()
     // target came from: the six legacy built-ins leave PostPackage null and
     // skip this block, while built-in packagers that set it run just like an
     // addon's would.
-    if (!mBuildState.mTargetId.empty())
     {
-        const RegisteredBuildTarget* buildTarget =
-            EditorUIHookManager::Get()->GetBuildTargets().Find(mBuildState.mTargetId.c_str());
-        if (buildTarget != nullptr && buildTarget->mDesc.PostPackage != nullptr)
+        // Where make/gradle/msbuild left the binary (Build/3DS/, Build/Linux/,
+        // ...). Packagers that wrap a sibling artifact (the 3DS .elf + .smdh
+        // for makerom) read it from here.
+        std::string compiledBinaryDir;
+        size_t slash = mBuildState.mExeSrc.find_last_of("/\\");
+        if (slash != std::string::npos)
         {
-            const std::string engineDirForCtx = SYS_GetPolyphasePath();
+            compiledBinaryDir = mBuildState.mExeSrc.substr(0, slash + 1);
+        }
 
-            PolyphaseBuildContext ctx{};
-            ctx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
-            ctx.targetId         = buildTarget->mDesc.targetId;
-            ctx.projectName      = projectName.c_str();
-            ctx.projectDir       = projectDir.c_str();
-            ctx.packageOutputDir = packagedDir.c_str();
-            ctx.engineDir        = engineDirForCtx.c_str();
-            ctx.basePlatform     = buildTarget->mDesc.basePlatform;
-            ctx.embedded         = mBuildState.mEmbedded ? 1 : 0;
-            ctx.forceRebuild     = mBuildState.mForceCompile ? 1 : 0;
-            sBuildCtxOptions     = &mBuildState.mTargetOptions;
-            sBuildCtxOwner       = this;
-            ctx.GetProfileSetting = &BuildCtx_GetProfileSetting;
-            ctx.WriteOutputLine  = &BuildCtx_WriteOutputLine;
-            ctx.Log              = &BuildCtx_Log;
-
-            if (buildTarget->mDesc.PostPackage(&ctx) == 0)
-            {
-                LogError("Target '%s' PostPackage returned failure.", buildTarget->mDesc.targetId);
-                AppendBuildOutput("ERROR: PostPackage failed.\n");
-                EditorUIHookManager* hookMgrFail = EditorUIHookManager::Get();
-                if (hookMgrFail != nullptr) hookMgrFail->FireOnPackageFinished((int32_t)platform, false);
-                if (hookMgrFail != nullptr) hookMgrFail->FireOnPostBuild((int32_t)platform, false);
-                // Mark the build done so Update() doesn't re-fire FinalizeLocalBuild
-                // every tick. Without this the modal-pending state stays alive and
-                // PostPackage gets retried every frame (visible as a flood of
-                // "PostPackage returned failure" + xcopy lines in the log).
-                mBuildState.mComplete.store(true);
-                mBuildState.mSuccess.store(false);
-                mShowBuildModal = false;
-                return;
-            }
+        if (!RunPostPackage(platform, projectName, projectDir, packagedDir, compiledBinaryDir))
+        {
+            EditorUIHookManager* hookMgrFail = EditorUIHookManager::Get();
+            if (hookMgrFail != nullptr) hookMgrFail->FireOnPackageFinished((int32_t)platform, false);
+            if (hookMgrFail != nullptr) hookMgrFail->FireOnPostBuild((int32_t)platform, false);
+            // Mark the build done so Update() doesn't re-fire FinalizeLocalBuild
+            // every tick. Without this the modal-pending state stays alive and
+            // PostPackage gets retried every frame (visible as a flood of
+            // "PostPackage returned failure" + xcopy lines in the log).
+            mBuildState.mComplete.store(true);
+            mBuildState.mSuccess.store(false);
+            mShowBuildModal = false;
+            return;
         }
     }
 

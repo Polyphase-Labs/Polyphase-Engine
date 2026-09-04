@@ -38,6 +38,8 @@
 #include "Addons/AddonManager.h"
 #include "Addons/NativeAddonManager.h"
 #include "EditorUIHookManager.h"
+#include "Packaging/PackagingSettings.h"
+#include "Packaging/BuiltInBuildTargets.h"
 #include "ControllerServer/ControllerServer.h"
 #include "Preferences/Network/NetworkModule.h"
 #include "Preferences/Updates/UpdatesModule.h"
@@ -289,6 +291,11 @@ void EditorMain(int32_t argc, char** argv)
 
         ActionManager::Create();
         BuildCache::Create();
+        // The build-target registry (built-in packagers such as the 3DS CIA
+        // target) lives on the hook manager. Creating it here is cheap and
+        // lets `-build <targetId>` resolve; addon-provided targets are not
+        // loaded in headless mode.
+        EditorUIHookManager::Create();
 
         // Load project directly without editor state
         if (engineConfig->mProjectPath != "")
@@ -303,7 +310,52 @@ void EditorMain(int32_t argc, char** argv)
             }
         }
 
-        if (engineConfig->mBuildPlatform != Platform::Count)
+        // Pick up the project's saved build profile for the requested target so
+        // headless/CI builds get the same target options (3DS title/icon, CIA
+        // product code, banner, ...) and content flags as the editor would.
+        // The headless BuildData path does not Reset() the build state, so
+        // these survive into cook, compile and PostPackage.
+        if (engineConfig->mProjectPath != "")
+        {
+            PackagingSettings::Create();
+            PackagingSettings::Get()->LoadSettings();
+
+            const BuildProfile* match = nullptr;
+            for (const BuildProfile& profile : PackagingSettings::Get()->GetProfiles())
+            {
+                const bool targetMatch = !engineConfig->mBuildTargetId.empty()
+                    ? (profile.mTargetId == engineConfig->mBuildTargetId)
+                    : (profile.mTargetPlatform == engineConfig->mBuildPlatform &&
+                       (profile.mTargetId.empty() ||
+                        profile.mTargetId == BuiltInBuildTargets::IdForPlatform((int)engineConfig->mBuildPlatform)));
+                if (targetMatch)
+                {
+                    match = &profile;
+                    break;
+                }
+            }
+
+            if (match != nullptr)
+            {
+                LogDebug("Headless mode: using build profile '%s' (%zu target option(s))",
+                         match->mName.c_str(), match->mTargetOptions.size());
+                ActionManager::Get()->GetBuildState().mTargetOptions = match->mTargetOptions;
+                ActionManager::Get()->GetBuildState().mStaticContent = match->mStaticContent;
+                ActionManager::Get()->GetBuildState().mContentPak = match->mContentPak;
+            }
+        }
+
+        if (!engineConfig->mBuildTargetId.empty())
+        {
+            LogDebug("Headless mode: Building target %s (embedded=%d)",
+                     engineConfig->mBuildTargetId.c_str(),
+                     engineConfig->mBuildEmbedded ? 1 : 0);
+
+            ActionManager::Get()->BuildData(engineConfig->mBuildTargetId, engineConfig->mBuildEmbedded);
+
+            LogDebug("Headless mode: Build complete");
+        }
+        else if (engineConfig->mBuildPlatform != Platform::Count)
         {
             LogDebug("Headless mode: Building for %s (embedded=%d)",
                      GetPlatformString(engineConfig->mBuildPlatform),
@@ -315,11 +367,13 @@ void EditorMain(int32_t argc, char** argv)
         }
         else
         {
-            LogError("Headless mode: No build platform specified. Use -build <platform>");
+            LogError("Headless mode: No build platform specified. Use -build <platform|targetId>");
         }
 
         // Cleanup and exit
+        PackagingSettings::Destroy();
         BuildCache::Destroy();
+        EditorUIHookManager::Destroy();
         ActionManager::Destroy();
         Shutdown();
         return;

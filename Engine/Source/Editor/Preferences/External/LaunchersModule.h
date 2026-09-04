@@ -98,6 +98,26 @@ public:
      */
     std::string BuildWiiloadCommand(const std::string& outputPath) const;
 
+    // ── 3DS CIA tools ────────────────────────────────────────────────────────
+    // Explicit paths for the "Nintendo 3DS (CIA)" packager. Empty = auto-detect
+    // (editor tools dir, devkitPro/tools/bin, PATH). Mirrored into
+    // CiaPackager::SetToolOverride whenever they change.
+
+    /** @brief makerom executable (github.com/3DSGuy/Project_CTR). */
+    std::string mMakeromPath;
+
+    /** @brief bannertool executable (github.com/carstene1ns/3ds-bannertool). */
+    std::string mBannertoolPath;
+
+    /** @brief cwavtool executable (github.com/PabloMK7/cwavtool) — DSP-ADPCM banner tune encoder. */
+    std::string mCwavtoolPath;
+
+    /** @brief Python 3 command or executable used to run pycgfx (e.g. "py -3"). */
+    std::string mPythonPath;
+
+    /** @brief Directory containing pycgfx's main.py (github.com/skyfloogle/pycgfx). */
+    std::string mPycgfxPath;
+
     // ── Android (adb) ────────────────────────────────────────────────────────
 
     /** @brief Path to Android Debug Bridge executable. Typical Windows location: C:\Android\Sdk\platform-tools\adb.exe */
@@ -180,6 +200,9 @@ private:
      * @return True if the value changed
      */
     bool DrawPathInput(const char* label, std::string& path, const char* dialogTitle);
+
+    /** @brief Push the four CIA tool paths into CiaPackager's resolver. */
+    void SyncCiaToolOverrides();
 
     /**
      * @brief Replaces all occurrences of a substring.

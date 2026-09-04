@@ -127,6 +127,85 @@ The packaging flow:
 
 See [Packaging Flow](../PackagingFlow.md) and [Build Profiles](../../Info/BuildProfiles.md) for more details.
 
+### SMDH metadata (title, description, author, icon)
+
+Every 3DS build profile has a **3DS Target Options** block: Title, Description, Author and an Icon. The icon is an image file (PNG/JPG/BMP/TGA, project-relative or absolute) **or the name of an imported Texture asset**; either way it is resized to the 48x48 SMDH icon. They are passed to `make` as `APP_TITLE` / `APP_DESCRIPTION` / `APP_AUTHOR` / `ICON` overrides and end up in the `.smdh`, which is what the Homebrew Launcher and the HOME Menu display. Empty fields fall back to the project name, libctru's defaults, and the project icon from App Settings (when it is an image file rather than an `.ico`). The banner image and audio fields of the CIA target follow the same rule: a file path, or an imported Texture / SoundWave asset name.
+
+## Installable CIA
+
+The plain **Nintendo 3DS** target produces a `.3dsx` for the Homebrew Launcher. The **Nintendo 3DS (CIA)** target reuses the exact same cook + `make` pipeline and additionally wraps the result into `<Project>.cia`, an installable HOME Menu title. Output lands in `Packaged/polyphase.n3ds.cia/` next to the `.3dsx`.
+
+Why bother: a `.3dsx` runs inside the Homebrew Launcher's memory allocation, whereas a CIA is its own title and asks the kernel for the full application region (64 MB on an original 3DS, 124 MB on a New 3DS). Memory-hungry scenes behave better installed.
+
+### Requirements
+
+| Tool | Needed for | Source |
+|------|-----------|--------|
+| `makerom` | the `.cia` (required) | [3DSGuy/Project_CTR releases](https://github.com/3DSGuy/Project_CTR/releases) (v0.19.0) |
+| `bannertool` | HOME Menu banner + tune (optional) | [carstene1ns/3ds-bannertool releases](https://github.com/carstene1ns/3ds-bannertool/releases) (1.2.3) |
+| `cwavtool` | banner tune as DSP-ADPCM (optional, experimental) | [PabloMK7/cwavtool releases](https://github.com/PabloMK7/cwavtool/releases) (1.0.0), only used when the profile's "DSP-ADPCM Tune" option is on |
+| Python 3.12 + `pycgfx` | 3D banners (optional) | [skyfloogle/pycgfx](https://github.com/skyfloogle/pycgfx) |
+
+None of these ship with devkitPro. The editor looks for them, in order, at the explicit paths set in **Preferences > External > Launchers > 3DS CIA Tools**, in the editor tools folder (`%APPDATA%\PolyphaseEditor\Tools\3DS` on Windows, `~/.config/PolyphaseEditor/Tools/3DS` on Linux), in `<devkitPro>/tools/bin`, and finally on `PATH`.
+
+**Getting makerom and bannertool**
+
+*Easiest (Windows and Linux):* open **Preferences > External > Launchers**, scroll to **3DS CIA Tools** and click **Download makerom + bannertool + cwavtool**. The editor fetches the pinned release archives from GitHub, extracts them into the tools folder above and picks them up immediately.
+
+*Manual, Windows:* download `makerom-v0.19.0-win_x86_64.zip`, `bannertool-1.2.3-windows.zip` and `cwavtool.zip` (use `windows-x86_64/cwavtool.exe`) from the release pages linked above, extract `makerom.exe`, `bannertool.exe` and `cwavtool.exe`, then either copy them into `C:\devkitPro\tools\bin`, add their folder to `PATH`, or point the path fields in Preferences at them.
+
+*Manual, Linux:* download `makerom-v0.19.0-ubuntu_x86_64.zip`, `bannertool-1.2.3-linux.tar.gz` and `cwavtool.zip` (use `linux-x86_64/cwavtool`), extract, `chmod +x makerom bannertool cwavtool`, then copy them into `/opt/devkitpro/tools/bin`, somewhere on `PATH` (e.g. `~/.local/bin`), or set the path fields in Preferences.
+
+The **Build Dependencies** window also reports makerom as an optional dependency.
+
+### Profile options
+
+The CIA target's **Target Options** header adds:
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| Product Code | `CTR-P-` + 4 letters of the project name | Any 4 uppercase letters/digits |
+| Unique ID | hash of the project name in `0xFF000`-`0xFFFFF` | The homebrew block; stable across rebuilds. Two games must not share one. Title ID = `0x000400000<id>00` |
+| Version | `1.0.0` | major.minor.micro, max 63.63.15; bump to install over an older build |
+| Custom RSF | engine `Standalone/3DS/template.rsf` | Your own makerom descriptor (save data size, services, memory mode); `$(APP_*)` placeholders are still substituted |
+| Banner Mode | Image | Image (256x128 card) or 3D Scene |
+| Banner Image | project icon / engine logo | PNG path or a Texture asset name, scaled to fit a dark 256x128 card |
+| Banner Scene | – | Scene asset for the 3D banner |
+| Rotate / Speed / Rotation Min / Max | on / 30 deg/s / 0 / 360 | Rotation about the vertical axis. Min 0 to Max 360 = continuous spin; a smaller span sways between the two angles with eased reversals; Rotate off = static at Min |
+| Banner Audio / Loop | silence / off | WAV/OGG path or a SoundWave asset name; resampled to 44.1 kHz stereo, first ~2.2 s |
+| DSP-ADPCM Tune | off | Experimental cwavtool encoding of the tune |
+
+Changing any option invalidates the build cache for this target, so the `.cia` is regenerated.
+
+### HOME Menu banner and tune
+
+A banner is a `.bnr` holding a model (CGFX) and a tune (BCWAV). The limits are hard: the model must be under **512 KB** decompressed, and the tune must be 16-bit stereo at **44.1 kHz** and roughly **2 seconds** (about 96,000 sample frames). A 32 kHz tune, whatever its encoding, plays on the HOME Menu as a string of loud beeps (verified on hardware), so do not fight the converter on this. The editor normalises whatever you give it: images are letterboxed onto a 256x128 card; SoundWave assets and WAV/OGG files are resampled to 44.1 kHz stereo, trimmed to the sample limit and faded out over the last 50 ms (the classic "click" at the end of custom banners comes from an abrupt cut). The tune is PCM16 by default, the same as every working homebrew banner; the "DSP-ADPCM Tune" option encodes it with cwavtool at a quarter of the size but is experimental.
+
+**3D banners** take a Scene asset: every visible `StaticMesh3D` is exported as glTF (world transform, first material texture, colour, blend mode, two-sidedness), auto-fitted into the HOME Menu camera and optionally spun, then converted with pycgfx and wrapped by bannertool. Skeletal meshes, particles and text are skipped. Keep textures small; the converter refuses models over 512 KB and the editor falls back to the image banner with a warning. pycgfx has **no license file**, so the engine never bundles it: **Install pycgfx** in Preferences downloads the main branch on your explicit request and runs `pip install --user gltflib pillow`; you can also `git clone https://github.com/skyfloogle/pycgfx` and set the folder in Preferences.
+
+Azahar does not emulate the HOME Menu, so banners (2D or 3D) can only be checked on real hardware.
+
+### Installing
+
+- **Hardware:** copy the `.cia` to the SD card and install it with FBI, or use FBI's Remote Install to fetch it over the network. Launch from the HOME Menu.
+- **Azahar:** File > Install CIA, then launch from the game list. Build & Run keeps launching the sibling `.3dsx` directly.
+
+**Reinstalling after a change.** The HOME Menu caches each title's icon, banner model and banner animation by Title ID. Installing a new `.cia` over the old one at the same version keeps showing the cached banner, and even a version bump only partially refreshes it (the tune updates, the model and animation may not). When the icon or banner changed, delete the title first (System Settings > Data Management, or FBI's title list) and then install. Bump the Version option when you only want the game content updated.
+
+**Embedded mode.** The CIA carries the cooked content in its romfs whether the profile is Embedded or not, but keep Embedded on for 3DS profiles: it is the documented mode for the platform and it also makes the `.3dsx` written beside the `.cia` self-contained. Toggling it changes the build-cache manifest, so the first build afterwards recooks.
+
+The `.cia` is signed with makerom's test keys (`-target t`), which is what CFW consoles and Azahar accept.
+
+### Headless / CI
+
+`-build` accepts a build-target id as well as a platform name, so a CIA can be produced without the UI (makerom must be on `PATH`, in `devkitPro/tools/bin`, or in the editor tools folder):
+
+```bash
+PolyphaseEditor -headless -project MyGame/MyGame.octp -build polyphase.n3ds.cia embedded
+```
+
+Only built-in targets resolve in headless mode; profile options (product code, banner, ...) take their defaults.
+
 ## Platform-Specific Source Files
 
 | File | Description |

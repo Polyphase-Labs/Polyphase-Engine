@@ -695,6 +695,50 @@ void PackagingWindow::DrawProfileSettings()
         }
     }
 
+    // Built-in 3DS target options — SMDH metadata shared by the plain .3dsx
+    // target and the CIA packager (which adds its own fields via
+    // DrawProfileOptions above). Keys are read in ActionManager when it
+    // builds the make command line.
+    if (profile->mTargetPlatform == Platform::N3DS)
+    {
+        if (ImGui::CollapsingHeader("3DS Target Options", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            auto& opts = profile->mTargetOptions;
+
+            struct Field { const char* label; const char* key; const char* tooltip; };
+            const Field fields[] = {
+                { "Title##N3DS", "n3ds.title",
+                  "Name shown in the Homebrew Launcher / HOME Menu (SMDH).\n"
+                  "Leave blank to use the project name." },
+                { "Description##N3DS", "n3ds.description",
+                  "One-line description stored in the SMDH." },
+                { "Author##N3DS", "n3ds.author",
+                  "Author / publisher stored in the SMDH." },
+                { "Icon##N3DS", "n3ds.iconPath",
+                  "Image file (PNG/JPG/BMP/TGA; project-relative or absolute) or an\n"
+                  "imported Texture asset name, resized to the 48x48 SMDH icon.\n"
+                  "Leave blank to use the project icon from App Settings when it is\n"
+                  "an image file, otherwise libctru's default icon." },
+            };
+
+            for (const Field& field : fields)
+            {
+                std::string current = opts.count(field.key) ? opts[field.key] : "";
+                char buf[512];
+                std::snprintf(buf, sizeof(buf), "%s", current.c_str());
+                if (ImGui::InputText(field.label, buf, sizeof(buf)))
+                {
+                    opts[field.key] = buf;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", field.tooltip);
+                }
+            }
+        }
+    }
+
     ImGui::Spacing();
 
     // Embedded mode

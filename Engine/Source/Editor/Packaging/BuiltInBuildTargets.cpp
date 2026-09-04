@@ -7,6 +7,7 @@
 
 #include "RpmPackager.h"
 #include "AppImagePackager.h"
+#include "CiaPackager.h"
 
 namespace BuiltInBuildTargets
 {
@@ -81,6 +82,15 @@ namespace BuiltInBuildTargets
         {
             PolyphaseBuildTargetDesc desc{};
             AppImagePackager::FillDesc(desc);
+            registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
+        }
+
+        // 3DS installable title. Shares Platform::N3DS with kN3DSId the same
+        // way the Linux packagers share Platform::Linux: same cook + Makefile
+        // compile, plus a PostPackage that wraps the output into a .cia.
+        {
+            PolyphaseBuildTargetDesc desc{};
+            CiaPackager::FillDesc(desc);
             registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
         }
     }

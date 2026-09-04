@@ -456,6 +456,10 @@ protected:
     void BuildPhase1();
     void BuildCompileThreadFunc();
     void FinalizeLocalBuild();
+    // Runs the active target's PostPackage callback (if any) against an
+    // already-populated Packaged dir. Returns false when the callback fails.
+    bool RunPostPackage(Platform platform, const std::string& projectName, const std::string& projectDir,
+                        const std::string& packagedDir, const std::string& compiledBinaryDir);
     void CancelBuild();
 
 public:

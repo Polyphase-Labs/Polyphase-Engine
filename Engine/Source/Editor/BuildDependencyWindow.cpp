@@ -6,6 +6,7 @@
 #include "Preferences/PreferencesManager.h"
 #include "Preferences/General/GeneralModule.h"
 #include "Preferences/External/ExternalModule.h"
+#include "Packaging/CiaPackager.h"
 
 #include "Log.h"
 #include "System/System.h"
@@ -227,6 +228,29 @@ void BuildDependencyWindow::CheckDevkitARM()
         "3ds-dev");
 }
 
+void BuildDependencyWindow::CheckMakerom()
+{
+    BuildDependency dep;
+    dep.mName = "makerom";
+    dep.mDescription = "Optional: needed for 3DS .cia export (Nintendo 3DS (CIA) target)";
+    dep.mInstallHint = "Use the download button in Preferences > External > Launchers (3DS CIA Tools), "
+                       "or download makerom and put it on PATH / in devkitPro/tools/bin";
+    dep.mInstallUrl = "https://github.com/3DSGuy/Project_CTR/releases";
+
+    std::string path = CiaPackager::ResolveTool(CiaPackager::Tool::Makerom);
+    if (!path.empty())
+    {
+        dep.mStatus = DependencyStatus::Found;
+        dep.mVersion = path;
+    }
+    else
+    {
+        dep.mStatus = DependencyStatus::NotFound;
+    }
+
+    mDependencies.push_back(dep);
+}
+
 void BuildDependencyWindow::CheckDocker()
 {
     BuildDependency dep;
@@ -362,6 +386,7 @@ void BuildDependencyWindow::RunChecks()
     CheckDevkitPro();
     CheckDevkitPPC();
     CheckDevkitARM();
+    CheckMakerom();
     CheckDocker();
     CheckVisualStudio();
     CheckGradle();

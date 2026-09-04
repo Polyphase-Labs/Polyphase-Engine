@@ -36,6 +36,7 @@ private:
     void CheckDevkitPro();
     void CheckDevkitPPC();
     void CheckDevkitARM();
+    void CheckMakerom();
     void CheckDocker();
     void CheckVisualStudio();
     void CheckGradle();

@@ -238,8 +238,12 @@ void CookTexture(
     int32_t consoleEnableMips = GetEngineConfig()->mLqEnableMipMaps;
 
     const uint32_t comps = 4;
+    // The flip flag is global stb state: restore it right after the write,
+    // otherwise every later stbi_write_png in the session (3DS SMDH icon,
+    // CIA banner, Android launcher icons) comes out upside down.
     stbi_flip_vertically_on_write(platform == Platform::N3DS);
     stbi_write_png(pngPath.c_str(), texWidth, texHeight, comps, pixels.data(), texWidth * 4);
+    stbi_flip_vertically_on_write(0);
 
     // (2) Exec platform-specific texture converter with relevant args, and output to another temp file in Intermediate.
     std::string cookCmd = "";

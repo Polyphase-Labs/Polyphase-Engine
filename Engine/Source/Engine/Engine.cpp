@@ -498,7 +498,17 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
         else if (strcmp(argv[i], "-build") == 0)
         {
             OCT_ASSERT(i + 1 < argc);
-            sEngineConfig.mBuildPlatform = StringToPlatform(argv[i + 1]);
+            // Either a platform name (3DS, Wii, ...) or a registered build
+            // target id (polyphase.n3ds.cia, polyphase.linux.rpm, ...). Target
+            // ids are reverse-DNS, so a dot is the discriminator.
+            if (strchr(argv[i + 1], '.') != nullptr)
+            {
+                sEngineConfig.mBuildTargetId = argv[i + 1];
+            }
+            else
+            {
+                sEngineConfig.mBuildPlatform = StringToPlatform(argv[i + 1]);
+            }
             ++i;
 
             // Check for optional "embedded" argument
