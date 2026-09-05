@@ -205,6 +205,39 @@ int Renderer_Lua::IsFrustumCullingEnabled(lua_State* L)
     return 1;
 }
 
+int Renderer_Lua::EnableOcclusionCulling(lua_State* L)
+{
+    bool value = CHECK_BOOLEAN(L, 1);
+
+    Renderer::Get()->EnableOcclusionCulling(value);
+
+    return 0;
+}
+
+int Renderer_Lua::IsOcclusionCullingEnabled(lua_State* L)
+{
+    bool ret = Renderer::Get()->IsOcclusionCullingEnabled();
+
+    lua_pushboolean(L, ret);
+    return 1;
+}
+
+int Renderer_Lua::GetNumFrustumCulled(lua_State* L)
+{
+    int32_t ret = Renderer::Get()->GetNumFrustumCulled();
+
+    lua_pushinteger(L, ret);
+    return 1;
+}
+
+int Renderer_Lua::GetNumOcclusionCulled(lua_State* L)
+{
+    int32_t ret = Renderer::Get()->GetNumOcclusionCulled();
+
+    lua_pushinteger(L, ret);
+    return 1;
+}
+
 int Renderer_Lua::AddDebugDraw(lua_State* L)
 {
     DebugDraw draw;
@@ -448,6 +481,14 @@ void Renderer_Lua::Bind()
     REGISTER_TABLE_FUNC(L, tableIdx, EnableFrustumCulling);
 
     REGISTER_TABLE_FUNC(L, tableIdx, IsFrustumCullingEnabled);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, EnableOcclusionCulling);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, IsOcclusionCullingEnabled);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetNumFrustumCulled);
+
+    REGISTER_TABLE_FUNC(L, tableIdx, GetNumOcclusionCulled);
 
     REGISTER_TABLE_FUNC(L, tableIdx, AddDebugDraw);
 

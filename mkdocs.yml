@@ -48,6 +48,7 @@ nav:
       - Bone Mask: Development/BoneMask.md
       - Bone Sockets: Development/BoneSockets.md
       - Shadows: Development/Shadows.md
+      - Occlusion Culling: Development/OcclusionCulling.md
       - 3D Nodes:
           - Terrain3D: Development/Terrain3D.md
           - TileMap2D: Development/TileMap2D.md

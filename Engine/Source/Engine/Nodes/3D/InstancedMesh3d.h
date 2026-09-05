@@ -59,6 +59,7 @@ public:
     bool WasInstanceDataUpdatedThisFrame() const;
 
     bool ShouldUnroll() const;
+    bool IsUnrolled() const;
 
     InstancedMeshCompResource* GetInstancedMeshResource();
 

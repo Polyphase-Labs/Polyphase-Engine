@@ -484,6 +484,17 @@ endpoints are 3D-only; calling them on a 2D widget or pure `Node` returns an err
 | GET | `/api/screenshot` | `width` | `{format, width, height, data}` (PNG, base64) — Game Preview viewport only |
 | GET | `/api/screenshot/editor` | `width` | `{format, width, height, data}` (PNG, base64) — full editor window (incl. UI chrome) |
 
+### Occlusion culling
+| Method | Path | Body | Returns on success |
+|---|---|---|---|
+| POST | `/api/occlusion/bake` | — | `{success, queued}` — bake runs at end of frame; poll `status` until `hasData && !baking` |
+| POST | `/api/occlusion/clear` | — | `{success, queued}` |
+| GET | `/api/occlusion/status` | — | `{enabled, stale, hasData, occludees, occluders, cells, uniqueSets, bytes, frustumCulled, occlusionCulled, cameraPos, cameraCell, nodes[]}` |
+| PUT | `/api/occlusion/preview` | `{enabled}` | `{success, previewEnabled}` — apply culling to the editor camera |
+
+Flag nodes with the `Occluder Static` / `Occludee Static` bool properties and enable the
+scene asset's `Occlusion Culling` property before baking.
+
 ## Property types and JSON wire format
 
 The integer `type` code in `GET .../properties` responses is the `DatumType` enum index

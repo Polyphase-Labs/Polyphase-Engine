@@ -100,6 +100,12 @@ public:
     static glm::vec4 LinearToSrgb(const glm::vec4& linearColor);
     static glm::vec4 SrgbToLinear(glm::vec4 srgbColor);
 
+    // Ray / segment intersection helpers (used by the occlusion baker).
+    // invDir is 1/dir per component (use a huge value for zero components).
+    static bool RayIntersectsAABB(const glm::vec3& origin, const glm::vec3& invDir, const glm::vec3& boxMin, const glm::vec3& boxMax, float tMin, float tMax);
+    // Moller-Trumbore, double sided. e1 = v1 - v0, e2 = v2 - v0.
+    static bool RayIntersectsTriangle(const glm::vec3& origin, const glm::vec3& dir, const glm::vec3& v0, const glm::vec3& e1, const glm::vec3& e2, float& outT);
+
 
 private:
 

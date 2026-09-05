@@ -133,8 +133,13 @@ void LaunchersModule::Render()
 
         if (toolsChanged)
         {
-            SyncCiaToolOverrides();
+            mCiaToolsDirty = true;
             changed = true;
+        }
+        if (mCiaToolsDirty && !ImGui::IsAnyItemActive())
+        {
+            SyncCiaToolOverrides();
+            mCiaToolsDirty = false;
         }
 
         auto status = [](const char* label, CiaPackager::Tool tool)

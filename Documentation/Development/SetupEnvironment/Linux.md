@@ -122,6 +122,25 @@ FUSE is not required — the packager runs appimagetool with `APPIMAGE_EXTRACT_A
 
 Offline/CI alternative: install `squashfs-tools` (`sudo apt install squashfs-tools`) and set an [AppImage runtime binary](https://github.com/AppImage/type2-runtime/releases) as the **Runtime File** option in the build profile. The packager then assembles the image with `mksquashfs` + `cat` instead of appimagetool.
 
+### Packaging a 3DS installable (.cia)
+
+The plain **Nintendo 3DS** build target needs nothing beyond `3ds-dev` above. The **Nintendo 3DS (CIA)** target, which produces an installable HOME Menu title, shells out to tools that devkitPro does not ship. None of them are needed unless you use that target.
+
+| Tool | Needed for | Where it comes from |
+|------|-----------|---------------------|
+| `makerom` | the `.cia` (required) | [3DSGuy/Project_CTR releases](https://github.com/3DSGuy/Project_CTR/releases), `makerom-v0.19.0-ubuntu_x86_64.zip` |
+| `bannertool` | HOME Menu banner and tune (optional) | [carstene1ns/3ds-bannertool releases](https://github.com/carstene1ns/3ds-bannertool/releases), `bannertool-1.2.3-linux.tar.gz` |
+| `cwavtool` | DSP-ADPCM tune encoding (optional, experimental) | [PabloMK7/cwavtool releases](https://github.com/PabloMK7/cwavtool/releases), `cwavtool.zip`, use `linux-x86_64/cwavtool` |
+| Python 3.12 + pycgfx | 3D scene banners (optional) | distro `python3` and `python3-pip`, plus [skyfloogle/pycgfx](https://github.com/skyfloogle/pycgfx) |
+
+**Easiest:** in the editor open **Preferences > External > Launchers**, scroll to **3DS CIA Tools**, and click **Download makerom + bannertool + cwavtool**. The archives are fetched from the release pages above into `~/.config/PolyphaseEditor/Tools/3DS`, made executable, and picked up immediately. This needs `curl` or libcurl and `unzip`/`tar` on the host.
+
+**Manual:** extract the binaries, `chmod +x makerom bannertool cwavtool`, and either copy them into `/opt/devkitpro/tools/bin`, put them somewhere on `PATH` such as `~/.local/bin`, or set the path fields in the same Preferences page.
+
+**3D banners** additionally need Python 3 with pip (`sudo apt install python3 python3-pip` or `sudo pacman -S python python-pip`). Then click **Install pycgfx** in the same Preferences page (it downloads pycgfx, pinned to a fixed commit, and runs `python3 -m pip install --user gltflib pillow`). pycgfx has no license file, which is why the editor only fetches it on request and never bundles it. Selecting a 3D banner in a build profile without these installed shows what is missing and falls back to the image banner.
+
+Details on the target, its options and the HOME Menu limits are in [Platforms/3DS/Overview.md](../Platforms/3DS/Overview.md#installable-cia).
+
 ### VSCode / GDB Debugging Issues on Ubuntu 24+
 
 Some Linux users may encounter extremely slow debugger startup times, hangs, or failed launches when using `cppdbg` in Visual Studio Code on newer Ubuntu releases (22.04+ / 24.04+), especially inside containers, XRDP sessions, or remote development environments.

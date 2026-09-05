@@ -196,6 +196,8 @@ struct EditorState
     bool mSaveSceneAtEndOfFrame = false;
     bool mSaveSelectedAssetAtEndOfFrame = false;
     bool mResaveAllAtEndOfFrame = false;
+    bool mBakeOcclusionAtEndOfFrame = false;
+    bool mClearOcclusionAtEndOfFrame = false;
     bool mReloadScriptsAtEndOfFrame = false;
     bool mOpenProjectAtEndOfFrame = false;
     std::string mPendingOpenProjectPath;

@@ -374,6 +374,46 @@ int Primitive3D_Lua::ShouldCastShadows(lua_State* L)
     return 1;
 }
 
+int Primitive3D_Lua::EnableOccluder(lua_State* L)
+{
+    Primitive3D* prim = CHECK_PRIMITIVE_3D(L, 1);
+    bool enable = CHECK_BOOLEAN(L, 2);
+
+    prim->EnableOccluder(enable);
+
+    return 0;
+}
+
+int Primitive3D_Lua::IsOccluder(lua_State* L)
+{
+    Primitive3D* prim = CHECK_PRIMITIVE_3D(L, 1);
+
+    bool ret = prim->IsOccluder();
+
+    lua_pushboolean(L, ret);
+    return 1;
+}
+
+int Primitive3D_Lua::EnableOccludee(lua_State* L)
+{
+    Primitive3D* prim = CHECK_PRIMITIVE_3D(L, 1);
+    bool enable = CHECK_BOOLEAN(L, 2);
+
+    prim->EnableOccludee(enable);
+
+    return 0;
+}
+
+int Primitive3D_Lua::IsOccludee(lua_State* L)
+{
+    Primitive3D* prim = CHECK_PRIMITIVE_3D(L, 1);
+
+    bool ret = prim->IsOccludee();
+
+    lua_pushboolean(L, ret);
+    return 1;
+}
+
 int Primitive3D_Lua::EnableReceiveShadows(lua_State* L)
 {
     Primitive3D* prim = CHECK_PRIMITIVE_3D(L, 1);
@@ -582,6 +622,14 @@ void Primitive3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, EnableCastShadows);
 
     REGISTER_TABLE_FUNC(L, mtIndex, ShouldCastShadows);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, EnableOccluder);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, IsOccluder);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, EnableOccludee);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, IsOccludee);
 
     REGISTER_TABLE_FUNC(L, mtIndex, EnableReceiveShadows);
 

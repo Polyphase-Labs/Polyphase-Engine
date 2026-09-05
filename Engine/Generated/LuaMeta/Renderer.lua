@@ -55,6 +55,18 @@ function Renderer.EnableFrustumCulling(value) end
 ---@return boolean
 function Renderer.IsFrustumCullingEnabled() end
 
+---@param value boolean
+function Renderer.EnableOcclusionCulling(value) end
+
+---@return boolean
+function Renderer.IsOcclusionCullingEnabled() end
+
+---@return integer
+function Renderer.GetNumFrustumCulled() end
+
+---@return integer
+function Renderer.GetNumOcclusionCulled() end
+
 ---@param mesh StaticMesh
 ---@param pos Vector
 ---@param rot? Vector

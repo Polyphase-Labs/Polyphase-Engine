@@ -519,6 +519,15 @@ namespace CiaPackager
 
         bool InstallPycgfx()
         {
+            // pycgfx is useless without an interpreter, so say so up front
+            // instead of downloading and failing at the pip step.
+            if (ResolveTool(Tool::Python).empty())
+            {
+                SetInstallStatus("Python 3 not found. Install Python 3.12 from python.org (tick \"Add python.exe to PATH\"), "
+                                 "restart the editor, then click Install pycgfx again.");
+                return false;
+            }
+
             const std::string toolsDir = GetToolsDirectory();
             const std::string dlDir = toolsDir + "/dl";
             CreateDirectoryRecursive(dlDir);
@@ -1430,9 +1439,17 @@ namespace CiaPackager
                 const bool scene = Opt(ctx, kBannerModeKey, "image") == "scene";
                 int mode = scene ? 1 : 0;
                 const char* modes[] = { "Image (256x128)", "3D Scene" };
+                const bool havePython = !ResolveTool(Tool::Python).empty();
+                const bool havePycgfx = !ResolveTool(Tool::Pycgfx).empty();
+                const bool sceneToolsMissing = !havePython || !havePycgfx;
+
                 if (ImGui::Combo("Banner Mode", &mode, modes, 2) && ctx->SetProfileSetting != nullptr)
                 {
                     ctx->SetProfileSetting(kBannerModeKey, mode == 1 ? "scene" : "image");
+                    if (mode == 1 && sceneToolsMissing)
+                    {
+                        ImGui::OpenPopup("3D Banner Requirements");
+                    }
                 }
                 if (ImGui::IsItemHovered())
                 {
@@ -1442,8 +1459,71 @@ namespace CiaPackager
                                       "and fall back to the image banner when pycgfx is missing.");
                 }
 
+                // Modal shown when 3D Scene is picked without the tools.
+                if (ImGui::BeginPopupModal("3D Banner Requirements", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextWrapped("3D banners are converted with pycgfx, a Python tool.");
+                    ImGui::Spacing();
+                    if (!havePython)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Python 3 was not found.");
+                        ImGui::TextWrapped("Install Python 3.12 from python.org and tick \"Add python.exe to PATH\" "
+                                           "in its installer, then restart the editor. You can also point the "
+                                           "Python field in Preferences > External > Launchers at an existing python.exe.");
+                        if (ImGui::Button("Open python.org/downloads"))
+                        {
+                            // Same recipe as BuildDependencyWindow's install links.
+#if PLATFORM_WINDOWS
+                            SYS_ExecDetached("start https://www.python.org/downloads/");
+#else
+                            SYS_ExecDetached("xdg-open https://www.python.org/downloads/ &");
+#endif
+                        }
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "pycgfx was not found.");
+                        ImGui::TextWrapped("Install pycgfx (downloads github.com/skyfloogle/pycgfx and runs "
+                                           "pip install gltflib pillow). The project has no license file, so the "
+                                           "editor only fetches it on your request.");
+                        const bool installing = IsToolInstallRunning();
+                        if (installing) ImGui::BeginDisabled();
+                        if (ImGui::Button("Install pycgfx"))
+                        {
+                            StartToolInstall(ToolInstall_Pycgfx);
+                        }
+                        if (installing) ImGui::EndDisabled();
+                        std::string status = GetToolInstallStatus();
+                        if (!status.empty())
+                        {
+                            ImGui::TextWrapped("%s%s", installing ? "Working: " : "", status.c_str());
+                        }
+                    }
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Until then the build falls back to the image banner.");
+                    ImGui::Spacing();
+                    if (ImGui::Button("Close"))
+                    {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+
                 if (mode == 1)
                 {
+                    // Persistent warning while the tools are missing.
+                    if (sceneToolsMissing)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                            !havePython ? "Python 3 not found: 3D banner will fall back to the image banner."
+                                        : "pycgfx not found: 3D banner will fall back to the image banner.");
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Details##3DBanner"))
+                        {
+                            ImGui::OpenPopup("3D Banner Requirements");
+                        }
+                    }
+
                     DrawTextOption(ctx, "Banner Scene", kBannerSceneKey, "",
                         "Scene asset whose StaticMesh3D nodes become the banner model.\n"
                         "Keep it small: the converted model must stay under 512 KB.");
@@ -1548,8 +1628,10 @@ namespace CiaPackager
         std::lock_guard<std::mutex> lock(sToolMutex);
         if (sToolOverride[(int)tool] != path)
         {
+            // Only this tool re-probes; probing shells out (`where`, `--version`)
+            // and each call lands in the log.
             sToolOverride[(int)tool] = path;
-            for (bool& v : sToolCacheValid) v = false;
+            sToolCacheValid[(int)tool] = false;
         }
     }
 

@@ -29,6 +29,7 @@ static const char* sStatDisplayModeStrings[] =
     "Memory",
     "Network",
     "Frame Graph",
+    "Culling",
 };
 
 static std::vector<StatsOverlay*>& GetStatsOverlayInstancesMutable()
@@ -127,6 +128,9 @@ void StatsOverlay::TickCommon(float deltaTime)
     case StatDisplayMode::Network:
         numStats = 2;
         break;
+    case StatDisplayMode::Culling:
+        numStats = 2;
+        break;
     case StatDisplayMode::FrameGraph:
         numStats = 0; // Graph takes over — no text rows.
         break;
@@ -202,6 +206,12 @@ void StatsOverlay::TickCommon(float deltaTime)
         NetworkManager* netMan = NetworkManager::Get();
         SetStatText(0, "Upload", netMan->GetUploadRate() / 1024, DEFAULT_STAT_COLOR, statY);
         SetStatText(1, "Download", netMan->GetDownloadRate() / 1024, DEFAULT_STAT_COLOR, statY);
+    }
+    else if (mDisplayMode == StatDisplayMode::Culling)
+    {
+        Renderer* renderer = Renderer::Get();
+        SetStatText(0, "Frustum Culled", (float)renderer->GetNumFrustumCulled(), DEFAULT_STAT_COLOR, statY);
+        SetStatText(1, "Occlusion Culled", (float)renderer->GetNumOcclusionCulled(), DEFAULT_STAT_COLOR, statY);
     }
     else if (mDisplayMode == StatDisplayMode::FrameGraph)
     {

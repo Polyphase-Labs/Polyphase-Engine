@@ -97,6 +97,13 @@ static const char* sFogDensityStrings[] =
 };
 static_assert(int32_t(FogDensityFunc::Count) == 2, "Need to update string conversion table");
 
+static const char* sOcclusionQualityStrings[] =
+{
+    "Low",
+    "Medium",
+    "High",
+};
+
 bool Scene::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 {
     bool success = false;
@@ -284,6 +291,21 @@ void Scene::LoadStream(Stream& stream, Platform platform)
         stream.ReadString(mMenuOverride);
     else
         mMenuOverride.clear();
+
+    if (mVersion >= ASSET_VERSION_SCENE_OCCLUSION)
+    {
+        mOcclusionCullingEnabled = stream.ReadBool();
+        mOcclusionCellSize = stream.ReadFloat();
+        mOcclusionBakeQuality = stream.ReadUint8();
+        mOcclusionData.LoadStream(stream, mVersion);
+    }
+    else
+    {
+        mOcclusionCullingEnabled = false;
+        mOcclusionCellSize = 4.0f;
+        mOcclusionBakeQuality = 1;
+        mOcclusionData.Clear();
+    }
 }
 
 void Scene::SaveStream(Stream& stream, Platform platform)
@@ -424,6 +446,11 @@ void Scene::SaveStream(Stream& stream, Platform platform)
 
     stream.WriteUint8(mIconOverride);
     stream.WriteString(mMenuOverride);
+
+    stream.WriteBool(mOcclusionCullingEnabled);
+    stream.WriteFloat(mOcclusionCellSize);
+    stream.WriteUint8(mOcclusionBakeQuality);
+    mOcclusionData.SaveStream(stream);
 }
 
 void Scene::Create()
@@ -451,6 +478,13 @@ void Scene::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Byte, "Fog Density", this, &mFogDensityFunc, 1, HandlePropChange, NULL_DATUM, int32_t(FogDensityFunc::Count), sFogDensityStrings));
     outProps.push_back(Property(DatumType::Float, "Fog Near", this, &mFogNear, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Float, "Fog Far", this, &mFogFar, 1, HandlePropChange));
+
+    {
+        SCOPED_CATEGORY("Occlusion Culling");
+        outProps.push_back(Property(DatumType::Bool, "Occlusion Culling", this, &mOcclusionCullingEnabled, 1, HandlePropChange));
+        outProps.push_back(Property(DatumType::Float, "Occlusion Cell Size", this, &mOcclusionCellSize, 1, HandlePropChange));
+        outProps.push_back(Property(DatumType::Byte, "Occlusion Bake Quality", this, &mOcclusionBakeQuality, 1, HandlePropChange, NULL_DATUM, 3, sOcclusionQualityStrings));
+    }
 
 #if EDITOR
     InitSceneIconStrings();
@@ -938,6 +972,8 @@ void Scene::ApplyRenderSettings(World* world)
         fogSettings.mFar = mFogFar;
     }
     world->SetFogSettings(fogSettings);
+
+    world->SetOcclusionData(&mOcclusionData, mOcclusionCullingEnabled);
 }
 
 void Scene::AddNodeDef(Node* node, Platform platform, std::vector<Node*>& nodeList)

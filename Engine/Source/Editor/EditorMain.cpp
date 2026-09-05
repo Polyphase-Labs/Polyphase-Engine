@@ -59,6 +59,7 @@
 #include "Input/InputPromptResolver.h"
 #include "Hotkeys/EditorHotkeyMap.h"
 #include "Git/GitService.h"
+#include "OcclusionBake/OcclusionBaker.h"
 #include "Utilities.h"
 #include "Stream.h"
 
@@ -669,6 +670,16 @@ void EditorMain(int32_t argc, char** argv)
             {
                 es->mResaveAllAtEndOfFrame = false;
                 ActionManager::Get()->ResaveAllAssets();
+            }
+            else if (es->mBakeOcclusionAtEndOfFrame)
+            {
+                es->mBakeOcclusionAtEndOfFrame = false;
+                OcclusionBaker::BakeCurrentScene();
+            }
+            else if (es->mClearOcclusionAtEndOfFrame)
+            {
+                es->mClearOcclusionAtEndOfFrame = false;
+                OcclusionBaker::ClearCurrentScene();
             }
             else if (es->mReloadScriptsAtEndOfFrame)
             {

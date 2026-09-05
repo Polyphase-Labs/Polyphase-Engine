@@ -18,6 +18,7 @@ enum class StatDisplayMode : uint8_t
     Memory,
     Network,
     FrameGraph,
+    Culling,
 
     Count
 };

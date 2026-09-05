@@ -134,7 +134,9 @@ void InputMapModule::LoadSettings(const rapidjson::Document& doc)
         }
     }
 
-    // Load mouse/pointer toggles
+    // Load keyboard emulation / mouse / pointer toggles
+    if (doc.HasMember("keyboardEmulationEnabled") && doc["keyboardEmulationEnabled"].IsBool())
+        inputMap->SetKeyboardEmulationEnabled(doc["keyboardEmulationEnabled"].GetBool());
     if (doc.HasMember("mouseEnabled") && doc["mouseEnabled"].IsBool())
         inputMap->SetMouseEnabled(doc["mouseEnabled"].GetBool());
     if (doc.HasMember("pointerEnabled") && doc["pointerEnabled"].IsBool())
@@ -197,6 +199,7 @@ void InputMapModule::SaveSettings(rapidjson::Document& doc)
     }
 
     // Save mouse/pointer toggles
+    JsonSettings::SetBool(doc, "keyboardEmulationEnabled", inputMap->IsKeyboardEmulationEnabled());
     JsonSettings::SetBool(doc, "mouseEnabled", inputMap->IsMouseEnabled());
     JsonSettings::SetBool(doc, "pointerEnabled", inputMap->IsPointerEnabled());
 }

@@ -19,6 +19,7 @@
 #include "Viewport2d.h"
 
 #include "Nodes/3D/StaticMesh3d.h"
+#include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/Spline3d.h"
 #include "Nodes/3D/Camera3d.h"
 
@@ -602,6 +603,11 @@ static void DrawViewMenu()
         uint32_t newMode = (uint32_t(renderer->GetBoundsDebugMode()) + 1) % uint32_t(BoundsDebugMode::Count);
         renderer->SetBoundsDebugMode((BoundsDebugMode)newMode);
     }
+    if (ImGui::MenuItem("Occlusion Preview", nullptr, renderer->IsOcclusionPreviewEnabled()))
+    {
+        renderer->EnableOcclusionPreview(!renderer->IsOcclusionPreviewEnabled());
+        LogDebug("Occlusion preview %s (enable Bounds to see cells).", renderer->IsOcclusionPreviewEnabled() ? "enabled" : "disabled");
+    }
     if (ImGui::MenuItem("Grid"))
         ToggleGrid();
     if (ImGui::MenuItem("Stats"))
@@ -768,6 +774,25 @@ static void DrawWorldMenu()
             if (meshNode != nullptr && meshNode->GetBakeLighting())
             {
                 meshNode->ClearInstanceColors();
+            }
+        }
+    }
+    {
+        bool canBake = !IsPlayingInEditor();
+        if (ImGui::MenuItem("Bake Occlusion Culling", nullptr, false, canBake))
+            am->RequestBakeOcclusion();
+        if (ImGui::MenuItem("Clear Occlusion Data", nullptr, false, canBake))
+            am->RequestClearOcclusion();
+        if (ImGui::MenuItem("Mark Selected Occluder + Occludee"))
+        {
+            const std::vector<Node*>& selected = GetEditorState()->GetSelectedNodes();
+            for (Node* node : selected)
+            {
+                if (node != nullptr && node->IsPrimitive3D())
+                {
+                    am->EXE_EditProperty(node, PropertyOwnerType::Node, "Occluder Static", 0, Datum(true));
+                    am->EXE_EditProperty(node, PropertyOwnerType::Node, "Occludee Static", 0, Datum(true));
+                }
             }
         }
     }

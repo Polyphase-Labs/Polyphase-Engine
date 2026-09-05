@@ -72,6 +72,7 @@ void InputMap::ResetToDefaults()
         mAxisMouseSensitivity[i] = 1.0f;
     }
 
+    mKeyboardEmulationEnabled = true;
     mMouseEnabled = true;
     mPointerEnabled = true;
 
@@ -100,12 +101,14 @@ void InputMap::ResetToDefaults()
     // Default axis mappings
     mAxisNegativeKeys[GAMEPAD_AXIS_LTHUMB_X] = POLYPHASE_KEY_A;
     mAxisPositiveKeys[GAMEPAD_AXIS_LTHUMB_X] = POLYPHASE_KEY_D;
-    mAxisNegativeKeys[GAMEPAD_AXIS_LTHUMB_Y] = POLYPHASE_KEY_W;
-    mAxisPositiveKeys[GAMEPAD_AXIS_LTHUMB_Y] = POLYPHASE_KEY_S;
+    // Stick Y is positive when pushed up (see Documentation/Development/Input/Gamepad.md),
+    // so W / I emulate "up" on the positive side.
+    mAxisPositiveKeys[GAMEPAD_AXIS_LTHUMB_Y] = POLYPHASE_KEY_W;
+    mAxisNegativeKeys[GAMEPAD_AXIS_LTHUMB_Y] = POLYPHASE_KEY_S;
     mAxisNegativeKeys[GAMEPAD_AXIS_RTHUMB_X] = POLYPHASE_KEY_J;
     mAxisPositiveKeys[GAMEPAD_AXIS_RTHUMB_X] = POLYPHASE_KEY_L;
-    mAxisNegativeKeys[GAMEPAD_AXIS_RTHUMB_Y] = POLYPHASE_KEY_I;
-    mAxisPositiveKeys[GAMEPAD_AXIS_RTHUMB_Y] = POLYPHASE_KEY_K;
+    mAxisPositiveKeys[GAMEPAD_AXIS_RTHUMB_Y] = POLYPHASE_KEY_I;
+    mAxisNegativeKeys[GAMEPAD_AXIS_RTHUMB_Y] = POLYPHASE_KEY_K;
     mAxisPositiveKeys[GAMEPAD_AXIS_LTRIGGER] = POLYPHASE_KEY_Z;
     mAxisPositiveKeys[GAMEPAD_AXIS_RTRIGGER] = POLYPHASE_KEY_X;
 
@@ -193,6 +196,8 @@ float InputMap::GetAxisMouseSensitivity(GamepadAxisCode axis) const
 
 // --- Mouse/Pointer toggles ---
 
+void InputMap::SetKeyboardEmulationEnabled(bool enabled) { mKeyboardEmulationEnabled = enabled; }
+bool InputMap::IsKeyboardEmulationEnabled() const { return mKeyboardEmulationEnabled; }
 void InputMap::SetMouseEnabled(bool enabled) { mMouseEnabled = enabled; }
 bool InputMap::IsMouseEnabled() const { return mMouseEnabled; }
 void InputMap::SetPointerEnabled(bool enabled) { mPointerEnabled = enabled; }
@@ -202,7 +207,7 @@ bool InputMap::IsPointerEnabled() const { return mPointerEnabled; }
 
 bool InputMap::IsButtonDownViaKeyboard(GamepadButtonCode button) const
 {
-    if (button >= 0 && button < GAMEPAD_BUTTON_COUNT)
+    if (mKeyboardEmulationEnabled && button >= 0 && button < GAMEPAD_BUTTON_COUNT)
     {
         int32_t key = mButtonMappings[button];
         if (key >= 0)
@@ -215,7 +220,7 @@ bool InputMap::IsButtonDownViaKeyboard(GamepadButtonCode button) const
 
 bool InputMap::IsButtonJustDownViaKeyboard(GamepadButtonCode button) const
 {
-    if (button >= 0 && button < GAMEPAD_BUTTON_COUNT)
+    if (mKeyboardEmulationEnabled && button >= 0 && button < GAMEPAD_BUTTON_COUNT)
     {
         int32_t key = mButtonMappings[button];
         if (key >= 0)
@@ -228,7 +233,7 @@ bool InputMap::IsButtonJustDownViaKeyboard(GamepadButtonCode button) const
 
 bool InputMap::IsButtonJustUpViaKeyboard(GamepadButtonCode button) const
 {
-    if (button >= 0 && button < GAMEPAD_BUTTON_COUNT)
+    if (mKeyboardEmulationEnabled && button >= 0 && button < GAMEPAD_BUTTON_COUNT)
     {
         int32_t key = mButtonMappings[button];
         if (key >= 0)
@@ -247,13 +252,16 @@ float InputMap::GetAxisValueFromMapping(GamepadAxisCode axis) const
     float value = 0.0f;
 
     // Keyboard keys
-    int32_t posKey = mAxisPositiveKeys[axis];
-    int32_t negKey = mAxisNegativeKeys[axis];
+    if (mKeyboardEmulationEnabled)
+    {
+        int32_t posKey = mAxisPositiveKeys[axis];
+        int32_t negKey = mAxisNegativeKeys[axis];
 
-    if (posKey >= 0 && INP_IsKeyDown(posKey))
-        value += 1.0f;
-    if (negKey >= 0 && INP_IsKeyDown(negKey))
-        value -= 1.0f;
+        if (posKey >= 0 && INP_IsKeyDown(posKey))
+            value += 1.0f;
+        if (negKey >= 0 && INP_IsKeyDown(negKey))
+            value -= 1.0f;
+    }
 
     // Mouse delta -> axis (reads raw delta directly from InputState)
     if (mAxisUseMouseX[axis])
@@ -520,6 +528,7 @@ bool InputMap::SavePreset(const std::string& name) const
     }
     doc.AddMember("axes", axes, alloc);
 
+    doc.AddMember("keyboardEmulationEnabled", mKeyboardEmulationEnabled, alloc);
     doc.AddMember("mouseEnabled", mMouseEnabled, alloc);
     doc.AddMember("pointerEnabled", mPointerEnabled, alloc);
 
@@ -599,6 +608,8 @@ bool InputMap::LoadPreset(const std::string& name)
         }
     }
 
+    if (doc.HasMember("keyboardEmulationEnabled") && doc["keyboardEmulationEnabled"].IsBool())
+        mKeyboardEmulationEnabled = doc["keyboardEmulationEnabled"].GetBool();
     if (doc.HasMember("mouseEnabled") && doc["mouseEnabled"].IsBool())
         mMouseEnabled = doc["mouseEnabled"].GetBool();
     if (doc.HasMember("pointerEnabled") && doc["pointerEnabled"].IsBool())

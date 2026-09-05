@@ -48,6 +48,9 @@
     <Filter Include="Source Files\Editor">
       <UniqueIdentifier>{3b70c2ca-d70b-4e25-a867-def9107acb59}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\OcclusionBake">
+      <UniqueIdentifier>{7F3C2A19-5B64-4D0E-9C21-0CC105100001}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Network\Linux">
       <UniqueIdentifier>{00e51e9b-3f22-4042-aefe-1cee0c1ef284}</UniqueIdentifier>
     </Filter>
@@ -506,6 +509,9 @@
     <ClCompile Include="Source\Engine\CameraFrustum.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\OcclusionData.cpp">
+      <Filter>Source Files\Engine</Filter>
+    </ClCompile>
     <ClCompile Include="Source\LuaBindings\LuaBindings.cpp">
       <Filter>Source Files\LuaBindings</Filter>
     </ClCompile>
@@ -888,6 +894,9 @@
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\Box3d.cpp">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Nodes\3D\OcclusionArea3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\Camera3d.cpp">
@@ -1655,6 +1664,9 @@
     <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\OcclusionBake\OcclusionBaker.cpp">
+      <Filter>Source Files\Editor\OcclusionBake</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\AppSettings\AppSettingsWindow.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
@@ -2202,6 +2214,9 @@
     <ClInclude Include="Source\Engine\CameraFrustum.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\OcclusionData.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Clock.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
@@ -2602,6 +2617,9 @@
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\Box3d.h">
+      <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Nodes\3D\OcclusionArea3d.h">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\Camera3d.h">
@@ -3269,6 +3287,9 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h">
       <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\OcclusionBake\OcclusionBaker.h">
+      <Filter>Source Files\Editor\OcclusionBake</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\Packaging\BuildTargetRegistry.h">
       <Filter>Source Files\Editor</Filter>

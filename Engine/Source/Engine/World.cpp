@@ -16,6 +16,12 @@
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/NavMesh3d.h"
 #include "Nodes/3D/Terrain3d.h"
+#include "Nodes/3D/Voxel3d.h"
+#include "Nodes/3D/TextMesh3d.h"
+#include "Nodes/3D/InstancedMesh3d.h"
+#include "Nodes/3D/Skybox3D.h"
+#include "Nodes/3D/ShadowMesh3d.h"
+#include "OcclusionData.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/Audio3d.h"
@@ -2103,7 +2109,223 @@ void World::UpdateRenderSettings()
         SetShadowColor(DEFAULT_SHADOW_COLOR);
         FogSettings fogSettings;
         SetFogSettings(fogSettings);
+        SetOcclusionData(nullptr, false);
     }
+}
+
+void World::SetOcclusionData(const OcclusionData* data, bool enabled)
+{
+    mOcclusionData = data;
+    mOcclusionEnabled = enabled;
+    mOcclusionStale = false;
+    mOcclusionMoveEps2 = 0.0f;
+    mOcclusionResolvePending = true;
+}
+
+const OcclusionData* World::GetOcclusionData() const
+{
+    return mOcclusionData;
+}
+
+bool World::IsOcclusionCullingEnabled() const
+{
+    return mOcclusionEnabled &&
+        !mOcclusionStale &&
+        mOcclusionData != nullptr &&
+        mOcclusionData->IsValid();
+}
+
+bool World::IsOcclusionDataStale() const
+{
+    return mOcclusionStale;
+}
+
+float World::GetOcclusionMoveEpsilon2() const
+{
+    return mOcclusionMoveEps2;
+}
+
+void World::RequestOccludeeResolve()
+{
+    mOcclusionResolvePending = true;
+}
+
+bool World::IsOccludeeResolvePending() const
+{
+    return mOcclusionResolvePending;
+}
+
+// Occludee / occluder identity is matched by the world-space AABB recorded at
+// bake time. Node UUIDs are not used because nodes inside instantiated
+// sub-scenes share UUIDs across instances.
+static uint64_t HashOcclusionEntry(glm::vec3 center, glm::vec3 extents, float quantum)
+{
+    float invQ = 1.0f / quantum;
+    int64_t v[6] =
+    {
+        (int64_t)llroundf(center.x * invQ), (int64_t)llroundf(center.y * invQ), (int64_t)llroundf(center.z * invQ),
+        (int64_t)llroundf(extents.x * invQ), (int64_t)llroundf(extents.y * invQ), (int64_t)llroundf(extents.z * invQ)
+    };
+
+    uint64_t hash = 1469598103934665603ULL;
+    for (int32_t i = 0; i < 6; ++i)
+    {
+        hash ^= (uint64_t)v[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+static bool IsOcclusionEligiblePrimitive(Node* node)
+{
+    if (node->As<Skybox3D>() != nullptr ||
+        node->As<ShadowMesh3D>() != nullptr)
+    {
+        return false;
+    }
+
+    return node->As<StaticMesh3D>() != nullptr ||
+        node->As<Terrain3D>() != nullptr ||
+        node->As<Voxel3D>() != nullptr ||
+        node->As<TextMesh3D>() != nullptr;
+}
+
+void World::ResolveOccludees()
+{
+    mOcclusionResolvePending = false;
+    mOcclusionStale = false;
+
+    if (mRootNode == nullptr)
+    {
+        return;
+    }
+
+    auto clearSlots = [](Node* node) -> bool
+    {
+        if (node->IsPrimitive3D())
+        {
+            static_cast<Primitive3D*>(node)->SetOcclusionSlot(0, glm::vec3(0.0f));
+        }
+        return true;
+    };
+    mRootNode->Traverse(clearSlots);
+
+    const OcclusionData* data = mOcclusionData;
+    if (data == nullptr || !data->IsValid())
+    {
+        return;
+    }
+
+    const float quantum = 0.01f * data->mCellSize;
+    mOcclusionMoveEps2 = (0.25f * data->mCellSize) * (0.25f * data->mCellSize);
+
+    std::unordered_map<uint64_t, uint32_t> occludeeMap;
+    occludeeMap.reserve(data->mOccludees.size());
+    for (uint32_t i = 0; i < data->mOccludees.size(); ++i)
+    {
+        const OcclusionEntry& e = data->mOccludees[i];
+        occludeeMap[HashOcclusionEntry(e.mCenter, e.mExtents, quantum)] = i;
+    }
+
+    std::unordered_map<uint64_t, uint32_t> occluderMap;
+    occluderMap.reserve(data->mOccluders.size());
+    for (uint32_t i = 0; i < data->mOccluders.size(); ++i)
+    {
+        const OcclusionEntry& e = data->mOccluders[i];
+        occluderMap[HashOcclusionEntry(e.mCenter, e.mExtents, quantum)] = i;
+    }
+
+    std::vector<uint8_t> occluderMatched(data->mOccluders.size(), 0);
+    uint32_t numResolved = 0;
+    uint32_t numOccludeeNodes = 0;
+
+    auto resolve = [&](Node* node) -> bool
+    {
+        if (!node->IsPrimitive3D() || !IsOcclusionEligiblePrimitive(node))
+        {
+            return true;
+        }
+
+        Primitive3D* prim = static_cast<Primitive3D*>(node);
+        // Freshly instantiated / cloned trees still have dirty transforms here
+        // and GetAABB() reads the cached matrix, so refresh it first.
+        prim->GetTransform();
+        AABB aabb = prim->GetAABB();
+        bool validBox = aabb.IsValid() && !aabb.IsLarge();
+
+        if (prim->IsOccluder() && validBox)
+        {
+            auto it = occluderMap.find(HashOcclusionEntry(aabb.GetCenter(), aabb.GetExtents(), quantum));
+            if (it != occluderMap.end())
+            {
+                occluderMatched[it->second] = 1;
+            }
+        }
+
+        if (prim->IsOccludee())
+        {
+            ++numOccludeeNodes;
+            bool matched = false;
+
+            if (validBox)
+            {
+                auto it = occludeeMap.find(HashOcclusionEntry(aabb.GetCenter(), aabb.GetExtents(), quantum));
+                if (it != occludeeMap.end())
+                {
+                    // The node is at its baked location right now, so record
+                    // the sphere center Mesh3D::GetDrawData compares against.
+                    prim->SetOcclusionSlot(it->second + 1, prim->GetBounds().mCenter);
+                    matched = true;
+                }
+            }
+
+            if (!matched)
+            {
+                // Consoles unroll InstancedMesh3D into child StaticMesh3D cells
+                // on load. Those children inherit the parent's baked visibility.
+                InstancedMesh3D* parentInst = node->GetParent() ? node->GetParent()->As<InstancedMesh3D>() : nullptr;
+                if (parentInst != nullptr && parentInst->IsUnrolled() && parentInst->GetOcclusionSlot() != 0)
+                {
+                    // Use this node's own center so the moved-since-bake check
+                    // compares like with like.
+                    prim->SetOcclusionSlot(parentInst->GetOcclusionSlot(), prim->GetBounds().mCenter);
+                    matched = true;
+                }
+            }
+
+            if (matched)
+            {
+                ++numResolved;
+            }
+        }
+
+        return true;
+    };
+    mRootNode->Traverse(resolve);
+
+    uint32_t numOccludersMatched = 0;
+    for (uint32_t i = 0; i < occluderMatched.size(); ++i)
+    {
+        numOccludersMatched += occluderMatched[i];
+    }
+
+    if (numOccludersMatched != data->mOccluders.size())
+    {
+        mOcclusionStale = true;
+        Scene* scene = mRootNode->GetScene();
+        LogWarning("Occlusion data for scene %s is stale (%u of %u occluders changed). Re-bake occlusion culling.",
+            scene ? scene->GetName().c_str() : "?",
+            (uint32_t)data->mOccluders.size() - numOccludersMatched,
+            (uint32_t)data->mOccluders.size());
+    }
+
+    LogDebug("Occlusion: resolved %u / %u occludees (%u baked), %u cells, %u unique sets, %u KB",
+        numResolved,
+        numOccludeeNodes,
+        (uint32_t)data->mOccludees.size(),
+        data->GetNumCells(),
+        data->GetNumUniqueSets(),
+        (uint32_t)(data->GetMemoryBytes() / 1024));
 }
 
 void World::AddNewlyRegisteredNode(Node* node)

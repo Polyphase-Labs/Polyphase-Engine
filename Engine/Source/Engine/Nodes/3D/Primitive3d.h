@@ -75,6 +75,16 @@ public:
     float GetCullDistance() const;
     void SetCullDistance(float cullDistance);
 
+    void EnableOccluder(bool enable);
+    bool IsOccluder() const;
+    void EnableOccludee(bool enable);
+    bool IsOccludee() const;
+
+    // Runtime link to the scene's baked OcclusionData. 0 = none.
+    void SetOcclusionSlot(uint32_t slot, glm::vec3 bakedCenter);
+    uint32_t GetOcclusionSlot() const;
+    glm::vec3 GetOcclusionBakedCenter() const;
+
     float GetMass() const;
     float GetLinearDamping() const;
     float GetAngularDamping() const;
@@ -162,6 +172,10 @@ protected:
 
     float mCullDistance = 0.0f;
 
+    // Occlusion culling (see OcclusionData)
+    uint32_t mOcclusionSlot = 0;
+    glm::vec3 mOcclusionBakedCenter = {};
+
     // Physics Properties
     float mMass = 1.0f;
     float mRestitution = 0.0f;
@@ -176,6 +190,8 @@ protected:
     bool mCastShadows = false;
     bool mReceiveShadows = true;
     bool mReceiveSimpleShadows = true;
+    bool mOccluder = false;
+    bool mOccludee = false;
     //BeginOverlapHandlerFP mBeginOverlapHandler;
     //EndOverlapHandlerFP mEndOverlapHandler;
     //CollisionHandlerFP mCollisionHandler;

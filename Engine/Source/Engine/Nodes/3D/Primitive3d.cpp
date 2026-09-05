@@ -214,6 +214,12 @@ void Primitive3D::GatherProperties(std::vector<Property>& outProps)
 
     outProps.push_back(Property(DatumType::Float, "Cull Distance", this, &mCullDistance));
 
+    {
+        SCOPED_CATEGORY("Occlusion");
+        outProps.push_back(Property(DatumType::Bool, "Occluder Static", this, &mOccluder));
+        outProps.push_back(Property(DatumType::Bool, "Occludee Static", this, &mOccludee));
+    }
+
     outProps.push_back(Property(DatumType::Float, "Mass", this, &mMass, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Float, "Restitution", this, &mRestitution, 1, HandlePropChange));
     outProps.push_back(Property(DatumType::Float, "Friction", this, &mFriction, 1, HandlePropChange));
@@ -352,6 +358,42 @@ float Primitive3D::GetCullDistance() const
 void Primitive3D::SetCullDistance(float cullDistance)
 {
     mCullDistance = cullDistance;
+}
+
+void Primitive3D::EnableOccluder(bool enable)
+{
+    mOccluder = enable;
+}
+
+bool Primitive3D::IsOccluder() const
+{
+    return mOccluder;
+}
+
+void Primitive3D::EnableOccludee(bool enable)
+{
+    mOccludee = enable;
+}
+
+bool Primitive3D::IsOccludee() const
+{
+    return mOccludee;
+}
+
+void Primitive3D::SetOcclusionSlot(uint32_t slot, glm::vec3 bakedCenter)
+{
+    mOcclusionSlot = slot;
+    mOcclusionBakedCenter = bakedCenter;
+}
+
+uint32_t Primitive3D::GetOcclusionSlot() const
+{
+    return mOcclusionSlot;
+}
+
+glm::vec3 Primitive3D::GetOcclusionBakedCenter() const
+{
+    return mOcclusionBakedCenter;
 }
 
 float Primitive3D::GetMass() const

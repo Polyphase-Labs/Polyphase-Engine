@@ -17,6 +17,7 @@
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "Nodes/3D/Spline3d.h"
 #include "CameraFrustum.h"
+#include "OcclusionData.h"
 #include "Gizmos.h"
 #include "Log.h"
 #include "Line.h"
@@ -217,6 +218,36 @@ void Renderer::EnableFrustumCulling(bool enable)
 bool Renderer::IsFrustumCullingEnabled() const
 {
     return mFrustumCulling;
+}
+
+void Renderer::EnableOcclusionCulling(bool enable)
+{
+    mOcclusionCulling = enable;
+}
+
+bool Renderer::IsOcclusionCullingEnabled() const
+{
+    return mOcclusionCulling;
+}
+
+void Renderer::EnableOcclusionPreview(bool enable)
+{
+    mOcclusionPreview = enable;
+}
+
+bool Renderer::IsOcclusionPreviewEnabled() const
+{
+    return mOcclusionPreview;
+}
+
+int32_t Renderer::GetNumFrustumCulled() const
+{
+    return mNumFrustumCulled;
+}
+
+int32_t Renderer::GetNumOcclusionCulled() const
+{
+    return mNumOcclusionCulled;
 }
 
 void Renderer::Enable3dRendering(bool enable)
@@ -584,6 +615,11 @@ void Renderer::GatherDrawData(World* world)
     mWireframeDraws.clear();
     mCollisionDraws.clear();
     mWidgetDraws.clear();
+
+    if (world != nullptr && world->IsOccludeeResolvePending())
+    {
+        world->ResolveOccludees();
+    }
 
     Camera3D* camera = world ? world->GetActiveCamera() : nullptr;
 
@@ -1180,6 +1216,7 @@ void Renderer::FrustumCull(Camera3D* camera)
     drawsCulled += FrustumCullDraws(frustum, mPostShadowOpaqueDraws);
     drawsCulled += FrustumCullDraws(frustum, mTranslucentDraws);
     drawsCulled += FrustumCullDraws(frustum, mWireframeDraws);
+    mNumFrustumCulled += drawsCulled;
     //LogDebug("Draws culled: %d", drawsCulled);
 
     int32_t lightsCulled = 0;
@@ -1202,6 +1239,86 @@ void Renderer::FrustumCull(Camera3D* camera)
         Gizmos::ResetState();
     }
 #endif
+}
+
+void Renderer::OcclusionCull(World* world, Camera3D* camera)
+{
+    if (world == nullptr || camera == nullptr || !mOcclusionCulling)
+        return;
+
+    if (!world->IsOcclusionCullingEnabled())
+        return;
+
+    if (camera->GetProjectionMode() == ProjectionMode::ORTHOGRAPHIC)
+        return;
+
+#if EDITOR
+    if (camera->IsEditorCamera() && !mOcclusionPreview)
+        return;
+#endif
+
+    const OcclusionData* data = world->GetOcclusionData();
+    int32_t cell = data->FindCell(camera->GetWorldPosition());
+    if (cell < 0)
+        return;
+
+    const uint32_t* visibleSet = data->GetSet(cell);
+    if (visibleSet == nullptr)
+        return;
+
+    // mShadowDraws is intentionally left alone: hidden casters still shadow.
+    // HandleCullResult is not invoked here so animation / particle simulation
+    // keep following the frustum result.
+    int32_t drawsCulled = 0;
+    drawsCulled += OcclusionCullDraws(*data, visibleSet, mOpaqueDraws);
+    drawsCulled += OcclusionCullDraws(*data, visibleSet, mSimpleShadowDraws);
+    drawsCulled += OcclusionCullDraws(*data, visibleSet, mPostShadowOpaqueDraws);
+    drawsCulled += OcclusionCullDraws(*data, visibleSet, mTranslucentDraws);
+    drawsCulled += OcclusionCullDraws(*data, visibleSet, mWireframeDraws);
+    mNumOcclusionCulled += drawsCulled;
+
+#if DEBUG_DRAW_ENABLED && EDITOR
+    if (mOcclusionPreview && mBoundsDebugMode != BoundsDebugMode::Off)
+    {
+        AABB volume = data->GetVolumeAABB();
+        Gizmos::SetColor({ 0.2f, 0.8f, 1.0f, 1.0f });
+        Gizmos::DrawWireCube(volume.GetCenter(), volume.GetSize());
+
+        AABB cellBox = data->GetCellAABB(cell);
+        Gizmos::SetColor({ 0.2f, 1.0f, 0.2f, 1.0f });
+        Gizmos::DrawWireCube(cellBox.GetCenter(), cellBox.GetSize());
+        Gizmos::ResetState();
+    }
+#endif
+}
+
+int32_t Renderer::OcclusionCullDraws(const OcclusionData& data, const uint32_t* visibleSet, std::vector<DrawData>& drawData)
+{
+    int32_t drawsCulled = 0;
+
+    for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
+    {
+        const DrawData& draw = drawData[i];
+        if (draw.mOcclusionSlot == 0 || draw.mDepthless)
+            continue;
+
+        if (!data.IsVisible(visibleSet, draw.mOcclusionSlot - 1))
+        {
+#if DEBUG_DRAW_ENABLED && EDITOR
+            if (mOcclusionPreview && mBoundsDebugMode != BoundsDebugMode::Off && draw.mNode->IsPrimitive3D())
+            {
+                AABB box = static_cast<Primitive3D*>(draw.mNode)->GetAABB();
+                Gizmos::SetColor({ 1.0f, 0.2f, 0.2f, 1.0f });
+                Gizmos::DrawWireCube(box.GetCenter(), box.GetSize());
+                Gizmos::ResetState();
+            }
+#endif
+            drawData.erase(drawData.begin() + i);
+            drawsCulled++;
+        }
+    }
+
+    return drawsCulled;
 }
 
 static inline void HandleCullResult(DrawData& drawData, bool inFrustum)
@@ -1384,6 +1501,12 @@ void Renderer::Render(World* world, int32_t screenIndex)
     mCurrentWorld = world;
     mScreenIndex = screenIndex;
 
+    if (screenIndex == 0 && world == GetWorld(0))
+    {
+        mNumFrustumCulled = 0;
+        mNumOcclusionCulled = 0;
+    }
+
     mTargetScreenFilter = -1;
 
 #if SUPPORTS_SECOND_SCREEN && !EDITOR
@@ -1484,6 +1607,8 @@ void Renderer::Render(World* world, int32_t screenIndex)
             {
                 FrustumCull(activeCamera);
             }
+
+            OcclusionCull(world, activeCamera);
         }
     }
 
@@ -1858,6 +1983,8 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
     {
         FrustumCull(camera);
     }
+
+    OcclusionCull(world, camera);
 
     GFX_SetFog(world->GetFogSettings());
 

@@ -6,6 +6,7 @@
 #include "AssetRef.h"
 #include "NodePath.h"
 #include "Nodes/Node.h"
+#include "OcclusionData.h"
 
 class World;
 
@@ -101,8 +102,21 @@ protected:
     uint8_t mIconOverride = 0;  // 0 = default, 1+ = icon index
     std::string mMenuOverride;  // Empty = "Scene" menu, or category like "3D", "UI", "Gameplay"
 
+    // Baked occlusion culling (see OcclusionData / OcclusionBaker).
+    bool mOcclusionCullingEnabled = false;
+    float mOcclusionCellSize = 4.0f;
+    uint8_t mOcclusionBakeQuality = 1; // 0 = Low, 1 = Medium, 2 = High
+    OcclusionData mOcclusionData;
+
 public:
     uint8_t GetIconOverride() const { return mIconOverride; }
     const std::string& GetMenuOverride() const { return mMenuOverride; }
     const std::vector<Property>* GetRootNodeProperties() const { return mNodeDefs.empty() ? nullptr : &mNodeDefs[0].mProperties; }
+
+    bool IsOcclusionCullingEnabled() const { return mOcclusionCullingEnabled; }
+    float GetOcclusionCellSize() const { return mOcclusionCellSize; }
+    uint8_t GetOcclusionBakeQuality() const { return mOcclusionBakeQuality; }
+    const OcclusionData& GetOcclusionData() const { return mOcclusionData; }
+    void SetOcclusionData(OcclusionData&& data) { mOcclusionData = std::move(data); }
+    void ClearOcclusionData() { mOcclusionData.Clear(); }
 };

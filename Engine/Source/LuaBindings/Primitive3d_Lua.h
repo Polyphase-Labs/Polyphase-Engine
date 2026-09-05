@@ -59,6 +59,10 @@ struct Primitive3D_Lua
 
     static int EnableCastShadows(lua_State* L);
     static int ShouldCastShadows(lua_State* L);
+    static int EnableOccluder(lua_State* L);
+    static int IsOccluder(lua_State* L);
+    static int EnableOccludee(lua_State* L);
+    static int IsOccludee(lua_State* L);
 
     static int EnableReceiveShadows(lua_State* L);
     static int ShouldReceiveShadows(lua_State* L);

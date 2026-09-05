@@ -239,6 +239,11 @@ bool InstancedMesh3D::WasInstanceDataUpdatedThisFrame() const
     return mInstanceDataUpdatedThisFrame;
 }
 
+bool InstancedMesh3D::IsUnrolled() const
+{
+    return mUnrolled;
+}
+
 bool InstancedMesh3D::ShouldUnroll() const
 {
     Platform platform = GetPlatform();
@@ -596,6 +601,8 @@ void InstancedMesh3D::Unroll()
         StaticMesh3D* cellNode = CreateChild<StaticMesh3D>(nodeName);
         cellNode->SetStaticMesh(unrolledMesh);
         cellNode->SetCullDistance(mUnrolledCullDistance);
+        cellNode->EnableOccluder(mOccluder);
+        cellNode->EnableOccludee(mOccludee);
 
         ++numUnrolledCells;
     }

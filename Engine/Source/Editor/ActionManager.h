@@ -497,6 +497,8 @@ public:
     void RequestSaveScene(bool saveAs);
     void RequestSaveSelectedAsset();
     void RequestResaveAllAssets();
+    void RequestBakeOcclusion();
+    void RequestClearOcclusion();
     // Defer OpenProject so the progress modal renders before LoadProject's
     // (potentially many-second) Purge / ReloadAddons / Discover sequence
     // blocks the main thread. Pass empty/null path to trigger the OS folder

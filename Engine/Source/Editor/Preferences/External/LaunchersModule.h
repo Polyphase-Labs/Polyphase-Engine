@@ -201,8 +201,13 @@ private:
      */
     bool DrawPathInput(const char* label, std::string& path, const char* dialogTitle);
 
-    /** @brief Push the four CIA tool paths into CiaPackager's resolver. */
+    /** @brief Push the CIA tool paths into CiaPackager's resolver. */
     void SyncCiaToolOverrides();
+
+    // Set while a CIA tool path field is being edited; the resolver is only
+    // re-synced once no text field is active so each keystroke doesn't
+    // trigger a `where` / `--version` probe (and a log line).
+    bool mCiaToolsDirty = false;
 
     /**
      * @brief Replaces all occurrences of a substring.

@@ -29,6 +29,10 @@
 #include "DebugLog/DebugLogWindow.h"
 #include "GamePreview/GamePreview.h"
 #include "EditorScreenshot.h"
+#include "OcclusionData.h"
+#include "Renderer.h"
+#include "Nodes/3D/Primitive3d.h"
+#include "Nodes/3D/Camera3d.h"
 
 #include <chrono>
 
@@ -602,6 +606,161 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
 
             crow::json::wvalue j;
             j["success"] = true;
+            return j.dump();
+        });
+
+        return crow::response(200, "application/json", WaitForCommand(future));
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/occlusion/bake — Bake occlusion culling for the current scene.
+    // The bake runs in the end-of-frame dispatcher (it drives the progress
+    // modal), so poll /api/occlusion/status or /api/log for completion.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/occlusion/bake").methods("POST"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "POST", "/api/occlusion/bake");
+        RETURN_IF_SHUTTING_DOWN(server);
+
+        auto future = server->QueueCommand([]() -> std::string
+        {
+            ActionManager::Get()->RequestBakeOcclusion();
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["queued"] = true;
+            return j.dump();
+        });
+
+        return crow::response(200, "application/json", WaitForCommand(future));
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/occlusion/clear — Drop the current scene's occlusion data.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/occlusion/clear").methods("POST"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "POST", "/api/occlusion/clear");
+        RETURN_IF_SHUTTING_DOWN(server);
+
+        auto future = server->QueueCommand([]() -> std::string
+        {
+            ActionManager::Get()->RequestClearOcclusion();
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["queued"] = true;
+            return j.dump();
+        });
+
+        return crow::response(200, "application/json", WaitForCommand(future));
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/occlusion/status — Baked data summary + live cull counters.
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/occlusion/status").methods("GET"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "GET", "/api/occlusion/status");
+        RETURN_IF_SHUTTING_DOWN(server);
+
+        auto future = server->QueueCommand([]() -> std::string
+        {
+            World* world = GetWorld(0);
+            if (world == nullptr)
+            {
+                return ErrorJson("No active world").dump();
+            }
+
+            const OcclusionData* data = world->GetOcclusionData();
+            Renderer* renderer = Renderer::Get();
+
+            crow::json::wvalue j;
+            j["enabled"] = world->IsOcclusionCullingEnabled();
+            j["stale"] = world->IsOcclusionDataStale();
+            j["resolvePending"] = world->IsOccludeeResolvePending();
+            j["baking"] = GetEditorState()->mBakeOcclusionAtEndOfFrame;
+            j["hasData"] = (data != nullptr && data->IsValid());
+            j["occludees"] = data ? (int)data->mOccludees.size() : 0;
+            j["occluders"] = data ? (int)data->mOccluders.size() : 0;
+            j["cells"] = data ? (int)data->GetNumCells() : 0;
+            j["uniqueSets"] = data ? (int)data->GetNumUniqueSets() : 0;
+            j["bytes"] = data ? (int)data->GetMemoryBytes() : 0;
+            j["cellSize"] = data ? data->mCellSize : 0.0f;
+            j["frustumCulled"] = renderer->GetNumFrustumCulled();
+            j["occlusionCulled"] = renderer->GetNumOcclusionCulled();
+            j["previewEnabled"] = renderer->IsOcclusionPreviewEnabled();
+
+            Camera3D* camera = world->GetActiveCamera();
+            if (camera != nullptr)
+            {
+                glm::vec3 camPos = camera->GetWorldPosition();
+                j["cameraPos"] = std::vector<double>{ camPos.x, camPos.y, camPos.z };
+                j["cameraIsEditor"] = camera->IsEditorCamera();
+                j["cameraCell"] = data ? data->FindCell(camPos) : -1;
+            }
+
+            std::vector<crow::json::wvalue> nodes;
+            Node* root = world->GetRootNode();
+            if (root != nullptr)
+            {
+                root->Traverse([&](Node* node) -> bool
+                {
+                    if (node->IsPrimitive3D())
+                    {
+                        Primitive3D* prim = static_cast<Primitive3D*>(node);
+                        if (prim->IsOccludee() || prim->IsOccluder())
+                        {
+                            crow::json::wvalue n;
+                            n["name"] = prim->GetName();
+                            n["occluder"] = prim->IsOccluder();
+                            n["occludee"] = prim->IsOccludee();
+                            n["slot"] = (int)prim->GetOcclusionSlot();
+                            glm::vec3 c = prim->GetBounds().mCenter;
+                            glm::vec3 b = prim->GetOcclusionBakedCenter();
+                            n["moved"] = glm::distance2(c, b) > world->GetOcclusionMoveEpsilon2();
+                            AABB box = prim->GetAABB();
+                            n["min"] = std::vector<double>{ box.mMin.x, box.mMin.y, box.mMin.z };
+                            n["max"] = std::vector<double>{ box.mMax.x, box.mMax.y, box.mMax.z };
+                            nodes.push_back(std::move(n));
+                        }
+                    }
+                    return true;
+                });
+            }
+            j["nodes"] = std::move(nodes);
+            return j.dump();
+        });
+
+        return crow::response(200, "application/json", WaitForCommand(future));
+    });
+
+    // ------------------------------------------------------------------
+    // PUT /api/occlusion/preview — {"enabled": true|false}
+    // ------------------------------------------------------------------
+    CROW_ROUTE(app, "/api/occlusion/preview").methods("PUT"_method)
+    ([server](const crow::request& req)
+    {
+        LogRequest(server, "PUT", "/api/occlusion/preview");
+        RETURN_IF_SHUTTING_DOWN(server);
+
+        auto body = crow::json::load(req.body);
+        if (!body || !body.has("enabled"))
+        {
+            return crow::response(200, "application/json", ErrorJson("Missing 'enabled'").dump());
+        }
+        bool enabled = body["enabled"].b();
+
+        auto future = server->QueueCommand([enabled]() -> std::string
+        {
+            Renderer::Get()->EnableOcclusionPreview(enabled);
+
+            crow::json::wvalue j;
+            j["success"] = true;
+            j["previewEnabled"] = Renderer::Get()->IsOcclusionPreviewEnabled();
             return j.dump();
         });
 

@@ -487,3 +487,52 @@ uint64_t Maths::GenerateAssetUuid()
 
     return uuid;
 }
+
+bool Maths::RayIntersectsAABB(const glm::vec3& origin, const glm::vec3& invDir, const glm::vec3& boxMin, const glm::vec3& boxMax, float tMin, float tMax)
+{
+    for (int32_t i = 0; i < 3; ++i)
+    {
+        float t0 = (boxMin[i] - origin[i]) * invDir[i];
+        float t1 = (boxMax[i] - origin[i]) * invDir[i];
+        if (t0 > t1)
+        {
+            float tmp = t0; t0 = t1; t1 = tmp;
+        }
+        tMin = t0 > tMin ? t0 : tMin;
+        tMax = t1 < tMax ? t1 : tMax;
+        if (tMax < tMin)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Maths::RayIntersectsTriangle(const glm::vec3& origin, const glm::vec3& dir, const glm::vec3& v0, const glm::vec3& e1, const glm::vec3& e2, float& outT)
+{
+    const float kEpsilon = 1e-7f;
+    glm::vec3 p = glm::cross(dir, e2);
+    float det = glm::dot(e1, p);
+    if (det > -kEpsilon && det < kEpsilon)
+    {
+        return false;
+    }
+
+    float invDet = 1.0f / det;
+    glm::vec3 t = origin - v0;
+    float u = glm::dot(t, p) * invDet;
+    if (u < 0.0f || u > 1.0f)
+    {
+        return false;
+    }
+
+    glm::vec3 q = glm::cross(t, e1);
+    float v = glm::dot(dir, q) * invDet;
+    if (v < 0.0f || u + v > 1.0f)
+    {
+        return false;
+    }
+
+    outT = glm::dot(e2, q) * invDet;
+    return outT > kEpsilon;
+}

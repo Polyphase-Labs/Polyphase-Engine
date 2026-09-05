@@ -90,6 +90,15 @@ public:
     void EnableFrustumCulling(bool enable);
     bool IsFrustumCullingEnabled() const;
 
+    // Baked occlusion culling (see OcclusionData). Applies to game cameras;
+    // the editor camera only culls when the preview toggle is on.
+    void EnableOcclusionCulling(bool enable);
+    bool IsOcclusionCullingEnabled() const;
+    void EnableOcclusionPreview(bool enable);
+    bool IsOcclusionPreviewEnabled() const;
+    int32_t GetNumFrustumCulled() const;
+    int32_t GetNumOcclusionCulled() const;
+
     void Enable3dRendering(bool enable);
     bool Is3dRenderingEnabled() const;
     void Enable2dRendering(bool enable);
@@ -228,6 +237,8 @@ private:
     void RenderDraws(const std::vector<DrawData>& drawData, PipelineConfig pipelineConfig);
     void RenderDebugDraws(const std::vector<DebugDraw>& draws, PipelineConfig pipelineConfig = PipelineConfig::Count);
     void FrustumCull(Camera3D* camera);
+    void OcclusionCull(World* world, Camera3D* camera);
+    int32_t OcclusionCullDraws(const class OcclusionData& data, const uint32_t* visibleSet, std::vector<DrawData>& drawData);
     int32_t FrustumCullDraws(const CameraFrustum& frustum, std::vector<DrawData>& drawData);
     int32_t FrustumCullDraws(const CameraFrustum& frustum, std::vector<DebugDraw>& drawData);
     int32_t FrustumCullLights(const CameraFrustum& frustum, std::vector<LightData>& lightData);
@@ -276,6 +287,10 @@ private:
     DebugMode mDebugMode = DEBUG_NONE;
     BoundsDebugMode mBoundsDebugMode = BoundsDebugMode::Off;
     bool mFrustumCulling = true;
+    bool mOcclusionCulling = true;
+    bool mOcclusionPreview = false;
+    int32_t mNumFrustumCulled = 0;
+    int32_t mNumOcclusionCulled = 0;
     bool mEnableProxyRendering = false;
     bool mEnable3dRendering = true;
     bool mEnable2dRendering = true;

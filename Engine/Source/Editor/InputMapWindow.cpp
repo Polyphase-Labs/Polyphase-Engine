@@ -105,6 +105,17 @@ void InputMapWindow::Draw()
             DrawCaptureOverlay();
         }
 
+        {
+            bool keyboardEmulation = inputMap->IsKeyboardEmulationEnabled();
+            if (Polyphase::Checkbox("Keyboard -> Gamepad Emulation Enabled", &keyboardEmulation))
+            {
+                inputMap->SetKeyboardEmulationEnabled(keyboardEmulation);
+                MarkInputMapDirty();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("When disabled, the keyboard button and axis mappings below stop feeding gamepad queries (Input.IsGamepadDown, Input.GetGamepadAxis, ...).");
+            ImGui::Spacing();
+        }
+
         DrawGamepadButtons();
         ImGui::Spacing();
         DrawGamepadAxes();
@@ -285,7 +296,9 @@ void InputMapWindow::DrawGamepadAxes()
         ImGui::SetColumnWidth(0, 130.0f);
         ImGui::SetColumnWidth(1, 100.0f);
         ImGui::SetColumnWidth(2, 100.0f);
-        ImGui::SetColumnWidth(3, 70.0f);
+        // Wide enough for both the (-) and (+) key buttons. At 70px the (+)
+        // button was clipped by the column and could not be clicked.
+        ImGui::SetColumnWidth(3, 150.0f);
         ImGui::SetColumnWidth(4, 70.0f);
 
         ImGui::Text("Axis");

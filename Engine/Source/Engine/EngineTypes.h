@@ -337,6 +337,7 @@ struct DrawData
     float mDistance2;
     TypeId mNodeType;
     bool mDepthless;
+    uint32_t mOcclusionSlot; // 0 = not an occludee, otherwise occludee index + 1
 };
 
 struct LightData

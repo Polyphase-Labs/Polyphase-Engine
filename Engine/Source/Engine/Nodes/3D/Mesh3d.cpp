@@ -228,5 +228,17 @@ DrawData Mesh3D::GetDrawData()
     data.mSortPriority = material ? material->GetSortPriority() : 0;
     data.mDepthless = material ? material->IsDepthTestDisabled() : false;
 
+    if (mOcclusionSlot != 0)
+    {
+        // An occludee that moved since the bake is no longer covered by the
+        // baked visibility table, so treat it as always visible.
+        World* world = GetWorld();
+        float eps2 = world ? world->GetOcclusionMoveEpsilon2() : 0.0f;
+        if (glm::distance2(data.mBounds.mCenter, mOcclusionBakedCenter) <= eps2)
+        {
+            data.mOcclusionSlot = mOcclusionSlot;
+        }
+    }
+
     return data;
 }

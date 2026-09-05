@@ -1997,6 +1997,7 @@ void InvalidateAddNodeMenuCache()
 static const char* ClassifyNode3D(const char* className)
 {
     if (strcmp(className, "Skybox3D") == 0) return "Environment";
+    if (strcmp(className, "OcclusionArea3D") == 0) return "Environment";
     if (strcmp(className, "DirectionalLight3D") == 0 ||
         strcmp(className, "PointLight3D") == 0 ||
         strcmp(className, "SpotLight3D") == 0)

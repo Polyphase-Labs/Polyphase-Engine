@@ -59,7 +59,8 @@ class AssetDir;
 #define ASSET_VERSION_BONE_MASK 37
 #define ASSET_VERSION_SOUNDWAVE_STREAMING 38
 #define ASSET_VERSION_BONE_SOCKETS 39
-#define ASSET_VERSION_CURRENT 39
+#define ASSET_VERSION_SCENE_OCCLUSION 40
+#define ASSET_VERSION_CURRENT 40
 // ----------------------------------------------------
 
 #define DECLARE_ASSET(Base, Parent) DECLARE_FACTORY(Base, Asset); DECLARE_OBJECT(Base, Parent);

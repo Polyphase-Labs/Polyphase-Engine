@@ -30,6 +30,10 @@ public:
     bool GetAxisUsesMouseY(GamepadAxisCode axis) const;
     float GetAxisMouseSensitivity(GamepadAxisCode axis) const;
 
+    // Keyboard -> gamepad emulation (button + axis key mappings) on/off
+    void SetKeyboardEmulationEnabled(bool enabled);
+    bool IsKeyboardEmulationEnabled() const;
+
     // Mouse/Pointer enable/disable for debugging
     void SetMouseEnabled(bool enabled);
     bool IsMouseEnabled() const;
@@ -68,6 +72,7 @@ private:
     bool mAxisUseMouseX[GAMEPAD_AXIS_COUNT];
     bool mAxisUseMouseY[GAMEPAD_AXIS_COUNT];
     float mAxisMouseSensitivity[GAMEPAD_AXIS_COUNT];
+    bool mKeyboardEmulationEnabled = true;
     bool mMouseEnabled = true;
     bool mPointerEnabled = true;
 };

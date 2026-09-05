@@ -6847,6 +6847,22 @@ void ActionManager::RequestResaveAllAssets()
     es->mResaveAllAtEndOfFrame = true;
 }
 
+void ActionManager::RequestBakeOcclusion()
+{
+    EditorState* es = GetEditorState();
+    if (es->mBakeOcclusionAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mBakeOcclusionAtEndOfFrame = true;
+}
+
+void ActionManager::RequestClearOcclusion()
+{
+    EditorState* es = GetEditorState();
+    if (es->mClearOcclusionAtEndOfFrame || EditorProgress::IsActive())
+        return;
+    es->mClearOcclusionAtEndOfFrame = true;
+}
+
 void ActionManager::DeleteSelectedNodes()
 {
     std::vector<Node*> nodes = GetEditorState()->GetSelectedNodes();

@@ -75,6 +75,7 @@ Singleton (`Renderer::Get()`) that orchestrates the rendering pipeline:
 1. `BeginFrame()` — Acquire swapchain image
 2. `GatherDrawData(world)` — Collect visible objects into draw lists
 3. `FrustumCull(camera)` — Cull objects outside view
+3b. `OcclusionCull(world, camera)` — Drop draws hidden per the scene's baked `OcclusionData` (PVS; see `Documentation/Development/OcclusionCulling.md`)
 4. `RenderShadowCasters()` — Shadow pass
 5. `RenderDraws()` — Main forward pass (opaque, translucent, additive)
 6. `RenderSelectedGeometry()` — Editor selection highlight

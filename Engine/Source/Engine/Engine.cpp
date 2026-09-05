@@ -301,6 +301,7 @@ void ForceLinkage()
     FORCE_LINK_CALL(PlayerInputRegistrar);
     FORCE_LINK_CALL(Spline3D);
     FORCE_LINK_CALL(NavMesh3D);
+    FORCE_LINK_CALL(OcclusionArea3D);
     FORCE_LINK_CALL(SpriteAnimator);
     FORCE_LINK_CALL(AnimatedSprite3D);
     FORCE_LINK_CALL(TransformAnimationNode3D);

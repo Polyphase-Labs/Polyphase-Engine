@@ -114,6 +114,18 @@ function Primitive3D:EnableCastShadows(enable) end
 function Primitive3D:ShouldCastShadows() end
 
 ---@param enable boolean
+function Primitive3D:EnableOccluder(enable) end
+
+---@return boolean
+function Primitive3D:IsOccluder() end
+
+---@param enable boolean
+function Primitive3D:EnableOccludee(enable) end
+
+---@return boolean
+function Primitive3D:IsOccludee() end
+
+---@param enable boolean
 function Primitive3D:EnableReceiveShadows(enable) end
 
 ---@return boolean

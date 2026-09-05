@@ -918,6 +918,7 @@
     <ClCompile Include="Source\Editor\EditorWidgets.cpp" />
     <ClCompile Include="Source\Editor\EditorMainMenu.cpp" />
     <ClCompile Include="Source\Editor\EditorMain.cpp" />
+    <ClCompile Include="Source\Editor\OcclusionBake\OcclusionBaker.cpp" />
     <ClCompile Include="Source\Editor\EditorState.cpp" />
     <ClCompile Include="Source\Editor\EditorUtils.cpp" />
     <ClCompile Include="Source\Editor\Grid.cpp" />
@@ -1103,6 +1104,7 @@
     <ClCompile Include="Source\Engine\InputDevices.cpp" />
     <ClCompile Include="Source\Engine\Log.cpp" />
     <ClCompile Include="Source\Engine\Maths.cpp" />
+    <ClCompile Include="Source\Engine\OcclusionData.cpp" />
     <ClCompile Include="Source\Engine\NetDatum.cpp" />
     <ClCompile Include="Source\Engine\NetFunc.cpp" />
     <ClCompile Include="Source\Engine\NetMsg.cpp" />
@@ -1120,6 +1122,7 @@
     <ClCompile Include="Source\Engine\Nodes\3D\DirectionalLight3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\InstancedMesh3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\NavMesh3d.cpp" />
+    <ClCompile Include="Source\Engine\Nodes\3D\OcclusionArea3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Light3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Mesh3d.cpp" />
     <ClCompile Include="Source\Engine\Nodes\3D\Particle3d.cpp" />
@@ -1512,6 +1515,7 @@
     <ClInclude Include="Source\Editor\EditorWidgetsInternal.h" />
     <ClInclude Include="Source\Editor\EditorMainMenu.h" />
     <ClInclude Include="Source\Editor\EditorState.h" />
+    <ClInclude Include="Source\Editor\OcclusionBake\OcclusionBaker.h" />
     <ClInclude Include="Source\Editor\ImGuizmo\ImGuizmo.h" />
     <ClInclude Include="Source\Editor\EditorTypes.h" />
     <ClInclude Include="Source\Editor\EditorUtils.h" />
@@ -1697,6 +1701,7 @@
     <ClInclude Include="Source\Engine\Line.h" />
     <ClInclude Include="Source\Engine\Log.h" />
     <ClInclude Include="Source\Engine\Maths.h" />
+    <ClInclude Include="Source\Engine\OcclusionData.h" />
     <ClInclude Include="Source\Engine\NetDatum.h" />
     <ClInclude Include="Source\Engine\NetFunc.h" />
     <ClInclude Include="Source\Engine\NetMsg.h" />
@@ -1714,6 +1719,7 @@
     <ClInclude Include="Source\Engine\Nodes\3D\DirectionalLight3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\InstancedMesh3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\NavMesh3d.h" />
+    <ClInclude Include="Source\Engine\Nodes\3D\OcclusionArea3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Light3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Mesh3d.h" />
     <ClInclude Include="Source\Engine\Nodes\3D\Particle3d.h" />

@@ -16,6 +16,8 @@
 #include "Nodes/3D/Camera3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
 
+class OcclusionData;
+
 class Node;
 class Audio3D;
 class Particle3D;
@@ -100,6 +102,16 @@ public:
 
     void SetFogSettings(const FogSettings& settings);
     const FogSettings& GetFogSettings() const;
+
+    // Baked occlusion culling. The data is owned by the root node's Scene.
+    void SetOcclusionData(const OcclusionData* data, bool enabled);
+    const OcclusionData* GetOcclusionData() const;
+    bool IsOcclusionCullingEnabled() const;
+    bool IsOcclusionDataStale() const;
+    float GetOcclusionMoveEpsilon2() const;
+    void RequestOccludeeResolve();
+    bool IsOccludeeResolvePending() const;
+    void ResolveOccludees();
 
     void SetGravity(glm::vec3 gravity);
     glm::vec3 GetGravity() const;
@@ -230,6 +242,11 @@ private:
     glm::vec4 mAmbientLightColor;
     glm::vec4 mShadowColor;
     FogSettings mFogSettings;
+    const OcclusionData* mOcclusionData = nullptr;
+    bool mOcclusionEnabled = false;
+    bool mOcclusionStale = false;
+    bool mOcclusionResolvePending = false;
+    float mOcclusionMoveEps2 = 0.0f;
     Camera3D* mActiveCamera;
     Camera3D* mCameraOverride = nullptr;
     Node3D* mAudioReceiver;

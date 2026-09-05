@@ -26,6 +26,10 @@ struct Renderer_Lua
     static int GetBoundsDebugMode(lua_State* L);
     static int EnableFrustumCulling(lua_State* L);
     static int IsFrustumCullingEnabled(lua_State* L);
+    static int EnableOcclusionCulling(lua_State* L);
+    static int IsOcclusionCullingEnabled(lua_State* L);
+    static int GetNumFrustumCulled(lua_State* L);
+    static int GetNumOcclusionCulled(lua_State* L);
     static int AddDebugDraw(lua_State* L);
     static int AddDebugLine(lua_State* L);
     static int Enable3dRendering(lua_State* L);
