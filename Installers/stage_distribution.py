@@ -104,6 +104,49 @@ def copy_file(src, dst, verbose=False):
 
 
 
+def stage_vulkan_headers(dist, verbose=False):
+    """Copy the Vulkan SDK headers into dist/External/Vulkan/include/.
+
+    Native addons compile against engine headers that include
+    <vulkan/vulkan.h> under API_VULKAN, so an installed editor has to carry
+    the headers or end users cannot build any native addon without installing
+    the full Vulkan SDK themselves. The editor's
+    NativeAddonManager::ResolveVulkanIncludeDir probes
+    <engine>/External/Vulkan/include right after VULKAN_SDK.
+
+    Only WARNS when VULKAN_SDK is missing, matching how the import-lib
+    staging above behaves; the wrapper scripts and release.yml verify the
+    staged file afterwards and fail there.
+    """
+    sdk = os.environ.get("VULKAN_SDK", "")
+    if not sdk:
+        print("  WARNING: VULKAN_SDK is not set; Vulkan headers NOT staged. "
+              "Native addon builds from this install will need a Vulkan SDK.")
+        return 0
+
+    sdk_path = Path(sdk)
+    include_root = None
+    for candidate in (sdk_path / "Include", sdk_path / "include", sdk_path / "x86_64" / "include"):
+        if (candidate / "vulkan" / "vulkan.h").is_file():
+            include_root = candidate
+            break
+    if include_root is None:
+        print(f"  WARNING: vulkan/vulkan.h not found under VULKAN_SDK={sdk}; Vulkan headers NOT staged.")
+        return 0
+
+    dst_root = dist / "External" / "Vulkan" / "include"
+    n = 0
+    # vulkan_core.h in recent SDKs includes vk_video/*.h from the sibling dir.
+    for sub in ("vulkan", "vk_video"):
+        if (include_root / sub).is_dir():
+            n += copy_tree(include_root / sub, dst_root / sub, verbose)
+    for lic in ("LICENSE.txt", "LICENSE"):
+        if (sdk_path / lic).is_file():
+            copy_file(sdk_path / lic, dist / "External" / "Vulkan" / lic, verbose)
+            break
+    return n
+
+
 def run_generators(engine_root, verbose=False):
     """Run code generators to ensure Generated/ is fresh."""
     tools_dir = engine_root / "Tools"
@@ -218,6 +261,11 @@ def stage(platform, output_dir, engine_root, verbose=False):
     # --- External (full directory for builds) ---
     print("Staging External/...")
     n = copy_tree(engine_root / "External", dist / "External", verbose)
+    log(f"  {n} files", verbose)
+
+    # --- Vulkan headers for native addon builds ---
+    print("Staging Vulkan headers (External/Vulkan/include)...")
+    n = stage_vulkan_headers(dist, verbose)
     log(f"  {n} files", verbose)
 
     # --- Prebuilt console mbedTLS libs ---

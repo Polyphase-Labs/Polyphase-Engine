@@ -644,7 +644,21 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
         ImGui::TableNextColumn();
         if (hasNative && nativeState)
         {
-            if (nativeState->mBuildInProgress)
+            if (!nativeState->mMissingDependencies.empty())
+            {
+                const std::string& dep = nativeState->mMissingDependencies.front();
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Missing dependency: %s", dep.c_str());
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", nativeState->mBuildError.c_str());
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Install"))
+                {
+                    InstallAddonById(dep);
+                }
+            }
+            else if (nativeState->mBuildInProgress)
             {
                 ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Building...");
             }
@@ -1310,7 +1324,21 @@ void AddonsWindow::DrawInstalledAddons()
             if (nativeState)
             {
                 ImGui::SameLine();
-                if (nativeState->mBuildInProgress)
+                if (!nativeState->mMissingDependencies.empty())
+                {
+                    const std::string& dep = nativeState->mMissingDependencies.front();
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Missing dependency: %s", dep.c_str());
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", nativeState->mBuildError.c_str());
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Install"))
+                    {
+                        InstallAddonById(dep);
+                    }
+                }
+                else if (nativeState->mBuildInProgress)
                 {
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Building...");
                 }
@@ -1786,7 +1814,21 @@ void AddonsWindow::OnDownloadAddon(const std::string& addonId)
     std::string error;
     if (am->DownloadAddon(*addon, error))
     {
-        mStatusMessage = addon->mMetadata.mName + " installed successfully!";
+        const std::vector<std::string>& missingDeps = am->GetLastInstallMissingDependencies();
+        if (missingDeps.empty())
+        {
+            mStatusMessage = addon->mMetadata.mName + " installed successfully!";
+        }
+        else
+        {
+            mStatusMessage = addon->mMetadata.mName + " installed, but these dependencies could not be fetched: ";
+            for (size_t i = 0; i < missingDeps.size(); ++i)
+            {
+                if (i > 0) mStatusMessage += ", ";
+                mStatusMessage += missingDeps[i];
+            }
+            mStatusMessage += ". Install them from the Browse tab or copy them into Packages/.";
+        }
         mErrorMessage.clear();
 
         // Re-discover addon packages so the new addon shows up in the Assets panel
@@ -1813,6 +1855,56 @@ void AddonsWindow::OnDownloadAddon(const std::string& addonId)
         mStatusMessage.clear();
         mErrorMessage = "Failed to install: " + error;
         LogError("Failed to install addon %s: %s", addonId.c_str(), error.c_str());
+    }
+}
+
+void AddonsWindow::InstallAddonById(const std::string& addonId)
+{
+    AddonManager* am = AddonManager::Get();
+    if (am == nullptr)
+    {
+        return;
+    }
+
+    // The registry list is only populated by a repository refresh, which
+    // normally happens the first time this window opens. A dependency install
+    // triggered from the problem modal can run before that.
+    if (am->FindAddon(addonId) == nullptr && !am->HasRefreshedRepositories())
+    {
+        am->RefreshAllRepositories();
+        mNeedsRefresh = false;
+    }
+
+    if (am->FindAddon(addonId) == nullptr)
+    {
+        mStatusMessage.clear();
+        mErrorMessage = "Addon '" + addonId + "' is not in any configured repository. "
+                        "Add its repository in the Repositories tab, or copy the addon folder "
+                        "into <project>/Packages/" + addonId + "/ and reopen the project.";
+        LogError("%s", mErrorMessage.c_str());
+        if (!mIsOpen)
+        {
+            Open();
+        }
+        return;
+    }
+
+    OnDownloadAddon(addonId);
+    if (!mErrorMessage.empty())
+    {
+        if (!mIsOpen)
+        {
+            Open();
+        }
+        return;
+    }
+
+    // Dependents were flagged with mMissingDependencies at discovery time.
+    // Rescan and reload everything through the vtable-safe restart path so
+    // the new addon builds first and the blocked addons come up after it.
+    if (NativeAddonManager* nam = NativeAddonManager::Get())
+    {
+        nam->ReloadNativeAddonsWithProjectRestart({}, /*forceRebuild=*/false, "dependency installed");
     }
 }
 

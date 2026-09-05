@@ -869,6 +869,7 @@ void AddonManager::RefreshAllRepositories()
     {
         RefreshRepository(repo.mUrl);
     }
+    mRepositoriesRefreshed = true;
 
     // Update installed status
     LoadInstalledAddons();
@@ -1311,6 +1312,23 @@ bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::st
         {
             LogWarning("Addon '%s': dependency resolution reported: %s",
                        addonId.c_str(), resolveErr.c_str());
+        }
+    }
+
+    // Record which declared dependencies are still absent so the Addons
+    // window can say so instead of reporting a clean install.
+    mLastInstallMissingDeps.clear();
+    {
+        std::vector<AddonDependencySpec> declaredDeps;
+        std::string ignoredOnInstall;
+        AddonDependencyResolver::ReadDependenciesFromDisk(destDir, declaredDeps, ignoredOnInstall);
+        for (const AddonDependencySpec& dep : declaredDeps)
+        {
+            std::string depJson = packagesDir + "/" + dep.mId + "/package.json";
+            if (!SYS_DoesFileExist(depJson.c_str(), false))
+            {
+                mLastInstallMissingDeps.push_back(dep.mId);
+            }
         }
     }
 

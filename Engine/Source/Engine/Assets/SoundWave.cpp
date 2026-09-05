@@ -8,6 +8,10 @@
 #include "Audio/Audio.h"
 #include "System/System.h"
 
+#if EDITOR
+#include "SoundWaveImportFixup/SoundWaveImportFixupModal.h"
+#endif
+
 FORCE_LINK_DEF(SoundWave);
 DEFINE_ASSET(SoundWave);
 
@@ -400,6 +404,99 @@ void SoundWave::Destroy()
 }
 
 
+bool SoundWave::ParseWav(const uint8_t* data, size_t size, const char* debugName, WavInfo& out)
+{
+    // Layout:
+    //   offset  size  field
+    //        0     4  "RIFF"
+    //        4     4  file size (-8)
+    //        8     4  "WAVE"
+    //       12     4  "fmt " chunk id
+    //       16     4  fmt chunk size (16 for PCM, 18 or 40 for extended)
+    //       20     2  audio format (1 = PCM)
+    //       22     2  num channels
+    //       24     4  sample rate
+    //       28     4  byte rate
+    //       32     2  block align
+    //       34     2  bits per sample
+    //       (next chunks: "data", optionally "fact", "LIST", "JUNK", etc.)
+    // The data chunk is NOT guaranteed to follow fmt directly. DAWs and
+    // content-credential tools commonly insert a LIST/INFO chunk before it and
+    // trailing chunks (e.g. C2PA) after it, so we must walk the chunk list.
+    if (data == nullptr || size < 44)
+    {
+        LogError("SoundWave::%s: buffer too small to be a WAV", debugName);
+        return false;
+    }
+
+    if (memcmp(data, "RIFF", 4) != 0
+        || memcmp(data + 8, "WAVE", 4) != 0
+        || memcmp(data + 12, "fmt ", 4) != 0)
+    {
+        LogError("SoundWave::%s: not a RIFF/WAVE file (or fmt chunk not first)", debugName);
+        return false;
+    }
+
+    const uint16_t audioFormat = *((const uint16_t*)(data + 20));
+    if (audioFormat != 1)
+    {
+        LogError("SoundWave::%s: unsupported WAV audio format %u (expected PCM=1)", debugName, (unsigned)audioFormat);
+        return false;
+    }
+
+    out.mNumChannels   = *((const uint16_t*)(data + 22));
+    out.mSampleRate    = *((const uint32_t*)(data + 24));
+    out.mByteRate      = *((const uint32_t*)(data + 28));
+    out.mBlockAlign    = *((const uint16_t*)(data + 32));
+    out.mBitsPerSample = *((const uint16_t*)(data + 34));
+
+    const uint32_t fmtSize = *((const uint32_t*)(data + 16));
+    size_t offset = 20 + fmtSize;
+    if (fmtSize & 1) ++offset;
+
+    out.mPcm = nullptr;
+    out.mPcmSize = 0;
+    while (offset + 8 <= size)
+    {
+        const char* id = (const char*)(data + offset);
+        const uint32_t chunkSize = *((const uint32_t*)(data + offset + 4));
+        if (memcmp(id, "data", 4) == 0)
+        {
+            out.mPcm = data + offset + 8;
+            out.mPcmSize = chunkSize;
+            break;
+        }
+        offset += 8 + chunkSize;
+        if (chunkSize & 1) ++offset;     // chunks are word-aligned
+    }
+
+    if (out.mPcm == nullptr)
+    {
+        LogError("SoundWave::%s: no data chunk found", debugName);
+        return false;
+    }
+
+    const size_t pcmOffset = (size_t)(out.mPcm - data);
+    if (pcmOffset + out.mPcmSize > size)
+    {
+        LogWarning("SoundWave::%s: data chunk size %u exceeds file; truncating to %u",
+            debugName, out.mPcmSize, (unsigned)(size - pcmOffset));
+        out.mPcmSize = (uint32_t)(size - pcmOffset);
+    }
+
+    const bool validBitDepth    = (out.mBitsPerSample == 8 || out.mBitsPerSample == 16);
+    const bool validNumChannels = (out.mNumChannels == 1 || out.mNumChannels == 2);
+    if (!validBitDepth || !validNumChannels)
+    {
+        LogError("SoundWave::%s: unsupported WAV format: BitDepth=%u (expected 8 or 16) NumChannels=%u (expected 1 or 2)",
+            debugName, (unsigned)out.mBitsPerSample, (unsigned)out.mNumChannels);
+        return false;
+    }
+
+    return true;
+}
+
+
 bool SoundWave::LoadFromMemory(const uint8_t* data, size_t size, const char* formatHint, SoundWave& out)
 {
     if (data == nullptr || size < 44)
@@ -446,88 +543,25 @@ bool SoundWave::LoadFromMemory(const uint8_t* data, size_t size, const char* for
         return false;
     }
 
-    // Walk the RIFF/WAVE chunks. Layout:
-    //   offset  size  field
-    //        0     4  "RIFF"
-    //        4     4  file size (-8)
-    //        8     4  "WAVE"
-    //       12     4  "fmt " chunk id
-    //       16     4  fmt chunk size (16 for PCM)
-    //       20     2  audio format (1 = PCM)
-    //       22     2  num channels
-    //       24     4  sample rate
-    //       28     4  byte rate
-    //       32     2  block align
-    //       34     2  bits per sample
-    //       (next chunks: "data", optionally "fact", "LIST", etc.)
-    if (memcmp(data + 8, "WAVE", 4) != 0
-        || memcmp(data + 12, "fmt ", 4) != 0)
+    WavInfo wav;
+    if (!ParseWav(data, size, "LoadFromMemory", wav))
     {
         return false;
     }
 
-    const uint16_t audioFormat = *((const uint16_t*)(data + 20));
-    if (audioFormat != 1)
-    {
-        LogError("SoundWave::LoadFromMemory unsupported WAV audio format %u (expected PCM=1)", (unsigned)audioFormat);
-        return false;
-    }
+    const uint32_t bytesPerSample = wav.mBitsPerSample / 8;
+    const uint32_t numSamples = wav.mPcmSize / bytesPerSample;
 
-    const uint16_t numChannels   = *((const uint16_t*)(data + 22));
-    const uint32_t sampleRate    = *((const uint32_t*)(data + 24));
-    const uint32_t byteRate      = *((const uint32_t*)(data + 28));
-    const uint16_t blockAlign    = *((const uint16_t*)(data + 32));
-    const uint16_t bitsPerSample = *((const uint16_t*)(data + 34));
+    out.mWaveDataSize = wav.mPcmSize;
+    out.mWaveData     = (uint8_t*)SYS_AlignedMalloc(wav.mPcmSize, 32);
+    memcpy(out.mWaveData, wav.mPcm, wav.mPcmSize);
 
-    const uint32_t fmtSize = *((const uint32_t*)(data + 16));
-    size_t offset = 20 + fmtSize;       // first byte after fmt chunk body
-
-    // Find the data chunk (skip any LIST/fact/JUNK chunks).
-    const uint8_t* sampleData = nullptr;
-    uint32_t       sampleSize = 0;
-    while (offset + 8 <= size)
-    {
-        const char* id = (const char*)(data + offset);
-        const uint32_t chunkSize = *((const uint32_t*)(data + offset + 4));
-        if (memcmp(id, "data", 4) == 0)
-        {
-            sampleData = data + offset + 8;
-            sampleSize = chunkSize;
-            break;
-        }
-        offset += 8 + chunkSize;
-        if (chunkSize & 1) ++offset;     // chunks are word-aligned
-    }
-    if (sampleData == nullptr)
-    {
-        return false;
-    }
-    if ((size_t)(sampleData - data) + sampleSize > size)
-    {
-        sampleSize = (uint32_t)(size - (sampleData - data));
-    }
-
-    const bool validBitDepth     = (bitsPerSample == 8 || bitsPerSample == 16);
-    const bool validNumChannels  = (numChannels   == 1 || numChannels   == 2);
-    if (!validBitDepth || !validNumChannels)
-    {
-        LogError("SoundWave::LoadFromMemory unsupported WAV format: bd=%u ch=%u", (unsigned)bitsPerSample, (unsigned)numChannels);
-        return false;
-    }
-
-    const uint32_t bytesPerSample = bitsPerSample / 8;
-    const uint32_t numSamples = sampleSize / bytesPerSample;
-
-    out.mWaveDataSize = sampleSize;
-    out.mWaveData     = (uint8_t*)SYS_AlignedMalloc(sampleSize, 32);
-    memcpy(out.mWaveData, sampleData, sampleSize);
-
-    out.mNumChannels   = (uint32_t)numChannels;
-    out.mBitsPerSample = (uint32_t)bitsPerSample;
-    out.mSampleRate    = sampleRate;
+    out.mNumChannels   = (uint32_t)wav.mNumChannels;
+    out.mBitsPerSample = (uint32_t)wav.mBitsPerSample;
+    out.mSampleRate    = wav.mSampleRate;
     out.mNumSamples    = numSamples;
-    out.mBlockAlign    = blockAlign;
-    out.mByteRate      = byteRate;
+    out.mBlockAlign    = wav.mBlockAlign;
+    out.mByteRate      = wav.mByteRate;
 
     AUD_ProcessWaveBuffer(&out);
     out.Create();
@@ -546,56 +580,40 @@ bool SoundWave::Import(const std::string& path, ImportOptions* options)
 #if EDITOR
     Stream wavStream;
     wavStream.ReadFile(path.c_str(), false);
-    uint8_t* wavData = (uint8_t*) wavStream.GetData();
+    const uint8_t* wavData = (const uint8_t*)wavStream.GetData();
+    const size_t wavSize = (size_t)wavStream.GetSize();
 
-    char fileFormat[5] = {};
-    memcpy(fileFormat, wavData + 8, 4);
-    OCT_ASSERT(strncmp(fileFormat, "WAVE", 4) == 0);
-
-    uint16_t audioFormat = *((uint16_t*)(wavData + 20));
-    OCT_ASSERT(audioFormat == 1);
-
-    uint16_t numChannels = *((uint16_t*)(wavData + 22));
-    uint32_t sampleRate = *((uint32_t*)(wavData + 24));
-    uint32_t byteRate = *((uint32_t*)(wavData + 28));
-    uint16_t blockAlign = *((uint16_t*)(wavData + 32));
-    uint16_t bitsPerSample = *((uint16_t*)(wavData + 34));
-
-    uint32_t wavSampleDataSize = *((uint32_t*)(wavData + 40));
-    uint8_t* wavSampleData = (wavData + 44);
-
-    uint32_t bytesPerSample = bitsPerSample / 8;
-    uint32_t numSamples = wavSampleDataSize / bytesPerSample;
-
-    bool validBitDepth = (bitsPerSample == 8 || bitsPerSample == 16);
-    bool validNumChannels = (numChannels == 1 || numChannels == 2);
-
-    if (validBitDepth && validNumChannels)
+    WavInfo wav;
+    if (!ParseWav(wavData, wavSize, "Import", wav))
     {
-        mWaveDataSize = numSamples * bytesPerSample;
-        mWaveData = (uint8_t*)SYS_AlignedMalloc(mWaveDataSize, 32);
-        OCT_ASSERT(mWaveDataSize == wavSampleDataSize);
-        memcpy(mWaveData, wavSampleData, wavSampleDataSize);
-    }
-    else
-    {
-        LogError("Unsupported WAV Format");
-        LogError("BitDepth = %d (expected 8 or 16)", bitsPerSample);
-        LogError("NumChannels = %d (expected 1 or 2)", numChannels);
-
-        success = false;
+        LogError("Failed to parse WAV: %s", path.c_str());
+        return false;
     }
 
-    mNumChannels = (uint32_t)numChannels;
-    mBitsPerSample = (uint32_t)bitsPerSample;
-    mSampleRate = sampleRate;
+    const uint32_t bytesPerSample = wav.mBitsPerSample / 8;
+    const uint32_t numSamples = wav.mPcmSize / bytesPerSample;
+
+    mWaveDataSize = numSamples * bytesPerSample;
+    mWaveData = (uint8_t*)SYS_AlignedMalloc(mWaveDataSize, 32);
+    memcpy(mWaveData, wav.mPcm, mWaveDataSize);
+
+    mNumChannels = (uint32_t)wav.mNumChannels;
+    mBitsPerSample = (uint32_t)wav.mBitsPerSample;
+    mSampleRate = wav.mSampleRate;
     mNumSamples = numSamples;
-    mBlockAlign = blockAlign;
-    mByteRate = byteRate;
+    mBlockAlign = wav.mBlockAlign;
+    mByteRate = wav.mByteRate;
 
-    if (success)
+    LogDebug("SoundWave import '%s': %u Hz, %u-bit, %u ch, %u bytes PCM",
+        path.c_str(), mSampleRate, mBitsPerSample, mNumChannels, mWaveDataSize);
+
+    AUD_ProcessWaveBuffer(this);
+
+    // Desktop backends play any rate, but Android hard-locks to 44.1 kHz and the
+    // console cook paths assume it. Let the user decide whether to resample now.
+    if (mSampleRate != 44100 && mSampleRate != 22050)
     {
-        AUD_ProcessWaveBuffer(this);
+        SoundWaveImportFixupModal::Get()->Enqueue(this, path);
     }
 #endif
 
@@ -708,9 +726,15 @@ uint32_t SoundWave::GetNumSamples() const
     return mNumSamples;
 }
 
+uint32_t SoundWave::GetNumFrames() const
+{
+    return mNumSamples / (mNumChannels > 0 ? mNumChannels : 1);
+}
+
 float SoundWave::GetDuration() const
 {
-    return float(mNumSamples) / mSampleRate;
+    // mNumSamples is interleaved, so divide by channels first or stereo reads 2x.
+    return (mSampleRate > 0) ? float(GetNumFrames()) / mSampleRate : 0.0f;
 }
 
 uint32_t SoundWave::GetBlockAlign() const

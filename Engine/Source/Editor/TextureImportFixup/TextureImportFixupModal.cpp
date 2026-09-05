@@ -100,7 +100,7 @@ void TextureImportFixupModal::ApplyPad(PendingRow& row)
 
     // Now that mPixels matches mWidth*mHeight*4, the auto-save that Import
     // would normally have done is safe to run.
-    AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName + ".oct");
+    AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName);
     if (stub != nullptr)
         AssetManager::Get()->SaveAsset(*stub);
 
@@ -131,7 +131,7 @@ void TextureImportFixupModal::ApplyResize(PendingRow& row)
     tex->FinalizeDeferredImport(std::move(resized), dstW, dstH);
     row.mResolved = FixChoice::Resized;
 
-    AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName + ".oct");
+    AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName);
     if (stub != nullptr)
         AssetManager::Get()->SaveAsset(*stub);
 
@@ -144,7 +144,7 @@ void TextureImportFixupModal::ApplyCancel(PendingRow& row)
     Texture* tex = row.mTexture.Get<Texture>();
     if (tex != nullptr)
     {
-        AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName + ".oct");
+        AssetStub* stub = AssetManager::Get()->GetAssetStub(row.mAssetName);
         if (stub != nullptr)
         {
             ActionManager::Get()->DeleteAsset(stub);

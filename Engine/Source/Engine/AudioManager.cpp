@@ -1253,7 +1253,7 @@ bool AudioManager::GetVoicePcmInfo(uint32_t voiceIndex, AudioAnalysis::PcmView& 
     if (soundWave->GetNumSamples() == 0) return false;
     if (soundWave->GetSampleRate() == 0) return false;
 
-    const uint64_t totalFrames = soundWave->GetNumSamples();
+    const uint64_t totalFrames = soundWave->GetNumFrames();
     const double cursorSeconds = (double)sAudioSources[voiceIndex].mStartTime
                                + (double)sAudioSources[voiceIndex].mPlaybackTime;
     double cursorFramesD = cursorSeconds * (double)soundWave->GetSampleRate();

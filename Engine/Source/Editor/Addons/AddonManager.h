@@ -38,12 +38,19 @@ public:
     // Addon discovery
     void RefreshAllRepositories();
     void RefreshRepository(const std::string& url);
+    // True once RefreshAllRepositories has run this session. The dependency
+    // resolver uses it to refresh lazily when a dependency lookup misses at
+    // project load, before the Addons window has ever been opened.
+    bool HasRefreshedRepositories() const { return mRepositoriesRefreshed; }
     const std::vector<Addon>& GetAvailableAddons() const { return mAvailableAddons; }
     const std::vector<AddonCategory>& GetCategories() const { return mCategories; }
 
     // Installation
     bool DownloadAddon(const Addon& addon, std::string& outError);
     bool InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError);
+    // Dependencies declared by the most recently installed addon that are
+    // still absent from Packages/ after auto-resolution. Empty on success.
+    const std::vector<std::string>& GetLastInstallMissingDependencies() const { return mLastInstallMissingDeps; }
     bool UninstallAddon(const std::string& addonId);
 
     // Fetch an addon from an arbitrary URL (GitHub repo or direct .zip), unzip it,
@@ -118,6 +125,8 @@ private:
     std::vector<AddonCategory> mCategories;  // Registry categories from manifest.json
     std::vector<InstalledAddon> mInstalledAddons;
     bool mAutoResolveDeps = true;
+    bool mRepositoriesRefreshed = false;
+    std::vector<std::string> mLastInstallMissingDeps;
 };
 
 #endif

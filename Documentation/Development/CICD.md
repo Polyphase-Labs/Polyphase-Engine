@@ -146,6 +146,8 @@ LunarG periodically removes older SDK installers from their CDN. 1.3.275.0 went 
 
 `.github/actions/install-vulkan-sdk/action.yml` is a small composite action that downloads `VulkanSDK-<version>-installed.zip` from the engine repo's Release tagged `vulkan-sdk-<version>` and extracts it to `C:\VulkanSDK\<version>\`. It exports `VULKAN_SDK` so downstream MSBuild/CMake steps pick it up.
 
+`Installers/stage_distribution.py` and `Installers/package_windows_sdk.py` also copy `$VULKAN_SDK/Include/vulkan` (and `vk_video`) into `External/Vulkan/include/` of the staged editor and the SDK zip. Native addons compile against engine headers that include `vulkan/vulkan.h`, and the editor's `NativeAddonManager::ResolveVulkanIncludeDir` looks there right after `VULKAN_SDK`, so end users can build addons without installing the Vulkan SDK themselves.
+
 The engine's `release.yml` calls it locally:
 
 ```yaml

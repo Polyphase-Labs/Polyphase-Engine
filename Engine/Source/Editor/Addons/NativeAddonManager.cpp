@@ -992,6 +992,45 @@ void NativeAddonManager::DiscoverNativeAddons()
         }
     }
 
+    // Flag addons whose declared dependencies are still missing after the
+    // resolver ran (registry unreachable, dependency not published, or the
+    // addon was copied into Packages/ by hand). These are blocked from build
+    // and load, and surface through the native addon problem modal with an
+    // Install button instead of loading half-working and logging a warning.
+    {
+        const std::string& projectDir = GetEngineState()->mProjectDirectory;
+        const std::string packagesDir = projectDir.empty() ? std::string() : projectDir + "Packages/";
+        for (auto& pair : mStates)
+        {
+            NativeAddonState& state = pair.second;
+            state.mMissingDependencies.clear();
+            if (packagesDir.empty()) continue;
+
+            for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
+            {
+                std::string depJson = packagesDir + dep.mId + "/package.json";
+                if (!SYS_DoesFileExist(depJson.c_str(), false))
+                {
+                    state.mMissingDependencies.push_back(dep.mId);
+                }
+            }
+
+            if (!state.mMissingDependencies.empty())
+            {
+                std::string err;
+                BuildFailureHint hint;
+                RunBuildPreflight(pair.first, err, hint);
+                state.mBuildSucceeded = false;
+                state.mBuildError = err;
+                state.mBuildLog = err + "\n\nHow to fix: " + hint.mText;
+                state.mFixHint = hint.mText;
+                state.mFixUrl = hint.mUrl;
+                state.mBuildFailureAcknowledged = false;
+                LogWarning("Addon '%s' blocked: %s", pair.first.c_str(), err.c_str());
+            }
+        }
+    }
+
     LogDebug("Discovered %zu native addons", mStates.size());
 }
 
@@ -2280,6 +2319,271 @@ std::string NativeAddonManager::GetOutputPath(const std::string& addonId, const 
 #endif
 }
 
+// ===== Build environment =====
+
+namespace
+{
+    const char* kVulkanSdkUrl = "https://vulkan.lunarg.com/sdk/home";
+
+    bool HasVulkanHeader(const std::string& dir)
+    {
+        if (dir.empty()) return false;
+        std::string probe = dir;
+        if (probe.back() != '/' && probe.back() != '\\') probe += "/";
+        probe += "vulkan/vulkan.h";
+        return SYS_DoesFileExist(probe.c_str(), false);
+    }
+
+    // Highest-sorting <root>/<version>/<sub> that contains vulkan/vulkan.h.
+    std::string FindNewestVulkanSdkUnder(const std::string& root, const char* sub)
+    {
+        if (!DoesDirExist(root.c_str())) return std::string();
+        std::string best;
+        DirEntry entry;
+        SYS_OpenDirectory(root, entry);
+        while (entry.mValid)
+        {
+            if (entry.mDirectory &&
+                strcmp(entry.mFilename, ".") != 0 &&
+                strcmp(entry.mFilename, "..") != 0)
+            {
+                std::string candidate = root + entry.mFilename + "/" + sub;
+                if (HasVulkanHeader(candidate) && candidate > best)
+                {
+                    best = candidate;
+                }
+            }
+            SYS_IterateDirectory(entry);
+        }
+        SYS_CloseDirectory(entry);
+        return best;
+    }
+}
+
+std::string NativeAddonManager::ResolveVulkanIncludeDir()
+{
+    // Cached once found. Left uncached while empty so a user who installs the
+    // SDK mid-session and presses Retry does not have to restart the editor.
+    static std::string sResolved;
+    if (!sResolved.empty() && HasVulkanHeader(sResolved))
+    {
+        return sResolved;
+    }
+    sResolved.clear();
+
+    std::vector<std::string> candidates;
+    if (const char* sdk = std::getenv("VULKAN_SDK"))
+    {
+        std::string base = sdk;
+        if (!base.empty())
+        {
+            if (base.back() != '/' && base.back() != '\\') base += "/";
+#if PLATFORM_WINDOWS
+            candidates.push_back(base + "Include");
+#else
+            candidates.push_back(base + "include");
+            candidates.push_back(base + "x86_64/include");
+#endif
+        }
+    }
+
+    // Headers staged by Installers/stage_distribution.py and package_windows_sdk.py.
+    candidates.push_back(SYS_GetPolyphasePath() + "External/Vulkan/include");
+
+#if PLATFORM_WINDOWS
+    candidates.push_back(FindNewestVulkanSdkUnder("C:/VulkanSDK/", "Include"));
+#else
+    candidates.push_back("/usr/include");
+    if (const char* home = std::getenv("HOME"))
+    {
+        candidates.push_back(FindNewestVulkanSdkUnder(std::string(home) + "/VulkanSDK/", "x86_64/include"));
+    }
+#endif
+
+    for (const std::string& dir : candidates)
+    {
+        if (HasVulkanHeader(dir))
+        {
+            sResolved = dir;
+            for (char& c : sResolved) { if (c == '\\') c = '/'; }
+            break;
+        }
+    }
+    return sResolved;
+}
+
+NativeAddonManager::BuildFailureHint NativeAddonManager::ClassifyBuildFailure(const std::string& log)
+{
+    BuildFailureHint hint;
+    auto has = [&log](const char* needle) { return log.find(needle) != std::string::npos; };
+
+    if (has("vulkan/vulkan.h"))
+    {
+        hint.mText = "The Vulkan SDK headers could not be found. Native addons compile against "
+                     "engine headers that include vulkan/vulkan.h even when the addon itself never "
+                     "uses Vulkan. Install the Vulkan SDK, make sure the VULKAN_SDK environment "
+                     "variable is set, then restart the editor and press Retry.";
+        hint.mUrl = kVulkanSdkUrl;
+        return hint;
+    }
+    if (has("Visual Studio not found") || has("vcvars64.bat") || has("'cl.exe' is not recognized"))
+    {
+        hint.mText = "Visual Studio with the C++ toolchain was not found. Install Visual Studio 2022 "
+                     "with the \"Desktop development with C++\" workload, then press Retry.";
+        hint.mUrl = "https://visualstudio.microsoft.com/downloads/";
+        return hint;
+    }
+    if (has("g++: not found") || has("g++: command not found"))
+    {
+        hint.mText = "The g++ compiler was not found. Install it (Debian/Ubuntu: sudo apt install "
+                     "build-essential), then press Retry.";
+        return hint;
+    }
+    if (has("LNK1181") &&
+        (has("Polyphase.lib") || has("PolyphaseEditor.lib") || has("Lua.lib")))
+    {
+        hint.mText = "The engine import libraries (Polyphase.lib / Lua.lib) were not found next to the "
+                     "editor. Reinstall the editor with the SDK component selected, or build the "
+                     "engine so the libraries exist under Standalone/Build and External/Lua/Build.";
+        return hint;
+    }
+    if (has("C1083") || has("No such file or directory"))
+    {
+        hint.mText = "A header could not be found. If it belongs to another addon, install that addon "
+                     "from the Addons window. If it belongs to the engine, the engine install is "
+                     "incomplete: reinstall the editor with the SDK component selected.";
+        return hint;
+    }
+    if (has("LNK2019") || has("LNK2001") || has("undefined reference"))
+    {
+        hint.mText = "The addon references a symbol the engine does not export. Check that the engine "
+                     "and the addon are built from matching versions, and that the class or function "
+                     "carries POLYPHASE_API. Rebuild the engine if you changed it.";
+        return hint;
+    }
+    return hint;
+}
+
+bool NativeAddonManager::RunBuildPreflight(const std::string& addonId, std::string& outError,
+                                           BuildFailureHint& outHint)
+{
+    outError.clear();
+    outHint = BuildFailureHint();
+
+    auto it = mStates.find(addonId);
+    if (it == mStates.end())
+    {
+        outError = "Addon not found: " + addonId;
+        return false;
+    }
+    const NativeAddonState& state = it->second;
+    const std::string polyphasePath = SYS_GetPolyphasePath();
+
+    // 1. Dependency addons declared in package.json must be on disk.
+    if (!state.mMissingDependencies.empty())
+    {
+        const std::string& dep = state.mMissingDependencies.front();
+        outError = "Dependency addon '" + dep + "' is not installed. It is declared in the package.json "
+                   "of '" + addonId + "' but <project>/Packages/" + dep + "/package.json does not exist.";
+        outHint.mText = "Install '" + dep + "' from the Addons window (Browse tab) or press Install below. "
+                        "If it is not in any registry, copy its folder into <project>/Packages/" + dep +
+                        "/ and reopen the project.";
+        outHint.mDependencyId = dep;
+        return false;
+    }
+
+    // 2. Engine include directories must exist (partial install, wrong engine path).
+    std::vector<std::string> includePaths;
+    std::vector<std::string> defines;
+    if (!LoadAddonIncludesManifest(includePaths, defines))
+    {
+        includePaths = { "Engine/Source", "Engine/Source/Plugins", "External",
+                         "External/glm", "External/Imgui", "External/Lua" };
+    }
+    for (const std::string& rel : includePaths)
+    {
+        std::string dir = polyphasePath + rel;
+        if (!DoesDirExist(dir.c_str()))
+        {
+            outError = "Engine include directory not found: " + dir;
+            outHint.mText = "The engine install at " + polyphasePath + " is incomplete or is not a full "
+                            "engine checkout. Reinstall the editor with the SDK component selected, or "
+                            "point POLYPHASE_PATH at a complete engine directory.";
+            return false;
+        }
+    }
+
+    // 3. Vulkan headers. Engine headers include vulkan/vulkan.h under API_VULKAN.
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
+    if (ResolveVulkanIncludeDir().empty())
+    {
+        const char* env = std::getenv("VULKAN_SDK");
+        outError = "Vulkan SDK headers not found. Checked VULKAN_SDK (" +
+                   std::string(env ? env : "unset") + "), " + polyphasePath + "External/Vulkan/include"
+#if PLATFORM_WINDOWS
+                   ", C:\\VulkanSDK\\*\\Include.";
+#else
+                   ", /usr/include, ~/VulkanSDK/*/x86_64/include.";
+#endif
+        outHint.mText = "Install the Vulkan SDK (headers only is enough), make sure the VULKAN_SDK "
+                        "environment variable is set, then restart the editor and press Retry. Native "
+                        "addons compile against engine headers that include vulkan/vulkan.h even when "
+                        "the addon itself never uses Vulkan.";
+        outHint.mUrl = kVulkanSdkUrl;
+        return false;
+    }
+#endif
+
+    // 4. Engine import libraries the link step needs (Windows only; Linux resolves
+    //    engine symbols from the editor executable at dlopen time).
+#if PLATFORM_WINDOWS
+    {
+        std::string exeDir = SYS_GetExecutablePath();
+        size_t lastSlash = exeDir.find_last_of("/\\");
+        exeDir = (lastSlash != std::string::npos) ? exeDir.substr(0, lastSlash + 1) : std::string();
+
+#if POLYPHASE_DLL_BUILD
+        const char* engineLib = "PolyphaseEditor.lib";
+#else
+        const char* engineLib = "Polyphase.lib";
+#endif
+        auto findLib = [](const char* name, const std::vector<std::string>& dirs) -> bool
+        {
+            for (const std::string& d : dirs)
+            {
+                if (SYS_DoesFileExist((d + name).c_str(), false)) return true;
+            }
+            return false;
+        };
+        const std::vector<std::string> engineDirs = {
+            exeDir, exeDir + "lib/",
+            polyphasePath + "Standalone/Build/Windows/x64/DebugEditor/",
+            polyphasePath + "Standalone/Build/Windows/x64/ReleaseEditor/",
+            polyphasePath + "Engine/Build/Windows/x64/DebugEditor Shared/",
+            polyphasePath + "Engine/Build/Windows/x64/ReleaseEditor Shared/" };
+        const std::vector<std::string> luaDirs = {
+            exeDir, exeDir + "lib/",
+            polyphasePath + "External/Lua/Build/Windows/x64/DebugEditor/",
+            polyphasePath + "External/Lua/Build/Windows/x64/ReleaseEditor/" };
+        const char* missingLib = nullptr;
+        if (!findLib(engineLib, engineDirs)) missingLib = engineLib;
+        else if (!findLib("Lua.lib", luaDirs)) missingLib = "Lua.lib";
+        if (missingLib != nullptr)
+        {
+            outError = std::string("Engine import library not found: ") + missingLib +
+                       ". Looked next to the editor executable (" + exeDir + ") and under " +
+                       polyphasePath + "Standalone/Build, Engine/Build and External/Lua/Build.";
+            outHint.mText = "Reinstall the editor with the SDK component selected so the import "
+                            "libraries ship next to the executable, or build the engine from source "
+                            "so they exist under the Build directories.";
+            return false;
+        }
+    }
+#endif
+
+    return true;
+}
+
 bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
                                              const std::string& outputDir,
                                              const std::string& outputPath,
@@ -2460,8 +2764,15 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "/I\"" << state.mSourcePath << inc << "/\" ";
     }
 
-    // Add Vulkan SDK include path
-    ss << "/I\"%VULKAN_SDK%/Include\" ";
+    // Add Vulkan SDK include path. Resolved here rather than left to cmd.exe:
+    // an unset %VULKAN_SDK% expands to literal text and cl fails on
+    // vulkan/vulkan.h with no hint about why. RunBuildPreflight has already
+    // rejected the build when this is empty; the env form is a last resort.
+    {
+        std::string vulkanInclude = ResolveVulkanIncludeDir();
+        if (vulkanInclude.empty()) vulkanInclude = "%VULKAN_SDK%/Include";
+        ss << "/I\"" << vulkanInclude << "\" ";
+    }
 
     // Add source files. Filter by *file extension*, not path substring — the
     // earlier `src.find(".c")` check false-matches any addon whose path
@@ -2729,8 +3040,12 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "  -I\"" << packagesDir << dep.mId << "/Source/\" \\\n";
     }
 
-    // Add Vulkan SDK include path
-    ss << "  -I\"$VULKAN_SDK/include\" \\\n";
+    // Add Vulkan SDK include path (resolved, see the Windows branch).
+    {
+        std::string vulkanInclude = ResolveVulkanIncludeDir();
+        if (vulkanInclude.empty()) vulkanInclude = "$VULKAN_SDK/include";
+        ss << "  -I\"" << vulkanInclude << "\" \\\n";
+    }
 
     if (wantsFFmpeg)
     {
@@ -2844,6 +3159,8 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
     state.mBuildInProgress = true;
     state.mBuildLog.clear();
     state.mBuildError.clear();
+    state.mFixHint.clear();
+    state.mFixUrl.clear();
     state.mBuildFailureAcknowledged = false;
 
     // Build native dependencies FIRST so their .lib / .so artifacts exist on
@@ -2899,6 +3216,26 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
             state.mBuildError = outError;
             LogError("Build of '%s' paused: locked intermediate files. See popup.",
                      addonId.c_str());
+            return false;
+        }
+    }
+
+    // Preflight: fail with a readable error and a fix before spending a
+    // compile on a missing SDK, a partial engine install, or an uninstalled
+    // dependency. The raw compiler output for those cases is a wall of C1083.
+    {
+        std::string preflightError;
+        BuildFailureHint hint;
+        if (!RunBuildPreflight(addonId, preflightError, hint))
+        {
+            outError = preflightError;
+            state.mBuildInProgress = false;
+            state.mBuildSucceeded = false;
+            state.mBuildError = preflightError;
+            state.mBuildLog = preflightError + "\n\nHow to fix: " + hint.mText;
+            state.mFixHint = hint.mText;
+            state.mFixUrl = hint.mUrl;
+            LogError("Build of '%s' skipped: %s", addonId.c_str(), preflightError.c_str());
             return false;
         }
     }
@@ -2960,6 +3297,11 @@ bool NativeAddonManager::BuildNativeAddon(const std::string& addonId, std::strin
         outError = "Build failed with exit code " + std::to_string(exitCode);
         state.mBuildSucceeded = false;
         state.mBuildError = outError + "\n" + stdoutStr;
+        {
+            BuildFailureHint hint = ClassifyBuildFailure(stdoutStr);
+            state.mFixHint = hint.mText;
+            state.mFixUrl = hint.mUrl;
+        }
         LogError("Build failed for %s: %s", addonId.c_str(), stdoutStr.c_str());
         return false;
     }
@@ -2995,6 +3337,12 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
     }
 
     NativeAddonState& state = it->second;
+
+    if (!state.mMissingDependencies.empty())
+    {
+        outError = "Dependency addon '" + state.mMissingDependencies.front() + "' is not installed";
+        return false;
+    }
 
     // Already loaded?
     if (state.mModuleHandle != nullptr)
@@ -3998,6 +4346,25 @@ void NativeAddonManager::StartNextQueuedBuild()
             }
         }
 
+        // Preflight (same checks as the synchronous path): surface a readable
+        // error and fix instead of a compiler wall for environment problems.
+        {
+            std::string preflightError;
+            BuildFailureHint hint;
+            if (!RunBuildPreflight(addonId, preflightError, hint))
+            {
+                state.mBuildInProgress = false;
+                state.mBuildSucceeded = false;
+                state.mBuildError = preflightError;
+                state.mBuildLog = preflightError + "\n\nHow to fix: " + hint.mText;
+                state.mFixHint = hint.mText;
+                state.mFixUrl = hint.mUrl;
+                state.mBuildFailureAcknowledged = false;
+                LogError("Async build of '%s' skipped: %s", addonId.c_str(), preflightError.c_str());
+                continue;
+            }
+        }
+
         if (!CreateDirectoryRecursive(outputDir))
         {
             LogError("Async build skipped: failed to create %s", outputDir.c_str());
@@ -4013,6 +4380,8 @@ void NativeAddonManager::StartNextQueuedBuild()
         state.mBuildInProgress = true;
         state.mBuildLog.clear();
         state.mBuildError.clear();
+        state.mFixHint.clear();
+        state.mFixUrl.clear();
         state.mBuildFailureAcknowledged = false;
 
         LogDebug("Building native addon (async): %s [%d/%d]",
@@ -4139,6 +4508,9 @@ NativeAddonManager::GetActiveBuildFailures() const
         e.mAddonId = pair.first;
         e.mError   = state.mBuildError;
         e.mLog     = state.mBuildLog;
+        e.mFixHint = state.mFixHint;
+        e.mFixUrl  = state.mFixUrl;
+        e.mMissingDependencies = state.mMissingDependencies;
         out.push_back(std::move(e));
     }
     return out;
@@ -4190,6 +4562,8 @@ void NativeAddonManager::RetryFailedBuild(const std::string& addonId)
     NativeAddonState& state = it->second;
     state.mBuildError.clear();
     state.mBuildLog.clear();
+    state.mFixHint.clear();
+    state.mFixUrl.clear();
     state.mBuildFailureAcknowledged = false;
     state.mFingerprint.clear();
 
@@ -4639,6 +5013,11 @@ void NativeAddonManager::TickAsyncBuilds()
             if (!exeExists) err += ", output not produced";
             err += ")";
             state.mBuildError = err;
+            {
+                BuildFailureHint hint = ClassifyBuildFailure(state.mBuildLog);
+                state.mFixHint = hint.mText;
+                state.mFixUrl = hint.mUrl;
+            }
             LogError("Async build failed for '%s': %s", addonId.c_str(), err.c_str());
             std::lock_guard<std::mutex> lock(mActiveBuild->outputMutex);
             if (!mActiveBuild->output.empty())
@@ -4700,6 +5079,13 @@ void NativeAddonManager::ReloadAllNativeAddons()
         auto it = mStates.find(addonId);
         if (it == mStates.end()) continue;
         const NativeAddonState& state = it->second;
+
+        if (!state.mMissingDependencies.empty())
+        {
+            LogWarning("Skipping native addon '%s': dependency '%s' is not installed.",
+                       addonId.c_str(), state.mMissingDependencies.front().c_str());
+            continue;
+        }
 
         // Check if this is a local package
         bool isLocal = state.mSourcePath.find(packagesDir) == 0;
@@ -5891,12 +6277,20 @@ bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
     {
         ss << ",\n                \"" << packagesDirJson << dep.mId << "/Source\"";
     }
-    // Add Vulkan SDK include path
+    // Add Vulkan SDK include path: the resolved directory when one exists,
+    // otherwise the env-var form so the file still works once the SDK lands.
+    {
+        std::string vulkanInclude = ResolveVulkanIncludeDir();
+        if (!vulkanInclude.empty())
+        {
+            ss << ",\n                \"" << vulkanInclude << "\"";
+        }
 #if PLATFORM_WINDOWS
-    ss << ",\n                \"${env:VULKAN_SDK}/Include\"";
+        ss << ",\n                \"${env:VULKAN_SDK}/Include\"";
 #else
-    ss << ",\n                \"${env:VULKAN_SDK}/include\"";
+        ss << ",\n                \"${env:VULKAN_SDK}/include\"";
 #endif
+    }
     ss << "\n            ],\n";
 
     ss << "            \"defines\": [";
@@ -6067,15 +6461,29 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     ss << "# Create shared library\n";
     ss << "add_library(" << binaryName << " SHARED ${SOURCES} ${HEADERS})\n";
     ss << "\n";
-    ss << "# Find Vulkan SDK\n";
+    ss << "# Find Vulkan headers. Engine headers include vulkan/vulkan.h under\n";
+    ss << "# API_VULKAN, so this is required even if the addon never uses Vulkan.\n";
+    ss << "set(VULKAN_INCLUDE_DIR \"\")\n";
     ss << "if(DEFINED ENV{VULKAN_SDK})\n";
-    ss << "    set(VULKAN_SDK_PATH $ENV{VULKAN_SDK})\n";
-    ss << "else()\n";
-    ss << "    find_package(Vulkan QUIET)\n";
-    ss << "    if(Vulkan_FOUND)\n";
-    ss << "        get_filename_component(VULKAN_SDK_PATH ${Vulkan_INCLUDE_DIRS} DIRECTORY)\n";
+    ss << "    if(EXISTS \"$ENV{VULKAN_SDK}/Include/vulkan/vulkan.h\")\n";
+    ss << "        set(VULKAN_INCLUDE_DIR \"$ENV{VULKAN_SDK}/Include\")\n";
+    ss << "    elseif(EXISTS \"$ENV{VULKAN_SDK}/include/vulkan/vulkan.h\")\n";
+    ss << "        set(VULKAN_INCLUDE_DIR \"$ENV{VULKAN_SDK}/include\")\n";
     ss << "    endif()\n";
     ss << "endif()\n";
+    ss << "if(NOT VULKAN_INCLUDE_DIR AND EXISTS \"${POLYPHASE_PATH}/External/Vulkan/include/vulkan/vulkan.h\")\n";
+    ss << "    set(VULKAN_INCLUDE_DIR \"${POLYPHASE_PATH}/External/Vulkan/include\")\n";
+    ss << "endif()\n";
+    ss << "if(NOT VULKAN_INCLUDE_DIR)\n";
+    ss << "    find_package(Vulkan QUIET)\n";
+    ss << "    if(Vulkan_FOUND)\n";
+    ss << "        set(VULKAN_INCLUDE_DIR \"${Vulkan_INCLUDE_DIRS}\")\n";
+    ss << "    endif()\n";
+    ss << "endif()\n";
+    ss << "if(NOT VULKAN_INCLUDE_DIR)\n";
+    ss << "    message(FATAL_ERROR \"Vulkan headers not found. Install the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and set VULKAN_SDK, or use an engine install that ships External/Vulkan/include.\")\n";
+    ss << "endif()\n";
+    ss << "message(STATUS \"Polyphase: using Vulkan headers from ${VULKAN_INCLUDE_DIR}\")\n";
     ss << "\n";
     // Parse package.json for dependencies
     std::string packageJsonPath = addonPath + "package.json";
@@ -6120,10 +6528,8 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     // Add Vulkan SDK include path
     ss << ")\n";
     ss << "\n";
-    ss << "# Add Vulkan SDK include path if found\n";
-    ss << "if(VULKAN_SDK_PATH)\n";
-    ss << "    target_include_directories(" << binaryName << " PRIVATE ${VULKAN_SDK_PATH}/Include)\n";
-    ss << "endif()\n";
+    ss << "# Vulkan headers (resolved above)\n";
+    ss << "target_include_directories(" << binaryName << " PRIVATE ${VULKAN_INCLUDE_DIR})\n";
     ss << "\n";
     ss << "# Compile definitions\n";
     ss << "target_compile_definitions(" << binaryName << " PRIVATE\n";
@@ -6460,8 +6866,17 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     {
         includesStr += normalizePathVS(packagesDir + dep.mId + "/Source") + ";";
     }
-    // Add Vulkan SDK include path
-    includesStr += "$(VULKAN_SDK)\\Include;";
+    // Add Vulkan SDK include path: the resolved directory first (works on
+    // machines without VULKAN_SDK set, e.g. an installed editor that ships
+    // External/Vulkan/include), then the property form as a fallback.
+    {
+        std::string vulkanInclude = ResolveVulkanIncludeDir();
+        if (!vulkanInclude.empty())
+        {
+            includesStr += normalizePathVS(vulkanInclude) + ";";
+        }
+        includesStr += "$(VULKAN_SDK)\\Include;";
+    }
     includesStr += "$(ProjectDir)Source;%(AdditionalIncludeDirectories)";
 
     // Build preprocessor definitions string from manifest

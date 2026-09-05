@@ -147,6 +147,21 @@ jobs:
           )
           echo [OK] Import libraries staged into dist\Editor\.
 
+      # stage_distribution.py only WARNS when VULKAN_SDK is unset. Without the
+      # staged headers an installed editor cannot compile any native addon
+      # (engine headers include vulkan/vulkan.h) unless the user installs the
+      # full Vulkan SDK. Fail here so the gap is caught before the installer ships.
+      - name: Verify staged Vulkan headers for native addon builds
+        shell: cmd
+        run: |
+          if not exist "dist\Editor\External\Vulkan\include\vulkan\vulkan.h" (
+            echo ERROR: Vulkan headers are missing from the staged distribution.
+            echo        Expected: dist\Editor\External\Vulkan\include\vulkan\vulkan.h
+            echo        Check that VULKAN_SDK was exported by the install-vulkan-sdk action.
+            exit /b 1
+          )
+          echo [OK] Vulkan headers staged into dist\Editor\External\Vulkan\include\.
+
       # Compile a minimal native addon (Tools/CI/TestBuildAddon) against the
       # freshly-staged dist/Editor/. Catches the class of regression where a
       # class addons depend on (MaterialBase, AssetManager, Renderer, ...)

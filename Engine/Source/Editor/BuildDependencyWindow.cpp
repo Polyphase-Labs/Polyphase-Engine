@@ -7,6 +7,7 @@
 #include "Preferences/General/GeneralModule.h"
 #include "Preferences/External/ExternalModule.h"
 #include "Packaging/CiaPackager.h"
+#include "Addons/NativeAddonManager.h"
 
 #include "Log.h"
 #include "System/System.h"
@@ -378,6 +379,33 @@ void BuildDependencyWindow::CheckDotnet()
     mDependencies.push_back(dep);
 }
 
+void BuildDependencyWindow::CheckVulkanSDK()
+{
+    BuildDependency dep;
+    dep.mName = "Vulkan SDK headers";
+    dep.mDescription = "Required to compile native addons (engine headers include vulkan/vulkan.h)";
+    dep.mInstallHint = "Install the Vulkan SDK, make sure VULKAN_SDK is set, then restart the editor";
+    dep.mInstallUrl = "https://vulkan.lunarg.com/sdk/home";
+
+#if PLATFORM_WINDOWS || PLATFORM_LINUX
+    std::string includeDir = NativeAddonManager::ResolveVulkanIncludeDir();
+    if (!includeDir.empty())
+    {
+        dep.mStatus = DependencyStatus::Found;
+        dep.mVersion = includeDir;
+    }
+    else
+    {
+        dep.mStatus = DependencyStatus::NotFound;
+    }
+#else
+    dep.mStatus = DependencyStatus::Skipped;
+    dep.mInstallHint = "Desktop only";
+#endif
+
+    mDependencies.push_back(dep);
+}
+
 void BuildDependencyWindow::RunChecks()
 {
     mDependencies.clear();
@@ -391,6 +419,7 @@ void BuildDependencyWindow::RunChecks()
     CheckVisualStudio();
     CheckGradle();
     CheckDotnet();
+    CheckVulkanSDK();
 
     // Log results
     for (const BuildDependency& dep : mDependencies)

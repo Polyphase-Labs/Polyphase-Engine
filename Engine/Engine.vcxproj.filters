@@ -225,6 +225,9 @@
     <Filter Include="Source Files\Editor\TextureImportFixup">
       <UniqueIdentifier>{f8a9b0c1-2d3e-4f5a-6b7c-8d9e0f1a2b3c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\SoundWaveImportFixup">
+      <UniqueIdentifier>{3c9e5b71-8a2d-4f06-b1e4-7d5a2c8f9e10}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Source Files\Editor\FileDropImport">
       <UniqueIdentifier>{a9b0c1d2-3e4f-5a6b-7c8d-9e0f1a2b3c4d}</UniqueIdentifier>
     </Filter>
@@ -771,6 +774,9 @@
       <Filter>Source Files\Audio</Filter>
     </ClCompile>
     <ClCompile Include="Source\Audio\AudioAnalysis.cpp">
+      <Filter>Source Files\Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Audio\AudioResample.cpp">
       <Filter>Source Files\Audio</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\Node.cpp">
@@ -1808,6 +1814,9 @@
     <ClCompile Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.cpp">
       <Filter>Source Files\Editor\TextureImportFixup</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\SoundWaveImportFixup\SoundWaveImportFixupModal.cpp">
+      <Filter>Source Files\Editor\SoundWaveImportFixup</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\FileDropImport\FileDropImportModal.cpp">
       <Filter>Source Files\Editor\FileDropImport</Filter>
     </ClCompile>
@@ -1972,6 +1981,9 @@
       <Filter>Source Files\Audio</Filter>
     </ClInclude>
     <ClInclude Include="Source\Audio\AudioAnalysis.h">
+      <Filter>Source Files\Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Audio\AudioResample.h">
       <Filter>Source Files\Audio</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\InputManager.h">
@@ -3458,6 +3470,9 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\TextureImportFixup\TextureImportFixupModal.h">
       <Filter>Source Files\Editor\TextureImportFixup</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\SoundWaveImportFixup\SoundWaveImportFixupModal.h">
+      <Filter>Source Files\Editor\SoundWaveImportFixup</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\FileDropImport\FileDropImportModal.h">
       <Filter>Source Files\Editor\FileDropImport</Filter>

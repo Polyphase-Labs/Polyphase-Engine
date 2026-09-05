@@ -41,6 +41,7 @@ private:
     void CheckVisualStudio();
     void CheckGradle();
     void CheckDotnet();
+    void CheckVulkanSDK();
 
     bool mIsOpen = false;
     std::vector<BuildDependency> mDependencies;

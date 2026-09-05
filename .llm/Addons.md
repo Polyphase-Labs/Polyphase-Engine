@@ -135,6 +135,27 @@ Located in `Engine/Source/Editor/Addons/`. Manages editor-side addon loading, in
 
 A Python Blender addon that exports glTF with Polyphase metadata (mesh type, asset reference, script, material type). Demonstrates external tooling integration rather than runtime plugin API usage.
 
+## Native Addon Build Requirements
+
+Native addons compile against engine headers with `API_VULKAN=1`, and `Graphics/GraphicsTypes.h`
+pulls in the Vulkan backend headers, so every addon build needs `vulkan/vulkan.h` even if the
+addon never touches Vulkan. `NativeAddonManager::ResolveVulkanIncludeDir()` probes, in order:
+`VULKAN_SDK`, `<engine>/External/Vulkan/include` (staged by `Installers/stage_distribution.py`
+and `package_windows_sdk.py` so installed editors need no Vulkan SDK), then the default SDK
+install locations (`C:\VulkanSDK\*`, `/usr/include`, `~/VulkanSDK/*`).
+
+`NativeAddonManager::RunBuildPreflight()` runs before any compiler is spawned and checks
+declared dependency addons on disk, engine include directories, Vulkan headers, and the engine
+import libraries. Failures (and compiler failures classified by `ClassifyBuildFailure()`) set
+`mBuildError` + `mFixHint` on the addon state and open the "Native Addon Problem" modal
+(`EditorImgui.cpp`, `DrawNativeAddonBuildFailureModal`), which shows the fix, a download link
+when one applies, and an Install button for each missing dependency.
+
+Dependencies declared in `package.json` are resolved by `AddonDependencyResolver` at install
+time and at project load. If the registry has not been fetched yet, the resolver refreshes it
+once before declaring a dependency unresolvable. Addons with missing dependencies are not built
+or loaded; the Addons window shows "Missing dependency: <id>" with an Install button.
+
 ## Documentation
 
 User-facing docs:

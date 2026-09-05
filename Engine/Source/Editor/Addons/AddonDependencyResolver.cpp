@@ -55,6 +55,16 @@ namespace
             default:
             {
                 const Addon* found = mgr->FindAddon(dep.mId);
+                if (found == nullptr && !mgr->HasRefreshedRepositories())
+                {
+                    // At project load nothing has fetched the registry yet
+                    // (that normally happens when the Addons window first
+                    // opens), so a lookup miss here says nothing. Refresh
+                    // once and retry before declaring the dependency missing.
+                    LogDebug("Refreshing addon repositories to resolve dependency '%s'...", dep.mId.c_str());
+                    mgr->RefreshAllRepositories();
+                    found = mgr->FindAddon(dep.mId);
+                }
                 if (found == nullptr)
                 {
                     outError = "Dependency '" + dep.mId + "' not found in any configured repository.";

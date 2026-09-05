@@ -35,6 +35,13 @@ public:
     // itself is the cache's business.
     void Shutdown();
 
+    // Install an addon by id from the configured repositories, refreshing
+    // them first if this session has not yet. Used by the native addon
+    // problem modal's "Install <dependency>" button. On success the native
+    // addons are rescanned and reloaded through the project-restart path so
+    // dependents that were blocked on the missing addon come up.
+    void InstallAddonById(const std::string& addonId);
+
 private:
     void DrawAddonBrowser();
     void DrawInstalledAddons();

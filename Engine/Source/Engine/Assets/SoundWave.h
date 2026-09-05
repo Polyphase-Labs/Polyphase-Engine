@@ -51,7 +51,10 @@ public:
     uint32_t GetNumChannels() const;
     uint32_t GetBitsPerSample() const;
     uint32_t GetSampleRate() const;
+    // Interleaved sample count (frames * channels).
     uint32_t GetNumSamples() const;
+    // Per-channel sample count; what playback cursors and durations are measured in.
+    uint32_t GetNumFrames() const;
     uint32_t GetBlockAlign() const;
     uint32_t GetByteRate() const;
 
@@ -60,6 +63,22 @@ public:
 protected:
 
     static bool HandlePropChange(Datum* datum, uint32_t index, const void* newValue);
+
+    // Parsed view of a RIFF/WAVE buffer. mPcm points into the source buffer.
+    struct WavInfo
+    {
+        uint16_t mNumChannels = 0;
+        uint16_t mBlockAlign = 0;
+        uint16_t mBitsPerSample = 0;
+        uint32_t mSampleRate = 0;
+        uint32_t mByteRate = 0;
+        const uint8_t* mPcm = nullptr;
+        uint32_t mPcmSize = 0;
+    };
+
+    // Walks the RIFF chunks (skipping LIST/fact/JUNK/etc.) to find fmt + data.
+    // Validates PCM format, 8/16-bit, 1/2 channels. Logs and returns false on failure.
+    static bool ParseWav(const uint8_t* data, size_t size, const char* debugName, WavInfo& out);
 
     uint8_t* mWaveData = nullptr;
     uint32_t mWaveDataSize = 0;

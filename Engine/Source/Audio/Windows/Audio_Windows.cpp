@@ -192,7 +192,8 @@ void AUD_Play(
 
     float startPercent = startTime / soundWave->GetDuration();
     startPercent = glm::clamp(startPercent, 0.0f, 1.0f);
-    uint32_t startingSample = uint32_t(startPercent * soundWave->GetNumSamples());
+    // XAUDIO2_BUFFER::PlayBegin is in frames, not interleaved samples.
+    uint32_t startingSample = uint32_t(startPercent * soundWave->GetNumFrames());
 
     sSourceBuffers[voiceIndex].Flags = XAUDIO2_END_OF_STREAM;
     sSourceBuffers[voiceIndex].AudioBytes = soundWave->GetWaveDataSize();

@@ -379,6 +379,8 @@ your addon's own `OnLoad`.
 | Addon reads garbage bytes / "file not found" only in a packaged build | The addon used raw `fopen` on engine content. Switch to `Stream::ReadFile` — it handles Content Pak and the Static obfuscation container. See *Reading files from an addon*. |
 | Addon Lua fails to load in a shipped build but works in the editor    | `luaL_dofile` bypasses both the obfuscation decode and the embedded-script table. Use `Stream::ReadFile` + `luaL_loadbuffer`. |
 | Asset created from menu doesn't appear until Refresh                 | The menu callback used `Asset::SaveFile` directly. Switch to `AssetManager::Get()->CreateAndRegisterAsset(type, GetCurrentAssetDir(), name, false)` — that inserts the stub into the AssetDir tree as well as writing the .oct, so the browser sees it on the next frame. |
+| Build fails with `C1083: Cannot open include file: 'vulkan/vulkan.h'` | Engine headers include Vulkan under `API_VULKAN`, so every addon build needs the Vulkan headers even if the addon never uses Vulkan. The editor resolves them from `VULKAN_SDK`, then `<engine>/External/Vulkan/include` (shipped by the installer), then default SDK locations. Install the Vulkan SDK and restart the editor, or use an engine install that ships `External/Vulkan/include`. The "Native Addon Problem" modal names this case directly. |
+| Addon loads with no errors but its window / nodes never appear      | A dependency declared in `package.json` is not installed (for example the addon was cloned into `Packages/` by hand). Look for "Missing dependency: <id>" in the Addons window Installed tab and press Install, or install the dependency from the Browse tab. |
 
 ## Where to look for an advanced full-feature example
 

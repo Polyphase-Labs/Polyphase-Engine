@@ -78,6 +78,15 @@ struct NativeAddonState
     bool mBuildSucceeded = false;
     std::string mBuildLog;
     std::string mBuildError;
+    // "How to fix" text paired with mBuildError. Filled by the build preflight
+    // or ClassifyBuildFailure and rendered by the native addon problem modal.
+    std::string mFixHint;
+    // Optional download page the fix points at (Vulkan SDK, Visual Studio).
+    std::string mFixUrl;
+    // Dependency addon ids declared in package.json that have no
+    // <project>/Packages/<id>/package.json on disk. Non-empty blocks build and
+    // load of this addon until the user installs them.
+    std::vector<std::string> mMissingDependencies;
 
     // Plugin descriptor (after load)
     PolyphasePluginDesc mDesc = {};
@@ -329,6 +338,9 @@ public:
         std::string mAddonId;
         std::string mError;    // High-level message (exit code, "Build failed" etc.)
         std::string mLog;      // Captured stdout/stderr from the compiler/linker
+        std::string mFixHint;  // How to fix, from the preflight or ClassifyBuildFailure
+        std::string mFixUrl;   // Download page for the fix; empty when none applies
+        std::vector<std::string> mMissingDependencies; // Deps installable from the modal
     };
     std::vector<BuildFailureEntry> GetActiveBuildFailures() const;
     bool                           HasUnacknowledgedBuildFailures() const;
@@ -337,6 +349,24 @@ public:
     /** Reset the addon's failure state and re-trigger its build (sync or queued
      *  depending on the host editor's build pipeline). */
     void                           RetryFailedBuild(const std::string& addonId);
+
+    // ===== Build environment =====
+
+    /** Directory containing vulkan/vulkan.h, or empty when none can be found.
+     *  Probe order: VULKAN_SDK, <engine>/External/Vulkan/include (staged by
+     *  the installer and SDK zip), then the default SDK install locations.
+     *  Engine headers include vulkan/vulkan.h under API_VULKAN, so every
+     *  native addon compile needs this even if the addon never touches Vulkan. */
+    static std::string ResolveVulkanIncludeDir();
+
+    struct BuildFailureHint
+    {
+        std::string mText;          // What to do; empty when the failure is not recognised
+        std::string mUrl;           // Download page, may be empty
+        std::string mDependencyId;  // Addon id to install, may be empty
+    };
+    /** Map compiler/linker/script output to a fix hint. */
+    static BuildFailureHint ClassifyBuildFailure(const std::string& log);
 
     // ===== Project-restart reload chokepoint =====
     //
@@ -601,6 +631,13 @@ private:
     // Build helpers
     std::string GetIntermediateDir(const std::string& addonId);
     std::string GetOutputPath(const std::string& addonId, const std::string& fingerprint);
+    /** Checks that run before any compiler is spawned: declared dependency
+     *  addons on disk, engine include dirs present, Vulkan headers resolvable,
+     *  engine import libs reachable. On failure outError names what is missing
+     *  and where it was looked for, and outHint says how to fix it. */
+    bool RunBuildPreflight(const std::string& addonId, std::string& outError,
+                           BuildFailureHint& outHint);
+
     bool GenerateBuildScript(const std::string& addonId, const std::string& outputDir,
                              const std::string& outputPath, std::string& outScriptPath);
     std::vector<std::string> GatherSourceFiles(const std::string& sourceDir);

@@ -153,6 +153,32 @@ def stage_sdk(source_root: Path, stage_dir: Path, verbose: bool) -> None:
                 n += 1
     print(f"  External/ (loose): {n} header files")
 
+    # Vulkan headers. Engine headers include <vulkan/vulkan.h> under
+    # API_VULKAN, so an addon compiled against this SDK zip needs them even if
+    # it never touches Vulkan. Shipping them under External/Vulkan/include
+    # means addon CI (and NativeAddonManager's resolver) works without a
+    # Vulkan SDK on the machine. The CI job installs the SDK before this
+    # script runs, so a missing VULKAN_SDK here is a real error.
+    print("Staging Vulkan headers (External/Vulkan/include)...")
+    sdk = os.environ.get("VULKAN_SDK", "")
+    include_root = Path(sdk) / "Include" if sdk else None
+    if include_root is None or not (include_root / "vulkan" / "vulkan.h").is_file():
+        print(f"ERROR: vulkan/vulkan.h not found under VULKAN_SDK={sdk!r}. "
+              "Install the Vulkan SDK and set VULKAN_SDK before packaging the SDK zip.")
+        sys.exit(1)
+    n = 0
+    for sub in ("vulkan", "vk_video"):
+        if (include_root / sub).is_dir():
+            n += copy_headers(include_root / sub, stage_dir / "External" / "Vulkan" / "include" / sub, verbose)
+    for lic in ("LICENSE.txt", "LICENSE"):
+        src = Path(sdk) / lic
+        if src.is_file():
+            dst = stage_dir / "External" / "Vulkan" / lic
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            break
+    print(f"  External/Vulkan/include: {n} header files")
+
 
 def zip_stage(stage_dir: Path, output: Path, verbose: bool) -> None:
     print(f"Writing {output} ...")

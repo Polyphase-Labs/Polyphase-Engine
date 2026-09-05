@@ -76,6 +76,7 @@
 #include "CSharp/CSharpManager.h"
 #include "AssetFixup/AssetFixupModal.h"
 #include "TextureImportFixup/TextureImportFixupModal.h"
+#include "SoundWaveImportFixup/SoundWaveImportFixupModal.h"
 #include "FileDropImport/FileDropImportModal.h"
 #include "Preferences/PreferencesWindow.h"
 #include "Preferences/Appearance/Theme/ThemeModule.h"
@@ -9966,6 +9967,14 @@ static void DrawPropertiesPanel()
                     ImGui::Text("Num Channels: %d", soundWave->GetNumChannels());
                     ImGui::Text("Bits Per Sample: %d", soundWave->GetBitsPerSample());
                     ImGui::Text("Sample Rate: %d", soundWave->GetSampleRate());
+                    if (soundWave->GetSampleRate() != 44100 && soundWave->GetSampleRate() != 22050)
+                    {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "(non-standard; Android/console expect 44100)");
+                    }
+                    ImGui::Text("Duration: %.2fs (%u frames)", soundWave->GetDuration(), soundWave->GetNumFrames());
+                    ImGui::Text("PCM Size: %u bytes%s", soundWave->GetWaveDataSize(),
+                        soundWave->IsStreaming() ? " (streaming)" : "");
                 }
                 else if (obj->As<SkeletalAnimationAsset>())
                 {
@@ -12530,6 +12539,10 @@ static void DrawMainMenuBar()
     // Pad / Resize / Cancel each affected texture.
     TextureImportFixupModal::Get()->Draw();
 
+    // Non-44.1 kHz sound import fixup. Populated by SoundWave::Import; lets
+    // the user Resample / Keep / Cancel each affected sound.
+    SoundWaveImportFixupModal::Get()->Draw();
+
     // OS drag-and-drop import. Populated by Engine.cpp draining
     // SYS_DrainDroppedFiles at the start of each editor frame.
     FileDropImportModal::Get()->Draw();
@@ -14174,7 +14187,7 @@ static void DrawNativeAddonBuildFailureModal()
     NativeAddonManager* nam = NativeAddonManager::Get();
     if (nam == nullptr) return;
 
-    const char* kPopupName = "Native Addon Build Failed##NativeAddonBuildFailure";
+    const char* kPopupName = "Native Addon Problem##NativeAddonBuildFailure";
 
     // Don't compete with the build-in-progress modal or the build-blocked
     // (locked-files) modal — those have their own affordances. Also avoid
@@ -14203,13 +14216,14 @@ static void DrawNativeAddonBuildFailureModal()
             nam->GetActiveBuildFailures();
 
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "%d native addon%s failed to compile.",
+                           "%d native addon%s could not be built or loaded.",
                            (int)failures.size(), failures.size() == 1 ? "" : "s");
         ImGui::Separator();
         ImGui::TextWrapped(
-            "Fix the source errors below, then click Retry on each addon to "
-            "rebuild — or Dismiss to silence the prompt until the next build "
-            "attempt. The full compiler output is captured per addon.");
+            "Each entry names the problem and how to fix it. Apply the fix, then "
+            "click Retry on that addon to rebuild, or Dismiss to silence the "
+            "prompt until the next build attempt. The full compiler output is "
+            "captured per addon.");
         ImGui::Spacing();
 
         // Reserve room at the bottom for the action-button row.
@@ -14228,6 +14242,23 @@ static void DrawNativeAddonBuildFailureModal()
 
             // Top-line error summary (one or two lines, easy to scan).
             ImGui::TextWrapped("%s", f.mError.c_str());
+
+            // How to fix. Set by the build preflight (missing SDK, partial
+            // engine install, uninstalled dependency) or by
+            // ClassifyBuildFailure from the compiler output.
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.6f, 1.0f), "How to fix");
+            if (!f.mFixHint.empty())
+            {
+                ImGui::TextWrapped("%s", f.mFixHint.c_str());
+            }
+            else
+            {
+                ImGui::TextWrapped(
+                    "Read the compiler output below for the first error. Reveal source "
+                    "opens the addon folder; Copy log puts the full output on the clipboard.");
+            }
+            ImGui::Spacing();
 
             // Per-addon actions. Retry kicks off a fresh build; Dismiss hides
             // just this row; Copy/Reveal helpers for log + source.
@@ -14262,6 +14293,42 @@ static void DrawNativeAddonBuildFailureModal()
                 {
                     RevealPathInOSFileManager(src);
                 }
+            }
+            if (!f.mFixUrl.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Open download page", ImVec2(170, 0)))
+                {
+                    SYS_OpenFileWithDefaultApp(f.mFixUrl);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Build Dependencies", ImVec2(160, 0)))
+            {
+                GetBuildDependencyWindow()->RunChecks();
+                GetBuildDependencyWindow()->Open();
+            }
+
+            // One Install button per missing dependency. Installing rescans
+            // packages and reloads through the project-restart chokepoint, so
+            // close the modal first and stop iterating a list we invalidated.
+            bool installed = false;
+            for (const std::string& dep : f.mMissingDependencies)
+            {
+                std::string label = "Install " + dep;
+                if (ImGui::Button(label.c_str()))
+                {
+                    std::string depId = dep;
+                    ImGui::CloseCurrentPopup();
+                    GetAddonsWindow()->InstallAddonById(depId);
+                    installed = true;
+                    break;
+                }
+            }
+            if (installed)
+            {
+                ImGui::PopID();
+                break;
             }
 
             // Compiler/linker output in a read-only multiline box. Capped

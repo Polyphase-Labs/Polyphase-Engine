@@ -50,6 +50,7 @@
 #include "EditorUtils.h"
 #include "CSharp/CSharpManager.h"
 #include "TextureImportFixup/TextureImportFixupModal.h"
+#include "SoundWaveImportFixup/SoundWaveImportFixupModal.h"
 #include "Input/PlayerInputSystem.h"
 #include "Assets/Scene.h"
 #include "Assets/Texture.h"
@@ -7410,7 +7411,10 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
             // (srcLen mismatch). The modal calls SaveAsset itself after
             // Pad / Resize finalizes the buffer. Cancel deletes the asset
             // so no .oct needs to land in either branch.
-            if (!TextureImportFixupModal::Get()->IsAwaitingFixup(newAsset))
+            // Same for a non-44.1 kHz SoundWave parked in its fixup modal: the
+            // asset is valid, but the modal saves once after Resample / Keep.
+            if (!TextureImportFixupModal::Get()->IsAwaitingFixup(newAsset) &&
+                !SoundWaveImportFixupModal::Get()->IsAwaitingFixup(newAsset))
             {
                 AssetManager::Get()->SaveAsset(*stub);
             }
