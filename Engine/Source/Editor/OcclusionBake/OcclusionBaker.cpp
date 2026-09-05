@@ -365,7 +365,31 @@ void GatherOccluderTriangles(Primitive3D* prim, std::vector<BakeTri>& outTris)
     }
 }
 
-void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSettings& settings, std::vector<glm::vec3>& outTargets)
+// Grid of points across one face of the box. u/v are the in-plane axes, n is
+// the face normal axis, sign picks which of the two faces.
+void AddFaceGridTargets(glm::vec3 c, glm::vec3 e, int32_t n, float sign, uint32_t nu, uint32_t nv, std::vector<glm::vec3>& outTargets)
+{
+    int32_t u = (n + 1) % 3;
+    int32_t v = (n + 2) % 3;
+
+    for (uint32_t iu = 0; iu < nu; ++iu)
+    {
+        for (uint32_t iv = 0; iv < nv; ++iv)
+        {
+            // Interior points only; corners and face centers are added separately.
+            float fu = (nu == 1) ? 0.0f : (-1.0f + 2.0f * (iu + 0.5f) / nu);
+            float fv = (nv == 1) ? 0.0f : (-1.0f + 2.0f * (iv + 0.5f) / nv);
+
+            glm::vec3 p = c;
+            p[n] += sign * e[n];
+            p[u] += fu * e[u];
+            p[v] += fv * e[v];
+            outTargets.push_back(p);
+        }
+    }
+}
+
+void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSettings& settings, float cellSize, std::vector<glm::vec3>& outTargets)
 {
     glm::vec3 c = box.GetCenter();
     glm::vec3 e = box.GetExtents();
@@ -387,6 +411,39 @@ void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSetting
         outTargets.push_back(c - glm::vec3(0.0f, 0.0f, e.z));
     }
 
+    // Large objects (walls, floors) are only ever partially hidden. Corners and
+    // face centers alone miss the case where an occluder covers those points
+    // but the middle of a face is still in view, so spread extra targets over
+    // every face that is bigger than a couple of cells. Capped per axis so a
+    // huge wall stays affordable.
+    {
+        const float spacing = 2.0f * cellSize;
+        const uint32_t kMaxPerAxis = settings.mMeshVertexTargets >= 24 ? 8u : 6u;
+        glm::vec3 size = box.GetSize();
+
+        uint32_t counts[3];
+        bool anyLarge = false;
+        for (int32_t axis = 0; axis < 3; ++axis)
+        {
+            counts[axis] = glm::clamp((uint32_t)ceilf(size[axis] / spacing), 1u, kMaxPerAxis);
+            anyLarge = anyLarge || (size[axis] > spacing);
+        }
+
+        if (anyLarge)
+        {
+            for (int32_t n = 0; n < 3; ++n)
+            {
+                uint32_t nu = counts[(n + 1) % 3];
+                uint32_t nv = counts[(n + 2) % 3];
+                if (nu * nv <= 1)
+                    continue;
+
+                AddFaceGridTargets(c, e, n, 1.0f, nu, nv, outTargets);
+                AddFaceGridTargets(c, e, n, -1.0f, nu, nv, outTargets);
+            }
+        }
+    }
+
     StaticMesh3D* meshNode = prim->As<StaticMesh3D>();
     if (settings.mMeshVertexTargets > 0 && meshNode != nullptr && meshNode->As<InstancedMesh3D>() == nullptr)
     {
@@ -400,7 +457,8 @@ void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSetting
             if (stride == 0) stride = 1;
             const glm::mat4 transform = meshNode->GetTransform();
 
-            for (uint32_t i = 0; i < numVerts && outTargets.size() < 15 + settings.mMeshVertexTargets; i += stride)
+            size_t maxTargets = outTargets.size() + settings.mMeshVertexTargets;
+            for (uint32_t i = 0; i < numVerts && outTargets.size() < maxTargets; i += stride)
             {
                 glm::vec3 local = colorVerts ? colorVerts[i].mPosition : verts[i].mPosition;
                 outTargets.push_back(glm::vec3(transform * glm::vec4(local, 1.0f)));
@@ -580,7 +638,7 @@ void OcclusionBaker::BakeCurrentScene()
             Occludee occludee;
             occludee.mNode = prim;
             occludee.mBox = box;
-            GatherOccludeeTargets(prim, box, settings, occludee.mTargets);
+            GatherOccludeeTargets(prim, box, settings, cellSize, occludee.mTargets);
             occludees.push_back(std::move(occludee));
         }
 

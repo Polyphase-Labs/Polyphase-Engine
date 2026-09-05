@@ -44,8 +44,8 @@ slots) and `PUT /api/occlusion/preview` with `{"enabled": true}`.
   BVH over them.
 - The bake volume is split into uniform cells. For every cell a handful of sample points (skipping
   points that are inside solid geometry) cast rays to sample points on every occludee (AABB corners,
-  face centers, and a stride of mesh vertices). The first unblocked ray marks the occludee visible
-  from that cell.
+  face centers, a stride of mesh vertices, and for objects larger than two cells a grid of points
+  across each face). The first unblocked ray marks the occludee visible from that cell.
 - Identical per-cell bitsets are shared, so large grids with repetitive visibility stay small.
 - At runtime `Renderer::OcclusionCull` runs right after frustum culling. It looks up the camera's cell
   and removes draws whose bit is clear. Shadow casters are never occlusion culled, and skeletal

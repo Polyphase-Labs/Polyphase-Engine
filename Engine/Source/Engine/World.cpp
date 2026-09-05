@@ -2157,24 +2157,84 @@ bool World::IsOccludeeResolvePending() const
 
 // Occludee / occluder identity is matched by the world-space AABB recorded at
 // bake time. Node UUIDs are not used because nodes inside instantiated
-// sub-scenes share UUIDs across instances.
-static uint64_t HashOcclusionEntry(glm::vec3 center, glm::vec3 extents, float quantum)
+// sub-scenes share UUIDs across instances. The match is tolerant: a cloned
+// (PIE) or re-instantiated tree rebuilds its rotation from euler properties,
+// and for a large rotated wall that float noise shifts the AABB by more than
+// any exact quantisation could absorb.
+struct OcclusionEntryIndex
 {
-    float invQ = 1.0f / quantum;
-    int64_t v[6] =
+    void Build(const std::vector<OcclusionEntry>& entries, float cellSize)
     {
-        (int64_t)llroundf(center.x * invQ), (int64_t)llroundf(center.y * invQ), (int64_t)llroundf(center.z * invQ),
-        (int64_t)llroundf(extents.x * invQ), (int64_t)llroundf(extents.y * invQ), (int64_t)llroundf(extents.z * invQ)
-    };
-
-    uint64_t hash = 1469598103934665603ULL;
-    for (int32_t i = 0; i < 6; ++i)
-    {
-        hash ^= (uint64_t)v[i];
-        hash *= 1099511628211ULL;
+        mEntries = &entries;
+        mBucketSize = glm::max(cellSize, 1.0f);
+        mBuckets.clear();
+        for (uint32_t i = 0; i < entries.size(); ++i)
+        {
+            mBuckets[Key(entries[i].mCenter)].push_back(i);
+        }
     }
-    return hash;
-}
+
+    int32_t Find(glm::vec3 center, glm::vec3 extents, float cellSize) const
+    {
+        if (mEntries == nullptr)
+            return -1;
+
+        float maxExtent = glm::max(extents.x, glm::max(extents.y, extents.z));
+        float tolerance = glm::max(0.1f * cellSize, 0.01f * maxExtent);
+
+        int32_t best = -1;
+        float bestErr = tolerance;
+
+        for (int32_t dz = -1; dz <= 1; ++dz)
+        for (int32_t dy = -1; dy <= 1; ++dy)
+        for (int32_t dx = -1; dx <= 1; ++dx)
+        {
+            glm::vec3 probe = center + glm::vec3(float(dx), float(dy), float(dz)) * mBucketSize;
+            auto it = mBuckets.find(Key(probe));
+            if (it == mBuckets.end())
+                continue;
+
+            for (uint32_t index : it->second)
+            {
+                const OcclusionEntry& e = (*mEntries)[index];
+                glm::vec3 dc = glm::abs(e.mCenter - center);
+                glm::vec3 de = glm::abs(e.mExtents - extents);
+                float err = glm::max(glm::max(dc.x, glm::max(dc.y, dc.z)), glm::max(de.x, glm::max(de.y, de.z)));
+                if (err <= bestErr)
+                {
+                    bestErr = err;
+                    best = (int32_t)index;
+                }
+            }
+        }
+
+        return best;
+    }
+
+private:
+
+    uint64_t Key(glm::vec3 p) const
+    {
+        int64_t v[3] =
+        {
+            (int64_t)floorf(p.x / mBucketSize),
+            (int64_t)floorf(p.y / mBucketSize),
+            (int64_t)floorf(p.z / mBucketSize)
+        };
+
+        uint64_t hash = 1469598103934665603ULL;
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            hash ^= (uint64_t)v[i];
+            hash *= 1099511628211ULL;
+        }
+        return hash;
+    }
+
+    const std::vector<OcclusionEntry>* mEntries = nullptr;
+    float mBucketSize = 1.0f;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> mBuckets;
+};
 
 static bool IsOcclusionEligiblePrimitive(Node* node)
 {
@@ -2216,24 +2276,14 @@ void World::ResolveOccludees()
         return;
     }
 
-    const float quantum = 0.01f * data->mCellSize;
-    mOcclusionMoveEps2 = (0.25f * data->mCellSize) * (0.25f * data->mCellSize);
+    const float cellSize = data->mCellSize;
+    mOcclusionMoveEps2 = (0.25f * cellSize) * (0.25f * cellSize);
 
-    std::unordered_map<uint64_t, uint32_t> occludeeMap;
-    occludeeMap.reserve(data->mOccludees.size());
-    for (uint32_t i = 0; i < data->mOccludees.size(); ++i)
-    {
-        const OcclusionEntry& e = data->mOccludees[i];
-        occludeeMap[HashOcclusionEntry(e.mCenter, e.mExtents, quantum)] = i;
-    }
+    OcclusionEntryIndex occludeeIndex;
+    occludeeIndex.Build(data->mOccludees, cellSize);
 
-    std::unordered_map<uint64_t, uint32_t> occluderMap;
-    occluderMap.reserve(data->mOccluders.size());
-    for (uint32_t i = 0; i < data->mOccluders.size(); ++i)
-    {
-        const OcclusionEntry& e = data->mOccluders[i];
-        occluderMap[HashOcclusionEntry(e.mCenter, e.mExtents, quantum)] = i;
-    }
+    OcclusionEntryIndex occluderIndex;
+    occluderIndex.Build(data->mOccluders, cellSize);
 
     std::vector<uint8_t> occluderMatched(data->mOccluders.size(), 0);
     uint32_t numResolved = 0;
@@ -2255,10 +2305,10 @@ void World::ResolveOccludees()
 
         if (prim->IsOccluder() && validBox)
         {
-            auto it = occluderMap.find(HashOcclusionEntry(aabb.GetCenter(), aabb.GetExtents(), quantum));
-            if (it != occluderMap.end())
+            int32_t index = occluderIndex.Find(aabb.GetCenter(), aabb.GetExtents(), cellSize);
+            if (index >= 0)
             {
-                occluderMatched[it->second] = 1;
+                occluderMatched[index] = 1;
             }
         }
 
@@ -2269,12 +2319,12 @@ void World::ResolveOccludees()
 
             if (validBox)
             {
-                auto it = occludeeMap.find(HashOcclusionEntry(aabb.GetCenter(), aabb.GetExtents(), quantum));
-                if (it != occludeeMap.end())
+                int32_t index = occludeeIndex.Find(aabb.GetCenter(), aabb.GetExtents(), cellSize);
+                if (index >= 0)
                 {
                     // The node is at its baked location right now, so record
                     // the sphere center Mesh3D::GetDrawData compares against.
-                    prim->SetOcclusionSlot(it->second + 1, prim->GetBounds().mCenter);
+                    prim->SetOcclusionSlot((uint32_t)index + 1, prim->GetBounds().mCenter);
                     matched = true;
                 }
             }
@@ -2307,6 +2357,12 @@ void World::ResolveOccludees()
     for (uint32_t i = 0; i < occluderMatched.size(); ++i)
     {
         numOccludersMatched += occluderMatched[i];
+        if (!occluderMatched[i])
+        {
+            const OcclusionEntry& e = data->mOccluders[i];
+            LogWarning("Occlusion: baked occluder %u not found (center %.1f %.1f %.1f, extents %.1f %.1f %.1f).",
+                i, e.mCenter.x, e.mCenter.y, e.mCenter.z, e.mExtents.x, e.mExtents.y, e.mExtents.z);
+        }
     }
 
     if (numOccludersMatched != data->mOccluders.size())
