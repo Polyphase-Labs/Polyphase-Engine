@@ -88,6 +88,29 @@ Sig: `nodes = World:FindNodesWithName(name)`
  - Arg: `string name` Name to search for
  - Ret: `table nodes` Array of Node elements
 ---
+### IsSeenByCamera
+Check whether a node is currently visible to the camera: inside the frustum and not hidden by baked occlusion (see Development/OcclusionCulling.md). Baked occludees use their static visibility bit, everything else (moved props, animated meshes, plain Node3Ds) uses the dynamic table. Evaluated immediately, so there is no one-frame lag. Hidden nodes and the camera itself are never seen.
+
+Sig: `seen = World:IsSeenByCamera(node, camera=nil)`
+ - Arg: `Node3D node` Node to test
+ - Arg: `Camera3D camera` (optional) Camera to test against. Defaults to the active camera.
+ - Ret: `boolean seen` True if the camera can see the node
+---
+### GetSeenByCamera
+Gather every Node3D the camera can currently see, optionally filtered to nodes carrying one of the given tags. Walks the whole scene, so call it on events rather than every frame on consoles.
+
+Sig: `nodes = World:GetSeenByCamera(tags=nil, camera=nil)`
+ - Arg: `string|table tags` (optional) A single tag or an array of tags. Nodes with any of them are returned; nil returns all seen nodes.
+ - Arg: `Camera3D camera` (optional) Camera to test against. Defaults to the active camera.
+ - Ret: `table nodes` Array of Node3D elements
+
+Example:
+```lua
+if world:IsSeenByCamera(self) then self:Alert() end
+local threats = world:GetSeenByCamera({ "Enemy", "Turret" })
+for _, node in ipairs(threats) do node:Taunt() end
+```
+---
 ### FindNavPath
 Find a navigation path between two world positions.
 

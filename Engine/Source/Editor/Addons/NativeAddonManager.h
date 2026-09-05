@@ -368,6 +368,18 @@ public:
     /** Map compiler/linker/script output to a fix hint. */
     static BuildFailureHint ClassifyBuildFailure(const std::string& log);
 
+    /** Register one package under <project>/Packages/<addonId>/ without a
+     *  full rediscovery (which would reset every loaded addon's state).
+     *  Returns true when the package is native and now has a state, so the
+     *  caller can queue it for a build. Non-native packages return false. */
+    bool DiscoverAddonPackage(const std::string& addonId);
+
+    /** Recompute mMissingDependencies for every discovered addon against
+     *  what is on disk. Addons whose dependencies are still missing get the
+     *  blocking error + fix hint; addons that just became satisfied have the
+     *  block cleared. Returns the ids that were blocked and are not anymore. */
+    std::vector<std::string> RefreshMissingDependencies();
+
     // ===== Project-restart reload chokepoint =====
     //
     // Native addon reload is unsafe when scenes are open — live nodes hold

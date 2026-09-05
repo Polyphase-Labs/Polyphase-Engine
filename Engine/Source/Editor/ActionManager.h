@@ -499,6 +499,13 @@ public:
     void RequestResaveAllAssets();
     void RequestBakeOcclusion();
     void RequestClearOcclusion();
+    // Queue non-mesh asset imports for end-of-frame. Appends to any imports
+    // already pending so a batch (file dialog multi-select, drag-drop) runs
+    // under one progress modal. Use ImportAsset(path) directly only where a
+    // synchronous result is required (REST controller).
+    void RequestImportAssets(const std::vector<std::string>& paths);
+    // End-of-frame worker for RequestImportAssets. Called from EditorMain.cpp.
+    void ImportPendingAssets();
     // Defer OpenProject so the progress modal renders before LoadProject's
     // (potentially many-second) Purge / ReloadAddons / Discover sequence
     // blocks the main thread. Pass empty/null path to trigger the OS folder

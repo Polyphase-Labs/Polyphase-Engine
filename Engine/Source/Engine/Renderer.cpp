@@ -1171,12 +1171,8 @@ void Renderer::RenderDebugDraws(const std::vector<DebugDraw>& draws, PipelineCon
 #endif
 }
 
-void Renderer::FrustumCull(Camera3D* camera)
+void Renderer::BuildCameraFrustum(Camera3D* camera, CameraFrustum& frustum)
 {
-    if (camera == nullptr)
-        return;
-
-    CameraFrustum frustum;
     frustum.SetPosition(camera->GetWorldPosition());
     frustum.SetBasis(
         camera->GetForwardVector(),
@@ -1209,6 +1205,15 @@ void Renderer::FrustumCull(Camera3D* camera)
             nearZ,
             farZ);
     }
+}
+
+void Renderer::FrustumCull(Camera3D* camera)
+{
+    if (camera == nullptr)
+        return;
+
+    CameraFrustum frustum;
+    BuildCameraFrustum(camera, frustum);
 
     int32_t drawsCulled = 0;
     drawsCulled += FrustumCullDraws(frustum, mOpaqueDraws);

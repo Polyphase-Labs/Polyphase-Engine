@@ -12,6 +12,15 @@ function World:GetAudioReceiver() end
 ---@param cameraComp Camera3D
 function World:SetActiveCamera(cameraComp) end
 
+---@param arg1 Node3D
+---@param camera Camera3D
+---@return boolean
+function World:IsSeenByCamera(arg1, camera) end
+
+---@param camera Camera3D
+---@return Node
+function World:GetSeenByCamera(camera) end
+
 ---@param transformComp? Node3D
 function World:SetAudioReceiver(transformComp) end
 

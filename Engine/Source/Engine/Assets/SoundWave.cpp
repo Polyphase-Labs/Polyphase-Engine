@@ -150,20 +150,14 @@ void SoundWave::LoadStream(Stream& stream, Platform platform)
         mWaveData = AUD_AllocWaveBuffer(mWaveDataSize);
         if (mWaveData != nullptr)
         {
-            for (uint32_t i = 0; i < mWaveDataSize; ++i)
-            {
-                mWaveData[i] = stream.ReadUint8();
-            }
+            stream.ReadBytes(mWaveData, mWaveDataSize);
         }
         else
         {
             // Advance stream past the wave data so subsequent reads stay aligned,
             // then mark the asset as empty.
             LogWarning("SoundWave::LoadStream: AUD_AllocWaveBuffer(%u) failed; sound disabled.", mWaveDataSize);
-            for (uint32_t i = 0; i < mWaveDataSize; ++i)
-            {
-                (void)stream.ReadUint8();
-            }
+            stream.SetPos(stream.GetPos() + mWaveDataSize);
             mWaveDataSize = 0;
         }
     }
@@ -364,10 +358,7 @@ void SoundWave::SaveStream(Stream& stream, Platform platform)
     {
         // Waveform
         stream.WriteUint32(waveDataSize);
-        for (uint32_t i = 0; i < waveDataSize; ++i)
-        {
-            stream.WriteUint8(waveData[i]);
-        }
+        stream.WriteBytes(waveData, waveDataSize);
     }
 
     if (lqWaveData != nullptr)

@@ -64,6 +64,68 @@ int World_Lua::SetActiveCamera(lua_State* L)
     return 0;
 }
 
+int World_Lua::IsSeenByCamera(lua_State* L)
+{
+    World* world = CHECK_WORLD(L, 1);
+    Node3D* node = CHECK_NODE_3D(L, 2);
+    Camera3D* camera = nullptr;
+    if (!lua_isnoneornil(L, 3))
+    {
+        camera = CHECK_CAMERA_3D(L, 3);
+    }
+
+    bool ret = world->IsSeenByCamera(node, camera);
+
+    lua_pushboolean(L, ret);
+    return 1;
+}
+
+int World_Lua::GetSeenByCamera(lua_State* L)
+{
+    World* world = CHECK_WORLD(L, 1);
+
+    // Optional arg 2: a tag string or an array of tag strings.
+    std::vector<std::string> tags;
+    if (lua_isstring(L, 2))
+    {
+        tags.push_back(lua_tostring(L, 2));
+    }
+    else if (lua_istable(L, 2))
+    {
+        int32_t count = (int32_t)lua_rawlen(L, 2);
+        for (int32_t i = 1; i <= count; ++i)
+        {
+            lua_rawgeti(L, 2, i);
+            if (lua_isstring(L, -1))
+            {
+                tags.push_back(lua_tostring(L, -1));
+            }
+            lua_pop(L, 1);
+        }
+    }
+
+    Camera3D* camera = nullptr;
+    if (!lua_isnoneornil(L, 3))
+    {
+        camera = CHECK_CAMERA_3D(L, 3);
+    }
+
+    std::vector<Node3D*> nodes;
+    world->GetSeenByCamera(nodes, tags.empty() ? nullptr : &tags, camera);
+
+    lua_newtable(L);
+    int arrayIdx = lua_gettop(L);
+
+    for (uint32_t i = 0; i < nodes.size(); ++i)
+    {
+        lua_pushinteger(L, (int)i + 1);
+        Node_Lua::Create(L, nodes[i]);
+        lua_settable(L, arrayIdx);
+    }
+
+    return 1;
+}
+
 int World_Lua::SetAudioReceiver(lua_State* L)
 {
     World* world = CHECK_WORLD(L, 1);
@@ -635,6 +697,10 @@ void World_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, GetAudioReceiver);
 
     REGISTER_TABLE_FUNC(L, mtIndex, SetActiveCamera);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, IsSeenByCamera);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetSeenByCamera);
 
     REGISTER_TABLE_FUNC(L, mtIndex, SetAudioReceiver);
 

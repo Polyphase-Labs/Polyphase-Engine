@@ -143,6 +143,27 @@ Controls:
 - Ray sampling is an approximation. A mesh seen only through a very small gap may pop; raise the
   bake quality or reduce the cell size.
 
+## Gameplay queries
+
+`World:IsSeenByCamera(node [, camera])` and `World:GetSeenByCamera([tags] [, camera])` answer
+"can the camera see this right now" using the same data as the renderer: a frustum test on the
+node's bounds, then the baked static bit for baked occludees, or the dynamic table for anything
+else (plain `Node3D`s use a small box around their position). They are evaluated on demand, so
+there is no one-frame lag, and they work in the editor, in play mode, and on every platform. Hidden
+nodes and the camera itself are never "seen". `GetSeenByCamera` walks the whole scene, so call it
+when something happens rather than every frame on a console.
+
+```lua
+-- Enemy AI: only react when the player camera can actually see us.
+if world:IsSeenByCamera(self) then self:Alert() end
+
+-- Everything visible, or only nodes with one of the given tags.
+local all = world:GetSeenByCamera()
+local threats = world:GetSeenByCamera({ "Enemy", "Turret" })
+local pickups = world:GetSeenByCamera("Pickup")
+for _, node in ipairs(threats) do ... end
+```
+
 ## API
 
 C++:
@@ -156,6 +177,8 @@ prim->EnableOccluder(bool);   prim->IsOccluder();
 prim->EnableOccludee(bool);   prim->IsOccludee();
 world->IsOcclusionCullingEnabled();
 world->IsOcclusionDataStale();
+world->IsSeenByCamera(node, camera = nullptr);
+world->GetSeenByCamera(outNodes, &tags /* or nullptr */, camera = nullptr);
 ```
 
 Lua:
@@ -165,6 +188,10 @@ Renderer.EnableOcclusionCulling(false)
 local n = Renderer.GetNumOcclusionCulled()
 mesh:EnableOccludee(true)
 if mesh:IsOccluder() then ... end
+world:IsSeenByCamera(node)             -- bool
+world:GetSeenByCamera()                -- { Node3D, ... }
+world:GetSeenByCamera("Enemy")         -- filtered by one tag
+world:GetSeenByCamera({ "A", "B" })    -- any of several tags
 ```
 
 REST (editor controller): `POST /api/occlusion/bake`, `POST /api/occlusion/clear`,

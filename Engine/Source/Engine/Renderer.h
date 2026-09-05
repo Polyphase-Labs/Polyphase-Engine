@@ -90,6 +90,10 @@ public:
     void EnableFrustumCulling(bool enable);
     bool IsFrustumCullingEnabled() const;
 
+    // Fills a CameraFrustum from the camera's current matrices. Used by the
+    // cull pass and by World::IsSeenByCamera.
+    static void BuildCameraFrustum(Camera3D* camera, CameraFrustum& outFrustum);
+
     // Baked occlusion culling (see OcclusionData). Applies to game cameras;
     // the editor camera only culls when the preview toggle is on.
     void EnableOcclusionCulling(bool enable);

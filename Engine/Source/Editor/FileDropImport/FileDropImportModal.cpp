@@ -204,7 +204,9 @@ void FileDropImportModal::ApplyRow(PendingDrop& row)
         }
         else
         {
-            ActionManager::Get()->ImportAsset(row.mSourcePath);
+            // Deferred so a multi-file drop imports under one progress modal
+            // instead of freezing the editor inside this popup.
+            ActionManager::Get()->RequestImportAssets({ row.mSourcePath });
         }
         break;
     }

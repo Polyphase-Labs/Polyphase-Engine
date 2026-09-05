@@ -229,6 +229,30 @@ Check whether this node is set to cast shadows. Projected shadows are only suppo
 Sig: `castShadows = Primitive3D:ShouldCastShadows()`
  - Ret: `boolean castShadows` Should cast shadows
 ---
+### EnableOccluder
+Mark this node as an occluder for baked occlusion culling: its opaque geometry blocks visibility when the scene is baked (World > Bake Occlusion Culling). Changing this after a bake makes the data stale. See Development/OcclusionCulling.md.
+
+Sig: `Primitive3D:EnableOccluder(enable)`
+ - Arg: `boolean enable` Enable occluder
+---
+### IsOccluder
+Check whether this node is an occluder.
+
+Sig: `occluder = Primitive3D:IsOccluder()`
+ - Ret: `boolean occluder` Is occluder
+---
+### EnableOccludee
+Mark this node as an occludee: it is skipped when the baked data says it is fully hidden from the camera's cell. Nodes that move after the bake are tested against the dynamic table instead.
+
+Sig: `Primitive3D:EnableOccludee(enable)`
+ - Arg: `boolean enable` Enable occludee
+---
+### IsOccludee
+Check whether this node is an occludee.
+
+Sig: `occludee = Primitive3D:IsOccludee()`
+ - Ret: `boolean occludee` Is occludee
+---
 ### EnableReceiveShadows
 Set whether this node should be affected by projected shadows. Projected shadows are only supported on Vulkan and aren't implemented yet.
 

@@ -6322,6 +6322,55 @@ void ActionManager::RequestCloseProject()
     es->mCloseProjectAtEndOfFrame = true;
 }
 
+void ActionManager::RequestImportAssets(const std::vector<std::string>& paths)
+{
+    EditorState* es = GetEditorState();
+    for (const std::string& p : paths)
+    {
+        if (!p.empty())
+            es->mPendingAssetImportPaths.push_back(p);
+    }
+    if (!es->mPendingAssetImportPaths.empty())
+        es->mImportAssetsAtEndOfFrame = true;
+}
+
+void ActionManager::ImportPendingAssets()
+{
+    EditorState* es = GetEditorState();
+    std::vector<std::string> paths;
+    paths.swap(es->mPendingAssetImportPaths);
+    if (paths.empty())
+        return;
+
+    const int total = (int)paths.size();
+    EditorProgress::Begin("Importing Assets", "Preparing...", total > 1);
+
+    for (int i = 0; i < total; ++i)
+    {
+        if (EditorProgress::WasCancelled())
+        {
+            LogWarning("Import cancelled with %d of %d files remaining.", total - i, total);
+            break;
+        }
+
+        const std::string& path = paths[i];
+        std::string fileName = path;
+        size_t slash = fileName.find_last_of("/\\");
+        if (slash != std::string::npos) fileName = fileName.substr(slash + 1);
+
+        char label[512];
+        snprintf(label, sizeof(label), "Importing %s (%d/%d)", fileName.c_str(), i + 1, total);
+        EditorProgress::Step(label, i, total);
+        // Step is throttled; force a frame so the label always shows the
+        // file we are about to block on.
+        EditorProgress::Pump();
+
+        ImportAsset(path);
+    }
+
+    EditorProgress::End();
+}
+
 void ActionManager::RequestAddonRecovery(const char* reason)
 {
     EditorState* es = GetEditorState();
@@ -6915,6 +6964,7 @@ void ActionManager::RunScript()
 
 static void HandleImportCallback(const std::vector<std::string>& filePaths)
 {
+    std::vector<std::string> pendingImports;
     // Split mesh files (which prompt the user for Scene/Multiple/Single mode)
     // from everything else (textures, fonts, sounds — silent dispatch as before).
     for (uint32_t i = 0; i < filePaths.size(); ++i)
@@ -6936,8 +6986,13 @@ static void HandleImportCallback(const std::vector<std::string>& filePaths)
         }
         else
         {
-            ActionManager::Get()->ImportAsset(path.c_str());
+            pendingImports.push_back(path);
         }
+    }
+
+    if (!pendingImports.empty())
+    {
+        ActionManager::Get()->RequestImportAssets(pendingImports);
     }
 }
 
@@ -7416,6 +7471,10 @@ Asset* ActionManager::ImportAsset(const std::string& path, const std::string& ov
             if (!TextureImportFixupModal::Get()->IsAwaitingFixup(newAsset) &&
                 !SoundWaveImportFixupModal::Get()->IsAwaitingFixup(newAsset))
             {
+                if (EditorProgress::IsActive())
+                {
+                    EditorProgress::SetStatus(("Saving " + assetName + "...").c_str());
+                }
                 AssetManager::Get()->SaveAsset(*stub);
             }
 

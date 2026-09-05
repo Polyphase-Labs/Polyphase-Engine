@@ -217,6 +217,14 @@ struct EditorState
     // and quit the current one. The new instance does the wipe + reopen.
     bool mEditorRestartAtEndOfFrame = false;
     std::string mPendingEditorRestartReason;
+    // Deferred addon install. The Addons window Download/Install buttons and
+    // the native addon problem modal only queue ids here; the dispatcher runs
+    // AddonsWindow::ProcessPendingInstalls outside the ImGui frame so the
+    // synchronous curl download can sit under an EditorProgress modal, and
+    // any native package that arrived is then rebuilt through the
+    // project-restart reload.
+    bool mInstallAddonsAtEndOfFrame = false;
+    std::vector<std::string> mPendingAddonInstalls;
     // Deferred OpenScene. Either a stub (preferred -- path is captured at
     // request time so a later directory rename doesn't break it) or empty
     // to trigger the OS file dialog inside the worker. Scene* is held as
@@ -310,6 +318,12 @@ struct EditorState
     std::string mNodePropertySelectName = "";
     std::string mPendingSceneImportPath = "";
     std::vector<std::string> mPendingMeshImportPaths;
+    // Non-mesh asset imports are queued here from ImGui-context callers
+    // (menu, asset browser, OS drag-drop) and drained at end-of-frame by
+    // ActionManager::ImportPendingAssets under an EditorProgress modal, so
+    // multi-file WAV/PNG imports show progress instead of freezing.
+    bool mImportAssetsAtEndOfFrame = false;
+    std::vector<std::string> mPendingAssetImportPaths;
     std::vector<std::string> mPendingSceneImportQueue;
 
     // AssetDir row the mouse is over in the asset browser this frame. Reset

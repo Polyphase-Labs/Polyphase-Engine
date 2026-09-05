@@ -12421,7 +12421,8 @@ static void DrawMainMenuBar()
     // worse, repoint every existing TextureRef onto a fresh StaticMesh and
     // crash the next scene load (ResolveQuadTexture catches that, but better
     // to never get there).
-    if (!ImGui::IsPopupOpen("Asset Name Clash") && !GetEditorState()->mPendingImportClashes.empty())
+    if (!ImGui::IsPopupOpen("Asset Name Clash") && !GetEditorState()->mPendingImportClashes.empty() &&
+        !EditorProgress::IsActive())
     {
         ImGui::OpenPopup("Asset Name Clash");
     }
@@ -14192,8 +14193,13 @@ static void DrawNativeAddonBuildFailureModal()
     // Don't compete with the build-in-progress modal or the build-blocked
     // (locked-files) modal — those have their own affordances. Also avoid
     // re-opening while ImGui already has another popup at this stack level.
+    // Also stay closed while an EditorProgress modal is pumping frames (a
+    // dependency install in flight): the blocked entries are about to be
+    // cleared by RefreshMissingDependencies, and two modals opening at the
+    // same popup level fight each other every frame.
     const bool hasFailures = nam->HasUnacknowledgedBuildFailures();
-    if (hasFailures && !ImGui::IsPopupOpen(kPopupName) && !nam->IsBuildBlocked())
+    if (hasFailures && !ImGui::IsPopupOpen(kPopupName) && !nam->IsBuildBlocked() &&
+        !GetEditorState()->mProgressActive)
     {
         ImGui::OpenPopup(kPopupName);
     }

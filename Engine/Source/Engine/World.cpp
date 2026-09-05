@@ -23,6 +23,7 @@
 #include "Nodes/3D/Skybox3D.h"
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "OcclusionData.h"
+#include "CameraFrustum.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/Particle3d.h"
 #include "Nodes/3D/Audio3d.h"
@@ -2169,6 +2170,140 @@ static bool IsOcclusionEligiblePrimitive(Node* node)
         node->As<Terrain3D>() != nullptr ||
         node->As<Voxel3D>() != nullptr ||
         node->As<TextMesh3D>() != nullptr;
+}
+
+// Shared body of the two visibility queries. `set` is the camera cell's
+// static visibility set (may be null), `cell` the camera cell (-1 outside).
+static bool IsNodeSeenFrom(World* world, Node3D* node, const CameraFrustum& frustum, int32_t cell, const uint32_t* set)
+{
+    node->GetTransform();
+
+    Bounds bounds;
+    AABB box;
+    Primitive3D* prim = node->IsPrimitive3D() ? static_cast<Primitive3D*>(node) : nullptr;
+    if (prim != nullptr)
+    {
+        bounds = prim->GetBounds();
+        box = prim->GetAABB();
+        if (!box.IsValid() || box.IsLarge())
+        {
+            box = AABB::MakeFromCenterExtents(bounds.mCenter, glm::vec3(glm::min(bounds.mRadius, 1.0f)));
+        }
+    }
+    else
+    {
+        glm::vec3 pos = node->GetWorldPosition();
+        bounds.mCenter = pos;
+        bounds.mRadius = 0.25f;
+        box = AABB::MakeFromCenterExtents(pos, glm::vec3(0.25f));
+    }
+
+    if (!frustum.IsSphereInsidePlanes(bounds.mCenter, bounds.mRadius))
+    {
+        return false;
+    }
+
+    const OcclusionData* data = world->GetOcclusionData();
+    if (cell < 0 || data == nullptr || !world->IsOcclusionCullingEnabled())
+    {
+        return true;
+    }
+
+    if (prim != nullptr && prim->IsOccludee() && prim->GetOcclusionSlot() != 0 &&
+        glm::distance2(bounds.mCenter, prim->GetOcclusionBakedCenter()) <= world->GetOcclusionMoveEpsilon2())
+    {
+        return data->IsVisible(set, prim->GetOcclusionSlot() - 1);
+    }
+
+    if (data->HasDynamicTable())
+    {
+        return data->IsBoxVisibleDynamic(cell, box);
+    }
+
+    return true;
+}
+
+bool World::IsSeenByCamera(Node3D* node, Camera3D* camera)
+{
+    if (node == nullptr)
+        return false;
+
+    if (camera == nullptr)
+        camera = GetActiveCamera();
+
+    if (camera == nullptr || node == camera || !node->IsVisible(true))
+        return false;
+
+    camera->ComputeMatrices();
+    CameraFrustum frustum;
+    Renderer::BuildCameraFrustum(camera, frustum);
+
+    int32_t cell = -1;
+    const uint32_t* set = nullptr;
+    if (IsOcclusionCullingEnabled())
+    {
+        cell = mOcclusionData->FindCell(camera->GetWorldPosition());
+        set = mOcclusionData->GetSet(cell);
+    }
+
+    return IsNodeSeenFrom(this, node, frustum, cell, set);
+}
+
+void World::GetSeenByCamera(std::vector<Node3D*>& outNodes, const std::vector<std::string>* tags, Camera3D* camera)
+{
+    outNodes.clear();
+
+    if (camera == nullptr)
+        camera = GetActiveCamera();
+
+    if (camera == nullptr || mRootNode == nullptr)
+        return;
+
+    camera->ComputeMatrices();
+    CameraFrustum frustum;
+    Renderer::BuildCameraFrustum(camera, frustum);
+
+    int32_t cell = -1;
+    const uint32_t* set = nullptr;
+    if (IsOcclusionCullingEnabled())
+    {
+        cell = mOcclusionData->FindCell(camera->GetWorldPosition());
+        set = mOcclusionData->GetSet(cell);
+    }
+
+    const bool filterTags = (tags != nullptr && !tags->empty());
+
+    auto visit = [&](Node* node) -> bool
+    {
+        if (!node->IsVisible())
+            return false;   // hidden subtree
+
+        if (!node->IsNode3D() || node == camera)
+            return true;
+
+        if (filterTags)
+        {
+            bool tagged = false;
+            for (const std::string& tag : *tags)
+            {
+                if (node->HasTag(tag))
+                {
+                    tagged = true;
+                    break;
+                }
+            }
+            if (!tagged)
+                return true;
+        }
+
+        Node3D* node3d = static_cast<Node3D*>(node);
+        if (IsNodeSeenFrom(this, node3d, frustum, cell, set))
+        {
+            outNodes.push_back(node3d);
+        }
+        return true;
+    };
+    mRootNode->Traverse(visit);
 }
 
 void World::ResolveOccludees()

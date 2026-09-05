@@ -997,15 +997,25 @@ void NativeAddonManager::DiscoverNativeAddons()
     // addon was copied into Packages/ by hand). These are blocked from build
     // and load, and surface through the native addon problem modal with an
     // Install button instead of loading half-working and logging a warning.
-    {
-        const std::string& projectDir = GetEngineState()->mProjectDirectory;
-        const std::string packagesDir = projectDir.empty() ? std::string() : projectDir + "Packages/";
-        for (auto& pair : mStates)
-        {
-            NativeAddonState& state = pair.second;
-            state.mMissingDependencies.clear();
-            if (packagesDir.empty()) continue;
+    RefreshMissingDependencies();
 
+    LogDebug("Discovered %zu native addons", mStates.size());
+}
+
+std::vector<std::string> NativeAddonManager::RefreshMissingDependencies()
+{
+    std::vector<std::string> unblocked;
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    const std::string packagesDir = projectDir.empty() ? std::string() : projectDir + "Packages/";
+
+    for (auto& pair : mStates)
+    {
+        NativeAddonState& state = pair.second;
+        const bool wasBlocked = !state.mMissingDependencies.empty();
+        state.mMissingDependencies.clear();
+
+        if (!packagesDir.empty())
+        {
             for (const AddonDependencySpec& dep : state.mContentMetadata.mDependencies)
             {
                 std::string depJson = packagesDir + dep.mId + "/package.json";
@@ -1014,24 +1024,74 @@ void NativeAddonManager::DiscoverNativeAddons()
                     state.mMissingDependencies.push_back(dep.mId);
                 }
             }
+        }
 
-            if (!state.mMissingDependencies.empty())
-            {
-                std::string err;
-                BuildFailureHint hint;
-                RunBuildPreflight(pair.first, err, hint);
-                state.mBuildSucceeded = false;
-                state.mBuildError = err;
-                state.mBuildLog = err + "\n\nHow to fix: " + hint.mText;
-                state.mFixHint = hint.mText;
-                state.mFixUrl = hint.mUrl;
-                state.mBuildFailureAcknowledged = false;
-                LogWarning("Addon '%s' blocked: %s", pair.first.c_str(), err.c_str());
-            }
+        if (!state.mMissingDependencies.empty())
+        {
+            std::string err;
+            BuildFailureHint hint;
+            RunBuildPreflight(pair.first, err, hint);
+            state.mBuildSucceeded = false;
+            state.mBuildError = err;
+            state.mBuildLog = err + "\n\nHow to fix: " + hint.mText;
+            state.mFixHint = hint.mText;
+            state.mFixUrl = hint.mUrl;
+            state.mBuildFailureAcknowledged = false;
+            LogWarning("Addon '%s' blocked: %s", pair.first.c_str(), err.c_str());
+        }
+        else if (wasBlocked)
+        {
+            // The dependency arrived. Drop the block so the problem modal
+            // closes and the caller can queue a real build.
+            state.mBuildError.clear();
+            state.mBuildLog.clear();
+            state.mFixHint.clear();
+            state.mFixUrl.clear();
+            state.mBuildFailureAcknowledged = true;
+            unblocked.push_back(pair.first);
+            LogDebug("Addon '%s' unblocked: all dependencies present.", pair.first.c_str());
         }
     }
+    return unblocked;
+}
 
-    LogDebug("Discovered %zu native addons", mStates.size());
+bool NativeAddonManager::DiscoverAddonPackage(const std::string& addonId)
+{
+    if (mStates.find(addonId) != mStates.end())
+    {
+        return true;
+    }
+
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty())
+    {
+        return false;
+    }
+
+    std::string addonPath = projectDir + "Packages/" + addonId + "/";
+    std::string packageJsonPath = addonPath + "package.json";
+    if (!SYS_DoesFileExist(packageJsonPath.c_str(), false))
+    {
+        return false;
+    }
+
+    NativeModuleMetadata metadata;
+    ContentMetadata content;
+    if (!ParsePackageJson(packageJsonPath, metadata, &content) || !metadata.mHasNative)
+    {
+        return false;
+    }
+
+    NativeAddonState state;
+    state.mAddonId = addonId;
+    state.mSourcePath = addonPath;
+    state.mNativeMetadata = metadata;
+    state.mContentMetadata = content;
+    mStates[addonId] = state;
+    LogDebug("Registered native addon package: %s", addonId.c_str());
+
+    GenerateIDEConfig(addonPath);
+    return true;
 }
 
 std::vector<std::string> NativeAddonManager::GetLoadOrder() const

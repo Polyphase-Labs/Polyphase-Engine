@@ -113,6 +113,16 @@ public:
     bool IsOccludeeResolvePending() const;
     void ResolveOccludees();
 
+    // Gameplay visibility queries: frustum test on the node's bounds plus the
+    // baked occlusion tables (static bit for baked occludees, coarse dynamic
+    // table otherwise). Evaluated on demand against the active camera unless
+    // one is passed, so results never lag a frame. Hidden nodes and the
+    // camera itself are never "seen".
+    bool IsSeenByCamera(Node3D* node, Camera3D* camera = nullptr);
+    // Every visible Node3D, optionally restricted to nodes carrying at least
+    // one of the given tags.
+    void GetSeenByCamera(std::vector<Node3D*>& outNodes, const std::vector<std::string>* tags = nullptr, Camera3D* camera = nullptr);
+
     void SetGravity(glm::vec3 gravity);
     glm::vec3 GetGravity() const;
 

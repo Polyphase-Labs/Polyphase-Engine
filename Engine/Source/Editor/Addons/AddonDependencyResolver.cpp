@@ -2,6 +2,7 @@
 
 #include "AddonDependencyResolver.h"
 #include "AddonManager.h"
+#include "EditorImgui.h"
 #include "Engine.h"
 #include "Log.h"
 #include "Stream.h"
@@ -45,6 +46,14 @@ namespace
             return false;
         }
 
+        // Progress text only lands when a modal is already up (project open,
+        // deferred install); EditorProgress ignores the call otherwise.
+        if (EditorProgress::IsActive())
+        {
+            std::string label = "Downloading dependency " + dep.mId + "...";
+            EditorProgress::SetStatus(label.c_str());
+        }
+
         switch (dep.mKind)
         {
             case AddonDependencySpec::GitHubRepo:
@@ -62,6 +71,10 @@ namespace
                     // opens), so a lookup miss here says nothing. Refresh
                     // once and retry before declaring the dependency missing.
                     LogDebug("Refreshing addon repositories to resolve dependency '%s'...", dep.mId.c_str());
+                    if (EditorProgress::IsActive())
+                    {
+                        EditorProgress::SetStatus("Refreshing addon repositories...");
+                    }
                     mgr->RefreshAllRepositories();
                     found = mgr->FindAddon(dep.mId);
                 }

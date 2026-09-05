@@ -5,6 +5,7 @@
 #include "ActionManager.h"
 #include "Asset.h"
 #include "AssetManager.h"
+#include "EditorImgui.h"
 #include "Log.h"
 #include "Maths.h"
 
@@ -158,6 +159,11 @@ void TextureImportFixupModal::ApplyCancel(PendingRow& row)
 void TextureImportFixupModal::Draw()
 {
     if (mRows.empty())
+        return;
+
+    // Imports run under the EditorProgress modal; opening a second root-level
+    // popup would close it. Hold the request until the progress modal ends.
+    if (EditorProgress::IsActive())
         return;
 
     const char* kPopupId = "Texture Import - Non-Power-of-Two";

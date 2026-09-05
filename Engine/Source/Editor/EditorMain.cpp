@@ -36,6 +36,7 @@
 #include "ProjectSelect/TemplateManager.h"
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonManager.h"
+#include "Addons/AddonsWindow.h"
 #include "Addons/NativeAddonManager.h"
 #include "EditorUIHookManager.h"
 #include "Packaging/PackagingSettings.h"
@@ -711,6 +712,16 @@ void EditorMain(int32_t argc, char** argv)
                 std::string r = es->mPendingEditorRestartReason;
                 es->mPendingEditorRestartReason.clear();
                 ActionManager::Get()->RestartEditorForAddonRecovery(r.c_str());
+            }
+            else if (es->mInstallAddonsAtEndOfFrame)
+            {
+                es->mInstallAddonsAtEndOfFrame = false;
+                GetAddonsWindow()->ProcessPendingInstalls();
+            }
+            else if (es->mImportAssetsAtEndOfFrame)
+            {
+                es->mImportAssetsAtEndOfFrame = false;
+                ActionManager::Get()->ImportPendingAssets();
             }
             else if (es->mOpenSceneAtEndOfFrame)
             {

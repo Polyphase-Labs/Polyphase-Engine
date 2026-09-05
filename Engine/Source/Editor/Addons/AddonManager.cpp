@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "AddonManager.h"
+#include "EditorImgui.h"
 #include "AddonDependencyResolver.h"
 #include "AddonScriptRunner.h"
 #include "System/System.h"
@@ -885,6 +886,12 @@ void AddonManager::RefreshAllRepositories()
 
 void AddonManager::RefreshRepository(const std::string& url)
 {
+    if (EditorProgress::IsActive())
+    {
+        std::string label = "Fetching addon registry " + url + "...";
+        EditorProgress::SetStatus(label.c_str());
+    }
+
     // Preferred path: one auto-generated manifest.json carrying every package's full
     // metadata. Try main, then master.
     bool found = false;
@@ -974,6 +981,12 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
 {
     EnsureCacheDirectory();
 
+    if (EditorProgress::IsActive())
+    {
+        std::string label = "Downloading " + addon.mMetadata.mName + "...";
+        EditorProgress::SetStatus(label.c_str());
+    }
+
     // Download the full repo and extract just this addon folder
     std::string downloadUrl = ConvertToDownloadUrl(addon.mRepoUrl, addon.mIsMain ? "main" : "master");
 	// extract repoName from URL for logging
@@ -989,6 +1002,12 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
     if (DoesDirExist(extractDir.c_str()))
     {
         SYS_RemoveDirectory(extractDir.c_str());
+    }
+
+    if (EditorProgress::IsActive())
+    {
+        std::string label = "Extracting " + addon.mMetadata.mName + "...";
+        EditorProgress::SetStatus(label.c_str());
     }
 
     if (!ExtractZip(zipPath, extractDir, outError))
@@ -1048,6 +1067,11 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
     //SYS_RemoveDirectory(extractDir.c_str());
 
     // Install to project
+    if (EditorProgress::IsActive())
+    {
+        std::string label = "Installing " + addon.mMetadata.mName + "...";
+        EditorProgress::SetStatus(label.c_str());
+    }
     return InstallAddon(cachedAddonPath, addon.mMetadata.mId, outError);
 }
 

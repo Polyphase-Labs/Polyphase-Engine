@@ -35,12 +35,19 @@ public:
     // itself is the cache's business.
     void Shutdown();
 
-    // Install an addon by id from the configured repositories, refreshing
-    // them first if this session has not yet. Used by the native addon
-    // problem modal's "Install <dependency>" button. On success the native
-    // addons are rescanned and reloaded through the project-restart path so
-    // dependents that were blocked on the missing addon come up.
+    // Queue an addon for download + install by id. Used by the native addon
+    // problem modal's "Install <dependency>" button and the Installed tab.
+    // The work itself happens in ProcessPendingInstalls.
     void InstallAddonById(const std::string& addonId);
+
+    // Drain EditorState::mPendingAddonInstalls. Called by EditorMain's
+    // end-of-frame dispatcher (never from inside an ImGui frame): downloads
+    // and installs each queued addon under an EditorProgress modal, refreshes
+    // the registry first if this session has not, registers any new native
+    // package with NativeAddonManager, re-checks addons that were blocked on
+    // a missing dependency, and finally reloads the affected native addons
+    // through the project-restart path so they get compiled.
+    void ProcessPendingInstalls();
 
 private:
     void DrawAddonBrowser();

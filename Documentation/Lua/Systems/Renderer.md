@@ -123,6 +123,30 @@ Check if frustum culling is enabled.
 Sig: `enabled = Renderer.IsFrustumCullingEnabled()`
  - Ret: `boolean enabled` Frustum culling enabled
 ---
+### EnableOcclusionCulling
+Enable/disable baked occlusion culling globally. Enabled by default; only has an effect in scenes that have baked occlusion data (see Development/OcclusionCulling.md).
+
+Sig: `Renderer.EnableOcclusionCulling(enable)`
+ - Arg: `boolean enable` Enable occlusion culling
+---
+### IsOcclusionCullingEnabled
+Check if occlusion culling is enabled.
+
+Sig: `enabled = Renderer.IsOcclusionCullingEnabled()`
+ - Ret: `boolean enabled` Occlusion culling enabled
+---
+### GetNumFrustumCulled
+Number of draws removed by frustum culling in the last frame, summed over every view rendered.
+
+Sig: `count = Renderer.GetNumFrustumCulled()`
+ - Ret: `integer count` Draws culled
+---
+### GetNumOcclusionCulled
+Number of draws removed by occlusion culling in the last frame, summed over every view rendered.
+
+Sig: `count = Renderer.GetNumOcclusionCulled()`
+ - Ret: `integer count` Draws culled
+---
 ### AddDebugDraw
 Add a debug draw.
 

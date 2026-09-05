@@ -22,6 +22,8 @@ struct World_Lua
     static int GetAudioReceiver(lua_State* L);
 
     static int SetActiveCamera(lua_State* L);
+    static int IsSeenByCamera(lua_State* L);
+    static int GetSeenByCamera(lua_State* L);
     static int SetAudioReceiver(lua_State* L);
 
     static int SpawnNode(lua_State* L);

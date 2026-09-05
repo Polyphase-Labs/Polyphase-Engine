@@ -6,6 +6,7 @@
 #include "Asset.h"
 #include "AssetManager.h"
 #include "AudioManager.h"
+#include "EditorImgui.h"
 #include "Log.h"
 
 #include "Audio/Audio.h"
@@ -139,6 +140,11 @@ void SoundWaveImportFixupModal::ApplyCancel(PendingRow& row)
 void SoundWaveImportFixupModal::Draw()
 {
     if (mRows.empty())
+        return;
+
+    // Imports run under the EditorProgress modal; opening a second root-level
+    // popup would close it. Hold the request until the progress modal ends.
+    if (EditorProgress::IsActive())
         return;
 
     const char* kPopupId = "Sound Import - Non-standard Sample Rate";
