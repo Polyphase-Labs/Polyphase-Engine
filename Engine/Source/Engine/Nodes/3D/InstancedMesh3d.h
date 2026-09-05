@@ -61,6 +61,11 @@ public:
     bool ShouldUnroll() const;
     bool IsUnrolled() const;
 
+    // Local-space bounds of each non-empty unroll cell, in the order Unroll()
+    // creates its child nodes. Shared by Unroll() and the occlusion baker so
+    // the cells match on every platform.
+    void ComputeUnrollBuckets(std::vector<AABB>& outLocalBoxes);
+
     InstancedMeshCompResource* GetInstancedMeshResource();
 
     btTransform CalculateInstanceBulletTransform(int32_t instanceIndex);

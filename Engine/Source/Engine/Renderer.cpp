@@ -1241,6 +1241,8 @@ void Renderer::FrustumCull(Camera3D* camera)
 #endif
 }
 
+static inline void HandleCullResult(DrawData& drawData, bool inFrustum);
+
 void Renderer::OcclusionCull(World* world, Camera3D* camera)
 {
     if (world == nullptr || camera == nullptr || !mOcclusionCulling)
@@ -1249,76 +1251,152 @@ void Renderer::OcclusionCull(World* world, Camera3D* camera)
     if (!world->IsOcclusionCullingEnabled())
         return;
 
+    const OcclusionData* data = world->GetOcclusionData();
+
+#if EDITOR
+    if (camera->IsEditorCamera())
+    {
+        // The editor viewport never drops draws. With the preview toggle on
+        // it shows what the game camera (the one the Game Preview panel
+        // renders with) would cull from its current cell.
+        if (mOcclusionPreview)
+        {
+            Camera3D* gameCamera = world->GetMainCamera();
+            if (gameCamera != nullptr && gameCamera->GetProjectionMode() != ProjectionMode::ORTHOGRAPHIC)
+            {
+                int32_t previewCell = data->FindCell(gameCamera->GetWorldPosition());
+                DrawOcclusionDebug(world, data, previewCell, data->GetSet(previewCell));
+            }
+        }
+        return;
+    }
+#endif
+
     if (camera->GetProjectionMode() == ProjectionMode::ORTHOGRAPHIC)
         return;
 
-#if EDITOR
-    if (camera->IsEditorCamera() && !mOcclusionPreview)
-        return;
-#endif
-
-    const OcclusionData* data = world->GetOcclusionData();
     int32_t cell = data->FindCell(camera->GetWorldPosition());
     if (cell < 0)
         return;
 
     const uint32_t* visibleSet = data->GetSet(cell);
-    if (visibleSet == nullptr)
+    if (visibleSet == nullptr && !data->HasDynamicTable())
         return;
 
     // mShadowDraws is intentionally left alone: hidden casters still shadow.
-    // HandleCullResult is not invoked here so animation / particle simulation
-    // keep following the frustum result.
+    // Culled draws get the same HandleCullResult(false) treatment as draws
+    // outside the frustum, so hidden skeletal meshes / particles follow their
+    // "always update" settings instead of animating for nothing.
     int32_t drawsCulled = 0;
-    drawsCulled += OcclusionCullDraws(*data, visibleSet, mOpaqueDraws);
-    drawsCulled += OcclusionCullDraws(*data, visibleSet, mSimpleShadowDraws);
-    drawsCulled += OcclusionCullDraws(*data, visibleSet, mPostShadowOpaqueDraws);
-    drawsCulled += OcclusionCullDraws(*data, visibleSet, mTranslucentDraws);
-    drawsCulled += OcclusionCullDraws(*data, visibleSet, mWireframeDraws);
+    drawsCulled += OcclusionCullDraws(*data, cell, visibleSet, mOpaqueDraws);
+    drawsCulled += OcclusionCullDraws(*data, cell, visibleSet, mSimpleShadowDraws);
+    drawsCulled += OcclusionCullDraws(*data, cell, visibleSet, mPostShadowOpaqueDraws);
+    drawsCulled += OcclusionCullDraws(*data, cell, visibleSet, mTranslucentDraws);
+    drawsCulled += OcclusionCullDraws(*data, cell, visibleSet, mWireframeDraws);
     mNumOcclusionCulled += drawsCulled;
-
-#if DEBUG_DRAW_ENABLED && EDITOR
-    if (mOcclusionPreview && mBoundsDebugMode != BoundsDebugMode::Off)
-    {
-        AABB volume = data->GetVolumeAABB();
-        Gizmos::SetColor({ 0.2f, 0.8f, 1.0f, 1.0f });
-        Gizmos::DrawWireCube(volume.GetCenter(), volume.GetSize());
-
-        AABB cellBox = data->GetCellAABB(cell);
-        Gizmos::SetColor({ 0.2f, 1.0f, 0.2f, 1.0f });
-        Gizmos::DrawWireCube(cellBox.GetCenter(), cellBox.GetSize());
-        Gizmos::ResetState();
-    }
-#endif
 }
 
-int32_t Renderer::OcclusionCullDraws(const OcclusionData& data, const uint32_t* visibleSet, std::vector<DrawData>& drawData)
+bool Renderer::IsDrawOcclusionVisible(const OcclusionData& data, int32_t cell, const uint32_t* visibleSet, const DrawData& draw) const
+{
+    if (draw.mOcclusionSlot == 0 || draw.mDepthless || cell < 0)
+        return true;
+
+    if (draw.mOcclusionSlot == DrawData::kDynamicOccludee)
+    {
+        if (data.HasDynamicTable() && draw.mNode->IsPrimitive3D())
+        {
+            return data.IsBoxVisibleDynamic(cell, static_cast<Primitive3D*>(draw.mNode)->GetAABB());
+        }
+        return true;
+    }
+
+    return (visibleSet == nullptr) || data.IsVisible(visibleSet, draw.mOcclusionSlot - 1);
+}
+
+int32_t Renderer::OcclusionCullDraws(const OcclusionData& data, int32_t cell, const uint32_t* visibleSet, std::vector<DrawData>& drawData)
 {
     int32_t drawsCulled = 0;
 
     for (int32_t i = int32_t(drawData.size()) - 1; i >= 0; --i)
     {
-        const DrawData& draw = drawData[i];
-        if (draw.mOcclusionSlot == 0 || draw.mDepthless)
-            continue;
-
-        if (!data.IsVisible(visibleSet, draw.mOcclusionSlot - 1))
+        DrawData& draw = drawData[i];
+        if (!IsDrawOcclusionVisible(data, cell, visibleSet, draw))
         {
-#if DEBUG_DRAW_ENABLED && EDITOR
-            if (mOcclusionPreview && mBoundsDebugMode != BoundsDebugMode::Off && draw.mNode->IsPrimitive3D())
-            {
-                AABB box = static_cast<Primitive3D*>(draw.mNode)->GetAABB();
-                Gizmos::SetColor({ 1.0f, 0.2f, 0.2f, 1.0f });
-                Gizmos::DrawWireCube(box.GetCenter(), box.GetSize());
-                Gizmos::ResetState();
-            }
-#endif
+            HandleCullResult(draw, false);
             drawData.erase(drawData.begin() + i);
             drawsCulled++;
         }
     }
 
     return drawsCulled;
+}
+
+void Renderer::DrawOcclusionDebug(World* world, const OcclusionData* data, int32_t cell, const uint32_t* visibleSet)
+{
+#if DEBUG_DRAW_ENABLED && EDITOR
+    if (data == nullptr || mBoundsDebugMode == BoundsDebugMode::Off)
+        return;
+
+    AABB volume = data->GetVolumeAABB();
+    Gizmos::SetColor({ 0.2f, 0.8f, 1.0f, 1.0f });
+    Gizmos::DrawWireCube(volume.GetCenter(), volume.GetSize());
+
+    if (cell < 0)
+    {
+        Gizmos::ResetState();
+        return;
+    }
+
+    AABB cellBox = data->GetCellAABB(cell);
+    Gizmos::SetColor({ 0.2f, 1.0f, 0.2f, 1.0f });
+    Gizmos::DrawWireCube(cellBox.GetCenter(), cellBox.GetSize());
+
+    // Every occludee in the frame: green = visible from the cell, red = culled.
+    const std::vector<DrawData>* lists[] = { &mOpaqueDraws, &mSimpleShadowDraws, &mPostShadowOpaqueDraws, &mTranslucentDraws, &mWireframeDraws };
+    for (const std::vector<DrawData>* list : lists)
+    {
+        for (const DrawData& draw : *list)
+        {
+            if (draw.mOcclusionSlot == 0 || !draw.mNode->IsPrimitive3D())
+                continue;
+
+            bool visible = IsDrawOcclusionVisible(*data, cell, visibleSet, draw);
+            AABB box = static_cast<Primitive3D*>(draw.mNode)->GetAABB();
+            Gizmos::SetColor(visible ? glm::vec4(0.2f, 1.0f, 0.2f, 0.6f) : glm::vec4(1.0f, 0.2f, 0.2f, 1.0f));
+            Gizmos::DrawWireCube(box.GetCenter(), box.GetSize());
+        }
+    }
+
+    // "Why is this visible": a line from the cell to every selected occludee,
+    // coloured by the result for this cell.
+    const std::vector<Node*>& selected = GetEditorState()->GetSelectedNodes();
+    for (Node* node : selected)
+    {
+        if (node == nullptr || !node->IsPrimitive3D())
+            continue;
+
+        Primitive3D* prim = static_cast<Primitive3D*>(node);
+        if (!prim->IsOccludee())
+            continue;
+
+        bool visible = true;
+        uint32_t slot = prim->GetOcclusionSlot();
+        if (slot != 0 && glm::distance2(prim->GetBounds().mCenter, prim->GetOcclusionBakedCenter()) <= world->GetOcclusionMoveEpsilon2())
+        {
+            visible = data->IsVisible(visibleSet, slot - 1);
+        }
+        else
+        {
+            visible = data->IsBoxVisibleDynamic(cell, prim->GetAABB());
+        }
+
+        Gizmos::SetColor(visible ? glm::vec4(0.2f, 1.0f, 0.2f, 1.0f) : glm::vec4(1.0f, 0.2f, 0.2f, 1.0f));
+        Gizmos::DrawLine(cellBox.GetCenter(), prim->GetBounds().mCenter);
+    }
+    Gizmos::ResetState();
+#else
+    (void)world; (void)data; (void)cell; (void)visibleSet;
+#endif
 }
 
 static inline void HandleCullResult(DrawData& drawData, bool inFrustum)
@@ -1603,12 +1681,14 @@ void Renderer::Render(World* world, int32_t screenIndex)
 
             GatherLightData(world);
 
+            // Occlusion first: it is a bit test per draw, so the frustum
+            // math is only spent on draws that survive it.
+            OcclusionCull(world, activeCamera);
+
             if (mFrustumCulling)
             {
                 FrustumCull(activeCamera);
             }
-
-            OcclusionCull(world, activeCamera);
         }
     }
 
@@ -1979,12 +2059,12 @@ void Renderer::RenderSecondScreen(World* world, Image* colorTarget, Image* depth
 
     GatherLightData(world);
 
+    OcclusionCull(world, camera);
+
     if (mFrustumCulling && camera != nullptr)
     {
         FrustumCull(camera);
     }
-
-    OcclusionCull(world, camera);
 
     GFX_SetFog(world->GetFogSettings());
 

@@ -337,7 +337,11 @@ struct DrawData
     float mDistance2;
     TypeId mNodeType;
     bool mDepthless;
-    uint32_t mOcclusionSlot; // 0 = not an occludee, otherwise occludee index + 1
+    uint32_t mOcclusionSlot; // 0 = not an occludee, occludee index + 1, or kDynamicOccludee
+
+    // Occludee with no baked slot (moved, spawned, or animated): tested
+    // against the coarse dynamic table by its current bounds.
+    static const uint32_t kDynamicOccludee = 0xFFFFFFFFu;
 };
 
 struct LightData

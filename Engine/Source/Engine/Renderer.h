@@ -238,7 +238,9 @@ private:
     void RenderDebugDraws(const std::vector<DebugDraw>& draws, PipelineConfig pipelineConfig = PipelineConfig::Count);
     void FrustumCull(Camera3D* camera);
     void OcclusionCull(World* world, Camera3D* camera);
-    int32_t OcclusionCullDraws(const class OcclusionData& data, const uint32_t* visibleSet, std::vector<DrawData>& drawData);
+    int32_t OcclusionCullDraws(const class OcclusionData& data, int32_t cell, const uint32_t* visibleSet, std::vector<DrawData>& drawData);
+    bool IsDrawOcclusionVisible(const class OcclusionData& data, int32_t cell, const uint32_t* visibleSet, const DrawData& draw) const;
+    void DrawOcclusionDebug(World* world, const class OcclusionData* data, int32_t cell, const uint32_t* visibleSet);
     int32_t FrustumCullDraws(const CameraFrustum& frustum, std::vector<DrawData>& drawData);
     int32_t FrustumCullDraws(const CameraFrustum& frustum, std::vector<DebugDraw>& drawData);
     int32_t FrustumCullLights(const CameraFrustum& frustum, std::vector<LightData>& lightData);

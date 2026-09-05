@@ -198,6 +198,9 @@ struct EditorState
     bool mResaveAllAtEndOfFrame = false;
     bool mBakeOcclusionAtEndOfFrame = false;
     bool mClearOcclusionAtEndOfFrame = false;
+    // Set by World::ResolveOccludees when a baked occluder no longer matches;
+    // drawn as a toast with a Re-bake button by EditorImgui.
+    bool mOcclusionStaleNotice = false;
     bool mReloadScriptsAtEndOfFrame = false;
     bool mOpenProjectAtEndOfFrame = false;
     std::string mPendingOpenProjectPath;

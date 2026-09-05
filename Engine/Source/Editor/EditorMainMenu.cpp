@@ -606,7 +606,8 @@ static void DrawViewMenu()
     if (ImGui::MenuItem("Occlusion Preview", nullptr, renderer->IsOcclusionPreviewEnabled()))
     {
         renderer->EnableOcclusionPreview(!renderer->IsOcclusionPreviewEnabled());
-        LogDebug("Occlusion preview %s (enable Bounds to see cells).", renderer->IsOcclusionPreviewEnabled() ? "enabled" : "disabled");
+        LogDebug("Occlusion preview %s: with Bounds on, the viewport draws what the game camera culls from its cell (green = visible, red = culled). The viewport itself never culls.",
+            renderer->IsOcclusionPreviewEnabled() ? "enabled" : "disabled");
     }
     if (ImGui::MenuItem("Grid"))
         ToggleGrid();

@@ -85,6 +85,11 @@ public:
     uint32_t GetOcclusionSlot() const;
     glm::vec3 GetOcclusionBakedCenter() const;
 
+    // Local-space box used instead of the mesh bounds when matching this node
+    // to baked occlusion entries (unrolled InstancedMesh3D cells use it).
+    void SetOcclusionMatchBox(const AABB& localBox);
+    AABB GetOcclusionMatchAABB() const;
+
     float GetMass() const;
     float GetLinearDamping() const;
     float GetAngularDamping() const;
@@ -175,6 +180,8 @@ protected:
     // Occlusion culling (see OcclusionData)
     uint32_t mOcclusionSlot = 0;
     glm::vec3 mOcclusionBakedCenter = {};
+    AABB mOcclusionMatchBox;
+    bool mHasOcclusionMatchBox = false;
 
     // Physics Properties
     float mMass = 1.0f;

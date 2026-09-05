@@ -106,6 +106,8 @@ protected:
     bool mOcclusionCullingEnabled = false;
     float mOcclusionCellSize = 4.0f;
     uint8_t mOcclusionBakeQuality = 1; // 0 = Low, 1 = Medium, 2 = High
+    bool mOcclusionDynamic = true;              // also bake the coarse table for moving occludees
+    int32_t mOcclusionConsoleBudgetKB = 512;    // strip the data from console cooks above this (0 = unlimited)
     OcclusionData mOcclusionData;
 
 public:
@@ -116,6 +118,8 @@ public:
     bool IsOcclusionCullingEnabled() const { return mOcclusionCullingEnabled; }
     float GetOcclusionCellSize() const { return mOcclusionCellSize; }
     uint8_t GetOcclusionBakeQuality() const { return mOcclusionBakeQuality; }
+    bool IsOcclusionDynamicEnabled() const { return mOcclusionDynamic; }
+    uint32_t GetOcclusionConsoleBudgetKB() const { return mOcclusionConsoleBudgetKB > 0 ? (uint32_t)mOcclusionConsoleBudgetKB : 0u; }
     const OcclusionData& GetOcclusionData() const { return mOcclusionData; }
     void SetOcclusionData(OcclusionData&& data) { mOcclusionData = std::move(data); }
     void ClearOcclusionData() { mOcclusionData.Clear(); }

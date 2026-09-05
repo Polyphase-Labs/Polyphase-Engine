@@ -14525,6 +14525,34 @@ static void DrawNativeAddonBuildModal()
     }
 }
 
+static void DrawOcclusionStaleToast()
+{
+    EditorState* es = GetEditorState();
+    if (es == nullptr || !es->mOcclusionStaleNotice)
+        return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, 48.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+    if (ImGui::Begin("##OcclusionStaleToast", nullptr, flags))
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Occlusion data is stale: an occluder moved or was removed. Culling is off until you re-bake.");
+        if (ImGui::Button("Re-bake"))
+        {
+            es->mOcclusionStaleNotice = false;
+            ActionManager::Get()->RequestBakeOcclusion();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Dismiss"))
+        {
+            es->mOcclusionStaleNotice = false;
+        }
+    }
+    ImGui::End();
+}
+
 void EditorImguiDraw()
 {
     // Release any thumbnails invalidated during the previous frame. Must happen
@@ -16234,6 +16262,7 @@ void EditorImguiDraw()
         DrawUnsavedCheck();
         DrawProjectUpgradeModal();
         DrawProgressModal();
+        DrawOcclusionStaleToast();
         DrawEditorAlertModal();
         DrawAddonsDialogs();
         DrawScriptCreatorDialogs();

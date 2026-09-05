@@ -19,6 +19,7 @@
 #include "Nodes/3D/Voxel3d.h"
 #include "Nodes/3D/TextMesh3d.h"
 #include "Nodes/3D/InstancedMesh3d.h"
+#include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/3D/Skybox3D.h"
 #include "Nodes/3D/ShadowMesh3d.h"
 #include "OcclusionData.h"
@@ -2155,87 +2156,6 @@ bool World::IsOccludeeResolvePending() const
     return mOcclusionResolvePending;
 }
 
-// Occludee / occluder identity is matched by the world-space AABB recorded at
-// bake time. Node UUIDs are not used because nodes inside instantiated
-// sub-scenes share UUIDs across instances. The match is tolerant: a cloned
-// (PIE) or re-instantiated tree rebuilds its rotation from euler properties,
-// and for a large rotated wall that float noise shifts the AABB by more than
-// any exact quantisation could absorb.
-struct OcclusionEntryIndex
-{
-    void Build(const std::vector<OcclusionEntry>& entries, float cellSize)
-    {
-        mEntries = &entries;
-        mBucketSize = glm::max(cellSize, 1.0f);
-        mBuckets.clear();
-        for (uint32_t i = 0; i < entries.size(); ++i)
-        {
-            mBuckets[Key(entries[i].mCenter)].push_back(i);
-        }
-    }
-
-    int32_t Find(glm::vec3 center, glm::vec3 extents, float cellSize) const
-    {
-        if (mEntries == nullptr)
-            return -1;
-
-        float maxExtent = glm::max(extents.x, glm::max(extents.y, extents.z));
-        float tolerance = glm::max(0.1f * cellSize, 0.01f * maxExtent);
-
-        int32_t best = -1;
-        float bestErr = tolerance;
-
-        for (int32_t dz = -1; dz <= 1; ++dz)
-        for (int32_t dy = -1; dy <= 1; ++dy)
-        for (int32_t dx = -1; dx <= 1; ++dx)
-        {
-            glm::vec3 probe = center + glm::vec3(float(dx), float(dy), float(dz)) * mBucketSize;
-            auto it = mBuckets.find(Key(probe));
-            if (it == mBuckets.end())
-                continue;
-
-            for (uint32_t index : it->second)
-            {
-                const OcclusionEntry& e = (*mEntries)[index];
-                glm::vec3 dc = glm::abs(e.mCenter - center);
-                glm::vec3 de = glm::abs(e.mExtents - extents);
-                float err = glm::max(glm::max(dc.x, glm::max(dc.y, dc.z)), glm::max(de.x, glm::max(de.y, de.z)));
-                if (err <= bestErr)
-                {
-                    bestErr = err;
-                    best = (int32_t)index;
-                }
-            }
-        }
-
-        return best;
-    }
-
-private:
-
-    uint64_t Key(glm::vec3 p) const
-    {
-        int64_t v[3] =
-        {
-            (int64_t)floorf(p.x / mBucketSize),
-            (int64_t)floorf(p.y / mBucketSize),
-            (int64_t)floorf(p.z / mBucketSize)
-        };
-
-        uint64_t hash = 1469598103934665603ULL;
-        for (int32_t i = 0; i < 3; ++i)
-        {
-            hash ^= (uint64_t)v[i];
-            hash *= 1099511628211ULL;
-        }
-        return hash;
-    }
-
-    const std::vector<OcclusionEntry>* mEntries = nullptr;
-    float mBucketSize = 1.0f;
-    std::unordered_map<uint64_t, std::vector<uint32_t>> mBuckets;
-};
-
 static bool IsOcclusionEligiblePrimitive(Node* node)
 {
     if (node->As<Skybox3D>() != nullptr ||
@@ -2245,6 +2165,7 @@ static bool IsOcclusionEligiblePrimitive(Node* node)
     }
 
     return node->As<StaticMesh3D>() != nullptr ||
+        node->As<SkeletalMesh3D>() != nullptr ||
         node->As<Terrain3D>() != nullptr ||
         node->As<Voxel3D>() != nullptr ||
         node->As<TextMesh3D>() != nullptr;
@@ -2254,6 +2175,12 @@ void World::ResolveOccludees()
 {
     mOcclusionResolvePending = false;
     mOcclusionStale = false;
+#if EDITOR
+    if (GetIndex() == 0)
+    {
+        GetEditorState()->mOcclusionStaleNotice = false;
+    }
+#endif
 
     if (mRootNode == nullptr)
     {
@@ -2300,12 +2227,12 @@ void World::ResolveOccludees()
         // Freshly instantiated / cloned trees still have dirty transforms here
         // and GetAABB() reads the cached matrix, so refresh it first.
         prim->GetTransform();
-        AABB aabb = prim->GetAABB();
+        AABB aabb = prim->GetOcclusionMatchAABB();
         bool validBox = aabb.IsValid() && !aabb.IsLarge();
 
         if (prim->IsOccluder() && validBox)
         {
-            int32_t index = occluderIndex.Find(aabb.GetCenter(), aabb.GetExtents(), cellSize);
+            int32_t index = occluderIndex.Find(aabb.GetCenter(), aabb.GetExtents());
             if (index >= 0)
             {
                 occluderMatched[index] = 1;
@@ -2319,7 +2246,7 @@ void World::ResolveOccludees()
 
             if (validBox)
             {
-                int32_t index = occludeeIndex.Find(aabb.GetCenter(), aabb.GetExtents(), cellSize);
+                int32_t index = occludeeIndex.Find(aabb.GetCenter(), aabb.GetExtents());
                 if (index >= 0)
                 {
                     // The node is at its baked location right now, so record
@@ -2368,6 +2295,12 @@ void World::ResolveOccludees()
     if (numOccludersMatched != data->mOccluders.size())
     {
         mOcclusionStale = true;
+#if EDITOR
+        if (GetIndex() == 0)
+        {
+            GetEditorState()->mOcclusionStaleNotice = true;
+        }
+#endif
         Scene* scene = mRootNode->GetScene();
         LogWarning("Occlusion data for scene %s is stale (%u of %u occluders changed). Re-bake occlusion culling.",
             scene ? scene->GetName().c_str() : "?",
@@ -2375,13 +2308,15 @@ void World::ResolveOccludees()
             (uint32_t)data->mOccluders.size());
     }
 
-    LogDebug("Occlusion: resolved %u / %u occludees (%u baked), %u cells, %u unique sets, %u KB",
+    LogDebug("Occlusion: resolved %u / %u occludees (%u baked), %u cells, %u unique sets, %u KB static + %u KB dynamic%s",
         numResolved,
         numOccludeeNodes,
         (uint32_t)data->mOccludees.size(),
         data->GetNumCells(),
         data->GetNumUniqueSets(),
-        (uint32_t)(data->GetMemoryBytes() / 1024));
+        (uint32_t)(data->GetStaticTableBytes() / 1024),
+        (uint32_t)(data->GetDynamicTableBytes() / 1024),
+        data->HasDynamicTable() ? "" : " (no dynamic table)");
 }
 
 void World::AddNewlyRegisteredNode(Node* node)

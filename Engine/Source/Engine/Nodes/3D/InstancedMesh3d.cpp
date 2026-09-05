@@ -244,6 +244,50 @@ bool InstancedMesh3D::IsUnrolled() const
     return mUnrolled;
 }
 
+void InstancedMesh3D::ComputeUnrollBuckets(std::vector<AABB>& outLocalBoxes)
+{
+    outLocalBoxes.clear();
+
+    StaticMesh* mesh = GetStaticMesh();
+    if (mesh == nullptr || mInstanceData.empty())
+        return;
+
+    glm::vec3 minExt = mInstanceData[0].mPosition;
+    glm::vec3 maxExt = minExt;
+    for (uint32_t i = 1; i < mInstanceData.size(); ++i)
+    {
+        minExt = glm::min(minExt, mInstanceData[i].mPosition);
+        maxExt = glm::max(maxExt, mInstanceData[i].mPosition);
+    }
+
+    glm::vec3 dim = maxExt - minExt;
+    uint32_t numCellsX = uint32_t(dim.x / mUnrolledCellSize) + 1;
+    uint32_t numCellsZ = uint32_t(dim.z / mUnrolledCellSize) + 1;
+
+    std::vector<AABB> cells(numCellsX * numCellsZ, AABB::MakeInvalid());
+    const AABB meshBox = mesh->GetAABB();
+
+    for (uint32_t i = 0; i < mInstanceData.size(); ++i)
+    {
+        const glm::vec3& pos = mInstanceData[i].mPosition;
+        uint32_t x = uint32_t((pos.x - minExt.x) / mUnrolledCellSize);
+        uint32_t z = uint32_t((pos.z - minExt.z) / mUnrolledCellSize);
+        if (x >= numCellsX || z >= numCellsZ)
+            continue;
+
+        glm::mat4 instTransform = MakeTransform(pos, mInstanceData[i].mRotation, mInstanceData[i].mScale);
+        cells[z * numCellsX + x].Encapsulate(meshBox.Transform(instTransform));
+    }
+
+    for (uint32_t i = 0; i < cells.size(); ++i)
+    {
+        if (cells[i].IsValid())
+        {
+            outLocalBoxes.push_back(cells[i]);
+        }
+    }
+}
+
 bool InstancedMesh3D::ShouldUnroll() const
 {
     Platform platform = GetPlatform();
@@ -578,6 +622,9 @@ void InstancedMesh3D::Unroll()
         }
     }
 
+    std::vector<AABB> bucketBoxes;
+    ComputeUnrollBuckets(bucketBoxes);
+
     // Iterate over all cell datas and remove ones that have 0 instances
     uint32_t numUnrolledCells = 0;
     for (uint32_t i = 0; i < unrolledVertexData.size(); ++i)
@@ -603,6 +650,10 @@ void InstancedMesh3D::Unroll()
         cellNode->SetCullDistance(mUnrolledCullDistance);
         cellNode->EnableOccluder(mOccluder);
         cellNode->EnableOccludee(mOccludee);
+        if (numUnrolledCells < bucketBoxes.size())
+        {
+            cellNode->SetOcclusionMatchBox(bucketBoxes[numUnrolledCells]);
+        }
 
         ++numUnrolledCells;
     }

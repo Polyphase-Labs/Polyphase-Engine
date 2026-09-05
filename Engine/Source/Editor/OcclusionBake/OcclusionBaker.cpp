@@ -14,6 +14,7 @@
 #include "Nodes/3D/Primitive3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/InstancedMesh3d.h"
+#include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/3D/Terrain3d.h"
 #include "Nodes/3D/Voxel3d.h"
 #include "Nodes/3D/TextMesh3d.h"
@@ -50,9 +51,10 @@ struct BvhNode
 
 struct Occludee
 {
-    Primitive3D* mNode = nullptr;
+    std::string mName;
     AABB mBox;
     std::vector<glm::vec3> mTargets;
+    int32_t mReuseIndex = -1;   // index into the previous bake's occludees, or -1
 };
 
 struct BakeSettings
@@ -65,6 +67,10 @@ struct BakeSettings
 const uint32_t kMaxTrisPerLeaf = 4;
 const uint32_t kWarnCells = 65536;
 const uint32_t kMaxCells = 262144;
+const float kLargeOccludeeCells = 8.0f;     // warn when an occludee spans more than this many cells
+const uint32_t kMaxDynamicSamples = 9;      // cell samples used for the coarse (dynamic) table
+const uint32_t kBakeAlgorithm = 2;          // bump when sampling changes so old bits are not reused
+const uint32_t kTargetCoarseCells = 512;    // pick the coarse factor so the table stays around this size
 
 class TriangleBvh
 {
@@ -266,6 +272,7 @@ bool IsEligibleOccludeeType(Node* node)
         return false;
 
     return node->As<StaticMesh3D>() != nullptr ||
+        node->As<SkeletalMesh3D>() != nullptr ||
         node->As<Terrain3D>() != nullptr ||
         node->As<Voxel3D>() != nullptr ||
         node->As<TextMesh3D>() != nullptr;
@@ -376,7 +383,6 @@ void AddFaceGridTargets(glm::vec3 c, glm::vec3 e, int32_t n, float sign, uint32_
     {
         for (uint32_t iv = 0; iv < nv; ++iv)
         {
-            // Interior points only; corners and face centers are added separately.
             float fu = (nu == 1) ? 0.0f : (-1.0f + 2.0f * (iu + 0.5f) / nu);
             float fv = (nv == 1) ? 0.0f : (-1.0f + 2.0f * (iv + 0.5f) / nv);
 
@@ -389,7 +395,9 @@ void AddFaceGridTargets(glm::vec3 c, glm::vec3 e, int32_t n, float sign, uint32_
     }
 }
 
-void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSettings& settings, float cellSize, std::vector<glm::vec3>& outTargets)
+// Box-only targets: center, corners, face centers, and a face grid for boxes
+// larger than a couple of cells.
+void GatherBoxTargets(const AABB& box, const BakeSettings& settings, float cellSize, std::vector<glm::vec3>& outTargets)
 {
     glm::vec3 c = box.GetCenter();
     glm::vec3 e = box.GetExtents();
@@ -414,35 +422,37 @@ void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSetting
     // Large objects (walls, floors) are only ever partially hidden. Corners and
     // face centers alone miss the case where an occluder covers those points
     // but the middle of a face is still in view, so spread extra targets over
-    // every face that is bigger than a couple of cells. Capped per axis so a
-    // huge wall stays affordable.
+    // every face that is bigger than a couple of cells.
+    const float spacing = 2.0f * cellSize;
+    const uint32_t kMaxPerAxis = settings.mMeshVertexTargets >= 24 ? 8u : 6u;
+    glm::vec3 size = box.GetSize();
+
+    uint32_t counts[3];
+    bool anyLarge = false;
+    for (int32_t axis = 0; axis < 3; ++axis)
     {
-        const float spacing = 2.0f * cellSize;
-        const uint32_t kMaxPerAxis = settings.mMeshVertexTargets >= 24 ? 8u : 6u;
-        glm::vec3 size = box.GetSize();
+        counts[axis] = glm::clamp<uint32_t>((uint32_t)ceilf(size[axis] / spacing), 1, kMaxPerAxis);
+        anyLarge = anyLarge || (size[axis] > spacing);
+    }
 
-        uint32_t counts[3];
-        bool anyLarge = false;
-        for (int32_t axis = 0; axis < 3; ++axis)
+    if (anyLarge)
+    {
+        for (int32_t n = 0; n < 3; ++n)
         {
-            counts[axis] = glm::clamp((uint32_t)ceilf(size[axis] / spacing), 1u, kMaxPerAxis);
-            anyLarge = anyLarge || (size[axis] > spacing);
-        }
+            uint32_t nu = counts[(n + 1) % 3];
+            uint32_t nv = counts[(n + 2) % 3];
+            if (nu * nv <= 1)
+                continue;
 
-        if (anyLarge)
-        {
-            for (int32_t n = 0; n < 3; ++n)
-            {
-                uint32_t nu = counts[(n + 1) % 3];
-                uint32_t nv = counts[(n + 2) % 3];
-                if (nu * nv <= 1)
-                    continue;
-
-                AddFaceGridTargets(c, e, n, 1.0f, nu, nv, outTargets);
-                AddFaceGridTargets(c, e, n, -1.0f, nu, nv, outTargets);
-            }
+            AddFaceGridTargets(c, e, n, 1.0f, nu, nv, outTargets);
+            AddFaceGridTargets(c, e, n, -1.0f, nu, nv, outTargets);
         }
     }
+}
+
+void GatherOccludeeTargets(Primitive3D* prim, const AABB& box, const BakeSettings& settings, float cellSize, std::vector<glm::vec3>& outTargets)
+{
+    GatherBoxTargets(box, settings, cellSize, outTargets);
 
     StaticMesh3D* meshNode = prim->As<StaticMesh3D>();
     if (settings.mMeshVertexTargets > 0 && meshNode != nullptr && meshNode->As<InstancedMesh3D>() == nullptr)
@@ -483,7 +493,10 @@ void GenerateCellSamples(const AABB& cell, uint32_t cellIndex, uint32_t numSampl
     outSamples.clear();
     glm::vec3 c = cell.GetCenter();
     glm::vec3 e = cell.GetExtents();
-    glm::vec3 insetE = e * 0.9f;
+    // Samples must reach the cell faces: the camera can sit right at the top
+    // of a cell and see over a low wall that a sample inset from the face
+    // would not clear. 2% keeps them off shared cell boundaries.
+    glm::vec3 insetE = e * 0.98f;
 
     outSamples.push_back(c);
 
@@ -533,6 +546,33 @@ bool IsPointInsideSolid(const TriangleBvh& bvh, glm::vec3 point, float maxDist)
     return backFacing >= 4;
 }
 
+// True if any sample -> target segment is unblocked.
+bool AnyLineOfSight(const TriangleBvh& bvh, const std::vector<glm::vec3>& samples, size_t maxSamples,
+    const std::vector<glm::vec3>& targets, float rayEps)
+{
+    size_t numSamples = glm::min(samples.size(), maxSamples);
+    for (size_t si = 0; si < numSamples; ++si)
+    {
+        const glm::vec3& s = samples[si];
+        for (size_t ti = 0; ti < targets.size(); ++ti)
+        {
+            glm::vec3 delta = targets[ti] - s;
+            float dist = glm::length(delta);
+            if (dist <= rayEps)
+            {
+                return true;
+            }
+
+            glm::vec3 dir = delta / dist;
+            if (!bvh.AnyHit(s, dir, rayEps, dist - rayEps))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 uint64_t HashWords(const uint32_t* words, uint32_t count)
 {
     uint64_t hash = 1469598103934665603ULL;
@@ -542,6 +582,44 @@ uint64_t HashWords(const uint32_t* words, uint32_t count)
         hash *= 1099511628211ULL;
     }
     return hash;
+}
+
+// Deduplicate per-cell bitsets into a pool. Cells flagged all-visible map to kNoSet.
+void PackSets(uint32_t numCells, uint32_t wordsPerSet, const std::vector<uint32_t>& cellWords,
+    const std::vector<uint8_t>& cellAllVisible, std::vector<uint32_t>& outCellToSet, std::vector<uint32_t>& outPool)
+{
+    outCellToSet.assign(numCells, OcclusionData::kNoSet);
+    outPool.clear();
+
+    std::unordered_map<uint64_t, std::vector<uint32_t>> lookup;
+    for (uint32_t cell = 0; cell < numCells; ++cell)
+    {
+        if (cellAllVisible[cell])
+            continue;
+
+        const uint32_t* words = &cellWords[(size_t)cell * wordsPerSet];
+        uint64_t hash = HashWords(words, wordsPerSet);
+        std::vector<uint32_t>& candidates = lookup[hash];
+
+        uint32_t setIndex = OcclusionData::kNoSet;
+        for (uint32_t candidate : candidates)
+        {
+            if (memcmp(&outPool[(size_t)candidate * wordsPerSet], words, wordsPerSet * sizeof(uint32_t)) == 0)
+            {
+                setIndex = candidate;
+                break;
+            }
+        }
+
+        if (setIndex == OcclusionData::kNoSet)
+        {
+            setIndex = (uint32_t)(outPool.size() / wordsPerSet);
+            outPool.insert(outPool.end(), words, words + wordsPerSet);
+            candidates.push_back(setIndex);
+        }
+
+        outCellToSet[cell] = setIndex;
+    }
 }
 
 BakeSettings SettingsForQuality(uint8_t quality)
@@ -568,6 +646,12 @@ BakeSettings SettingsForQuality(uint8_t quality)
     return settings;
 }
 
+bool NearlyEqual(glm::vec3 a, glm::vec3 b, float eps)
+{
+    glm::vec3 d = glm::abs(a - b);
+    return d.x <= eps && d.y <= eps && d.z <= eps;
+}
+
 } // namespace
 
 void OcclusionBaker::BakeCurrentScene()
@@ -590,6 +674,7 @@ void OcclusionBaker::BakeCurrentScene()
 
     const float cellSize = glm::max(scene->GetOcclusionCellSize(), 0.25f);
     const BakeSettings settings = SettingsForQuality(scene->GetOcclusionBakeQuality());
+    const bool wantDynamic = scene->IsOcclusionDynamicEnabled();
 
     auto startTime = std::chrono::steady_clock::now();
     EditorProgress::Begin("Baking Occlusion Culling", "Gathering geometry...", true);
@@ -600,6 +685,7 @@ void OcclusionBaker::BakeCurrentScene()
     std::vector<Occludee> occludees;
     std::vector<OcclusionEntry> occluderEntries;
     std::vector<OcclusionArea3D*> areas;
+    std::vector<std::string> largeOccludees;
 
     auto gather = [&](Node* node) -> bool
     {
@@ -636,10 +722,41 @@ void OcclusionBaker::BakeCurrentScene()
         if (prim->IsOccludee() && validBox)
         {
             Occludee occludee;
-            occludee.mNode = prim;
+            occludee.mName = prim->GetName();
             occludee.mBox = box;
             GatherOccludeeTargets(prim, box, settings, cellSize, occludee.mTargets);
             occludees.push_back(std::move(occludee));
+
+            glm::vec3 size = box.GetSize();
+            float maxSize = glm::max(size.x, glm::max(size.y, size.z));
+            if (maxSize > kLargeOccludeeCells * cellSize)
+            {
+                largeOccludees.push_back(prim->GetName());
+            }
+
+            // Consoles unroll InstancedMesh3D into one StaticMesh3D per cell on
+            // load. Bake one occludee per unroll cell as well so those children
+            // cull individually instead of inheriting the whole node's bit.
+            if (InstancedMesh3D* instNode = prim->As<InstancedMesh3D>())
+            {
+                std::vector<AABB> buckets;
+                instNode->ComputeUnrollBuckets(buckets);
+                if (buckets.size() > 1)
+                {
+                    const glm::mat4 nodeTransform = instNode->GetTransform();
+                    for (uint32_t b = 0; b < buckets.size(); ++b)
+                    {
+                        if (!buckets[b].IsValid())
+                            continue;
+
+                        Occludee bucket;
+                        bucket.mName = prim->GetName() + " [cell]";
+                        bucket.mBox = buckets[b].Transform(nodeTransform);
+                        GatherBoxTargets(bucket.mBox, settings, cellSize, bucket.mTargets);
+                        occludees.push_back(std::move(bucket));
+                    }
+                }
+            }
         }
 
         return true;
@@ -658,6 +775,22 @@ void OcclusionBaker::BakeCurrentScene()
         EditorProgress::End();
         LogWarning("Occlusion bake: no opaque geometry has 'Occluder Static' enabled. Nothing to bake.");
         return;
+    }
+
+    if (!largeOccludees.empty())
+    {
+        std::string names;
+        for (size_t i = 0; i < largeOccludees.size() && i < 8; ++i)
+        {
+            if (i > 0) names += ", ";
+            names += largeOccludees[i];
+        }
+        if (largeOccludees.size() > 8)
+        {
+            names += " (+" + std::to_string(largeOccludees.size() - 8) + " more)";
+        }
+        LogWarning("Occlusion bake: %u occludee(s) span more than %.0f cells and will rarely be culled: %s. Split them into segments, or untick 'Occludee Static' and keep 'Occluder Static'.",
+            (uint32_t)largeOccludees.size(), kLargeOccludeeCells, names.c_str());
     }
 
     // Bake volume.
@@ -686,9 +819,9 @@ void OcclusionBaker::BakeCurrentScene()
     }
 
     glm::vec3 volumeSize = volume.GetSize();
-    uint32_t dimX = glm::max(1u, (uint32_t)ceilf(volumeSize.x / cellSize));
-    uint32_t dimY = glm::max(1u, (uint32_t)ceilf(volumeSize.y / cellSize));
-    uint32_t dimZ = glm::max(1u, (uint32_t)ceilf(volumeSize.z / cellSize));
+    uint32_t dimX = glm::max<uint32_t>(1, (uint32_t)ceilf(volumeSize.x / cellSize));
+    uint32_t dimY = glm::max<uint32_t>(1, (uint32_t)ceilf(volumeSize.y / cellSize));
+    uint32_t dimZ = glm::max<uint32_t>(1, (uint32_t)ceilf(volumeSize.z / cellSize));
     uint64_t numCells64 = (uint64_t)dimX * dimY * dimZ;
 
     if (numCells64 > kMaxCells)
@@ -708,6 +841,67 @@ void OcclusionBaker::BakeCurrentScene()
     const uint32_t numOccludees = (uint32_t)occludees.size();
     const uint32_t wordsPerSet = (numOccludees + 31) / 32;
 
+    // Coarse grid for dynamic occludees.
+    uint32_t coarseFactor = 0;
+    uint32_t coarseDimX = 0, coarseDimY = 0, coarseDimZ = 0;
+    uint32_t numCoarse = 0;
+    uint32_t wordsPerCoarseSet = 0;
+    if (wantDynamic)
+    {
+        float f = cbrtf((float)numCells / (float)kTargetCoarseCells);
+        coarseFactor = glm::clamp<uint32_t>((uint32_t)ceilf(f), 4, 16);
+        coarseDimX = (dimX + coarseFactor - 1) / coarseFactor;
+        coarseDimY = (dimY + coarseFactor - 1) / coarseFactor;
+        coarseDimZ = (dimZ + coarseFactor - 1) / coarseFactor;
+        numCoarse = coarseDimX * coarseDimY * coarseDimZ;
+        wordsPerCoarseSet = (numCoarse + 31) / 32;
+    }
+
+    // Incremental bake: when the grid and every occluder are unchanged, the
+    // visibility of occludees that already existed cannot have changed, so
+    // their bits (and the dynamic table) are copied from the previous bake.
+    const OcclusionData& old = scene->GetOcclusionData();
+    bool reuseStatic = false;
+    bool reuseDynamic = false;
+    uint32_t numReused = 0;
+    if (old.IsValid() &&
+        old.mDimX == dimX && old.mDimY == dimY && old.mDimZ == dimZ &&
+        fabsf(old.mCellSize - cellSize) < 1e-4f &&
+        NearlyEqual(old.mMin, volume.mMin, 1e-3f) &&
+        old.mOccluders.size() == occluderEntries.size() &&
+        old.mBakeAlgorithm == kBakeAlgorithm)
+    {
+        OcclusionEntryIndex occluderIndex;
+        occluderIndex.Build(old.mOccluders, cellSize);
+        std::vector<uint8_t> matched(old.mOccluders.size(), 0);
+        bool allMatched = true;
+        for (const OcclusionEntry& e : occluderEntries)
+        {
+            int32_t idx = occluderIndex.Find(e.mCenter, e.mExtents);
+            if (idx < 0 || matched[idx])
+            {
+                allMatched = false;
+                break;
+            }
+            matched[idx] = 1;
+        }
+
+        if (allMatched)
+        {
+            reuseStatic = true;
+            OcclusionEntryIndex occludeeIndex;
+            occludeeIndex.Build(old.mOccludees, cellSize);
+            for (Occludee& o : occludees)
+            {
+                o.mReuseIndex = occludeeIndex.Find(o.mBox.GetCenter(), o.mBox.GetExtents());
+                if (o.mReuseIndex >= 0)
+                    ++numReused;
+            }
+
+            reuseDynamic = wantDynamic && old.HasDynamicTable() && old.mCoarseFactor == coarseFactor;
+        }
+    }
+
     EditorProgress::SetStatus("Building BVH...");
     TriangleBvh bvh;
     const uint32_t numTris = (uint32_t)tris.size();
@@ -722,11 +916,50 @@ void OcclusionBaker::BakeCurrentScene()
         nearBoxes[i].Expand(cellSize);
     }
 
+    // Coarse cell boxes + targets.
+    std::vector<AABB> coarseNearBoxes(numCoarse);
+    std::vector<std::vector<glm::vec3>> coarseTargets(numCoarse);
+    if (wantDynamic && !reuseDynamic)
+    {
+        const float coarseSize = cellSize * float(coarseFactor);
+        const float inset = 0.25f * cellSize;
+        for (uint32_t i = 0; i < numCoarse; ++i)
+        {
+            uint32_t x = i % coarseDimX;
+            uint32_t y = (i / coarseDimX) % coarseDimY;
+            uint32_t z = i / (coarseDimX * coarseDimY);
+            glm::vec3 bmin = volume.mMin + glm::vec3(float(x), float(y), float(z)) * coarseSize;
+            glm::vec3 bmax = glm::min(bmin + glm::vec3(coarseSize), volume.mMax);
+            AABB box(bmin, bmax);
+
+            coarseNearBoxes[i] = box;
+            coarseNearBoxes[i].Expand(cellSize);
+
+            AABB target = box;
+            target.Expand(-inset);
+            if (!target.IsValid()) target = box;
+            glm::vec3 c = target.GetCenter();
+            glm::vec3 e = target.GetExtents();
+            coarseTargets[i].push_back(c);
+            for (int32_t k = 0; k < 8; ++k)
+            {
+                coarseTargets[i].push_back(c + glm::vec3((k & 1) ? e.x : -e.x, (k & 2) ? e.y : -e.y, (k & 4) ? e.z : -e.z));
+            }
+        }
+    }
+
     const float rayEps = 1e-3f * cellSize;
     const float solidProbeDist = 4.0f * cellSize;
 
     std::vector<uint32_t> cellWords((size_t)numCells * wordsPerSet, 0u);
     std::vector<uint8_t> cellAllVisible(numCells, 0);
+    std::vector<uint32_t> coarseWords;
+    std::vector<uint8_t> coarseAllVisible;
+    if (wantDynamic && !reuseDynamic)
+    {
+        coarseWords.assign((size_t)numCells * wordsPerCoarseSet, 0u);
+        coarseAllVisible.assign(numCells, 0);
+    }
 
     std::atomic<uint32_t> nextCell(0);
     std::atomic<uint32_t> doneCells(0);
@@ -749,6 +982,9 @@ void OcclusionBaker::BakeCurrentScene()
             glm::vec3 cellMin = volume.mMin + glm::vec3(float(x), float(y), float(z)) * cellSize;
             AABB cellBox(cellMin, cellMin + glm::vec3(cellSize));
 
+            const uint32_t* oldSet = reuseStatic ? old.GetSet((int32_t)cell) : nullptr;
+            const bool oldAllVisible = reuseStatic && old.GetCellSetIndex((int32_t)cell) == OcclusionData::kNoSet;
+
             GenerateCellSamples(cellBox, cell, settings.mCellSamples, samples);
 
             validSamples.clear();
@@ -765,6 +1001,8 @@ void OcclusionBaker::BakeCurrentScene()
                 // Entire cell is inside geometry. Be conservative in case the
                 // camera clips through a wall.
                 cellAllVisible[cell] = 1;
+                if (!coarseAllVisible.empty())
+                    coarseAllVisible[cell] = 1;
                 doneCells.fetch_add(1);
                 continue;
             }
@@ -777,32 +1015,17 @@ void OcclusionBaker::BakeCurrentScene()
                 if (cancel.load())
                     break;
 
-                bool visible = nearBoxes[o].Intersects(cellBox);
+                bool visible = false;
+                const Occludee& occludee = occludees[o];
 
-                if (!visible)
+                if (reuseStatic && occludee.mReuseIndex >= 0)
                 {
-                    const std::vector<glm::vec3>& targets = occludees[o].mTargets;
-                    for (size_t si = 0; si < validSamples.size() && !visible; ++si)
-                    {
-                        const glm::vec3& s = validSamples[si];
-                        for (size_t ti = 0; ti < targets.size(); ++ti)
-                        {
-                            glm::vec3 delta = targets[ti] - s;
-                            float dist = glm::length(delta);
-                            if (dist <= rayEps)
-                            {
-                                visible = true;
-                                break;
-                            }
-
-                            glm::vec3 dir = delta / dist;
-                            if (!bvh.AnyHit(s, dir, rayEps, dist - rayEps))
-                            {
-                                visible = true;
-                                break;
-                            }
-                        }
-                    }
+                    visible = oldAllVisible || old.IsVisible(oldSet, (uint32_t)occludee.mReuseIndex);
+                }
+                else
+                {
+                    visible = nearBoxes[o].Intersects(cellBox) ||
+                        AnyLineOfSight(bvh, validSamples, validSamples.size(), occludee.mTargets, rayEps);
                 }
 
                 if (visible)
@@ -815,6 +1038,29 @@ void OcclusionBaker::BakeCurrentScene()
             if (visibleCount == numOccludees)
             {
                 cellAllVisible[cell] = 1;
+            }
+
+            if (!coarseWords.empty())
+            {
+                uint32_t* cwords = &coarseWords[(size_t)cell * wordsPerCoarseSet];
+                uint32_t coarseVisible = 0;
+                for (uint32_t ci = 0; ci < numCoarse; ++ci)
+                {
+                    if (cancel.load())
+                        break;
+
+                    bool visible = coarseNearBoxes[ci].Intersects(cellBox) ||
+                        AnyLineOfSight(bvh, validSamples, kMaxDynamicSamples, coarseTargets[ci], rayEps);
+                    if (visible)
+                    {
+                        cwords[ci >> 5] |= (1u << (ci & 31));
+                        ++coarseVisible;
+                    }
+                }
+                if (coarseVisible == numCoarse)
+                {
+                    coarseAllVisible[cell] = 1;
+                }
             }
 
             doneCells.fetch_add(1);
@@ -832,7 +1078,7 @@ void OcclusionBaker::BakeCurrentScene()
         threads.emplace_back(worker);
     }
 
-    char statusBuf[128];
+    char statusBuf[160];
     while (true)
     {
         uint32_t done = doneCells.load();
@@ -845,7 +1091,11 @@ void OcclusionBaker::BakeCurrentScene()
             break;
         }
 
-        snprintf(statusBuf, sizeof(statusBuf), "Cell %u / %u (%u occludees, %u triangles)", done, numCells, numOccludees, numTris);
+        snprintf(statusBuf, sizeof(statusBuf), "Cell %u / %u (%u occludees%s, %u triangles%s)",
+            done, numCells, numOccludees,
+            reuseStatic ? ", incremental" : "",
+            numTris,
+            (wantDynamic && !reuseDynamic) ? ", + dynamic table" : "");
         EditorProgress::Step(statusBuf, (int)done, (int)numCells);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
@@ -864,7 +1114,6 @@ void OcclusionBaker::BakeCurrentScene()
 
     EditorProgress::SetStatus("Packing visibility sets...");
 
-    // Deduplicate identical bitsets so large grids stay small.
     OcclusionData data;
     data.mMin = volume.mMin;
     data.mCellSize = cellSize;
@@ -872,36 +1121,34 @@ void OcclusionBaker::BakeCurrentScene()
     data.mDimY = dimY;
     data.mDimZ = dimZ;
     data.mWordsPerSet = wordsPerSet;
-    data.mCellToSet.assign(numCells, OcclusionData::kNoSet);
+    data.mBakeAlgorithm = kBakeAlgorithm;
 
-    std::unordered_map<uint64_t, std::vector<uint32_t>> setLookup;
-    for (uint32_t cell = 0; cell < numCells; ++cell)
     {
-        if (cellAllVisible[cell])
-            continue;
+        std::vector<uint32_t> cellToSet;
+        PackSets(numCells, wordsPerSet, cellWords, cellAllVisible, cellToSet, data.mSetPool);
+        data.SetCellSetIndices(cellToSet);
+    }
 
-        const uint32_t* words = &cellWords[(size_t)cell * wordsPerSet];
-        uint64_t hash = HashWords(words, wordsPerSet);
-        std::vector<uint32_t>& candidates = setLookup[hash];
+    if (wantDynamic)
+    {
+        data.mCoarseFactor = coarseFactor;
+        data.mCoarseDimX = coarseDimX;
+        data.mCoarseDimY = coarseDimY;
+        data.mCoarseDimZ = coarseDimZ;
+        data.mWordsPerCoarseSet = wordsPerCoarseSet;
 
-        uint32_t setIndex = OcclusionData::kNoSet;
-        for (uint32_t candidate : candidates)
+        if (reuseDynamic)
         {
-            if (memcmp(&data.mSetPool[(size_t)candidate * wordsPerSet], words, wordsPerSet * sizeof(uint32_t)) == 0)
-            {
-                setIndex = candidate;
-                break;
-            }
+            data.mCellToCoarseSet16 = old.mCellToCoarseSet16;
+            data.mCellToCoarseSet32 = old.mCellToCoarseSet32;
+            data.mCoarseSetPool = old.mCoarseSetPool;
         }
-
-        if (setIndex == OcclusionData::kNoSet)
+        else
         {
-            setIndex = (uint32_t)(data.mSetPool.size() / wordsPerSet);
-            data.mSetPool.insert(data.mSetPool.end(), words, words + wordsPerSet);
-            candidates.push_back(setIndex);
+            std::vector<uint32_t> cellToCoarse;
+            PackSets(numCells, wordsPerCoarseSet, coarseWords, coarseAllVisible, cellToCoarse, data.mCoarseSetPool);
+            data.SetCellCoarseSetIndices(cellToCoarse);
         }
-
-        data.mCellToSet[cell] = setIndex;
     }
 
     data.mOccludees.resize(numOccludees);
@@ -913,7 +1160,9 @@ void OcclusionBaker::BakeCurrentScene()
     data.mOccluders = occluderEntries;
 
     uint32_t uniqueSets = data.GetNumUniqueSets();
-    size_t bytes = data.GetMemoryBytes();
+    uint32_t uniqueCoarse = data.GetNumUniqueCoarseSets();
+    size_t staticBytes = data.GetStaticTableBytes();
+    size_t dynamicBytes = data.GetDynamicTableBytes();
 
     scene->SetOcclusionData(std::move(data));
     scene->SetDirtyFlag();
@@ -922,8 +1171,17 @@ void OcclusionBaker::BakeCurrentScene()
     EditorProgress::End();
 
     float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count();
-    LogDebug("Occlusion bake complete: %u occludees, %u occluders (%u tris), %u x %u x %u cells (%.1f m), %u unique sets, %u KB, %.1f s",
-        numOccludees, (uint32_t)occluderEntries.size(), numTris, dimX, dimY, dimZ, cellSize, uniqueSets, (uint32_t)(bytes / 1024), elapsed);
+    LogDebug("Occlusion bake complete: %u occludees (%u reused), %u occluders (%u tris), %u x %u x %u cells (%.1f m), %u unique sets, static %u KB, dynamic %u KB (%u coarse cells, %u sets%s), %.1f s",
+        numOccludees, numReused, (uint32_t)occluderEntries.size(), numTris, dimX, dimY, dimZ, cellSize, uniqueSets,
+        (uint32_t)(staticBytes / 1024), (uint32_t)(dynamicBytes / 1024), numCoarse, uniqueCoarse,
+        reuseDynamic ? ", reused" : "", elapsed);
+
+    uint32_t budgetKB = scene->GetOcclusionConsoleBudgetKB();
+    if (budgetKB > 0 && (staticBytes + dynamicBytes) > size_t(budgetKB) * 1024)
+    {
+        LogWarning("Occlusion data (%u KB) exceeds this scene's console budget (%u KB); it will be stripped from console builds. Raise 'Occlusion Console Budget KB', use a larger cell size, or disable the dynamic table.",
+            (uint32_t)((staticBytes + dynamicBytes) / 1024), budgetKB);
+    }
 }
 
 void OcclusionBaker::ClearCurrentScene()

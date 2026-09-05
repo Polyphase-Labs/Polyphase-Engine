@@ -9,6 +9,7 @@
 #include "Nodes/Node.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
 #include "Nodes/Widgets/Widget.h"
+#include "Utilities.h"
 
 #include <new>
 
@@ -298,12 +299,25 @@ void Scene::LoadStream(Stream& stream, Platform platform)
         mOcclusionCellSize = stream.ReadFloat();
         mOcclusionBakeQuality = stream.ReadUint8();
         mOcclusionData.LoadStream(stream, mVersion);
+
+        if (mVersion >= ASSET_VERSION_SCENE_OCCLUSION_DYNAMIC)
+        {
+            mOcclusionDynamic = stream.ReadBool();
+            mOcclusionConsoleBudgetKB = stream.ReadInt32();
+        }
+        else
+        {
+            mOcclusionDynamic = true;
+            mOcclusionConsoleBudgetKB = 512;
+        }
     }
     else
     {
         mOcclusionCullingEnabled = false;
         mOcclusionCellSize = 4.0f;
         mOcclusionBakeQuality = 1;
+        mOcclusionDynamic = true;
+        mOcclusionConsoleBudgetKB = 512;
         mOcclusionData.Clear();
     }
 }
@@ -450,7 +464,33 @@ void Scene::SaveStream(Stream& stream, Platform platform)
     stream.WriteBool(mOcclusionCullingEnabled);
     stream.WriteFloat(mOcclusionCellSize);
     stream.WriteUint8(mOcclusionBakeQuality);
-    mOcclusionData.SaveStream(stream);
+
+    // Console cooks can opt out of carrying the visibility tables when they
+    // exceed the scene's budget. The editor copy always keeps them.
+    bool strip = false;
+    if (platform != Platform::Count && IsPlatformConsole(platform) && mOcclusionConsoleBudgetKB > 0)
+    {
+        size_t bytes = mOcclusionData.GetMemoryBytes();
+        if (bytes > size_t(mOcclusionConsoleBudgetKB) * 1024)
+        {
+            strip = true;
+            LogWarning("Scene %s: occlusion data (%u KB) exceeds the console budget (%d KB); stripping it from the %s cook.",
+                GetName().c_str(), (uint32_t)(bytes / 1024), mOcclusionConsoleBudgetKB, GetPlatformString(platform));
+        }
+    }
+
+    if (strip)
+    {
+        OcclusionData empty;
+        empty.SaveStream(stream);
+    }
+    else
+    {
+        mOcclusionData.SaveStream(stream);
+    }
+
+    stream.WriteBool(mOcclusionDynamic);
+    stream.WriteInt32(mOcclusionConsoleBudgetKB);
 }
 
 void Scene::Create()
@@ -484,6 +524,8 @@ void Scene::GatherProperties(std::vector<Property>& outProps)
         outProps.push_back(Property(DatumType::Bool, "Occlusion Culling", this, &mOcclusionCullingEnabled, 1, HandlePropChange));
         outProps.push_back(Property(DatumType::Float, "Occlusion Cell Size", this, &mOcclusionCellSize, 1, HandlePropChange));
         outProps.push_back(Property(DatumType::Byte, "Occlusion Bake Quality", this, &mOcclusionBakeQuality, 1, HandlePropChange, NULL_DATUM, 3, sOcclusionQualityStrings));
+        outProps.push_back(Property(DatumType::Bool, "Occlusion Dynamic Objects", this, &mOcclusionDynamic, 1, HandlePropChange));
+        outProps.push_back(Property(DatumType::Integer, "Occlusion Console Budget KB", this, &mOcclusionConsoleBudgetKB, 1, HandlePropChange));
     }
 
 #if EDITOR

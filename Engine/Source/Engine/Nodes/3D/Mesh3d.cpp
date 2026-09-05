@@ -228,15 +228,20 @@ DrawData Mesh3D::GetDrawData()
     data.mSortPriority = material ? material->GetSortPriority() : 0;
     data.mDepthless = material ? material->IsDepthTestDisabled() : false;
 
-    if (mOcclusionSlot != 0)
+    if (mOccludee)
     {
-        // An occludee that moved since the bake is no longer covered by the
-        // baked visibility table, so treat it as always visible.
+        // A baked occludee that has not moved uses its static bit. Anything
+        // else (moved, spawned at runtime, animated) falls back to the coarse
+        // dynamic table, tested by its current bounds.
         World* world = GetWorld();
         float eps2 = world ? world->GetOcclusionMoveEpsilon2() : 0.0f;
-        if (glm::distance2(data.mBounds.mCenter, mOcclusionBakedCenter) <= eps2)
+        if (mOcclusionSlot != 0 && glm::distance2(data.mBounds.mCenter, mOcclusionBakedCenter) <= eps2)
         {
             data.mOcclusionSlot = mOcclusionSlot;
+        }
+        else
+        {
+            data.mOcclusionSlot = DrawData::kDynamicOccludee;
         }
     }
 

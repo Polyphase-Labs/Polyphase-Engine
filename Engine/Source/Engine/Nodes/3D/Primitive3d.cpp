@@ -396,6 +396,21 @@ glm::vec3 Primitive3D::GetOcclusionBakedCenter() const
     return mOcclusionBakedCenter;
 }
 
+void Primitive3D::SetOcclusionMatchBox(const AABB& localBox)
+{
+    mOcclusionMatchBox = localBox;
+    mHasOcclusionMatchBox = true;
+}
+
+AABB Primitive3D::GetOcclusionMatchAABB() const
+{
+    if (mHasOcclusionMatchBox)
+    {
+        return mOcclusionMatchBox.Transform(mTransform);
+    }
+    return GetAABB();
+}
+
 float Primitive3D::GetMass() const
 {
     return mMass;
