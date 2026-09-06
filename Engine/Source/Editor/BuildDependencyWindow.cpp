@@ -63,7 +63,11 @@ void BuildDependencyWindow::CheckDevkitPro()
     BuildDependency dep;
     dep.mName = "devkitPro";
     dep.mDescription = "Required for GameCube / Wii / 3DS builds";
+#if PLATFORM_MAC
+    dep.mInstallHint = "Install devkitpro-pacman-installer.pkg from github.com/devkitPro/pacman/releases (installs to /opt/devkitpro)";
+#else
     dep.mInstallHint = "Download the devkitPro installer";
+#endif
     dep.mInstallUrl = "https://devkitpro.org/wiki/Getting_Started";
 
     std::string dkpPath = GetDevkitproPath();
@@ -105,7 +109,13 @@ static void CheckDevkitToolchain(
     BuildDependency dep;
     dep.mName = name;
     dep.mDescription = description;
+#if PLATFORM_MAC
+    dep.mInstallHint = std::string("Run: sudo dkp-pacman -S ") + pacmanPackage;
+#elif PLATFORM_LINUX
+    dep.mInstallHint = std::string("Run: sudo dkp-pacman -S ") + pacmanPackage;
+#else
     dep.mInstallHint = std::string("In the devkitPro MSYS2 shell run: pacman -S ") + pacmanPackage;
+#endif
     dep.mInstallUrl = "https://devkitpro.org/wiki/Getting_Started";
 
     std::string dkpPath = GetDevkitproPath();

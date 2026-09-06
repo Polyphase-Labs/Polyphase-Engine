@@ -270,10 +270,32 @@ static void SetupMacToolchainEnvironment()
         }
     }
 
+    // devkitPro (GameCube / Wii / 3DS). The pkg installer writes DEVKITPRO,
+    // DEVKITPPC and DEVKITARM to /etc/profile.d/devkit-env.sh, which only
+    // login shells read; the console Makefiles need them in our environment
+    // because make inherits it from us.
+    const bool haveDevkitPro = DoesDirExist("/opt/devkitpro");
+    if (haveDevkitPro)
+    {
+        setenv("DEVKITPRO", "/opt/devkitpro", 0);
+        if (DoesDirExist("/opt/devkitpro/devkitPPC")) setenv("DEVKITPPC", "/opt/devkitpro/devkitPPC", 0);
+        if (DoesDirExist("/opt/devkitpro/devkitARM")) setenv("DEVKITARM", "/opt/devkitpro/devkitARM", 0);
+    }
+
     // PATH for the child processes (make, glslc, cmake, git, python3, ...).
     {
         std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
         std::string prefix;
+        if (haveDevkitPro)
+        {
+            for (const char* dir : { "/opt/devkitpro/tools/bin", "/opt/devkitpro/devkitPPC/bin", "/opt/devkitpro/devkitARM/bin" })
+            {
+                if (path.find(dir) == std::string::npos && DoesDirExist(dir))
+                {
+                    prefix += std::string(dir) + ":";
+                }
+            }
+        }
         if (!sdkRoot.empty() && path.find(sdkRoot + "/bin") == std::string::npos)
         {
             prefix += sdkRoot + "/bin:";

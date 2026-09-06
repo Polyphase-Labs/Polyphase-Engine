@@ -71,12 +71,19 @@ Only needed to package for GameCube, Wii or 3DS. Skip this section if you never 
    sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
    sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
    ```
+   If `--recv-keys` fails with *keyserver receive failed: No route to host* (the HKP port 11371 is often blocked), fetch the key over HTTPS and import the file instead:
+
+   ```bash
+   curl -o ~/Downloads/libogc2-key.asc "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xC8A2759C315CFBC3429CC2E422B803BA8AA3D7CE"
+   sudo dkp-pacman-key --add ~/Downloads/libogc2-key.asc
+   sudo dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE
+   ```
    - Add this entry to `/opt/devkitpro/pacman/etc/pacman.conf` above the existing `[dkp-libs]` entry. This is **file content, not commands** — the two `Server` lines are mirrors of the same repository (pacman falls back to the second if the first is unreachable), and both lines belong in the file:
 
      ```ini
      [libogc2-devkitpro]
-     Server = https://packages.libogc2.org/devkitpro/osx/$arch
-     Server = https://packages.extremscorner.org/devkitpro/osx/$arch
+     Server = https://packages.libogc2.org/devkitpro/macos/$arch
+     Server = https://packages.extremscorner.org/devkitpro/macos/$arch
      ```
    - Then sync and install (accept overwriting if asked):
 
@@ -125,12 +132,12 @@ The plain **Nintendo 3DS** build target needs nothing beyond `3ds-dev` above. Th
 
 | Tool | Needed for | Where it comes from |
 |------|-----------|---------------------|
-| `makerom` | the `.cia` (required) | [3DSGuy/Project_CTR releases](https://github.com/3DSGuy/Project_CTR/releases), `makerom-v0.19.0-macos_x86_64.zip` (runs under Rosetta) |
-| `bannertool` | HOME Menu banner and tune (optional) | [carstene1ns/3ds-bannertool releases](https://github.com/carstene1ns/3ds-bannertool/releases), `bannertool-1.2.3-macos.tar.gz` |
-| `cwavtool` | DSP-ADPCM tune encoding (optional, experimental) | [PabloMK7/cwavtool releases](https://github.com/PabloMK7/cwavtool/releases), `cwavtool.zip`, use `macos-x86_64/cwavtool` |
+| `makerom` | the `.cia` (required) | [3DSGuy/Project_CTR releases](https://github.com/3DSGuy/Project_CTR/releases), `makerom-v0.19.0-macos_arm64.zip` |
+| `bannertool` | HOME Menu banner and tune (optional) | No macOS binary is published. Build from source: [carstene1ns/3ds-bannertool](https://github.com/carstene1ns/3ds-bannertool) `bannertool-1.2.3.tar.gz`, then `make` and set the path in Preferences > External > Launchers |
+| `cwavtool` | DSP-ADPCM tune encoding (optional, experimental) | [PabloMK7/cwavtool releases](https://github.com/PabloMK7/cwavtool/releases), `cwavtool.zip`, use `mac-x86_64/cwavtool` (runs under Rosetta) |
 | Python 3.12 + pycgfx | 3D scene banners (optional) | `brew install python@3.12` and [skyfloogle/pycgfx](https://github.com/skyfloogle/pycgfx) |
 
-**Easiest:** in the editor open **Preferences > External > Launchers**, scroll to **3DS CIA Tools**, and click **Download makerom + bannertool + cwavtool**. The archives are fetched from the release pages above into `~/Library/Application Support/PolyphaseEditor/Tools/3DS`, made executable, and picked up immediately. Downloaded binaries are quarantined by Gatekeeper; if one refuses to run, `xattr -d com.apple.quarantine <tool>`.
+**Easiest:** in the editor open **Preferences > External > Launchers**, scroll to **3DS CIA Tools**, and click **Download makerom + bannertool + cwavtool**. makerom and cwavtool are fetched from the release pages above into `~/Library/Application Support/PolyphaseEditor/Tools/3DS`, made executable, and picked up immediately (bannertool is skipped with a warning on macOS, see the table). Downloaded binaries are quarantined by Gatekeeper; if one refuses to run, `xattr -d com.apple.quarantine <tool>`.
 
 **Manual:** extract the binaries, `chmod +x makerom bannertool cwavtool`, and either copy them into `/opt/devkitpro/tools/bin`, put them somewhere on `PATH` such as `~/.local/bin`, or set the path fields in the same Preferences page.
 

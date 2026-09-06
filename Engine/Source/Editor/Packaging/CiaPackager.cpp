@@ -62,6 +62,7 @@ namespace CiaPackager
 
         constexpr const char* kMakeromUrlWin   = "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-win_x86_64.zip";
         constexpr const char* kMakeromUrlLinux = "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip";
+        constexpr const char* kMakeromUrlMac   = "https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-macos_arm64.zip";
         constexpr const char* kBannertoolUrlWin   = "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-windows.zip";
         constexpr const char* kBannertoolUrlLinux = "https://github.com/carstene1ns/3ds-bannertool/releases/download/1.2.3/bannertool-1.2.3-linux.tar.gz";
         // Pinned to a commit: the engine's banner_cgfx.py calls into pycgfx's
@@ -462,6 +463,14 @@ namespace CiaPackager
             }
             if (matches.empty()) return "";
 
+#if PLATFORM_MAC
+            // cwavtool ships mac-x86_64/ (runs under Rosetta); never pick the
+            // linux-x86_64/ sibling on a Mac host.
+            for (const std::string& m : matches)
+            {
+                if (m.find("mac") != std::string::npos || m.find("osx") != std::string::npos || m.find("darwin") != std::string::npos) return m;
+            }
+#endif
             for (const std::string& m : matches)
             {
                 if (m.find("x86_64") != std::string::npos || m.find("x64") != std::string::npos) return m;
@@ -604,6 +613,8 @@ namespace CiaPackager
             {
 #if PLATFORM_WINDOWS
                 ok = InstallBinary(kMakeromUrlWin, "makerom-v0.19.0.zip", "makerom") && ok;
+#elif PLATFORM_MAC
+                ok = InstallBinary(kMakeromUrlMac, "makerom-v0.19.0.zip", "makerom") && ok;
 #else
                 ok = InstallBinary(kMakeromUrlLinux, "makerom-v0.19.0.zip", "makerom") && ok;
 #endif
@@ -613,6 +624,11 @@ namespace CiaPackager
             {
 #if PLATFORM_WINDOWS
                 ok = InstallBinary(kBannertoolUrlWin, "bannertool-1.2.3.zip", "bannertool") && ok;
+#elif PLATFORM_MAC
+                // No macOS release of bannertool exists. Build it from source
+                // (bannertool-1.2.3.tar.gz, `make`) and put it on PATH or set
+                // its path in Preferences > External > Launchers.
+                LogWarning("bannertool has no macOS release; build it from source (github.com/carstene1ns/3ds-bannertool) and set its path in Preferences > External > Launchers.");
 #else
                 ok = InstallBinary(kBannertoolUrlLinux, "bannertool-1.2.3.tar.gz", "bannertool") && ok;
 #endif
