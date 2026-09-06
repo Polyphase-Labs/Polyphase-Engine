@@ -1983,6 +1983,77 @@ void ActionManager::CancelBuild()
 #endif
 }
 
+// glslc from the Vulkan SDK: $VULKAN_SDK first, then PATH. Empty when absent.
+static std::string FindGlslcExecutable()
+{
+    const char* sdk = std::getenv("VULKAN_SDK");
+    if (sdk != nullptr && *sdk != 0)
+    {
+#if PLATFORM_WINDOWS
+        std::string candidate = std::string(sdk) + "/Bin/glslc.exe";
+#else
+        std::string candidate = std::string(sdk) + "/bin/glslc";
+#endif
+        if (SYS_DoesFileExist(candidate.c_str(), false))
+        {
+            return candidate;
+        }
+    }
+
+    std::string output;
+#if PLATFORM_WINDOWS
+    SYS_Exec("where glslc 2>nul", &output);
+#else
+    SYS_Exec("command -v glslc 2>/dev/null", &output);
+#endif
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
+    {
+        output.pop_back();
+    }
+    if (!output.empty() && SYS_DoesFileExist(output.c_str(), false))
+    {
+        return output;
+    }
+    return std::string();
+}
+
+// True when every shader source under <shaderDir>/src has a compiled
+// counterpart in <shaderDir>/bin. Installed editors ship bin/ prebuilt, so a
+// missing or broken glslc need not block packaging.
+static bool HasPrecompiledShaders(const std::string& shaderDir)
+{
+    std::string srcDir = shaderDir + "src";
+    std::string binDir = shaderDir + "bin/";
+    if (!DoesDirExist(srcDir.c_str()) || !DoesDirExist(binDir.c_str()))
+    {
+        return false;
+    }
+
+    bool complete = true;
+    uint32_t count = 0;
+    DirEntry entry;
+    SYS_OpenDirectory(srcDir, entry);
+    while (entry.mValid)
+    {
+        if (!entry.mDirectory)
+        {
+            const char* ext = strrchr(entry.mFilename, '.');
+            if (ext != nullptr && strcmp(ext, ".glsl") != 0)
+            {
+                ++count;
+                if (!SYS_DoesFileExist((binDir + entry.mFilename).c_str(), false))
+                {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        SYS_IterateDirectory(entry);
+    }
+    SYS_CloseDirectory(entry);
+    return complete && count > 0;
+}
+
 void ActionManager::BuildPhase1()
 {
     Platform platform = mBuildState.mPlatform;
@@ -2705,18 +2776,40 @@ void ActionManager::BuildPhase1()
         platform == Platform::Mac ||
         platform == Platform::Android)
     {
-        AppendBuildOutput("Compiling shaders...\n");
-#if PLATFORM_WINDOWS
-        std::string shaderCmd = "cd \"" + polyphaseDirectory + "Engine/Shaders/GLSL\" && \"./compile.bat\"";
-#else
-        std::string shaderCmd = "cd \"" + polyphaseDirectory + "Engine/Shaders/GLSL\" && \"./compile.sh\"";
-#endif
-        mBuildState.mShaderCompileCommand = shaderCmd;
-
-        // In headless mode, compile shaders synchronously here
-        if (IsHeadless())
+        // Shader compilation needs glslc from the Vulkan SDK, which end users
+        // of an installed editor rarely have. Engine/Shaders/GLSL/bin ships
+        // prebuilt, so without glslc we package those instead of failing.
+        const std::string shaderDir = polyphaseDirectory + "Engine/Shaders/GLSL/";
+        const std::string glslcPath = FindGlslcExecutable();
+        const bool havePrecompiled = HasPrecompiledShaders(shaderDir);
+        if (glslcPath.empty() && havePrecompiled)
         {
-            SYS_Exec(shaderCmd.c_str());
+            AppendBuildOutput("glslc (Vulkan SDK) not found; skipping shader compilation and "
+                              "packaging the precompiled shaders in Engine/Shaders/GLSL/bin.\n");
+            mBuildState.mShaderCompileCommand.clear();
+        }
+        else
+        {
+            if (glslcPath.empty())
+            {
+                AppendBuildOutput("WARNING: glslc (Vulkan SDK) not found and Engine/Shaders/GLSL/bin "
+                                  "has no precompiled shaders. Install the LunarG Vulkan SDK "
+                                  "(https://vulkan.lunarg.com/sdk/home) and set VULKAN_SDK.\n");
+            }
+            AppendBuildOutput("Compiling shaders...\n");
+#if PLATFORM_WINDOWS
+            // /d: the engine may live on a different drive than the shell's cwd.
+            std::string shaderCmd = "cd /d \"" + polyphaseDirectory + "Engine/Shaders/GLSL\" && \"./compile.bat\"";
+#else
+            std::string shaderCmd = "cd \"" + polyphaseDirectory + "Engine/Shaders/GLSL\" && \"./compile.sh\"";
+#endif
+            mBuildState.mShaderCompileCommand = shaderCmd;
+
+            // In headless mode, compile shaders synchronously here
+            if (IsHeadless())
+            {
+                SYS_Exec(shaderCmd.c_str());
+            }
         }
 
         CreateDir((packagedDir + "Engine/Shaders/").c_str());
@@ -4187,6 +4280,17 @@ void ActionManager::BuildCompileThreadFunc()
     if (!mBuildState.mShaderCompileCommand.empty() && !mBuildState.mCancelRequested.load())
     {
         int shaderExit = runStreamedCommand(mBuildState.mShaderCompileCommand, "--- Compiling shaders ---");
+        if (shaderExit != 0 && !mBuildState.mCancelRequested.load() &&
+            HasPrecompiledShaders(SYS_GetPolyphasePath() + "Engine/Shaders/GLSL/"))
+        {
+            // Same escape hatch the old console build offered by letting the
+            // user key past compile.bat's pause: the prebuilt SPIR-V in bin/
+            // is complete, so ship it rather than abort the whole package.
+            AppendBuildOutput("WARNING: shader compilation failed (exit code: " + std::to_string(shaderExit) +
+                              "). Continuing with the existing precompiled shaders in Engine/Shaders/GLSL/bin; "
+                              "they may be stale if shader sources were edited.\n");
+            shaderExit = 0;
+        }
         if (shaderExit != 0)
         {
             AppendBuildOutput("Shader compilation failed (exit code: " + std::to_string(shaderExit) + ")\n");
