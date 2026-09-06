@@ -228,8 +228,43 @@ struct Addon
     bool mIsInstalled = false;
     bool mIsMain = true;
     bool mIsStandalone = false; // Addon is entire repo, not a subdirectory
+    std::string mBranch = "main"; // Branch the registry publishes from (download + update checks)
     std::string mInstalledVersion;
     NativeModuleMetadata mNative;  // Native module configuration
+};
+
+/**
+ * @brief Where an install came from. Stamped onto the InstalledAddon record so
+ *        update checks and re-downloads use the same repo/branch.
+ */
+struct AddonInstallSource
+{
+    std::string mRepoUrl;
+    std::string mBranch;
+    std::string mCommit;      // Branch head SHA at install time (empty if lookup failed)
+    std::string mCommitDate;  // ISO date of that commit
+    bool mPinned = false;     // Ref was an explicit commit; never update-checked
+    bool mIsStandalone = true;
+};
+
+/**
+ * @brief Result of AddonManager::GetUpdateStatus.
+ */
+struct AddonUpdateStatus
+{
+    enum Kind
+    {
+        NotChecked,
+        UpToDate,
+        NewCommits,
+        NewVersion,
+        Pinned,
+        NoSource,
+        Error
+    };
+
+    Kind mKind = NotChecked;
+    std::string mDetail;
 };
 
 /**
@@ -268,6 +303,20 @@ struct InstalledAddon
     std::string mLastSyncSource;
     std::string mLastSyncStatus;
     bool mTrustedScripts = false; // User opted into "Always trust this addon" for onInstall scripts
+
+    // Install source, for update checks. Empty branch/commit on records written
+    // before commit tracking existed.
+    std::string mBranch;
+    std::string mCommit;
+    std::string mCommitDate;
+    bool mPinned = false;
+    bool mIsStandalone = true;
+
+    // Session-only result of the last "Check for Updates" (not serialized).
+    bool mUpdateChecked = false;
+    std::string mRemoteCommit;
+    std::string mRemoteCommitDate;
+    std::string mUpdateCheckError;
 };
 
 #endif

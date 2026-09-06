@@ -49,6 +49,17 @@ public:
     // through the project-restart path so they get compiled.
     void ProcessPendingInstalls();
 
+    // Drain EditorState::mPendingAddonUninstalls (queued dependents-first by
+    // the Remove modal). Pure Lua/asset addons are deleted under an
+    // EditorProgress modal and the Packages asset dir rescanned; if any
+    // queued addon's DLL is loaded, the whole batch goes through
+    // NativeAddonManager::RemoveNativeAddonsWithProjectRestart instead.
+    void ProcessPendingUninstalls();
+
+    // Drain EditorState::mCheckAddonUpdatesAtEndOfFrame: refresh the registry
+    // and query each installed addon's branch head under EditorProgress.
+    void ProcessPendingUpdateCheck();
+
 private:
     void DrawAddonBrowser();
     void DrawInstalledAddons();
@@ -67,7 +78,15 @@ private:
 
     void OnDownloadAddon(const std::string& addonId);
     void OnViewMore(const std::string& addonId);
+    // Queue the confirmed removal set (dependents first, target last).
     void OnUninstallAddon(const std::string& addonId);
+    // Compute dependents + native involvement for the Remove modal.
+    void RequestUninstall(const std::string& addonId);
+    // Open the Update confirm modal (files in Packages/<id> get replaced).
+    void RequestUpdate(const std::string& addonId);
+    void DrawUpdateConfirmPopup();
+    // "Up to date" / "New commits" / ... word with tooltip, from GetUpdateStatus.
+    void DrawUpdateStatusLabel(const std::string& addonId);
 
     // Git-repo helpers for the per-row "Open in Version Control" /
     // "Init Git" actions. HasGitRepo does a libgit2 discover under the
@@ -117,10 +136,22 @@ private:
     bool mNeedsRefresh = true;
     bool mIsRefreshing = false;
 
-    // Uninstall confirmation
+    // Remove confirmation. The row buttons run inside table/PushID scopes,
+    // so they only fill these in; DrawUninstallConfirmPopup issues
+    // OpenPopup + BeginPopupModal together at root level.
     bool mShowUninstallConfirm = false;
+    bool mUninstallPopupRequested = false;
     std::string mUninstallAddonId;
+    std::vector<std::string> mUninstallDependents;       // installed, removal order
+    std::vector<std::string> mUninstallLocalDependents;  // in Packages/ with no record; left alone
+    bool mUninstallNeedsRestart = false;                 // a queued addon's DLL is loaded
     void DrawUninstallConfirmPopup();
+
+    // Update confirmation
+    bool mShowUpdateConfirm = false;
+    bool mUpdatePopupRequested = false;
+    std::string mUpdateAddonId;
+    bool mUpdateAddonHasOwnRepo = false;
 
     // Build log popup
     bool mShowBuildLog = false;

@@ -718,6 +718,16 @@ void EditorMain(int32_t argc, char** argv)
                 es->mInstallAddonsAtEndOfFrame = false;
                 GetAddonsWindow()->ProcessPendingInstalls();
             }
+            else if (es->mUninstallAddonsAtEndOfFrame)
+            {
+                es->mUninstallAddonsAtEndOfFrame = false;
+                GetAddonsWindow()->ProcessPendingUninstalls();
+            }
+            else if (es->mCheckAddonUpdatesAtEndOfFrame)
+            {
+                es->mCheckAddonUpdatesAtEndOfFrame = false;
+                GetAddonsWindow()->ProcessPendingUpdateCheck();
+            }
             else if (es->mImportAssetsAtEndOfFrame)
             {
                 es->mImportAssetsAtEndOfFrame = false;

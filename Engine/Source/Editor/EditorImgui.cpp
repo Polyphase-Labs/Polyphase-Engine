@@ -8298,7 +8298,53 @@ static bool DirMatchesFilter(AssetDir* dir, const std::string& filterLower)
     return false;
 }
 
-static std::string sSelectedLooseFile; // Full path of selected loose file
+// Loose (non-.oct) file selection. Full paths, all inside one directory —
+// selecting in another directory replaces the set, which keeps Delete /
+// Packaging on the selection simple (one dir->mLooseFiles to fix up).
+// sPrimaryLooseFile is the shift-range anchor and what the inspector shows.
+static std::vector<std::string> sSelectedLooseFiles;
+static std::string sPrimaryLooseFile;
+static std::string sSelectedLooseDir;
+
+static bool IsLooseFileSelected(const std::string& fullPath)
+{
+    return std::find(sSelectedLooseFiles.begin(), sSelectedLooseFiles.end(), fullPath) != sSelectedLooseFiles.end();
+}
+
+static void ClearLooseFileSelection()
+{
+    sSelectedLooseFiles.clear();
+    sPrimaryLooseFile.clear();
+    sSelectedLooseDir.clear();
+}
+
+static void AddLooseFileSelection(const std::string& dirPath, const std::string& fullPath)
+{
+    if (sSelectedLooseDir != dirPath)
+    {
+        ClearLooseFileSelection();
+        sSelectedLooseDir = dirPath;
+    }
+    if (!IsLooseFileSelected(fullPath))
+    {
+        sSelectedLooseFiles.push_back(fullPath);
+    }
+    sPrimaryLooseFile = fullPath;
+}
+
+static void RemoveLooseFileSelection(const std::string& fullPath)
+{
+    sSelectedLooseFiles.erase(std::remove(sSelectedLooseFiles.begin(), sSelectedLooseFiles.end(), fullPath),
+                              sSelectedLooseFiles.end());
+    if (sPrimaryLooseFile == fullPath)
+    {
+        sPrimaryLooseFile = sSelectedLooseFiles.empty() ? std::string() : sSelectedLooseFiles.back();
+    }
+    if (sSelectedLooseFiles.empty())
+    {
+        ClearLooseFileSelection();
+    }
+}
 
 static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 {
@@ -8355,7 +8401,7 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                     GetEditorState()->AddSelectedAssetStub(stub);
                     GetEditorState()->mSelectedAssetStub = stub;
                 }
-                sSelectedLooseFile.clear();
+                ClearLooseFileSelection();
 
                 if (stub != nullptr &&
                     stub->mAsset == nullptr)
@@ -8397,12 +8443,12 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                 }
 
                 GetEditorState()->mSelectedAssetStub = stub;
-                sSelectedLooseFile.clear();
+                ClearLooseFileSelection();
             }
             else if (selStub != stub)
             {
                 GetEditorState()->SetSelectedAssetStub(stub);
-                sSelectedLooseFile.clear();
+                ClearLooseFileSelection();
 
                 if (stub != nullptr &&
                     stub->mType == NodeGraphAsset::GetStaticType())
@@ -8522,7 +8568,7 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
             !GetEditorState()->IsAssetStubSelected(stub))
         {
             GetEditorState()->SetSelectedAssetStub(stub);
-            sSelectedLooseFile.clear();
+            ClearLooseFileSelection();
         }
 
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
@@ -8582,8 +8628,31 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
         ImGui::PopID();
     }
 
-    // Draw loose files (non-.oct files)
-    static const ImVec4 kLooseFileColor = ImVec4(0.65f, 0.65f, 0.70f, 1.0f);
+    // Draw loose files (non-.oct files). They are first-class content, so
+    // colour them like the asset type they correspond to instead of the
+    // disabled-looking grey that used to be applied to every row.
+    auto GetLooseFileColor = [](const char* ext) -> ImVec4
+    {
+        TypeId type = 0;
+        if (ext != nullptr)
+        {
+            if (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0 ||
+                strcasecmp(ext, ".tga") == 0 || strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".gif") == 0)
+                type = Texture::GetStaticType();
+            else if (strcasecmp(ext, ".wav") == 0 || strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".ogg") == 0)
+                type = SoundWave::GetStaticType();
+            else if (strcasecmp(ext, ".xml") == 0 || strcasecmp(ext, ".css") == 0)
+                type = UIDocument::GetStaticType();
+            else if (strcasecmp(ext, ".ttf") == 0 || strcasecmp(ext, ".otf") == 0)
+                type = Font::GetStaticType();
+        }
+        if (type != 0)
+        {
+            glm::vec4 c = AssetManager::Get()->GetEditorAssetColor(type);
+            return ImVec4(c.r, c.g, c.b, c.a);
+        }
+        return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    };
 
     auto IsTextFileExtension = [](const char* ext) -> bool
     {
@@ -8611,6 +8680,27 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
         return ICON_STREAMLINE_SHARP_NEW_FILE_REMIX;
     };
 
+    // Visible loose files in draw order, for shift-range selection.
+    std::vector<std::string> visibleLoose;
+    for (const std::string& filename : dir->mLooseFiles)
+    {
+        const char* metaExt = strrchr(filename.c_str(), '.');
+        if (metaExt != nullptr && strcmp(metaExt, ".meta") == 0)
+            continue;
+        if (!filterLower.empty())
+        {
+            std::string nameLower = filename;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            if (nameLower.find(filterLower) == std::string::npos)
+                continue;
+        }
+        visibleLoose.push_back(dir->mPath + filename);
+    }
+
+    // Deletions are collected during the loop and applied after it so the
+    // row loop never has to fix up its own index mid-iteration.
+    std::vector<std::string> looseToDelete;
+
     for (uint32_t i = 0; i < dir->mLooseFiles.size(); ++i)
     {
         const std::string& filename = dir->mLooseFiles[i];
@@ -8635,7 +8725,7 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
         }
 
         std::string fullPath = dir->mPath + filename;
-        bool isSelected = (sSelectedLooseFile == fullPath);
+        bool isSelected = IsLooseFileSelected(fullPath);
 
         if (isSelected)
         {
@@ -8644,9 +8734,9 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
             ImGui::PushStyleColor(ImGuiCol_HeaderActive, kSelectedColor);
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, kLooseFileColor);
-
         const char* ext = strrchr(filename.c_str(), '.');
+        ImGui::PushStyleColor(ImGuiCol_Text, GetLooseFileColor(ext));
+
         std::string displayText = std::string(GetLooseFileIcon(ext)) + "  " + filename;
 
         ImGui::PushID(fullPath.c_str());
@@ -8654,14 +8744,46 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
         AlternatingRowBackground();
         if (looseClicked)
         {
-            if (sSelectedLooseFile != fullPath)
+            // Loose files and .oct assets are separate selection sets: picking
+            // one always drops the other (their context menus act differently).
+            GetEditorState()->SetSelectedAssetStub(nullptr);
+
+            if (IsControlDown())
             {
-                sSelectedLooseFile = fullPath;
-                GetEditorState()->SetSelectedAssetStub(nullptr);
+                // Ctrl+Click: toggle in multi-selection
+                if (isSelected)
+                    RemoveLooseFileSelection(fullPath);
+                else
+                    AddLooseFileSelection(dir->mPath, fullPath);
             }
-            else if (!IsControlDown())
+            else if (IsShiftDown() && !sPrimaryLooseFile.empty() && sSelectedLooseDir == dir->mPath &&
+                     std::find(visibleLoose.begin(), visibleLoose.end(), sPrimaryLooseFile) != visibleLoose.end())
             {
-                sSelectedLooseFile.clear();
+                // Shift+Click: range from the anchor to the clicked row, in
+                // visible order. The anchor stays put so a second shift-click
+                // re-ranges from the same spot.
+                std::string anchor = sPrimaryLooseFile;
+                size_t a = std::find(visibleLoose.begin(), visibleLoose.end(), anchor) - visibleLoose.begin();
+                size_t b = std::find(visibleLoose.begin(), visibleLoose.end(), fullPath) - visibleLoose.begin();
+                if (a > b) std::swap(a, b);
+
+                ClearLooseFileSelection();
+                for (size_t k = a; k <= b; ++k)
+                {
+                    AddLooseFileSelection(dir->mPath, visibleLoose[k]);
+                }
+                sPrimaryLooseFile = anchor;
+            }
+            else if (!isSelected || sSelectedLooseFiles.size() > 1)
+            {
+                // Plain click: select just this one.
+                ClearLooseFileSelection();
+                AddLooseFileSelection(dir->mPath, fullPath);
+            }
+            else
+            {
+                // Plain click on the only selected row: deselect (matches assets).
+                ClearLooseFileSelection();
             }
 
             if (ImGui::IsMouseDoubleClicked(0))
@@ -8682,16 +8804,34 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
             }
         }
 
-        ImGui::PopStyleColor(); // kLooseFileColor
+        ImGui::PopStyleColor(); // loose file colour
 
         if (isSelected)
         {
             ImGui::PopStyleColor(3);
         }
 
+        // Right-click acts on the row under the cursor. Pull it into the
+        // selection first (unless it's already there) so the menu's
+        // multi-file entries match what the user sees highlighted.
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !IsLooseFileSelected(fullPath))
+        {
+            GetEditorState()->SetSelectedAssetStub(nullptr);
+            ClearLooseFileSelection();
+            AddLooseFileSelection(dir->mPath, fullPath);
+        }
+
         if (ImGui::BeginPopupContextItem())
         {
             bool isTextFile = IsTextFileExtension(ext);
+            // Every selected file when this row is part of the selection,
+            // else just this row.
+            std::vector<std::string> actionFiles;
+            if (IsLooseFileSelected(fullPath) && sSelectedLooseDir == dir->mPath)
+                actionFiles = sSelectedLooseFiles;
+            else
+                actionFiles.push_back(fullPath);
+            const int actionCount = (int)actionFiles.size();
 
             if (isTextFile && ImGui::MenuItem("Edit"))
             {
@@ -8742,7 +8882,12 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
             // Packaging submenu — mirrors DrawAssetPackagingSection in the Properties
             // panel. Loose files can't ride the AssetStub "Properties" path, so wire
             // the same {file}.meta read/write directly into the right-click menu.
-            if (ImGui::BeginMenu("Packaging"))
+            // Checkmarks reflect the clicked file; a toggle is applied to every
+            // file in actionFiles.
+            std::string packagingLabel = (actionCount > 1)
+                ? "Packaging (" + std::to_string(actionCount) + " files)"
+                : std::string("Packaging");
+            if (ImGui::BeginMenu(packagingLabel.c_str()))
             {
                 AssetMetaSidecar meta = AssetManager::LoadAssetMeta(fullPath);
                 bool changed = false;
@@ -8777,7 +8922,10 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 
                 if (changed)
                 {
-                    AssetManager::Get()->ApplyAssetMetaFlags(fullPath, meta.mPlatformMask, meta.mEmbed);
+                    for (const std::string& path : actionFiles)
+                    {
+                        AssetManager::Get()->ApplyAssetMetaFlags(path, meta.mPlatformMask, meta.mEmbed);
+                    }
                 }
 
                 ImGui::EndMenu();
@@ -8785,21 +8933,30 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Delete"))
+            std::string deleteLabel = (actionCount > 1)
+                ? "Delete (" + std::to_string(actionCount) + " files)"
+                : std::string("Delete");
+            if (ImGui::MenuItem(deleteLabel.c_str()))
             {
-                SYS_RemoveFile(fullPath.c_str());
-                if (sSelectedLooseFile == fullPath)
-                    sSelectedLooseFile.clear();
-                dir->mLooseFiles.erase(dir->mLooseFiles.begin() + i);
-                --i;
-                ImGui::EndPopup();
-                ImGui::PopID();
-                continue;
+                looseToDelete = actionFiles;
             }
 
             ImGui::EndPopup();
         }
         ImGui::PopID();
+    }
+
+    if (!looseToDelete.empty())
+    {
+        for (const std::string& path : looseToDelete)
+        {
+            SYS_RemoveFile(path.c_str());
+            RemoveLooseFileSelection(path);
+
+            std::string name = path.substr(dir->mPath.size());
+            dir->mLooseFiles.erase(std::remove(dir->mLooseFiles.begin(), dir->mLooseFiles.end(), name),
+                                   dir->mLooseFiles.end());
+        }
     }
 }
 
@@ -9490,7 +9647,10 @@ static void DrawInstancedMeshExtra(InstancedMesh3D* instMesh)
 // `assetAbsolutePath` is the path passed to LoadAssetMeta — it should match
 // AssetStub::mPath for cooked .oct assets, or the full disk path for raw files.
 // `stub` may be nullptr for raw files (which have no AssetStub).
-static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, AssetStub* stub)
+// alsoApplyTo (optional): additional file paths that receive the same flags
+// when the user toggles something — used by the multi-selected loose-file view.
+static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, AssetStub* stub,
+                                      const std::vector<std::string>* alsoApplyTo = nullptr)
 {
     if (assetAbsolutePath.empty())
         return;
@@ -9561,6 +9721,14 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
         // in-memory AssetStub / RawAssetEntry, so a packaging build run right
         // after the toggle picks up the new flags without re-discovery.
         AssetManager::Get()->ApplyAssetMetaFlags(assetAbsolutePath, mask, embed);
+        if (alsoApplyTo != nullptr)
+        {
+            for (const std::string& path : *alsoApplyTo)
+            {
+                if (path != assetAbsolutePath)
+                    AssetManager::Get()->ApplyAssetMetaFlags(path, mask, embed);
+            }
+        }
         sCachedMeta.mPlatformMask = mask;
         sCachedMeta.mEmbed        = embed;
         sCachedMeta.mExists       = (mask != PlatformBit_All) || embed;
@@ -10119,15 +10287,16 @@ static void DrawPropertiesPanel()
                     }
                 }
             }
-            else if (!sSelectedLooseFile.empty())
+            else if (!sPrimaryLooseFile.empty())
             {
                 // Raw-file inspector view. Loose files (.mp4, .json, .png, …)
                 // aren't Object-derived so they don't go through GatherProperties,
                 // but they DO carry a {file}.meta sidecar that drives their
                 // packaging behaviour. Show a read-only header + Packaging
                 // section so devs can configure platform-mask + embed without
-                // having to edit JSON by hand.
-                const std::string& filePath = sSelectedLooseFile;
+                // having to edit JSON by hand. With several files selected the
+                // checkboxes show the primary's state and a toggle applies to all.
+                const std::string& filePath = sPrimaryLooseFile;
                 size_t lastSlash = filePath.find_last_of("/\\");
                 std::string fileName = (lastSlash == std::string::npos)
                     ? filePath
@@ -10135,9 +10304,15 @@ static void DrawPropertiesPanel()
 
                 ImGui::Text("Raw file: %s", fileName.c_str());
                 ImGui::TextDisabled("%s", filePath.c_str());
+                if (sSelectedLooseFiles.size() > 1)
+                {
+                    ImGui::TextDisabled("%d files selected; packaging changes apply to all of them.",
+                                        (int)sSelectedLooseFiles.size());
+                }
                 ImGui::Separator();
 
-                DrawAssetPackagingSection(filePath, /*stub=*/nullptr);
+                DrawAssetPackagingSection(filePath, /*stub=*/nullptr,
+                                          sSelectedLooseFiles.size() > 1 ? &sSelectedLooseFiles : nullptr);
             }
 
             ImGui::EndTabItem();
@@ -14389,7 +14564,11 @@ static void DrawProjectRestartModal()
     const bool needDirty   = (r.mPhase == Phase::AwaitingDirty);
     const bool needPopup   = needConfirm || needDirty;
 
-    const char* kPopupName = "Reload Native Addons##ProjectRestartModal";
+    // "###" keeps one popup id for reload and removal so an in-flight modal
+    // never re-keys; only the visible title differs.
+    const char* kPopupName = r.mIsRemoval
+        ? "Remove Addons###ProjectRestartModal"
+        : "Reload Native Addons###ProjectRestartModal";
 
     if (needPopup && !ImGui::IsPopupOpen(kPopupName))
     {
@@ -14472,9 +14651,13 @@ static void DrawProjectRestartModal()
             ImGui::Separator();
 
             ImGui::TextWrapped(
-                "The scene below has unsaved changes. Save it before the "
-                "project closes, discard the in-memory edits, or cancel the "
-                "reload entirely.");
+                r.mIsRemoval
+                    ? "The scene below has unsaved changes. Save it before the "
+                      "project closes to remove the addons, discard the "
+                      "in-memory edits, or cancel the removal entirely."
+                    : "The scene below has unsaved changes. Save it before the "
+                      "project closes, discard the in-memory edits, or cancel the "
+                      "reload entirely.");
 
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.85f, 0.85f, 1.0f, 1.0f), "%s", current.c_str());

@@ -47,10 +47,16 @@ public:
 
     // Installation
     bool DownloadAddon(const Addon& addon, std::string& outError);
-    bool InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError);
+    // source (optional) is stamped onto the InstalledAddon record so update
+    // checks and re-downloads know the repo/branch/commit the files came from.
+    bool InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError,
+                      const AddonInstallSource* source = nullptr);
     // Dependencies declared by the most recently installed addon that are
     // still absent from Packages/ after auto-resolution. Empty on success.
     const std::vector<std::string>& GetLastInstallMissingDependencies() const { return mLastInstallMissingDeps; }
+    // Deletes Packages/<id> and Intermediate/Plugins/<id>, drops the record.
+    // Does not unload a native DLL or check dependents — the Addons window
+    // handles both before calling this (see ProcessPendingUninstalls).
     bool UninstallAddon(const std::string& addonId);
 
     // Fetch an addon from an arbitrary URL (GitHub repo or direct .zip), unzip it,
@@ -70,8 +76,29 @@ public:
     const std::vector<InstalledAddon>& GetInstalledAddons() const { return mInstalledAddons; }
     std::vector<InstalledAddon>& GetInstalledAddonsMutable() { return mInstalledAddons; }
     bool IsAddonInstalled(const std::string& addonId) const;
+    const InstalledAddon* FindInstalled(const std::string& addonId) const;
+    // True when GetUpdateStatus reports NewCommits or NewVersion.
     bool HasUpdate(const std::string& addonId) const;
+    // Combines the registry version (secondary) with the branch head commit
+    // recorded by the last CheckForUpdates (primary). See AddonUpdateStatus.
+    AddonUpdateStatus GetUpdateStatus(const std::string& addonId) const;
     std::string GetInstalledVersion(const std::string& addonId) const;
+
+    // Update checks. Synchronous network calls — run from the end-of-frame
+    // dispatcher under EditorProgress, never from an ImGui draw.
+    //
+    // FetchLatestCommit resolves the newest commit on <branch> touching
+    // <subPath> (empty = whole repo) through the GitHub API. Non-GitHub
+    // hosts fail with an explanatory error.
+    bool FetchLatestCommit(const std::string& repoUrl, const std::string& branch,
+                           const std::string& subPath, std::string& outSha,
+                           std::string& outDate, std::string& outError);
+    // Refreshes the registry, then stamps mRemoteCommit / mUpdateCheckError
+    // on every installed record that has a checkable source. Returns the
+    // number of addons with an update available.
+    int CheckForUpdates(std::string& outSummary);
+    // Effective branch for downloads and update checks.
+    static std::string GetAddonBranch(const Addon& addon);
     bool SetInstalledAddonNativeMode(const std::string& addonId, NativeAddonResolveMode mode);
     bool SyncNativeAddonBinary(const std::string& addonId, std::string& outError);
 
@@ -119,6 +146,9 @@ private:
 
     /** @brief Get current timestamp as ISO string */
     std::string GetCurrentTimestamp();
+
+    /** @brief "owner/repo" from a github.com URL; false for anything else. */
+    static bool ParseGitHubRepo(const std::string& url, std::string& outOwner, std::string& outRepo);
 
     std::vector<AddonRepository> mRepositories;
     std::vector<Addon> mAvailableAddons;

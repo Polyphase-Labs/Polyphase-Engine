@@ -225,6 +225,15 @@ struct EditorState
     // project-restart reload.
     bool mInstallAddonsAtEndOfFrame = false;
     std::vector<std::string> mPendingAddonInstalls;
+    // Deferred addon removal (ids queued dependents-first by the Addons
+    // window's Remove modal). AddonsWindow::ProcessPendingUninstalls runs
+    // outside the ImGui frame; loaded native addons route through the
+    // project-restart machine so their DLLs unload with no scenes open.
+    bool mUninstallAddonsAtEndOfFrame = false;
+    std::vector<std::string> mPendingAddonUninstalls;
+    // Deferred "Check for Updates": synchronous GitHub API calls sit under
+    // an EditorProgress modal via AddonsWindow::ProcessPendingUpdateCheck.
+    bool mCheckAddonUpdatesAtEndOfFrame = false;
     // Deferred OpenScene. Either a stub (preferred -- path is captured at
     // request time so a later directory rename doesn't break it) or empty
     // to trigger the OS file dialog inside the worker. Scene* is held as

@@ -415,12 +415,18 @@ public:
     {
         ProjectRestartPhase mPhase = ProjectRestartPhase::None;
 
-        // Addons being rebuilt. Empty = all installed enabled native addons.
+        // Addons being rebuilt. Empty = all installed enabled native addons
+        // (unless this is a removal, where nothing is rebuilt).
         std::vector<std::string> mTargetAddons;
         // forceRebuild=true wipes each target's fingerprint dir before
         // building so NeedsBuild() returns true even for an unchanged source.
         bool                     mForceRebuild = false;
         std::string              mReason;       // user-facing modal copy
+        // Removal flow: addons to unload + uninstall inside the close window,
+        // dependents first. No builds are queued; the project reopens with
+        // the packages gone. mIsRemoval switches the modal copy.
+        std::vector<std::string> mRemoveAddons;
+        bool                     mIsRemoval = false;
 
         // Snapshot — captured at restart entry, restored after OpenProject.
         std::string              mProjectPath;
@@ -442,6 +448,21 @@ public:
     void ReloadNativeAddonsWithProjectRestart(const std::vector<std::string>& addonIds,
                                               bool forceRebuild,
                                               const char* reason);
+
+    /** Remove addons whose DLL is loaded: close the project, unload each,
+     *  drop its state and call AddonManager::UninstallAddon, then reopen
+     *  with no rebuild. The Addons window has already confirmed with the
+     *  user, so this skips the generic confirm modal (dirty-scene prompts
+     *  still run). removeIds is applied in order — put dependents first.
+     *  Returns false when the flow could not be staged (PIE active, another
+     *  restart in flight, no project). */
+    bool RemoveNativeAddonsWithProjectRestart(const std::vector<std::string>& removeIds,
+                                              const char* reason);
+
+    /** Drop every trace of an addon from this manager without touching the
+     *  DLL (call UnloadNativeAddon first if it is loaded). Used by uninstall
+     *  so a later DiscoverAddonPackage / project reopen starts clean. */
+    void ForgetAddon(const std::string& addonId);
 
     // Modal callbacks. Called from the EditorImgui modal renderers when the
     // user clicks the corresponding button. Public because the modal lives
@@ -687,6 +708,13 @@ private:
     // GetShadowCopyPath / SweepStaleShadowCopies for the layout.
     std::string              mShadowSessionId;       // PID-derived, set in ctor
     std::vector<std::string> mPendingShadowDeletes;  // shadow dirs to retry on Tick
+    // Retry pacing for mPendingShadowDeletes: one rmdir sweep every few
+    // seconds, a bounded number of times, then leave the leftovers to the
+    // next launch's SweepStaleShadowCopies. Without this a .pdb pinned by a
+    // debugger spams an rmdir per frame for the rest of the session.
+    float                    mShadowDeleteRetryTimer = 0.0f;
+    int                      mShadowDeleteRetryCount = 0;
+    void                     RetryPendingShadowDeletes(float deltaTime);
 
     std::string GetShadowCopyDir(const std::string& addonId,
                                  const std::string& fingerprint);
@@ -752,6 +780,8 @@ private:
     bool LoadNativeAddonAfterBuild(const std::string& addonId, std::string& outError);
 
     // Project-restart helpers
+    bool ProjectRestartStage(const std::vector<std::string>& addonIds,
+                             bool forceRebuild, const char* reason); // guards + snapshot + dirty queue → AwaitingConfirm
     void ProjectRestartBeginClose();   // dirty queue exhausted → close project + enqueue rebuilds
     void ProjectRestartOnBuildsDone(); // called from TickAsyncBuilds when in Building phase
     void ProjectRestartReset();        // clear state back to Phase::None

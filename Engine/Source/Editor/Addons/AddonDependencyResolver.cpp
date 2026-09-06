@@ -12,6 +12,7 @@
 #include "document.h"
 
 #include <algorithm>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -279,24 +280,7 @@ namespace AddonDependencyResolver
         AddonManager* mgr = AddonManager::Get();
         bool autoFetch = (mgr == nullptr) ? true : mgr->GetAutoResolveDependencies();
 
-        std::vector<std::string> rootIds;
-        DirEntry dirEntry;
-        SYS_OpenDirectory(pkgDir, dirEntry);
-        while (dirEntry.mValid)
-        {
-            if (dirEntry.mDirectory &&
-                strcmp(dirEntry.mFilename, ".") != 0 &&
-                strcmp(dirEntry.mFilename, "..") != 0)
-            {
-                std::string pj = pkgDir + dirEntry.mFilename + "/package.json";
-                if (SYS_DoesFileExist(pj.c_str(), false))
-                {
-                    rootIds.push_back(dirEntry.mFilename);
-                }
-            }
-            SYS_IterateDirectory(dirEntry);
-        }
-        SYS_CloseDirectory(dirEntry);
+        std::vector<std::string> rootIds = ListPackageIds();
 
         std::unordered_map<std::string, int> color;
         for (const std::string& id : rootIds)
@@ -309,6 +293,125 @@ namespace AddonDependencyResolver
         outMissing.erase(std::unique(outMissing.begin(), outMissing.end()), outMissing.end());
 
         return true;
+    }
+
+    std::string ReadPackageVersion(const std::string& addonDir)
+    {
+        std::string path = addonDir;
+        if (!path.empty() && path.back() != '/' && path.back() != '\\')
+        {
+            path += "/";
+        }
+        path += "package.json";
+
+        rapidjson::Document doc;
+        if (!SYS_DoesFileExist(path.c_str(), false) || !ReadJsonFile(path, doc) || !doc.IsObject())
+        {
+            return std::string();
+        }
+        if (doc.HasMember("version") && doc["version"].IsString())
+        {
+            return doc["version"].GetString();
+        }
+        return std::string();
+    }
+
+    std::vector<std::string> ListPackageIds()
+    {
+        std::vector<std::string> ids;
+        std::string pkgDir = PackagesDir();
+        if (pkgDir.empty() || !DoesDirExist(pkgDir.c_str()))
+        {
+            return ids;
+        }
+
+        DirEntry dirEntry;
+        SYS_OpenDirectory(pkgDir, dirEntry);
+        while (dirEntry.mValid)
+        {
+            if (dirEntry.mDirectory &&
+                strcmp(dirEntry.mFilename, ".") != 0 &&
+                strcmp(dirEntry.mFilename, "..") != 0)
+            {
+                std::string pj = pkgDir + dirEntry.mFilename + "/package.json";
+                if (SYS_DoesFileExist(pj.c_str(), false))
+                {
+                    ids.push_back(dirEntry.mFilename);
+                }
+            }
+            SYS_IterateDirectory(dirEntry);
+        }
+        SYS_CloseDirectory(dirEntry);
+        return ids;
+    }
+
+    void CollectDependents(const std::string& addonId,
+                           std::vector<std::string>& outInstalled,
+                           std::vector<std::string>& outLocalOnly)
+    {
+        outInstalled.clear();
+        outLocalOnly.clear();
+
+        std::string pkgDir = PackagesDir();
+        if (pkgDir.empty())
+        {
+            return;
+        }
+
+        // Reverse edges: dependency -> packages that declare it.
+        std::unordered_map<std::string, std::vector<std::string>> dependentsOf;
+        for (const std::string& id : ListPackageIds())
+        {
+            std::vector<AddonDependencySpec> deps;
+            std::string ignored;
+            if (!ReadDependenciesFromDisk(pkgDir + id + "/", deps, ignored))
+            {
+                continue;
+            }
+            for (const AddonDependencySpec& dep : deps)
+            {
+                dependentsOf[dep.mId].push_back(id);
+            }
+        }
+
+        // Post-order DFS over the reverse graph from addonId: a package is
+        // emitted only after everything that depends on it, so the list is
+        // already in farthest-dependent-first removal order.
+        std::unordered_set<std::string> visited;
+        std::vector<std::string> postOrder;
+        std::function<void(const std::string&)> visit = [&](const std::string& id)
+        {
+            if (!visited.insert(id).second)
+            {
+                return;
+            }
+            auto it = dependentsOf.find(id);
+            if (it != dependentsOf.end())
+            {
+                for (const std::string& dependent : it->second)
+                {
+                    visit(dependent);
+                }
+            }
+            if (id != addonId)
+            {
+                postOrder.push_back(id);
+            }
+        };
+        visit(addonId);
+
+        AddonManager* mgr = AddonManager::Get();
+        for (const std::string& id : postOrder)
+        {
+            if (mgr != nullptr && mgr->IsAddonInstalled(id))
+            {
+                outInstalled.push_back(id);
+            }
+            else
+            {
+                outLocalOnly.push_back(id);
+            }
+        }
     }
 }
 

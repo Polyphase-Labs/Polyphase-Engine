@@ -48,6 +48,25 @@ namespace AddonDependencyResolver
     bool ReadDependenciesFromDisk(const std::string& addonDir,
                                   std::vector<AddonDependencySpec>& outDeps,
                                   std::string& outOnInstall);
+
+    /** @brief Top-level "version" from an addon's package.json; empty if absent. */
+    std::string ReadPackageVersion(const std::string& addonDir);
+
+    /** @brief Ids of every <Project>/Packages/<id>/ that has a package.json. */
+    std::vector<std::string> ListPackageIds();
+
+    /**
+     * @brief Every package on disk that (transitively) depends on addonId.
+     *
+     * No fetching. outInstalled holds dependents that have an InstalledAddon
+     * record, ordered farthest-dependent-first so they can be removed in that
+     * order; outLocalOnly holds dependents present in Packages/ with no record
+     * (hand-made dev packages the Addons window never deletes). addonId itself
+     * is never included. Cycle-safe.
+     */
+    void CollectDependents(const std::string& addonId,
+                           std::vector<std::string>& outInstalled,
+                           std::vector<std::string>& outLocalOnly);
 }
 
 #endif

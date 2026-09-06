@@ -4640,13 +4640,6 @@ void NativeAddonManager::ReloadNativeAddonsWithProjectRestart(
     bool forceRebuild,
     const char* reason)
 {
-    if (mRestart.mPhase != ProjectRestartPhase::None)
-    {
-        LogWarning("ReloadNativeAddonsWithProjectRestart: another restart is already in progress (phase=%d); ignoring.",
-                   (int)mRestart.mPhase);
-        return;
-    }
-
     EditorState* es = GetEditorState();
     if (es == nullptr)
     {
@@ -4655,10 +4648,54 @@ void NativeAddonManager::ReloadNativeAddonsWithProjectRestart(
         return;
     }
 
+    ProjectRestartStage(addonIds, forceRebuild, reason);
+}
+
+bool NativeAddonManager::RemoveNativeAddonsWithProjectRestart(
+    const std::vector<std::string>& removeIds,
+    const char* reason)
+{
+    if (removeIds.empty())
+    {
+        return false;
+    }
+    if (!ProjectRestartStage(std::vector<std::string>(), /*forceRebuild=*/false, reason))
+    {
+        return false;
+    }
+
+    mRestart.mRemoveAddons = removeIds;
+    mRestart.mIsRemoval    = true;
+
+    // The Addons window already showed its own confirm (with the dependent
+    // list), so go straight past AwaitingConfirm. Dirty scenes still prompt.
+    ProjectRestartConfirm();
+    return true;
+}
+
+bool NativeAddonManager::ProjectRestartStage(
+    const std::vector<std::string>& addonIds,
+    bool forceRebuild,
+    const char* reason)
+{
+    if (mRestart.mPhase != ProjectRestartPhase::None)
+    {
+        LogWarning("Project-restart: another restart is already in progress (phase=%d); ignoring.",
+                   (int)mRestart.mPhase);
+        return false;
+    }
+
+    EditorState* es = GetEditorState();
+    if (es == nullptr)
+    {
+        LogError("Project-restart: no EditorState; ignoring.");
+        return false;
+    }
+
     if (IsPlayingInEditor())
     {
-        LogWarning("ReloadNativeAddonsWithProjectRestart: play-in-editor is active; ignoring. Stop PIE first.");
-        return;
+        LogWarning("Project-restart: play-in-editor is active; ignoring. Stop PIE first.");
+        return false;
     }
 
     mRestart = ProjectRestart{};
@@ -4669,9 +4706,9 @@ void NativeAddonManager::ReloadNativeAddonsWithProjectRestart(
 
     if (mRestart.mProjectPath.empty())
     {
-        LogWarning("ReloadNativeAddonsWithProjectRestart: no project loaded; nothing to do.");
+        LogWarning("Project-restart: no project loaded; nothing to do.");
         ProjectRestartReset();
-        return;
+        return false;
     }
 
     // Snapshot open scenes by name. Names survive the asset-manager rediscovery
@@ -4714,6 +4751,26 @@ void NativeAddonManager::ReloadNativeAddonsWithProjectRestart(
              (uint32_t)mRestart.mDirtyScenes.size(),
              forceRebuild ? 1 : 0,
              (uint32_t)mRestart.mTargetAddons.size());
+    return true;
+}
+
+void NativeAddonManager::ForgetAddon(const std::string& addonId)
+{
+    auto it = mStates.find(addonId);
+    if (it != mStates.end())
+    {
+        if (it->second.mModuleHandle != nullptr)
+        {
+            LogWarning("ForgetAddon('%s') called while its module is still loaded; unloading first.",
+                       addonId.c_str());
+            UnloadNativeAddon(addonId);
+        }
+        mStates.erase(addonId);
+    }
+    mForceSourceForNextLoad.erase(addonId);
+    mCachedLoadOrder.erase(std::remove(mCachedLoadOrder.begin(), mCachedLoadOrder.end(), addonId),
+                           mCachedLoadOrder.end());
+    InvalidateAddNodeMenuCache();
 }
 
 void NativeAddonManager::ProjectRestartConfirm()
@@ -4831,10 +4888,34 @@ void NativeAddonManager::ProjectRestartBeginClose()
         es->CloseAllEditScenes();
     }
 
+    // Removal flow: with no scenes open it is now safe to drop the DLLs and
+    // delete the packages. UninstallAddon rewrites installed_addons.json so
+    // the reopen's DiscoverNativeAddons never sees these ids again; because
+    // the Addons window queued every installed dependent ahead of the
+    // target, no surviving package.json re-declares them either.
+    for (const std::string& addonId : mRestart.mRemoveAddons)
+    {
+        auto it = mStates.find(addonId);
+        if (it != mStates.end() && it->second.mModuleHandle != nullptr)
+        {
+            UnloadNativeAddon(addonId);
+        }
+        ForgetAddon(addonId);
+        if (AddonManager* addonMgr = AddonManager::Get())
+        {
+            if (!addonMgr->UninstallAddon(addonId))
+            {
+                LogWarning("Project-restart: '%s' had no install record; nothing removed.", addonId.c_str());
+            }
+        }
+        LogDebug("Project-restart: removed addon '%s'", addonId.c_str());
+    }
+
     // Decide which addons to actually rebuild. Empty target list means "all
-    // installed enabled native addons".
+    // installed enabled native addons" — except for a removal, which never
+    // rebuilds anything.
     std::vector<std::string> toBuild = mRestart.mTargetAddons;
-    if (toBuild.empty())
+    if (toBuild.empty() && !mRestart.mIsRemoval)
     {
         AddonManager* addonMgr = AddonManager::Get();
         const std::vector<InstalledAddon>& installed =
@@ -4896,7 +4977,7 @@ void NativeAddonManager::ProjectRestartBeginClose()
     // source of a CI-published addon. The flag is one-shot (consumed by
     // LoadNativeAddon), so a normal load on the next session reverts to
     // honoring package.json's resolveMode.
-    if (mRestart.mForceRebuild)
+    if (mRestart.mForceRebuild && !mRestart.mIsRemoval)
     {
         // Proactively kill mspdbsrv / link / mspdbcmf BEFORE the wipe loop.
         // Without this, the very first force-rebuild after the editor has
@@ -5289,25 +5370,55 @@ void NativeAddonManager::ReloadAllNativeAddons()
     LogDebug("Finished reloading native addons");
 }
 
-void NativeAddonManager::TickAllPlugins(float deltaTime)
+void NativeAddonManager::RetryPendingShadowDeletes(float deltaTime)
 {
     // Drain any shadow-copy directories that were locked at unload time
-    // (typically mspdbsrv.exe holding the .pdb for a moment after FreeLibrary).
-    // Survivors get re-queued; the next sweep on launch sees them as stale.
-    if (!mPendingShadowDeletes.empty())
+    // (typically mspdbsrv.exe or a debugger holding the .pdb after
+    // FreeLibrary). Paced: one attempt every few seconds, bounded, then the
+    // survivors are left for the next launch's SweepStaleShadowCopies.
+    if (mPendingShadowDeletes.empty())
     {
-        std::vector<std::string> stillStuck;
-        for (const std::string& dir : mPendingShadowDeletes)
-        {
-            SYS_RemoveDirectory(dir.c_str());
-            if (DoesDirExist(dir.c_str()))
-            {
-                stillStuck.push_back(dir);
-            }
-        }
-        mPendingShadowDeletes.swap(stillStuck);
+        mShadowDeleteRetryTimer = 0.0f;
+        mShadowDeleteRetryCount = 0;
+        return;
     }
 
+    const float kRetryIntervalSec = 5.0f;
+    const int   kMaxRetries       = 6;
+
+    mShadowDeleteRetryTimer += deltaTime;
+    if (mShadowDeleteRetryTimer < kRetryIntervalSec)
+    {
+        return;
+    }
+    mShadowDeleteRetryTimer = 0.0f;
+    mShadowDeleteRetryCount++;
+
+    std::vector<std::string> stillStuck;
+    for (const std::string& dir : mPendingShadowDeletes)
+    {
+        SYS_RemoveDirectory(dir.c_str());
+        if (DoesDirExist(dir.c_str()))
+        {
+            stillStuck.push_back(dir);
+        }
+    }
+    mPendingShadowDeletes.swap(stillStuck);
+
+    if (!mPendingShadowDeletes.empty() && mShadowDeleteRetryCount >= kMaxRetries)
+    {
+        for (const std::string& dir : mPendingShadowDeletes)
+        {
+            LogDebug("Addon shadow-copy still locked after %d retries, leaving for next launch: %s",
+                     kMaxRetries, dir.c_str());
+        }
+        mPendingShadowDeletes.clear();
+        mShadowDeleteRetryCount = 0;
+    }
+}
+
+void NativeAddonManager::TickAllPlugins(float deltaTime)
+{
     for (auto& pair : mStates)
     {
         NativeAddonState& state = pair.second;
@@ -5324,6 +5435,10 @@ void NativeAddonManager::TickAllPlugins(float deltaTime)
 
 void NativeAddonManager::TickEditorAllPlugins(float deltaTime)
 {
+    // Runs every editor frame (not just during PIE), so a locked shadow dir
+    // gets its retries whether or not the user presses Play.
+    RetryPendingShadowDeletes(deltaTime);
+
     for (auto& pair : mStates)
     {
         NativeAddonState& state = pair.second;

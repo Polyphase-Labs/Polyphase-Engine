@@ -156,6 +156,31 @@ time and at project load. If the registry has not been fetched yet, the resolver
 once before declaring a dependency unresolvable. Addons with missing dependencies are not built
 or loaded; the Addons window shows "Missing dependency: <id>" with an Install button.
 
+## Removing and Updating Addons
+
+Removal cascades: `AddonDependencyResolver::CollectDependents()` walks every
+`Packages/*/package.json` and the Remove modal lists the installed dependents that go with the
+target (local packages without an `installed_addons.json` record are only warned about). This
+matters because `DiscoverNativeAddons` runs `ResolveAll` with auto-fetch on every project open,
+so any surviving package that still declares the removed addon would pull it straight back.
+The Remove button queues ids dependents-first into `EditorState::mPendingAddonUninstalls`;
+`AddonsWindow::ProcessPendingUninstalls` runs from the end-of-frame dispatcher. If any queued
+addon's DLL is loaded it goes through `NativeAddonManager::RemoveNativeAddonsWithProjectRestart`
+(close scenes, unload, `ForgetAddon`, `UninstallAddon`, reopen with no rebuild); otherwise the
+packages are deleted under `EditorProgress` and the asset browser's Packages dir is rescanned.
+`UninstallAddon` deletes `Packages/<id>` and `Intermediate/Plugins/<id>` but keeps the shared
+AppData `AddonCache` copy.
+
+Update detection has two signals. The primary one is the branch head commit: `InstallAddon`
+stamps `branch` / `commit` / `commitDate` (plus `pinned`, `standalone`) into
+`installed_addons.json` from an `AddonInstallSource`, and "Check for Updates" (manual only, via
+`EditorState::mCheckAddonUpdatesAtEndOfFrame`) calls `AddonManager::FetchLatestCommit`, which
+queries `api.github.com/repos/<o>/<r>/commits?sha=<branch>&path=<id>` through the AutoUpdater
+`HttpClient`. The secondary signal is the registry version string. `GetUpdateStatus()` reports
+NewCommits / NewVersion / UpToDate / NotChecked / Pinned / NoSource / Error; `HasUpdate()` is
+true for the first two. Update re-runs the normal download path after a confirm modal, and
+`InstallAddon` carries the previous record's enabled / native-mode / trust settings over.
+
 ## Documentation
 
 User-facing docs:

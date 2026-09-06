@@ -4,6 +4,7 @@
 #include "EditorImgui.h"
 #include "AddonDependencyResolver.h"
 #include "AddonScriptRunner.h"
+#include "AutoUpdater/HttpClient.h"
 #include "System/System.h"
 #include "Engine.h"
 #include "Stream.h"
@@ -15,8 +16,10 @@
 #include "stringbuffer.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <functional>
+#include <unordered_map>
 
 AddonManager* AddonManager::sInstance = nullptr;
 
@@ -676,8 +679,11 @@ static void ParseAddonObject(const rapidjson::Value& pkg, Addon& out)
             out.mRepoUrl = repo["url"].GetString();
             meta.mUrl = out.mRepoUrl;
         }
-        if (repo.HasMember("branch") && repo["branch"].IsString())
-            out.mIsMain = (std::string(repo["branch"].GetString()) == "main");
+        if (repo.HasMember("branch") && repo["branch"].IsString() && repo["branch"].GetStringLength() > 0)
+        {
+            out.mBranch = repo["branch"].GetString();
+            out.mIsMain = (out.mBranch == "main");
+        }
     }
 
     // Cross-addon dependencies: { "id": "^1.0.0" | "<url>[#ref]" | "" }.
@@ -945,6 +951,7 @@ void AddonManager::RefreshRepository(const std::string& url)
                 {
                     addon.mIsStandalone = true;
                     addon.mIsMain = false;
+                    addon.mBranch = "master";
                 }
             }
         }
@@ -988,11 +995,29 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
     }
 
     // Download the full repo and extract just this addon folder
-    std::string downloadUrl = ConvertToDownloadUrl(addon.mRepoUrl, addon.mIsMain ? "main" : "master");
+    const std::string branch = GetAddonBranch(addon);
+    std::string downloadUrl = ConvertToDownloadUrl(addon.mRepoUrl, branch);
 	// extract repoName from URL for logging
-    std::string repoName = addon.mRepoUrl.substr(addon.mRepoUrl.find_last_of('/') + 1) + "-" + (addon.mIsMain ? "main" : "master");
+    std::string repoName = addon.mRepoUrl.substr(addon.mRepoUrl.find_last_of('/') + 1) + "-" + branch;
     std::string zipPath = GetAddonCacheDirectory() + "/_temp_repo.zip";
     std::string extractDir = GetAddonCacheDirectory() + "/_temp_extract";
+
+    // Resolve the branch head before fetching the archive so the recorded
+    // commit can never be newer than the files we actually got. Best effort:
+    // an empty commit just means "not tracked" in the update status.
+    AddonInstallSource source;
+    source.mRepoUrl = addon.mRepoUrl;
+    source.mBranch = branch;
+    source.mIsStandalone = addon.mIsStandalone;
+    {
+        std::string commitError;
+        if (!FetchLatestCommit(addon.mRepoUrl, branch, addon.mIsStandalone ? std::string() : addon.mMetadata.mId,
+                               source.mCommit, source.mCommitDate, commitError))
+        {
+            LogWarning("Addon '%s': could not record install commit: %s",
+                       addon.mMetadata.mId.c_str(), commitError.c_str());
+        }
+    }
 
     if (!DownloadFile(downloadUrl, zipPath, outError))
     {
@@ -1072,7 +1097,24 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
         std::string label = "Installing " + addon.mMetadata.mName + "...";
         EditorProgress::SetStatus(label.c_str());
     }
-    return InstallAddon(cachedAddonPath, addon.mMetadata.mId, outError);
+    return InstallAddon(cachedAddonPath, addon.mMetadata.mId, outError, &source);
+}
+
+static bool IsHexSha(const std::string& ref)
+{
+    if (ref.size() != 40)
+    {
+        return false;
+    }
+    for (char c : ref)
+    {
+        bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        if (!hex)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool AddonManager::DownloadAndInstallFromUrl(const std::string& addonId,
@@ -1179,7 +1221,27 @@ bool AddonManager::DownloadAndInstallFromUrl(const std::string& addonId,
     SYS_CreateDirectory(cachedAddonPath.c_str());
     SYS_CopyDirectoryRecursive(addonRoot.c_str(), cachedAddonPath.c_str());
 
-    return InstallAddon(cachedAddonPath, addonId, outError);
+    // Remember where this came from so the Addons window can re-download and
+    // update-check a dependency that is not in any configured registry.
+    AddonInstallSource source;
+    source.mRepoUrl = url;
+    source.mBranch = branchTried;
+    source.mIsStandalone = true;
+    source.mPinned = IsHexSha(ref);
+    if (!isDirectZip && !source.mPinned)
+    {
+        std::string commitError;
+        if (!FetchLatestCommit(url, branchTried, std::string(), source.mCommit, source.mCommitDate, commitError))
+        {
+            LogWarning("Addon '%s': could not record install commit: %s", addonId.c_str(), commitError.c_str());
+        }
+    }
+    else if (source.mPinned)
+    {
+        source.mCommit = ref;
+    }
+
+    return InstallAddon(cachedAddonPath, addonId, outError, &source);
 }
 
 std::string AddonManager::GetCurrentTimestamp()
@@ -1269,7 +1331,8 @@ bool AddonManager::MergeAddonIntoProject(const std::string& addonPath, std::stri
     return true;
 }
 
-bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError)
+bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError,
+                                const AddonInstallSource* source)
 {
     const std::string& projectDir = GetEngineState()->mProjectDirectory;
     if (projectDir.empty())
@@ -1293,23 +1356,56 @@ bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::st
     SYS_CreateDirectory(destDir.c_str());
     SYS_CopyDirectoryRecursive(addonCachePath.c_str(), destDir.c_str());
 
-    // Record installation
+    // Record installation. On an update, start from the previous record so
+    // user settings (enabled, native mode, sync info, script trust) survive.
     const Addon* addon = FindAddon(addonId);
     InstalledAddon installed;
-    installed.mId = addonId;
-    installed.mVersion = addon ? addon->mMetadata.mVersion : "1.0.0";
-    installed.mInstalledDate = GetCurrentTimestamp();
-    installed.mRepoUrl = addon ? addon->mRepoUrl : "";
-
-    // Remove if already installed (upgrade)
     for (auto it = mInstalledAddons.begin(); it != mInstalledAddons.end(); ++it)
     {
         if (it->mId == addonId)
         {
+            installed = *it;
             mInstalledAddons.erase(it);
             break;
         }
     }
+
+    installed.mId = addonId;
+    std::string packageVersion = AddonDependencyResolver::ReadPackageVersion(destDir);
+    if (addon != nullptr && !addon->mMetadata.mVersion.empty())
+    {
+        installed.mVersion = addon->mMetadata.mVersion;
+    }
+    else
+    {
+        installed.mVersion = packageVersion.empty() ? "1.0.0" : packageVersion;
+    }
+    installed.mInstalledDate = GetCurrentTimestamp();
+
+    if (addon != nullptr)
+    {
+        installed.mRepoUrl = addon->mRepoUrl;
+        installed.mBranch = GetAddonBranch(*addon);
+        installed.mIsStandalone = addon->mIsStandalone;
+    }
+    installed.mCommit.clear();
+    installed.mCommitDate.clear();
+    installed.mPinned = false;
+    if (source != nullptr)
+    {
+        if (!source->mRepoUrl.empty()) installed.mRepoUrl = source->mRepoUrl;
+        if (!source->mBranch.empty())  installed.mBranch = source->mBranch;
+        installed.mCommit = source->mCommit;
+        installed.mCommitDate = source->mCommitDate;
+        installed.mPinned = source->mPinned;
+        installed.mIsStandalone = source->mIsStandalone;
+    }
+
+    // The files on disk just changed; any earlier check result is stale.
+    installed.mUpdateChecked = false;
+    installed.mRemoteCommit.clear();
+    installed.mRemoteCommitDate.clear();
+    installed.mUpdateCheckError.clear();
 
     mInstalledAddons.push_back(installed);
     SaveInstalledAddons();
@@ -1450,6 +1546,25 @@ bool AddonManager::UninstallAddon(const std::string& addonId)
                 {
                     SYS_RemoveDirectory(addonDir.c_str());
                 }
+                if (DoesDirExist(addonDir.c_str()))
+                {
+                    LogWarning("Uninstall '%s': could not fully remove %s (a file is in use).",
+                               addonId.c_str(), addonDir.c_str());
+                }
+
+                // Build output for native addons. The shadow copy the DLL was
+                // loaded from is released by UnloadNativeAddon; a lingering
+                // .pdb lock here is not fatal, the dir is just left behind.
+                std::string intermediateDir = projectDir + "Intermediate/Plugins/" + addonId;
+                if (DoesDirExist(intermediateDir.c_str()))
+                {
+                    SYS_RemoveDirectory(intermediateDir.c_str());
+                    if (DoesDirExist(intermediateDir.c_str()))
+                    {
+                        LogWarning("Uninstall '%s': could not remove build output %s (a file is in use).",
+                                   addonId.c_str(), intermediateDir.c_str());
+                    }
+                }
             }
 
             mInstalledAddons.erase(it);
@@ -1475,6 +1590,15 @@ bool AddonManager::UninstallAddon(const std::string& addonId)
 
 void AddonManager::LoadInstalledAddons()
 {
+    // The ledger is re-read on every Addons window open and registry refresh.
+    // Keep the session-only update-check results across those reloads so a
+    // "Check for Updates" result survives closing and reopening the window.
+    std::unordered_map<std::string, InstalledAddon> previous;
+    for (const InstalledAddon& inst : mInstalledAddons)
+    {
+        previous[inst.mId] = inst;
+    }
+
     mInstalledAddons.clear();
 
     std::string installedPath = GetInstalledAddonsPath();
@@ -1552,9 +1676,37 @@ void AddonManager::LoadInstalledAddons()
             {
                 installed.mTrustedScripts = addonObj["trustedScripts"].GetBool();
             }
+            if (addonObj.HasMember("branch") && addonObj["branch"].IsString())
+            {
+                installed.mBranch = addonObj["branch"].GetString();
+            }
+            if (addonObj.HasMember("commit") && addonObj["commit"].IsString())
+            {
+                installed.mCommit = addonObj["commit"].GetString();
+            }
+            if (addonObj.HasMember("commitDate") && addonObj["commitDate"].IsString())
+            {
+                installed.mCommitDate = addonObj["commitDate"].GetString();
+            }
+            if (addonObj.HasMember("pinned") && addonObj["pinned"].IsBool())
+            {
+                installed.mPinned = addonObj["pinned"].GetBool();
+            }
+            if (addonObj.HasMember("standalone") && addonObj["standalone"].IsBool())
+            {
+                installed.mIsStandalone = addonObj["standalone"].GetBool();
+            }
 
             if (!installed.mId.empty())
             {
+                auto prev = previous.find(installed.mId);
+                if (prev != previous.end() && prev->second.mCommit == installed.mCommit)
+                {
+                    installed.mUpdateChecked     = prev->second.mUpdateChecked;
+                    installed.mRemoteCommit      = prev->second.mRemoteCommit;
+                    installed.mRemoteCommitDate  = prev->second.mRemoteCommitDate;
+                    installed.mUpdateCheckError  = prev->second.mUpdateCheckError;
+                }
                 mInstalledAddons.push_back(installed);
             }
         }
@@ -1606,6 +1758,26 @@ void AddonManager::SaveInstalledAddons()
         {
             addonObj.AddMember("lastSyncStatus", rapidjson::Value(installed.mLastSyncStatus.c_str(), allocator), allocator);
         }
+        if (!installed.mBranch.empty())
+        {
+            addonObj.AddMember("branch", rapidjson::Value(installed.mBranch.c_str(), allocator), allocator);
+        }
+        if (!installed.mCommit.empty())
+        {
+            addonObj.AddMember("commit", rapidjson::Value(installed.mCommit.c_str(), allocator), allocator);
+        }
+        if (!installed.mCommitDate.empty())
+        {
+            addonObj.AddMember("commitDate", rapidjson::Value(installed.mCommitDate.c_str(), allocator), allocator);
+        }
+        if (installed.mPinned)
+        {
+            addonObj.AddMember("pinned", true, allocator);
+        }
+        if (!installed.mIsStandalone)
+        {
+            addonObj.AddMember("standalone", false, allocator);
+        }
         if (installed.mTrustedScripts)
         {
             addonObj.AddMember("trustedScripts", installed.mTrustedScripts, allocator);
@@ -1634,16 +1806,390 @@ bool AddonManager::IsAddonInstalled(const std::string& addonId) const
     return false;
 }
 
+const InstalledAddon* AddonManager::FindInstalled(const std::string& addonId) const
+{
+    for (const InstalledAddon& installed : mInstalledAddons)
+    {
+        if (installed.mId == addonId)
+        {
+            return &installed;
+        }
+    }
+    return nullptr;
+}
+
 bool AddonManager::HasUpdate(const std::string& addonId) const
 {
+    AddonUpdateStatus::Kind kind = GetUpdateStatus(addonId).mKind;
+    return kind == AddonUpdateStatus::NewCommits || kind == AddonUpdateStatus::NewVersion;
+}
+
+static std::string ShortSha(const std::string& sha)
+{
+    return sha.size() > 7 ? sha.substr(0, 7) : sha;
+}
+
+// True when both are "YYYY-MM-DDTHH:MM:SSZ"-style UTC stamps (GitHub and
+// GetCurrentTimestamp both emit that form) and a is strictly later than b.
+static bool IsIsoNewer(const std::string& a, const std::string& b)
+{
+    auto looksIso = [](const std::string& s)
+    {
+        return s.size() >= 19 && s[4] == '-' && s[7] == '-' && s[10] == 'T';
+    };
+    if (!looksIso(a) || !looksIso(b))
+    {
+        return false;
+    }
+    return a.compare(0, 19, b, 0, 19) > 0;
+}
+
+AddonUpdateStatus AddonManager::GetUpdateStatus(const std::string& addonId) const
+{
+    AddonUpdateStatus status;
+
+    const InstalledAddon* inst = FindInstalled(addonId);
+    if (inst == nullptr)
+    {
+        return status;
+    }
     const Addon* addon = FindAddon(addonId);
-    if (addon == nullptr || !addon->mIsInstalled)
+
+    std::string repoUrl = inst->mRepoUrl;
+    if (repoUrl.empty() && addon != nullptr)
+    {
+        repoUrl = addon->mRepoUrl;
+    }
+    std::string owner, repo;
+    if (repoUrl.empty())
+    {
+        status.mKind = AddonUpdateStatus::NoSource;
+        status.mDetail = "No repository recorded for this addon. Reinstall it from a registry to enable update checks.";
+        return status;
+    }
+    if (!ParseGitHubRepo(repoUrl, owner, repo))
+    {
+        status.mKind = AddonUpdateStatus::NoSource;
+        status.mDetail = "Update checks need a GitHub repository URL (source: " + repoUrl + ").";
+        return status;
+    }
+    if (inst->mPinned)
+    {
+        status.mKind = AddonUpdateStatus::Pinned;
+        status.mDetail = "Pinned to commit " + ShortSha(inst->mCommit) + " by the dependency that requested it.";
+        return status;
+    }
+
+    // Secondary signal: the registry publishes a different version string.
+    if (addon != nullptr && !inst->mVersion.empty() && !addon->mMetadata.mVersion.empty() &&
+        inst->mVersion != addon->mMetadata.mVersion)
+    {
+        status.mKind = AddonUpdateStatus::NewVersion;
+        status.mDetail = "Registry publishes v" + addon->mMetadata.mVersion + ", installed is v" + inst->mVersion + ".";
+        return status;
+    }
+    // The registry manifest stamps each package with its last update; a stamp
+    // later than our install means the published files moved even if the
+    // version string did not. Works without any GitHub API call.
+    if (addon != nullptr && IsIsoNewer(addon->mMetadata.mUpdated, inst->mInstalledDate))
+    {
+        status.mKind = AddonUpdateStatus::NewVersion;
+        status.mDetail = "Registry entry updated " + addon->mMetadata.mUpdated +
+                         ", after this install (" + inst->mInstalledDate + ").";
+        return status;
+    }
+
+    if (!inst->mUpdateChecked)
+    {
+        status.mKind = AddonUpdateStatus::NotChecked;
+        status.mDetail = inst->mCommit.empty()
+            ? "No commit recorded (installed before commit tracking). Update once to start tracking."
+            : "Installed commit " + ShortSha(inst->mCommit) + ". Click Check for Updates.";
+        return status;
+    }
+    if (!inst->mUpdateCheckError.empty() || inst->mRemoteCommit.empty())
+    {
+        status.mKind = AddonUpdateStatus::Error;
+        status.mDetail = inst->mUpdateCheckError.empty() ? "No commit returned for the branch." : inst->mUpdateCheckError;
+        return status;
+    }
+    if (inst->mCommit.empty())
+    {
+        // Installed before commit tracking: fall back to dates. A branch head
+        // committed after the install time is an update; otherwise nothing
+        // has landed since.
+        if (IsIsoNewer(inst->mRemoteCommitDate, inst->mInstalledDate))
+        {
+            status.mKind = AddonUpdateStatus::NewCommits;
+            status.mDetail = "Commit " + ShortSha(inst->mRemoteCommit) + " (" + inst->mRemoteCommitDate +
+                             ") landed after this install (" + inst->mInstalledDate +
+                             "). No install commit was recorded; updating starts commit tracking.";
+            return status;
+        }
+        if (!inst->mRemoteCommitDate.empty() && !inst->mInstalledDate.empty())
+        {
+            status.mKind = AddonUpdateStatus::UpToDate;
+            status.mDetail = "No commits on the branch since this install (" + inst->mInstalledDate +
+                             "). Install commit not recorded; updating starts commit tracking.";
+            return status;
+        }
+        status.mKind = AddonUpdateStatus::NotChecked;
+        status.mDetail = "Branch head is " + ShortSha(inst->mRemoteCommit) +
+                         " but no install commit or date was recorded. Update once to start tracking.";
+        return status;
+    }
+
+    // Primary signal: the branch head moved since install.
+    if (inst->mRemoteCommit != inst->mCommit)
+    {
+        status.mKind = AddonUpdateStatus::NewCommits;
+        status.mDetail = "New commits on '" + (inst->mBranch.empty() ? std::string("main") : inst->mBranch) + "': " +
+                         ShortSha(inst->mCommit) + " -> " + ShortSha(inst->mRemoteCommit);
+        if (!inst->mRemoteCommitDate.empty())
+        {
+            status.mDetail += " (" + inst->mRemoteCommitDate + ")";
+        }
+        return status;
+    }
+
+    status.mKind = AddonUpdateStatus::UpToDate;
+    status.mDetail = "Installed commit " + ShortSha(inst->mCommit) + " matches the branch head.";
+    return status;
+}
+
+std::string AddonManager::GetAddonBranch(const Addon& addon)
+{
+    if (!addon.mBranch.empty())
+    {
+        return addon.mBranch;
+    }
+    return addon.mIsMain ? "main" : "master";
+}
+
+bool AddonManager::ParseGitHubRepo(const std::string& url, std::string& outOwner, std::string& outRepo)
+{
+    outOwner.clear();
+    outRepo.clear();
+
+    size_t pos = url.find("github.com/");
+    if (pos == std::string::npos)
     {
         return false;
     }
 
-    std::string installedVersion = GetInstalledVersion(addonId);
-    return !installedVersion.empty() && installedVersion != addon->mMetadata.mVersion;
+    std::string rest = url.substr(pos + strlen("github.com/"));
+    while (!rest.empty() && rest.back() == '/')
+    {
+        rest.pop_back();
+    }
+    if (rest.size() > 4 && rest.compare(rest.size() - 4, 4, ".git") == 0)
+    {
+        rest.erase(rest.size() - 4);
+    }
+
+    size_t slash = rest.find('/');
+    if (slash == std::string::npos)
+    {
+        return false;
+    }
+    outOwner = rest.substr(0, slash);
+    outRepo = rest.substr(slash + 1);
+    size_t extra = outRepo.find('/');
+    if (extra != std::string::npos)
+    {
+        outRepo.erase(extra);
+    }
+    return !outOwner.empty() && !outRepo.empty();
+}
+
+bool AddonManager::FetchLatestCommit(const std::string& repoUrl, const std::string& branch,
+                                     const std::string& subPath, std::string& outSha,
+                                     std::string& outDate, std::string& outError)
+{
+    outSha.clear();
+    outDate.clear();
+    outError.clear();
+
+    std::string owner, repo;
+    if (!ParseGitHubRepo(repoUrl, owner, repo))
+    {
+        outError = "Update checks are only supported for GitHub repositories (" + repoUrl + ").";
+        return false;
+    }
+    if (!HttpClient::IsAvailable())
+    {
+        outError = HttpClient::GetMissingDependencyMessage();
+        if (outError.empty())
+        {
+            outError = "HTTP client unavailable.";
+        }
+        return false;
+    }
+
+    // One commit, newest first, optionally restricted to the addon's folder
+    // so a legacy multi-addon registry repo doesn't flag every sibling.
+    std::string url = "https://api.github.com/repos/" + owner + "/" + repo +
+                      "/commits?sha=" + branch + "&per_page=1";
+    if (!subPath.empty())
+    {
+        url += "&path=" + subPath;
+    }
+
+    UpdaterHttpResponse response = HttpClient::Get(url, 10000);
+
+    rapidjson::Document doc;
+    doc.Parse(response.mBody.c_str());
+
+    if (!response.IsSuccess())
+    {
+        outError = "GitHub API HTTP " + std::to_string(response.mStatusCode);
+        if (!doc.HasParseError() && doc.IsObject() && doc.HasMember("message") && doc["message"].IsString())
+        {
+            outError += ": " + std::string(doc["message"].GetString());
+        }
+        else if (!response.mError.empty())
+        {
+            outError += ": " + response.mError;
+        }
+        return false;
+    }
+    if (doc.HasParseError() || !doc.IsArray())
+    {
+        outError = "Unexpected response from the GitHub API.";
+        return false;
+    }
+    if (doc.Empty())
+    {
+        outError = "No commits found on branch '" + branch + "'" +
+                   (subPath.empty() ? std::string() : " for path '" + subPath + "'") + ".";
+        return false;
+    }
+
+    const rapidjson::Value& commit = doc[0];
+    if (commit.IsObject() && commit.HasMember("sha") && commit["sha"].IsString())
+    {
+        outSha = commit["sha"].GetString();
+    }
+    if (commit.IsObject() && commit.HasMember("commit") && commit["commit"].IsObject())
+    {
+        const rapidjson::Value& inner = commit["commit"];
+        if (inner.HasMember("committer") && inner["committer"].IsObject())
+        {
+            const rapidjson::Value& committer = inner["committer"];
+            if (committer.HasMember("date") && committer["date"].IsString())
+            {
+                outDate = committer["date"].GetString();
+            }
+        }
+    }
+
+    if (outSha.empty())
+    {
+        outError = "GitHub API response carried no commit sha.";
+        return false;
+    }
+    return true;
+}
+
+int AddonManager::CheckForUpdates(std::string& outSummary)
+{
+    // Fresh registry first: the version signal comes from there, and this
+    // also re-reads the ledger (dropping any previous transient results).
+    if (EditorProgress::IsActive())
+    {
+        EditorProgress::SetStatus("Refreshing addon repositories...");
+    }
+    RefreshAllRepositories();
+
+    struct LookupResult
+    {
+        bool mOk = false;
+        std::string mSha;
+        std::string mDate;
+        std::string mError;
+    };
+    std::unordered_map<std::string, LookupResult> memo;
+
+    int available = 0;
+    int checked = 0;
+    int failed = 0;
+    int skipped = 0;
+    const int total = (int)mInstalledAddons.size();
+
+    for (int i = 0; i < total; ++i)
+    {
+        InstalledAddon& inst = mInstalledAddons[i];
+        inst.mUpdateChecked = false;
+        inst.mRemoteCommit.clear();
+        inst.mRemoteCommitDate.clear();
+        inst.mUpdateCheckError.clear();
+
+        const Addon* addon = FindAddon(inst.mId);
+        std::string repoUrl = inst.mRepoUrl;
+        std::string branch = inst.mBranch;
+        bool standalone = inst.mIsStandalone;
+        if (addon != nullptr)
+        {
+            // Registry metadata wins for records written before branch /
+            // layout were tracked.
+            if (repoUrl.empty()) repoUrl = addon->mRepoUrl;
+            if (branch.empty())  branch = GetAddonBranch(*addon);
+            if (inst.mBranch.empty()) standalone = addon->mIsStandalone;
+        }
+        if (branch.empty())
+        {
+            branch = "main";
+        }
+
+        std::string owner, repo;
+        if (inst.mPinned || repoUrl.empty() || !ParseGitHubRepo(repoUrl, owner, repo))
+        {
+            skipped++;
+            continue;
+        }
+
+        if (EditorProgress::IsActive())
+        {
+            std::string label = "Checking " + inst.mId + "...";
+            EditorProgress::Step(label.c_str(), i, total);
+        }
+
+        std::string subPath = standalone ? std::string() : inst.mId;
+        std::string key = owner + "/" + repo + "|" + branch + "|" + subPath;
+        auto found = memo.find(key);
+        if (found == memo.end())
+        {
+            LookupResult result;
+            result.mOk = FetchLatestCommit(repoUrl, branch, subPath, result.mSha, result.mDate, result.mError);
+            found = memo.emplace(key, result).first;
+        }
+
+        inst.mUpdateChecked = true;
+        if (found->second.mOk)
+        {
+            inst.mRemoteCommit = found->second.mSha;
+            inst.mRemoteCommitDate = found->second.mDate;
+            checked++;
+        }
+        else
+        {
+            inst.mUpdateCheckError = found->second.mError;
+            failed++;
+            LogWarning("Update check for addon '%s' failed: %s", inst.mId.c_str(), found->second.mError.c_str());
+        }
+
+        if (HasUpdate(inst.mId))
+        {
+            available++;
+        }
+    }
+
+    outSummary = std::to_string(checked) + " checked";
+    if (available > 0) outSummary += ", " + std::to_string(available) + " with updates";
+    if (failed > 0)    outSummary += ", " + std::to_string(failed) + " failed";
+    if (skipped > 0)   outSummary += ", " + std::to_string(skipped) + " skipped (pinned or no GitHub source)";
+    outSummary += ".";
+    return available;
 }
 
 std::string AddonManager::GetInstalledVersion(const std::string& addonId) const

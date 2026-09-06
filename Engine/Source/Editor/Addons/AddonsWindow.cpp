@@ -234,6 +234,7 @@ void AddonsWindow::Draw()
     DrawAddonDetailsPopup();
     DrawAddRepoPopup();
     DrawUninstallConfirmPopup();
+    DrawUpdateConfirmPopup();
 
     // Draw build log popup
     if (mShowBuildLog)
@@ -498,8 +499,13 @@ void AddonsWindow::DrawAddonTable_Browse(const std::vector<const Addon*>& filter
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Update"))
                 {
-                    OnDownloadAddon(addon.mMetadata.mId);
+                    RequestUpdate(addon.mMetadata.mId);
                 }
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove"))
+            {
+                RequestUninstall(addon.mMetadata.mId);
             }
         }
         else
@@ -545,11 +551,11 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("##Icon",  ImGuiTableColumnFlags_WidthFixed,    28.0f);
     ImGui::TableSetupColumn("Name",    ImGuiTableColumnFlags_WidthStretch, 2.0f);
-    ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,    70.0f);
+    ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed,   150.0f);
     ImGui::TableSetupColumn("Native",  ImGuiTableColumnFlags_WidthFixed,   100.0f);
     ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed,    65.0f);
     ImGui::TableSetupColumn("Status",  ImGuiTableColumnFlags_WidthStretch, 1.5f);
-    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed,   220.0f);
+    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed,   260.0f);
     ImGui::TableHeadersRow();
 
     for (const InstalledAddon& inst : installed)
@@ -586,9 +592,11 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
             DrawClampedName(name.c_str(), w);
         }
 
-        // Version
+        // Version + update status
         ImGui::TableNextColumn();
         ImGui::TextDisabled("v%s", inst.mVersion.c_str());
+        ImGui::SameLine();
+        DrawUpdateStatusLabel(inst.mId);
 
         // Native (target chip + mode selector)
         ImGui::TableNextColumn();
@@ -720,12 +728,12 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
 
         // Actions
         ImGui::TableNextColumn();
-        bool hasUpdate = addon && am->HasUpdate(inst.mId);
+        bool hasUpdate = am->HasUpdate(inst.mId);
         if (hasUpdate)
         {
             if (ImGui::SmallButton("Update"))
             {
-                OnDownloadAddon(inst.mId);
+                RequestUpdate(inst.mId);
             }
             ImGui::SameLine();
         }
@@ -789,8 +797,7 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
 
         if (ImGui::SmallButton("Uninstall"))
         {
-            mUninstallAddonId = inst.mId;
-            mShowUninstallConfirm = true;
+            RequestUninstall(inst.mId);
         }
 
         ImGui::PopID();
@@ -811,6 +818,22 @@ void AddonsWindow::DrawAddonBrowser()
     // Search and refresh bar
     ImGui::SetNextItemWidth(300);
     ImGui::InputTextWithHint("##Search", "Search addons...", mSearchBuffer, sizeof(mSearchBuffer));
+
+    ImGui::SameLine(ImGui::GetWindowWidth() - 345);
+    if (ImGui::Button("Check Updates", ImVec2(115, 0)))
+    {
+        if (EditorState* es = GetEditorState())
+        {
+            es->mCheckAddonUpdatesAtEndOfFrame = true;
+            mErrorMessage.clear();
+            mStatusMessage = "Checking for updates...";
+        }
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Compare every installed addon against its repository's latest commit\n"
+                          "and the registry. Manual only; results last for this session.");
+    }
 
     ImGui::SameLine(ImGui::GetWindowWidth() - 220);
     if (ImGui::Button("Resolve Deps", ImVec2(110, 0)))
@@ -1161,8 +1184,13 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
             ImGui::SameLine();
             if (ImGui::SmallButton("Update"))
             {
-                OnDownloadAddon(addon.mMetadata.mId);
+                RequestUpdate(addon.mMetadata.mId);
             }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove"))
+        {
+            RequestUninstall(addon.mMetadata.mId);
         }
     }
     else
@@ -1205,6 +1233,59 @@ void AddonsWindow::DrawInstalledAddons()
         return;
     }
 
+    // Update controls. The check hits the GitHub API once per repo/branch,
+    // so it only ever runs on request (never automatically).
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Check for Updates"))
+    {
+        EditorState* es = GetEditorState();
+        if (es != nullptr)
+        {
+            es->mCheckAddonUpdatesAtEndOfFrame = true;
+            mErrorMessage.clear();
+            mStatusMessage = "Checking for updates...";
+        }
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Compare each installed addon against its repository's latest commit\n"
+                          "and the registry version. Manual only; results last for this session.");
+    }
+
+    int updatable = 0;
+    for (const InstalledAddon& inst : installed)
+    {
+        if (am->HasUpdate(inst.mId)) updatable++;
+    }
+    if (updatable > 0)
+    {
+        ImGui::SameLine();
+        std::string label = "Update All (" + std::to_string(updatable) + ")";
+        if (ImGui::SmallButton(label.c_str()))
+        {
+            for (const InstalledAddon& inst : installed)
+            {
+                if (am->HasUpdate(inst.mId))
+                {
+                    OnDownloadAddon(inst.mId);
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Re-download every addon with an update. Files under Packages/<id> are replaced.");
+        }
+    }
+
+    if (!mStatusMessage.empty())
+    {
+        ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1.0f), "%s", mStatusMessage.c_str());
+    }
+    if (!mErrorMessage.empty())
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", mErrorMessage.c_str());
+    }
+
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -1244,9 +1325,11 @@ void AddonsWindow::DrawInstalledAddons()
 
         ImGui::SameLine(300);
         ImGui::TextDisabled("v%s", inst.mVersion.c_str());
+        ImGui::SameLine();
+        DrawUpdateStatusLabel(inst.mId);
 
         // Check for update
-        bool hasUpdate = addon && am->HasUpdate(inst.mId);
+        bool hasUpdate = am->HasUpdate(inst.mId);
 
         ImGui::SameLine(ImGui::GetWindowWidth() - 250);
 
@@ -1254,15 +1337,14 @@ void AddonsWindow::DrawInstalledAddons()
         {
             if (ImGui::SmallButton("Update"))
             {
-                OnDownloadAddon(inst.mId);
+                RequestUpdate(inst.mId);
             }
             ImGui::SameLine();
         }
 
         if (ImGui::SmallButton("Uninstall"))
         {
-            mUninstallAddonId = inst.mId;
-            mShowUninstallConfirm = true;
+            RequestUninstall(inst.mId);
         }
 
         // Git workflow button (cards view) — mirrors the table-view entry.
@@ -1626,15 +1708,40 @@ void AddonsWindow::DrawAddonDetailsPopup()
         if (addon->mIsInstalled)
         {
             ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Already installed (v%s)", addon->mInstalledVersion.c_str());
+            ImGui::SameLine();
+            DrawUpdateStatusLabel(addon->mMetadata.mId);
 
             if (am->HasUpdate(addon->mMetadata.mId))
             {
                 ImGui::SameLine();
                 if (ImGui::Button("Update"))
                 {
-                    OnDownloadAddon(addon->mMetadata.mId);
+                    RequestUpdate(addon->mMetadata.mId);
                     mShowAddonDetails = false;
                 }
+            }
+            else
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Check for Updates"))
+                {
+                    if (EditorState* es = GetEditorState())
+                    {
+                        es->mCheckAddonUpdatesAtEndOfFrame = true;
+                        mErrorMessage.clear();
+                        mStatusMessage = "Checking for updates...";
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Compare every installed addon against its repository's latest commit.");
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Remove"))
+            {
+                RequestUninstall(addon->mMetadata.mId);
+                mShowAddonDetails = false;
             }
         }
         else
@@ -1856,7 +1963,8 @@ void AddonsWindow::ProcessPendingInstalls()
         }
 
         const Addon* addon = am->FindAddon(addonId);
-        if (addon == nullptr)
+        const InstalledAddon* record = (addon == nullptr) ? am->FindInstalled(addonId) : nullptr;
+        if (addon == nullptr && (record == nullptr || record->mRepoUrl.empty() || record->mPinned))
         {
             failed.push_back(addonId + " is not in any configured repository. Add its repository "
                              "in the Repositories tab, or copy the addon folder into "
@@ -1865,11 +1973,16 @@ void AddonsWindow::ProcessPendingInstalls()
             continue;
         }
 
-        std::string label = "Downloading " + addon->mMetadata.mName + "...";
+        std::string label = "Downloading " + (addon ? addon->mMetadata.mName : addonId) + "...";
         EditorProgress::Step(label.c_str(), i, total);
 
         std::string error;
-        if (am->DownloadAddon(*addon, error))
+        // A dependency that was installed straight from a URL has no registry
+        // entry; re-download it from the source recorded at install time.
+        bool ok = (addon != nullptr)
+            ? am->DownloadAddon(*addon, error)
+            : am->DownloadAndInstallFromUrl(addonId, record->mRepoUrl, record->mBranch, error);
+        if (ok)
         {
             installed.push_back(addonId);
             for (const std::string& dep : am->GetLastInstallMissingDependencies())
@@ -1879,7 +1992,7 @@ void AddonsWindow::ProcessPendingInstalls()
         }
         else
         {
-            failed.push_back(addon->mMetadata.mName + ": " + error);
+            failed.push_back((addon ? addon->mMetadata.mName : addonId) + ": " + error);
             LogError("Failed to install addon %s: %s", addonId.c_str(), error.c_str());
         }
     }
@@ -2002,7 +2115,414 @@ void AddonsWindow::OnViewMore(const std::string& addonId)
     mErrorMessage.clear();
 }
 
+static std::string AddonDisplayName(const std::string& addonId)
+{
+    AddonManager* am = AddonManager::Get();
+    const Addon* addon = am ? am->FindAddon(addonId) : nullptr;
+    return (addon != nullptr && !addon->mMetadata.mName.empty()) ? addon->mMetadata.mName : addonId;
+}
+
+void AddonsWindow::RequestUninstall(const std::string& addonId)
+{
+    mUninstallAddonId = addonId;
+    AddonDependencyResolver::CollectDependents(addonId, mUninstallDependents, mUninstallLocalDependents);
+
+    mUninstallNeedsRestart = false;
+    if (NativeAddonManager* nam = NativeAddonManager::Get())
+    {
+        mUninstallNeedsRestart = nam->IsLoaded(addonId);
+        for (const std::string& dep : mUninstallDependents)
+        {
+            if (nam->IsLoaded(dep)) mUninstallNeedsRestart = true;
+        }
+    }
+
+    mShowUninstallConfirm = true;
+    mUninstallPopupRequested = true;
+    mErrorMessage.clear();
+}
+
 void AddonsWindow::OnUninstallAddon(const std::string& addonId)
+{
+    EditorState* es = GetEditorState();
+    if (es == nullptr)
+    {
+        return;
+    }
+
+    // Dependents first so no package is ever left declaring a dependency
+    // that has already been deleted.
+    std::vector<std::string> order = mUninstallDependents;
+    order.push_back(addonId);
+    for (const std::string& id : order)
+    {
+        if (std::find(es->mPendingAddonUninstalls.begin(), es->mPendingAddonUninstalls.end(), id) ==
+            es->mPendingAddonUninstalls.end())
+        {
+            es->mPendingAddonUninstalls.push_back(id);
+        }
+    }
+    es->mUninstallAddonsAtEndOfFrame = true;
+    mErrorMessage.clear();
+    mStatusMessage = "Removing " + addonId + "...";
+}
+
+void AddonsWindow::DrawUninstallConfirmPopup()
+{
+    const char* kPopupName = "Remove Addon##AddonsUninstall";
+
+    if (!mShowUninstallConfirm)
+    {
+        return;
+    }
+    if (mUninstallPopupRequested)
+    {
+        mUninstallPopupRequested = false;
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Always);
+
+    if (!ImGui::BeginPopupModal(kPopupName, nullptr,
+                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        // Closed from outside (e.g. Escape); drop the request.
+        mShowUninstallConfirm = false;
+        return;
+    }
+
+    const bool pieActive = IsPlayingInEditor();
+    const int  removeCount = 1 + (int)mUninstallDependents.size();
+
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Remove \"%s\" from this project?",
+                       AddonDisplayName(mUninstallAddonId).c_str());
+    ImGui::Separator();
+    ImGui::TextWrapped("Deletes Packages/%s and its build output.", mUninstallAddonId.c_str());
+
+    if (!mUninstallDependents.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                           "These installed addons depend on it and will also be removed:");
+        for (const std::string& dep : mUninstallDependents)
+        {
+            ImGui::BulletText("%s  (%s)", AddonDisplayName(dep).c_str(), dep.c_str());
+        }
+    }
+
+    if (!mUninstallLocalDependents.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextWrapped("These local packages depend on it and will be left in place. They will "
+                           "show \"Missing dependency\", and with Auto-Resolve Dependencies on the "
+                           "addon is downloaded again the next time the project opens:");
+        for (const std::string& dep : mUninstallLocalDependents)
+        {
+            ImGui::BulletText("%s", dep.c_str());
+        }
+    }
+
+    if (mUninstallNeedsRestart)
+    {
+        ImGui::Spacing();
+        ImGui::TextWrapped("A loaded native addon is involved. The project will be closed and "
+                           "reopened so its DLL can be unloaded safely; unsaved scenes prompt first.");
+    }
+
+    if (pieActive)
+    {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Stop play-in-editor before removing addons.");
+    }
+
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const float btnW = 150.0f;
+    float spaceForButtons = btnW * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+    float xOffset = ImGui::GetWindowWidth() - spaceForButtons - ImGui::GetStyle().WindowPadding.x;
+    if (xOffset > 0) ImGui::SetCursorPosX(xOffset);
+
+    if (ImGui::Button("Cancel", ImVec2(btnW, 0)))
+    {
+        mShowUninstallConfirm = false;
+        mUninstallAddonId.clear();
+        mUninstallDependents.clear();
+        mUninstallLocalDependents.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(pieActive);
+    std::string removeLabel = (removeCount > 1)
+        ? "Remove " + std::to_string(removeCount) + " addons"
+        : std::string("Remove");
+    if (ImGui::Button(removeLabel.c_str(), ImVec2(btnW, 0)))
+    {
+        OnUninstallAddon(mUninstallAddonId);
+        mShowUninstallConfirm = false;
+        mUninstallAddonId.clear();
+        mUninstallDependents.clear();
+        mUninstallLocalDependents.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::EndPopup();
+}
+
+void AddonsWindow::ProcessPendingUninstalls()
+{
+    EditorState* es = GetEditorState();
+    AddonManager* am = AddonManager::Get();
+    if (es == nullptr)
+    {
+        return;
+    }
+    std::vector<std::string> queue;
+    queue.swap(es->mPendingAddonUninstalls);
+    if (queue.empty() || am == nullptr)
+    {
+        return;
+    }
+
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (IsPlayingInEditor())
+    {
+        mStatusMessage.clear();
+        mErrorMessage = "Stop play-in-editor before removing addons.";
+        return;
+    }
+    if (nam != nullptr && (nam->IsProjectRestartActive() || nam->IsBuildingAsync()))
+    {
+        mStatusMessage.clear();
+        mErrorMessage = "A native addon reload or build is in progress; try again when it finishes.";
+        return;
+    }
+
+    for (const std::string& id : queue)
+    {
+        mAddonGitRepoCache.erase(id);
+        mThumbnailPaths.erase(id);
+    }
+
+    // Any loaded DLL in the batch means live nodes may hold vtables into it:
+    // hand the whole batch to the project-restart machine, which deletes
+    // everything with no scenes open and reopens the project. No
+    // EditorProgress here — OpenProject runs its own modal and the two
+    // don't nest.
+    bool anyLoaded = false;
+    if (nam != nullptr)
+    {
+        for (const std::string& id : queue)
+        {
+            if (nam->IsLoaded(id)) anyLoaded = true;
+        }
+    }
+    if (anyLoaded)
+    {
+        std::string reason = "removing addon";
+        for (size_t i = 0; i < queue.size(); ++i)
+        {
+            reason += (i == 0) ? " " : ", ";
+            reason += queue[i];
+        }
+        if (nam->RemoveNativeAddonsWithProjectRestart(queue, reason.c_str()))
+        {
+            mErrorMessage.clear();
+            mStatusMessage = (queue.size() == 1)
+                ? queue.front() + " removed."
+                : std::to_string(queue.size()) + " addons removed.";
+        }
+        else
+        {
+            mStatusMessage.clear();
+            mErrorMessage = "Could not start the removal (see log).";
+        }
+        return;
+    }
+
+    EditorProgress::Begin("Removing Addons", "Preparing...");
+
+    std::vector<std::string> removed;
+    std::vector<std::string> failed;
+    const int total = (int)queue.size();
+    for (int i = 0; i < total; ++i)
+    {
+        const std::string& id = queue[i];
+        std::string label = "Removing " + id + "...";
+        EditorProgress::Step(label.c_str(), i, total);
+
+        if (nam != nullptr)
+        {
+            nam->ForgetAddon(id);
+        }
+        if (am->UninstallAddon(id))
+        {
+            removed.push_back(id);
+        }
+        else
+        {
+            failed.push_back(id);
+            LogError("Failed to uninstall addon '%s': no install record.", id.c_str());
+        }
+    }
+
+    if (!removed.empty())
+    {
+        EditorProgress::SetStatus("Refreshing packages...");
+
+        AssetDir* rootDir = AssetManager::Get()->GetRootDirectory();
+        if (rootDir != nullptr)
+        {
+            if (AssetManager::Get()->FindPackagesDirectory() != nullptr)
+            {
+                rootDir->DeleteSubdirectory("Packages");
+            }
+            std::string packagesDir = GetEngineState()->mProjectDirectory + "Packages/";
+            if (DoesDirExist(packagesDir.c_str()))
+            {
+                AssetManager::Get()->DiscoverAddonPackages(packagesDir);
+            }
+            GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] = AssetManager::Get()->FindPackagesDirectory();
+        }
+
+        if (nam != nullptr)
+        {
+            nam->RefreshMissingDependencies();
+        }
+        ClearThumbnailCache();
+    }
+
+    EditorProgress::End();
+
+    mStatusMessage.clear();
+    mErrorMessage.clear();
+    if (!removed.empty())
+    {
+        mStatusMessage = (removed.size() == 1)
+            ? removed.front() + " removed."
+            : std::to_string(removed.size()) + " addons removed.";
+    }
+    if (!failed.empty())
+    {
+        mErrorMessage = "Failed to remove: ";
+        for (size_t i = 0; i < failed.size(); ++i)
+        {
+            if (i > 0) mErrorMessage += ", ";
+            mErrorMessage += failed[i];
+        }
+    }
+}
+
+void AddonsWindow::RequestUpdate(const std::string& addonId)
+{
+    mUpdateAddonId = addonId;
+
+    // Only warn about a repo that lives inside the addon folder itself.
+    // A discover walking upward is true for every addon whenever the
+    // project is a git checkout, which says nothing about local edits.
+    mUpdateAddonHasOwnRepo = false;
+    std::string addonDir = GetAddonDirectory(addonId);
+    if (!addonDir.empty())
+    {
+        std::string root = AddonCreator::DiscoverGitRepoRoot(addonDir);
+        for (char& c : root) { if (c == '\\') c = '/'; }
+        for (char& c : addonDir) { if (c == '\\') c = '/'; }
+        while (!root.empty() && root.back() == '/') root.pop_back();
+        while (!addonDir.empty() && addonDir.back() == '/') addonDir.pop_back();
+        mUpdateAddonHasOwnRepo = !root.empty() && root == addonDir;
+    }
+
+    mShowUpdateConfirm = true;
+    mUpdatePopupRequested = true;
+    mErrorMessage.clear();
+}
+
+void AddonsWindow::DrawUpdateConfirmPopup()
+{
+    const char* kPopupName = "Update Addon##AddonsUpdate";
+
+    if (!mShowUpdateConfirm)
+    {
+        return;
+    }
+    if (mUpdatePopupRequested)
+    {
+        mUpdatePopupRequested = false;
+        ImGui::OpenPopup(kPopupName);
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_Always);
+
+    if (!ImGui::BeginPopupModal(kPopupName, nullptr,
+                                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        mShowUpdateConfirm = false;
+        return;
+    }
+
+    AddonManager* am = AddonManager::Get();
+    AddonUpdateStatus status = am ? am->GetUpdateStatus(mUpdateAddonId) : AddonUpdateStatus();
+
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Update \"%s\"?",
+                       AddonDisplayName(mUpdateAddonId).c_str());
+    ImGui::Separator();
+    if (!status.mDetail.empty())
+    {
+        ImGui::TextWrapped("%s", status.mDetail.c_str());
+        ImGui::Spacing();
+    }
+    ImGui::TextWrapped("The contents of Packages/%s are replaced with the latest download. "
+                       "Any local edits inside that folder are lost.", mUpdateAddonId.c_str());
+    if (mUpdateAddonHasOwnRepo)
+    {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f),
+                           "This folder is its own git repository. Commit or push your changes first.");
+    }
+    if (NativeAddonManager* nam = NativeAddonManager::Get())
+    {
+        if (nam->IsLoaded(mUpdateAddonId))
+        {
+            ImGui::Spacing();
+            ImGui::TextWrapped("This native addon is loaded: after the download the project is closed "
+                               "and reopened to rebuild it.");
+        }
+    }
+
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const float btnW = 130.0f;
+    float spaceForButtons = btnW * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+    float xOffset = ImGui::GetWindowWidth() - spaceForButtons - ImGui::GetStyle().WindowPadding.x;
+    if (xOffset > 0) ImGui::SetCursorPosX(xOffset);
+
+    if (ImGui::Button("Cancel", ImVec2(btnW, 0)))
+    {
+        mShowUpdateConfirm = false;
+        mUpdateAddonId.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Update", ImVec2(btnW, 0)))
+    {
+        OnDownloadAddon(mUpdateAddonId);
+        mShowUpdateConfirm = false;
+        mUpdateAddonId.clear();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+void AddonsWindow::DrawUpdateStatusLabel(const std::string& addonId)
 {
     AddonManager* am = AddonManager::Get();
     if (am == nullptr)
@@ -2010,50 +2530,46 @@ void AddonsWindow::OnUninstallAddon(const std::string& addonId)
         return;
     }
 
-    if (am->UninstallAddon(addonId))
+    AddonUpdateStatus status = am->GetUpdateStatus(addonId);
+    const char* text = "";
+    ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    switch (status.mKind)
     {
-        mStatusMessage = "Addon uninstalled successfully";
+        case AddonUpdateStatus::NewCommits: text = "New commits"; color = ImVec4(1.0f, 0.6f, 0.2f, 1.0f); break;
+        case AddonUpdateStatus::NewVersion: text = "New version"; color = ImVec4(1.0f, 0.6f, 0.2f, 1.0f); break;
+        case AddonUpdateStatus::UpToDate:   text = "Up to date";  color = ImVec4(0.3f, 0.8f, 0.3f, 1.0f); break;
+        case AddonUpdateStatus::Error:      text = "Check failed"; color = ImVec4(1.0f, 0.35f, 0.35f, 1.0f); break;
+        case AddonUpdateStatus::Pinned:     text = "Pinned"; break;
+        case AddonUpdateStatus::NoSource:   text = "No source"; break;
+        case AddonUpdateStatus::NotChecked:
+        default:                            text = "Not checked"; break;
     }
-    else
+
+    ImGui::TextColored(color, "%s", text);
+    if (ImGui::IsItemHovered() && !status.mDetail.empty())
     {
-        mErrorMessage = "Failed to uninstall addon";
+        ImGui::SetTooltip("%s", status.mDetail.c_str());
     }
 }
 
-void AddonsWindow::DrawUninstallConfirmPopup()
+void AddonsWindow::ProcessPendingUpdateCheck()
 {
-    if (!mShowUninstallConfirm)
+    AddonManager* am = AddonManager::Get();
+    if (am == nullptr)
     {
         return;
     }
 
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(350, 0));
+    EditorProgress::Begin("Checking for Updates", "Refreshing addon repositories...");
+    std::string summary;
+    int available = am->CheckForUpdates(summary);
+    mNeedsRefresh = false;
+    EditorProgress::End();
 
-    if (ImGui::Begin("Uninstall Addon", &mShowUninstallConfirm,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse))
-    {
-        ImGui::TextWrapped("Are you sure you want to uninstall \"%s\"? This will delete the addon files from the Packages folder.", mUninstallAddonId.c_str());
-        ImGui::Spacing();
-
-        if (ImGui::Button("Uninstall", ImVec2(120, 0)))
-        {
-            OnUninstallAddon(mUninstallAddonId);
-            mShowUninstallConfirm = false;
-            mUninstallAddonId.clear();
-        }
-
-        ImGui::SameLine();
-
-        if (ImGui::Button("Cancel", ImVec2(120, 0)))
-        {
-            mShowUninstallConfirm = false;
-            mUninstallAddonId.clear();
-        }
-    }
-    ImGui::End();
+    mErrorMessage.clear();
+    mStatusMessage = (available > 0)
+        ? std::to_string(available) + " update(s) available. " + summary
+        : "No updates available. " + summary;
 }
 
 void AddonsWindow::OnAddRepository()
