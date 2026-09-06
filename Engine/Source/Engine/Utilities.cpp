@@ -47,6 +47,8 @@ Platform GetPlatform()
     return Platform::Wii;
 #elif PLATFORM_3DS
     return Platform::N3DS;
+#elif PLATFORM_MAC
+    return Platform::Mac;
 #else
     return Platform::Count;
 #endif
@@ -488,6 +490,7 @@ const char* GetPlatformString(Platform platform)
     case Platform::Wii: retString = "Wii"; break;
     case Platform::N3DS: retString = "3DS"; break;
     case Platform::Psp: retString = "PSP"; break;
+    case Platform::Mac: retString = "Mac"; break;
     default: break;
     }
 

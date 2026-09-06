@@ -2267,6 +2267,9 @@ bool AddonManager::SyncNativeAddonBinary(const std::string& addonId, std::string
 #elif PLATFORM_LINUX
     currentPlatform = "Linux";
     currentArch = "x64";
+#elif PLATFORM_MAC
+    currentPlatform = "Mac";
+    currentArch = "arm64";
 #else
     outError = "Binary mode not supported on this platform";
     return false;

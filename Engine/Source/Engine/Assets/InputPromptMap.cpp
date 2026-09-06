@@ -47,7 +47,14 @@ void InputPromptMap::LoadStream(Stream& stream, Platform platform)
     for (uint32_t i = 0; i < numEntries; ++i)
     {
         InputPromptEntry& e = mEntries[i];
-        e.mPlatform = (Platform)stream.ReadInt32();
+        int32_t rawPlatform = stream.ReadInt32();
+        // Platform::Count is the "Any" sentinel. Before Platform::Mac was
+        // appended, Count was 7; that value now means Mac, so remap it.
+        if (mVersion < ASSET_VERSION_INPUT_PROMPT_MAP_PLATFORM_MAC && rawPlatform == 7)
+        {
+            rawPlatform = (int32_t)Platform::Count;
+        }
+        e.mPlatform = (Platform)rawPlatform;
         e.mGamepadType = (GamepadType)stream.ReadInt32();
         stream.ReadString(e.mInputPath);
         e.mKind = (InputPromptKind)stream.ReadUint8();

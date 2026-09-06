@@ -9,7 +9,7 @@
 #include <ShlObj.h>
 #endif
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>   // getpid for addon-recovery sentinel.
@@ -1668,6 +1668,7 @@ static std::string ResolveCompiledBinaryDir(Platform platform, const std::string
     {
     case Platform::Windows: dir += (useSteam ? "Windows/x64/ReleaseSteam/" : "Windows/x64/Release/"); break;
     case Platform::Linux: dir += "Linux/"; break;
+    case Platform::Mac: dir += "Mac/"; break;
     case Platform::GameCube: dir += "GCN/"; break;
     case Platform::Wii: dir += "Wii/"; break;
     case Platform::N3DS: dir += "3DS/"; break;
@@ -1682,6 +1683,22 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     {
         LogError("A build is already in progress.");
         return;
+    }
+
+    // Canonical built-in targets that ship real callbacks (macOS: PostPackage
+    // wraps the .app) must be reachable by Platform alone — headless
+    // `-build Mac`, the Play menu and BuildAndRunWithProfile(Platform) all
+    // arrive here with an empty target id. Metadata-only built-ins are
+    // unaffected: their callbacks are null and their canonical id maps to the
+    // same Packaged/<Platform>/ directory.
+    if (mBuildState.mTargetId.empty() && EditorUIHookManager::Get() != nullptr)
+    {
+        const char* canonicalId = BuiltInBuildTargets::IdForPlatform((int)platform);
+        if (canonicalId != nullptr && canonicalId[0] != '\0' &&
+            EditorUIHookManager::Get()->GetBuildTargets().Find(canonicalId) != nullptr)
+        {
+            mBuildState.mTargetId = canonicalId;
+        }
     }
 
     // Check build cache (unless force rebuild is set)
@@ -1714,6 +1731,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
             case Platform::GameCube: extension = ".dol"; break;
             case Platform::Wii: extension = ".dol"; break;
             case Platform::N3DS: extension = ".3dsx"; break;
+            case Platform::Mac: extension = ".macho"; break;
             default: extension = ""; break;
             }
 
@@ -1814,7 +1832,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
                             LogError("adb not configured. Set ADB path in Preferences > External > Launchers.");
                         }
                     }
-                    else if (platform == Platform::Windows || platform == Platform::Linux)
+                    else if (platform == Platform::Windows || platform == Platform::Linux || platform == Platform::Mac)
                     {
                         // Desktop build: no emulator involved, run the packaged
                         // game directly on the host.
@@ -1952,7 +1970,7 @@ void ActionManager::CancelBuild()
 {
     mBuildState.mCancelRequested.store(true);
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
     if (mBuildState.mProcessId > 0)
     {
         kill(mBuildState.mProcessId, SIGTERM);
@@ -2684,6 +2702,7 @@ void ActionManager::BuildPhase1()
     // Handle SpirV shaders on Vulkan platforms
     if (platform == Platform::Windows ||
         platform == Platform::Linux ||
+        platform == Platform::Mac ||
         platform == Platform::Android)
     {
         AppendBuildOutput("Compiling shaders...\n");
@@ -2778,9 +2797,13 @@ void ActionManager::BuildPhase1()
     {
         prebuiltExePath = buildProjDir + "Build/Linux/Polyphase.elf";
     }
+    else if (platform == Platform::Mac)
+    {
+        prebuiltExePath = buildProjDir + "Build/Mac/Polyphase.macho";
+    }
 
     if (standalone && !IsHeadless() &&
-        (platform == Platform::Windows || platform == Platform::Linux))
+        (platform == Platform::Windows || platform == Platform::Linux || platform == Platform::Mac))
     {
         // Force Rebuild must invalidate the prebuilt-exe shortcut too, otherwise
         // BuildData silently reuses a stale Polyphase.exe that predates the user's
@@ -3757,6 +3780,7 @@ void ActionManager::BuildPhase1()
             switch (platform)
             {
             case Platform::Linux: makefilePath += "Linux_Game"; break;
+            case Platform::Mac: makefilePath += "Mac_Game"; break;
             case Platform::GameCube: makefilePath += "GCN"; break;
             case Platform::Wii: makefilePath += "Wii"; break;
             case Platform::N3DS: makefilePath += "3DS"; break;
@@ -3867,6 +3891,7 @@ void ActionManager::BuildPhase1()
                     switch (platform)
                     {
                     case Platform::Linux:    return "Linux";
+                    case Platform::Mac:      return "Mac";
                     case Platform::GameCube: return "GCN";
                     case Platform::Wii:      return "Wii";
                     case Platform::N3DS:     return "3DS";
@@ -3878,6 +3903,7 @@ void ActionManager::BuildPhase1()
                 {
                     const std::string exeName = standalone ? "Polyphase" : projectName;
                     const std::string exeExt = (platform == Platform::Linux)    ? ".elf"
+                                             : (platform == Platform::Mac)      ? ".macho"
                                              : (platform == Platform::N3DS)    ? ".3dsx"
                                              : /* GCN/Wii */                     ".dol";
 
@@ -3889,17 +3915,17 @@ void ActionManager::BuildPhase1()
 
                     // Standalone game intermediate + final exe.
                     targets.push_back({
-                        buildProjDir + "Intermediate/" + platDir + (platform == Platform::Linux ? "/Game/" : "/"),
+                        buildProjDir + "Intermediate/" + platDir + ((platform == Platform::Linux || platform == Platform::Mac) ? "/Game/" : "/"),
                         buildProjDir + "Build/" + platDir + "/" + exeName + exeExt
                     });
 
-                    // Engine library intermediate + .a. Linux splits Editor/Game
+                    // Engine library intermediate + .a. Linux/Mac split Editor/Game
                     // intermediates; consoles share a single dir.
-                    if (platform == Platform::Linux)
+                    if (platform == Platform::Linux || platform == Platform::Mac)
                     {
                         targets.push_back({
-                            polyphaseDirectory + "Engine/Intermediate/Linux/EngineGame/",
-                            polyphaseDirectory + "Engine/Build/Linux/libEngineGame.a"
+                            polyphaseDirectory + "Engine/Intermediate/" + platDir + "/EngineGame/",
+                            polyphaseDirectory + "Engine/Build/" + platDir + "/libEngineGame.a"
                         });
                     }
                     else
@@ -3917,12 +3943,12 @@ void ActionManager::BuildPhase1()
                         polyphaseDirectory + "External/Bullet/Build/" + platDir + "/libBullet.a"
                     });
 
-                    // External/Assimp — only on platforms that build it (Linux).
-                    if (platform == Platform::Linux)
+                    // External/Assimp — only on platforms that build it (Linux/Mac).
+                    if (platform == Platform::Linux || platform == Platform::Mac)
                     {
                         targets.push_back({
-                            polyphaseDirectory + "External/Assimp/Intermediate/Linux/",
-                            polyphaseDirectory + "External/Assimp/Build/Linux/libAssimp.a"
+                            polyphaseDirectory + "External/Assimp/Intermediate/" + platDir + "/",
+                            polyphaseDirectory + "External/Assimp/Build/" + platDir + "/libAssimp.a"
                         });
                     }
 
@@ -4004,6 +4030,13 @@ void ActionManager::BuildPhase1()
                 std::string exeName = standalone ? "Polyphase" : projectName;
                 mBuildState.mStripCommand = std::string("strip --strip-debug \"") + buildProjDir + "Build/Linux/" + exeName + ".elf\"";
             }
+            else if (platform == Platform::Mac)
+            {
+                // Apple strip: -S drops debug symbols only (keeps the exports
+                // addon dylibs resolve against).
+                std::string exeName = standalone ? "Polyphase" : projectName;
+                mBuildState.mStripCommand = std::string("strip -S \"") + buildProjDir + "Build/Mac/" + exeName + ".macho\"";
+            }
         }
 
         // Compute exe source path and extension for post-build
@@ -4020,6 +4053,7 @@ void ActionManager::BuildPhase1()
         case Platform::GameCube: extension = ".dol"; break;
         case Platform::Wii: extension = ".dol"; break;
         case Platform::N3DS: extension = ".3dsx"; break;
+        case Platform::Mac: extension = ".macho"; break;
         default: OCT_ASSERT(0); break;
         }
 
@@ -4062,6 +4096,7 @@ void ActionManager::BuildPhase1()
         case Platform::GameCube: extension = ".dol"; break;
         case Platform::Wii: extension = ".dol"; break;
         case Platform::N3DS: extension = ".3dsx"; break;
+        case Platform::Mac: extension = ".macho"; break;
         default: OCT_ASSERT(0); break;
         }
 
@@ -4619,7 +4654,7 @@ void ActionManager::FinalizeLocalBuild()
                     "  Typical Windows location: C:\\Android\\Sdk\\platform-tools\\adb.exe\n");
             }
         }
-        else if (platform == Platform::Windows || platform == Platform::Linux)
+        else if (platform == Platform::Windows || platform == Platform::Linux || platform == Platform::Mac)
         {
             // Desktop build: no emulator involved, run the packaged game
             // directly on the host.
@@ -4657,6 +4692,9 @@ bool ActionManager::LaunchDesktopBuild(Platform platform, const std::string& out
 #elif PLATFORM_LINUX
     if (platform != Platform::Linux)
         return false;
+#elif PLATFORM_MAC
+    if (platform != Platform::Mac)
+        return false;
 #else
     return false;
 #endif
@@ -4672,6 +4710,25 @@ bool ActionManager::LaunchDesktopBuild(Platform platform, const std::string& out
     // its working directory.
 #if PLATFORM_WINDOWS
     std::string cmd = "cd /d \"" + packagedDir + "\" && \"" + outputPath + "\"";
+#elif PLATFORM_MAC
+    // Prefer the .app the Mac target wraps around the Mach-O: LaunchServices
+    // gives it a Dock icon and evaluates the signature the way a user would.
+    // The bundled game pivots to Contents/Resources by itself.
+    std::string cmd;
+    {
+        std::string projectName = outputPath.substr(lastSlash == std::string::npos ? 0 : lastSlash + 1);
+        size_t ext = projectName.rfind(".macho");
+        if (ext != std::string::npos) projectName = projectName.substr(0, ext);
+        std::string bundlePath = packagedDir + "/" + projectName + ".app";
+        if (DoesDirExist(bundlePath.c_str()))
+        {
+            cmd = "open -n \"" + bundlePath + "\"";
+        }
+        else
+        {
+            cmd = "cd \"" + packagedDir + "\" && exec \"" + outputPath + "\"";
+        }
+    }
 #else
     std::string cmd = "cd \"" + packagedDir + "\" && exec \"" + outputPath + "\"";
 #endif
@@ -4827,6 +4884,10 @@ void ActionManager::PrepareRelease()
 #if PLATFORM_WINDOWS
     ActionManager::Get()->BuildData(Platform::Windows, false);
     platformName = "Windows";
+#elif PLATFORM_MAC
+    ActionManager::Get()->BuildData(Platform::Mac, false);
+    platformName = "Mac";
+    SYS_Exec("make -j 12 -C Standalone -f Makefile_Mac_Editor");
 #else
     ActionManager::Get()->BuildData(Platform::Linux, false);
     platformName = "Linux";
@@ -4858,6 +4919,8 @@ void ActionManager::PrepareRelease()
     // [ ] Copy this exectubable (Release Editor) to the staging directory, rename to PolyphaseEditor
 #if PLATFORM_WINDOWS
     std::string cpEditorCmd = std::string("cp Standalone/Build/Windows/x64/ReleaseEditor/Polyphase.exe ") + stagingDir + "/PolyphaseEditor.exe";
+#elif PLATFORM_MAC
+    std::string cpEditorCmd = std::string("cp Standalone/Build/Mac/PolyphaseEditor ") + stagingDir;
 #else
     std::string cpEditorCmd = std::string("cp Standalone/Build/Linux/PolyphaseEditor.elf ") + stagingDir;// + std::string("PolyphaseEditor");
 #endif
@@ -4867,6 +4930,8 @@ void ActionManager::PrepareRelease()
     // [ ] Copy the packaged platform's Polyphase exe to the staging directory
 #if PLATFORM_WINDOWS
     std::string cpGameCmd = std::string("cp Standalone/Build/Windows/x64/Release/Polyphase.exe ") + stagingDir;
+#elif PLATFORM_MAC
+    std::string cpGameCmd = std::string("cp Standalone/Build/Mac/Polyphase.macho ") + stagingDir;
 #else
     std::string cpGameCmd = std::string("cp Standalone/Build/Linux/Polyphase.elf ") + stagingDir;// + std::string("Polyphase");
 #endif
@@ -4878,6 +4943,11 @@ void ActionManager::PrepareRelease()
     std::string stripEditorCmd = std::string("strip --strip-debug ") + stagingDir + "PolyphaseEditor.elf";
     SYS_Exec(stripEditorCmd.c_str());
     std::string stripCmd = std::string("strip --strip-debug ") + stagingDir + "Polyphase.elf";
+    SYS_Exec(stripCmd.c_str());
+#elif PLATFORM_MAC
+    std::string stripEditorCmd = std::string("strip -S ") + stagingDir + "PolyphaseEditor";
+    SYS_Exec(stripEditorCmd.c_str());
+    std::string stripCmd = std::string("strip -S ") + stagingDir + "Polyphase.macho";
     SYS_Exec(stripCmd.c_str());
 #endif
 
@@ -6457,13 +6527,17 @@ void ActionManager::RestartEditorForAddonRecovery(const char* reason)
             sentinelDir = SYS_GetAbsolutePath("./");
         }
     }
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     pid = (uint64_t)::getpid();
     {
         const char* home = std::getenv("HOME");
         if (home != nullptr && *home != 0)
         {
+#if PLATFORM_MAC
+            sentinelDir = std::string(home) + "/Library/Application Support/Polyphase/";
+#else
             sentinelDir = std::string(home) + "/.local/share/Polyphase/";
+#endif
             SYS_CreateDirectory(sentinelDir.c_str());
         }
         else

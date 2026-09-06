@@ -31,6 +31,11 @@ static void MigrateFromLegacyDirectory()
         return;
     std::string oldDir = std::string(appData) + "/OctaveEditor";
     std::string newDir = std::string(appData) + "/PolyphaseEditor";
+#elif PLATFORM_MAC
+    // Nothing to migrate: the Mac editor never wrote an OctaveEditor dir.
+    std::string oldDir;
+    std::string newDir;
+    return;
 #else
     const char* home = getenv("HOME");
     if (home == nullptr)
@@ -60,6 +65,7 @@ std::string GetPreferencesDirectory()
 
         // Build the path to AppData/Roaming/PolyphaseEditor/Preferences on Windows
         // or ~/.config/PolyphaseEditor/Preferences on Linux
+        // or ~/Library/Application Support/PolyphaseEditor/Preferences on macOS
 #if PLATFORM_WINDOWS
         const char* appData = getenv("APPDATA");
         if (appData != nullptr)
@@ -74,6 +80,12 @@ std::string GetPreferencesDirectory()
             {
                 sPreferencesDir = std::string(userProfile) + "/AppData/Roaming/PolyphaseEditor/Preferences";
             }
+        }
+#elif PLATFORM_MAC
+        const char* home = getenv("HOME");
+        if (home != nullptr)
+        {
+            sPreferencesDir = std::string(home) + "/Library/Application Support/PolyphaseEditor/Preferences";
         }
 #else
         const char* home = getenv("HOME");
@@ -103,6 +115,16 @@ void EnsurePreferencesDirectory()
     if (appData != nullptr)
     {
         std::string polyphaseDir = std::string(appData) + "/PolyphaseEditor";
+        if (!DoesDirExist(polyphaseDir.c_str()))
+        {
+            SYS_CreateDirectory(polyphaseDir.c_str());
+        }
+    }
+#elif PLATFORM_MAC
+    const char* home = getenv("HOME");
+    if (home != nullptr)
+    {
+        std::string polyphaseDir = std::string(home) + "/Library/Application Support/PolyphaseEditor";
         if (!DoesDirExist(polyphaseDir.c_str()))
         {
             SYS_CreateDirectory(polyphaseDir.c_str());

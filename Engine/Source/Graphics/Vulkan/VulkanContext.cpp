@@ -1148,13 +1148,18 @@ void VulkanContext::CreateInstance()
     VkBool32 surfaceExtFound = false;
     VkBool32 platformSurfaceExtFound = false;
     VkBool32 debugUtilsExtFound = false;
+    bool portabilityEnumFound = false;
     uint32_t extensionCount = 0;
 
     if (mValidate &&
         CheckValidationLayerSupport(sValidationLayers, sNumValidationLayers) == false)
     {
-        LogError("Validation layers enabled but the configured layers are not supported.");
-        OCT_ASSERT(0);
+        // A shipped game (or a dev machine without the Vulkan SDK on its layer
+        // path — e.g. an .app launched from Finder) has no validation layer to
+        // load. Run without validation rather than aborting at startup.
+        LogWarning("Validation layers requested (ValidateGraphics=1) but VK_LAYER_KHRONOS_validation is not available; continuing without validation.");
+        mValidate = false;
+        mEnabledLayersCount = 0;
     }
 
     result = vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
@@ -1192,6 +1197,20 @@ void VulkanContext::CreateInstance()
             {
                 platformSurfaceExtFound = 1;
                 mEnabledExtensions[mEnabledExtensionCount++] = VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
+            }
+#elif PLATFORM_MAC
+            if (!strcmp(VK_EXT_METAL_SURFACE_EXTENSION_NAME, extensions[i].extensionName))
+            {
+                platformSurfaceExtFound = 1;
+                mEnabledExtensions[mEnabledExtensionCount++] = VK_EXT_METAL_SURFACE_EXTENSION_NAME;
+            }
+
+            // Loaders >= 1.3.216 hide portability (MoltenVK) devices unless the
+            // instance opts in.
+            if (!strcmp(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, extensions[i].extensionName))
+            {
+                portabilityEnumFound = true;
+                mEnabledExtensions[mEnabledExtensionCount++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
             }
 #endif
 
@@ -1248,6 +1267,11 @@ void VulkanContext::CreateInstance()
     ciInstance.ppEnabledExtensionNames = mEnabledExtensions;
     ciInstance.enabledLayerCount = mEnabledLayersCount;
     ciInstance.ppEnabledLayerNames = mEnabledLayers;
+
+    if (portabilityEnumFound)
+    {
+        ciInstance.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    }
 
 #if ENABLE_FULL_VALIDATION
     if (mValidate)
@@ -1355,6 +1379,21 @@ void VulkanContext::CreateSurface()
     ciSurface.window = GetEngineState()->mSystem.mXcbWindow;
         
     VkResult res = vkCreateXcbSurfaceKHR(mInstance, &ciSurface, nullptr, &mSurface);
+    if (res != VK_SUCCESS)
+    {
+        LogError("Failed to create window surface.");
+        OCT_ASSERT(0);
+    }
+#elif PLATFORM_MAC
+    PFN_vkCreateMetalSurfaceEXT pfnCreateMetalSurface = (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(mInstance, "vkCreateMetalSurfaceEXT");
+    OCT_ASSERT(pfnCreateMetalSurface != nullptr);
+    OCT_ASSERT(GetEngineState()->mSystem.mMetalLayer != nullptr);
+
+    VkMetalSurfaceCreateInfoEXT ciSurface = {};
+    ciSurface.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+    ciSurface.pLayer = (const CAMetalLayer*)GetEngineState()->mSystem.mMetalLayer;
+
+    VkResult res = pfnCreateMetalSurface(mInstance, &ciSurface, nullptr, &mSurface);
     if (res != VK_SUCCESS)
     {
         LogError("Failed to create window surface.");
@@ -1482,6 +1521,28 @@ void VulkanContext::CreateLogicalDevice()
 
 #if ENABLE_DEBUG_PRINTF
     deviceExtensions.push_back(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME);
+#endif
+
+#if PLATFORM_MAC
+    // The spec requires VK_KHR_portability_subset to be enabled whenever the
+    // physical device advertises it (MoltenVK does).
+    {
+        uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> available(count);
+        if (count > 0)
+        {
+            vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &count, available.data());
+        }
+        for (const VkExtensionProperties& ext : available)
+        {
+            if (strcmp(ext.extensionName, "VK_KHR_portability_subset") == 0)
+            {
+                deviceExtensions.push_back("VK_KHR_portability_subset");
+                break;
+            }
+        }
+    }
 #endif
 
     QueueFamilyIndices indices = FindQueueFamilies(mPhysicalDevice);

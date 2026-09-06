@@ -1,9 +1,10 @@
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 
 #include "Network/Http/Backends/HttpBackend.h"
 #include "Log.h"
 
 #include <dlfcn.h>
+#include <cstdlib>
 #include <string.h>
 #include <string>
 
@@ -80,13 +81,30 @@ namespace
     bool LoadCurl(CurlAPI& api)
     {
         const char* names[] = {
+#if PLATFORM_MAC
+            // System libcurl lives in the dyld shared cache; Homebrew curl
+            // (which has WebSocket support) is the preferred override.
+            "libcurl.4.dylib",
+            "/usr/lib/libcurl.4.dylib",
+            "/opt/homebrew/opt/curl/lib/libcurl.4.dylib",
+            "/usr/local/opt/curl/lib/libcurl.4.dylib"
+#else
             "libcurl.so.4",
             "libcurl.so",
             "libcurl-gnutls.so.4",
             "libcurl.so.3"
+#endif
         };
+        if (const char* override = getenv("POLYPHASE_LIBCURL"))
+        {
+            if (override[0] != '\0')
+            {
+                api.lib = dlopen(override, RTLD_LAZY);
+            }
+        }
         for (const char* n : names)
         {
+            if (api.lib != nullptr) break;
             api.lib = dlopen(n, RTLD_LAZY);
             if (api.lib != nullptr) break;
         }

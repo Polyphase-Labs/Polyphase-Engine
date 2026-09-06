@@ -3,7 +3,7 @@
 
 # Polyphase
 
-A 3D Game Engine for GameCube, Wii, 3DS, Windows, Linux, and Android.
+A 3D Game Engine for GameCube, Wii, 3DS, Windows, Linux, macOS (Apple Silicon), and Android.
 
 This is a modernized fork of [Octave Game Engine by mholtkamp/octave](https://github.com/mholtkamp/octave) .
 

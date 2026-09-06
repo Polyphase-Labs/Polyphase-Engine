@@ -368,7 +368,7 @@ void EditorsModule::OpenCSharpWorkspace(const std::string& csharpDir)
                 SYS_ExecDetached(cmd.c_str());
             }
 #else
-            std::string cmd = "xdg-open \"" + target + "\"";
+            std::string cmd = SYS_OPEN_CMD " \"" + target + "\"";
             SYS_ExecDetached(cmd.c_str());
 #endif
             return;

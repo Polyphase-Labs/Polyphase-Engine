@@ -1,0 +1,328 @@
+#if PLATFORM_MAC
+
+#include "Network/Network.h"
+
+#include "Log.h"
+
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
+
+void NET_Initialize()
+{
+
+}
+
+void NET_Shutdown()
+{
+
+}
+
+void NET_Update()
+{
+
+}
+
+bool NET_IsActive()
+{
+    return true;
+}
+
+
+SocketHandle NET_SocketCreate()
+{
+    return socket(AF_INET, SOCK_DGRAM, 0);
+}
+
+SocketHandle NET_SocketCreateStream()
+{
+    return socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+}
+
+bool NET_SocketConnect(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port, int32_t timeoutMs)
+{
+    if (socketHandle < 0) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    int flags = fcntl(socketHandle, F_GETFL, 0);
+    fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK);
+
+    int rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    bool connected = false;
+    if (rc == 0)
+    {
+        connected = true;
+    }
+    else if (errno == EINPROGRESS)
+    {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(socketHandle, &wfds);
+        struct timeval tv;
+        tv.tv_sec  = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int sel = select(socketHandle + 1, nullptr, &wfds, nullptr, &tv);
+        if (sel > 0 && FD_ISSET(socketHandle, &wfds))
+        {
+            int soErr = 0;
+            socklen_t soErrLen = sizeof(soErr);
+            getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen);
+            connected = (soErr == 0);
+        }
+    }
+
+    fcntl(socketHandle, F_SETFL, flags);
+    return connected;
+}
+
+bool NET_SocketConnectAsync(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
+{
+    if (socketHandle < 0) return false;
+
+    struct sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ipAddr);
+    addr.sin_port = htons(port);
+
+    const int flags = fcntl(socketHandle, F_GETFL, 0);
+    fcntl(socketHandle, F_SETFL, flags | O_NONBLOCK);
+
+    const int rc = connect(socketHandle, (const struct sockaddr*)&addr, sizeof(addr));
+    if (rc == 0)
+    {
+        return true;
+    }
+
+    return errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK;
+}
+
+int32_t NET_SocketConnectPoll(SocketHandle socketHandle)
+{
+    if (socketHandle < 0) return -1;
+
+    fd_set wfds;
+    fd_set efds;
+    FD_ZERO(&wfds);
+    FD_SET(socketHandle, &wfds);
+    FD_ZERO(&efds);
+    FD_SET(socketHandle, &efds);
+
+    struct timeval tv = {};
+    const int sel = select(socketHandle + 1, nullptr, &wfds, &efds, &tv);
+    if (sel < 0)  return (errno == EINTR) ? 0 : -1;
+    if (sel == 0) return 0;
+
+    if (FD_ISSET(socketHandle, &efds))
+    {
+        return -1;
+    }
+
+    if (FD_ISSET(socketHandle, &wfds))
+    {
+        int soErr = 0;
+        socklen_t soErrLen = sizeof(soErr);
+        getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen);
+        return (soErr == 0) ? 1 : -1;
+    }
+
+    return 0;
+}
+
+bool NET_SocketWouldBlock(SocketHandle, int32_t)
+{
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+}
+
+int32_t NET_SocketSend(SocketHandle socketHandle, const char* buffer, uint32_t size)
+{
+    return (int32_t)send(socketHandle, buffer, size, 0);
+}
+
+uint32_t NET_ResolveHost(const char* hostname)
+{
+    if (hostname == nullptr || *hostname == '\0') return 0;
+
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0 || res == nullptr)
+    {
+        return 0;
+    }
+
+    uint32_t ip = 0;
+    for (struct addrinfo* p = res; p != nullptr; p = p->ai_next)
+    {
+        if (p->ai_family == AF_INET && p->ai_addr != nullptr)
+        {
+            const struct sockaddr_in* sa = (const struct sockaddr_in*)p->ai_addr;
+            ip = ntohl(sa->sin_addr.s_addr);
+            break;
+        }
+    }
+    freeaddrinfo(res);
+    return ip;
+}
+
+void NET_SocketBind(SocketHandle socketHandle, uint32_t ipAddr, uint16_t port)
+{
+    struct sockaddr_in bindAddr;
+    bindAddr.sin_family = AF_INET;
+    bindAddr.sin_addr.s_addr = htonl(ipAddr);
+    bindAddr.sin_port = htons(port);
+
+    if (bind(socketHandle, (const struct sockaddr *) &bindAddr, sizeof(bindAddr)) < 0 )
+    {
+        LogError("Failed to bind socket");
+    }
+}
+
+int32_t NET_SocketRecv(SocketHandle socketHandle, char* buffer, uint32_t size)
+{
+    return recv(socketHandle, buffer, size, 0);
+}
+
+int32_t NET_SocketRecvFrom(SocketHandle socketHandle, char* buffer, uint32_t size, uint32_t& addr, uint16_t& port)
+{
+    struct sockaddr_in fromAddr;
+    uint32_t fromAddrLen = (uint32_t) sizeof(fromAddr);
+    int32_t numBytes = recvfrom(socketHandle, buffer, size, 0, (struct sockaddr*) &fromAddr, &fromAddrLen);
+    addr = ntohl(fromAddr.sin_addr.s_addr);
+    port = ntohs(fromAddr.sin_port);
+    return numBytes;
+}
+
+int32_t NET_SocketSendTo(SocketHandle socketHandle, const char* buffer, uint32_t size, uint32_t addr, uint16_t port)
+{
+    struct sockaddr_in toAddr;
+    toAddr.sin_family = AF_INET;
+    toAddr.sin_addr.s_addr = htonl(addr);
+    toAddr.sin_port = htons(port);
+    int32_t bytesSent = sendto(socketHandle, buffer, size, 0, (const struct sockaddr*) &toAddr, (uint32_t) sizeof(toAddr));
+    return bytesSent;
+}
+
+void NET_SocketClose(SocketHandle socketHandle)
+{
+    close(socketHandle);
+}
+
+void NET_SocketSetBlocking(SocketHandle socketHandle, bool blocking)
+{
+    int32_t flag = !blocking;
+    ioctl(socketHandle, FIONBIO, &flag);
+}
+
+void NET_SocketSetBroadcast(SocketHandle socketHandle, bool broadcast)
+{
+    int broadcastEnable = (int) broadcast;
+    int32_t result = setsockopt(socketHandle, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
+
+    if (result != 0)
+    {
+        LogError("Failed to set Broadcast flag on socket.");
+    }
+}
+
+void NET_SocketGetIpAndPort(SocketHandle socketHandle, uint32_t& ipAddr, uint16_t& port)
+{
+    struct sockaddr_in localAddr = {};
+    socklen_t len = sizeof(localAddr);
+    getsockname(socketHandle, (struct sockaddr *) &localAddr, &len);
+    ipAddr = ntohl(localAddr.sin_addr.s_addr);
+    port = ntohs(localAddr.sin_port);
+}
+
+uint32_t NET_IpStringToUint32(const char* ipString)
+{
+    uint32_t retAddr = 0;
+    struct in_addr addr = {};
+    inet_pton(AF_INET, ipString, &addr);
+    retAddr = ntohl(addr.s_addr);
+    return retAddr;
+}
+
+void NET_IpUint32ToString(uint32_t ipUint32, char* outIpString)
+{
+    struct sockaddr_in sa = {};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(ipUint32);
+    sa.sin_port = 0;
+
+    inet_ntop(AF_INET, &sa.sin_addr, outIpString, INET_ADDRSTRLEN);
+}
+
+uint32_t NET_GetIpAddress()
+{
+    uint32_t retIp = 0;
+    struct ifaddrs* addrs = nullptr;
+    struct ifaddrs* addr = nullptr;
+    getifaddrs(&addrs);
+    addr = addrs;
+
+    while (addr)
+    {
+        if (addr->ifa_addr &&
+            addr->ifa_addr->sa_family == AF_INET)
+        {
+            LogDebug("Network Interface: %s", addr->ifa_name);
+
+            struct sockaddr_in* inAddr = (sockaddr_in*) addr->ifa_addr;
+            uint32_t ip = ntohl(inAddr->sin_addr.s_addr);
+            if ((ip & 0x7f000000) != 0x7f000000)
+            {
+                retIp = ip;
+                break;
+            }
+        }
+
+        addr = addr->ifa_next;
+    }
+
+    freeifaddrs(addrs);
+
+    return retIp;
+}
+
+uint32_t NET_GetSubnetMask()
+{
+    uint32_t retMask = 0;
+    struct ifaddrs* addrs = nullptr;
+    struct ifaddrs* addr = nullptr;
+    getifaddrs(&addrs);
+    addr = addrs;
+
+    while (addr)
+    {
+        if (addr->ifa_addr &&
+            addr->ifa_addr->sa_family == AF_INET)
+        {
+            struct sockaddr_in* inAddr = (struct sockaddr_in*) addr->ifa_addr;
+            uint32_t ip = ntohl(inAddr->sin_addr.s_addr);
+            if ((ip & 0x7f000000) != 0x7f000000)
+            {
+                struct sockaddr_in* netMaskAddr = (struct sockaddr_in*) addr->ifa_netmask;
+                retMask = ntohl(netMaskAddr->sin_addr.s_addr);
+                break;
+            }
+        }
+
+        addr = addr->ifa_next;
+    }
+
+    freeifaddrs(addrs);
+
+    return retMask;
+}
+
+#endif

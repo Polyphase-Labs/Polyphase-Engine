@@ -8,7 +8,7 @@
 
 #include "Graphics/GraphicsTypes.h"
 
-#define CREATE_CONVEX_COLLISION_MESH (PLATFORM_WINDOWS || PLATFORM_LINUX)
+#define CREATE_CONVEX_COLLISION_MESH (PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC)
 
 #if EDITOR
 #include <assimp/scene.h>

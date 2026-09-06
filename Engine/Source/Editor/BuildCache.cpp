@@ -440,6 +440,7 @@ bool BuildCache::VerifyOutputDirectory() const
     case Platform::GameCube: extension = ".dol"; break;
     case Platform::Wii: extension = ".dol"; break;
     case Platform::N3DS: extension = ".3dsx"; break;
+    case Platform::Mac: extension = ".macho"; break;
     default: extension = ""; break;
     }
 

@@ -537,7 +537,7 @@ std::string LaunchersModule::BuildLaunchCommand(Platform platform, const std::st
     // The "" is the window title (required when the first real arg is quoted).
     // No cmd /c wrapper needed — the "start" prefix prevents cmd.exe's quote-stripping.
     cmd = "start \"\" " + cmd;
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     // Background the process so the editor doesn't freeze.
     cmd += " &";
 #endif
@@ -758,6 +758,21 @@ std::string LaunchersModule::BuildAdbLogcatCommand() const
                       + "; exec bash";
     return "(x-terminal-emulator -T 'Polyphase Logcat' -e bash -c \"" + inner + "\" "
            "|| xterm -T 'Polyphase Logcat' -e bash -c \"" + inner + "\") &";
+#elif PLATFORM_MAC
+    // Open a Terminal.app window running the logcat chain via AppleScript.
+    std::string clearChain;
+    if (mLogcatAutoClear)
+    {
+        clearChain = "'" + normAdb + "'" + serialArg + " logcat -c; ";
+    }
+    std::string inner = clearChain + "'" + normAdb + "'" + serialArg + " logcat " + filter;
+    std::string escaped;
+    for (char c : inner)
+    {
+        if (c == '"' || c == '\\') escaped += '\\';
+        escaped += c;
+    }
+    return "osascript -e 'tell application \"Terminal\" to do script \"" + escaped + "\"' -e 'tell application \"Terminal\" to activate'";
 #else
     return "";
 #endif

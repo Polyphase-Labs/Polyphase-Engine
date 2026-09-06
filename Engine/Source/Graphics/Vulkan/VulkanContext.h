@@ -27,6 +27,8 @@
 #if PLATFORM_LINUX
 #include <xcb/xcb.h>
 #include <vulkan/vulkan_xcb.h>
+#elif PLATFORM_MAC
+#include <vulkan/vulkan_metal.h>
 #endif
 
 struct EngineState;

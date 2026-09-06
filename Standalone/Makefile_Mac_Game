@@ -1,0 +1,224 @@
+#---------------------------------------------------------------------------------
+# Clear the implicit built in rules
+#---------------------------------------------------------------------------------
+.SUFFIXES:
+.SECONDARY:
+#---------------------------------------------------------------------------------
+export AS	:=	$(PREFIX)as
+export CC	:=	$(PREFIX)clang
+export CXX	:=	$(PREFIX)clang++
+export AR	:=	$(PREFIX)ar
+export STRIP	:=	$(PREFIX)strip
+export NM	:=	$(PREFIX)nm
+export RANLIB	:=	$(PREFIX)ranlib
+
+# Apple Silicon only. MACHDEP is also where a future x86_64/universal build
+# would add its -arch flags.
+MACHDEP	:=	-arch arm64 -mmacosx-version-min=12.0
+
+ifeq ($(V),1)
+    SILENTMSG := @true
+    SILENTCMD :=
+else
+    SILENTMSG := @echo
+    SILENTCMD := @
+endif
+
+#---------------------------------------------------------------------------------
+%.a:
+#---------------------------------------------------------------------------------
+	$(SILENTMSG) $(notdir $@)
+	$(SILENTCMD)rm -f $@
+	$(SILENTCMD)$(AR) -rcs $@ $^
+
+#---------------------------------------------------------------------------------
+%.o: %.cpp
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+%.o: %.c
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CC) -MMD -MP -MF $(DEPSDIR)/$*.d $(CFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+%.o: %.mm
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(OBJCXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+# TARGET is the name of the output
+# BUILD is the directory where object files & intermediate files will be placed
+# SOURCES is a list of directories containing source code
+# INCLUDES is a list of directories containing extra header files
+#---------------------------------------------------------------------------------
+# W1: BUILD_SUFFIX (default empty) isolates cross-arch outputs.
+# Linux x64 leaves it empty -> Build/Mac/ and Intermediate/Mac/ as before.
+# Linux ARM64 cross-build sets BUILD_SUFFIX=/arm64 -> Build/Mac/arm64/ and
+# Intermediate/Mac/arm64/, so x64 and aarch64 outputs never collide.
+# Propagates to engine/Bullet/Assimp sub-makes via MAKEFLAGS when set on the
+# command line.
+TARGET		:=	Polyphase
+
+# W1: Addon-target injection. ActionManager writes ADDON_* vars to
+# $(PROJECT_ROOT)/Generated/AddonInject.mk for builds that bypass the
+# editor's legacy makefile-splice path (PSP, Linux ARM64, future
+# Dreamcast/PS2/...). PROJECT_ROOT is passed by the addon's GetCompileCommand;
+# absent on the regular editor-driven x64 path, where the legacy splice still
+# handles addon injection (the `-include` directive silently no-ops on a
+# missing file). Empty ADDON_* defaults below keep the variable references
+# below from expanding to whitespace-only garbage when no addons are present.
+PROJECT_ROOT ?=
+ADDON_SOURCES ?=
+ADDON_INCDIR ?=
+ADDON_DEFINES ?=
+ADDON_LIBDIR ?=
+ADDON_LIBS ?=
+ADDON_CPPFILES_EXTRA ?=
+-include $(PROJECT_ROOT)/Generated/AddonInject.mk
+
+BUILD		:=	Intermediate/Mac$(BUILD_SUFFIX)/Game
+SOURCES		:=	Source \
+				Generated $(ADDON_SOURCES)
+INCLUDES	:=	Source ../Engine/Source ../Engine/Source/Engine ../External ../External/Bullet ../External/Lua $(VULKAN_SDK)/include $(ADDON_INCDIR)
+OUTPUT_DIR	:=	$(CURDIR)/Build/Mac$(BUILD_SUFFIX)
+
+#---------------------------------------------------------------------------------
+# options for code generation
+#---------------------------------------------------------------------------------
+
+CFLAGS	= -g -O2 -Wall $(MACHDEP) -DPLATFORM_MAC=1 -DAPI_VULKAN=1 $(ADDON_DEFINES) $(INCLUDE)
+
+# W1: shared-engine build (libPolyphaseGame.dylib). Run `make -f Makefile_Mac_Game POLYPHASE_SHARED=1`.
+# Defines POLYPHASE_DLL_CONSUMER=1 so Standalone/Source/Main.cpp's exe-side
+# entry-point + Oct* hook auto-register block kicks in, links against the .so
+# instead of the static archive, and tells MakeEngine below to build the .so.
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+CFLAGS		+=	-DPOLYPHASE_DLL_CONSUMER=1
+BUILD		:=	Intermediate/Mac$(BUILD_SUFFIX)/GameShared
+LINK_ENGINE	:=	-lPolyphaseGame
+ENGINE_TARGET	:=	shared
+ENGINE_LIB_NAME	:=	libPolyphaseGame.dylib
+else
+LINK_ENGINE	:=	-lEngineGame
+ENGINE_TARGET	:=
+ENGINE_LIB_NAME	:=	libEngineGame.a
+endif
+
+CXXFLAGS	=	$(CFLAGS) -std=gnu++17
+OBJCXXFLAGS	=	$(CXXFLAGS) -ObjC++ -fobjc-arc
+
+LDFLAGS	=	-g $(MACHDEP) -Wl,-map,$(notdir $@).map -rdynamic -Wl,-rpath,@loader_path -Wl,-rpath,@loader_path/../Frameworks -Wl,-rpath,$(VULKAN_SDK)/lib
+
+#---------------------------------------------------------------------------------
+# any extra libraries we wish to link with the project
+#---------------------------------------------------------------------------------
+LIBS	:=	$(LINK_ENGINE) -lspirv-cross-core -lshaderc_combined -lvulkan -lBullet -lpthread -lm -framework Cocoa -framework Metal -framework QuartzCore -framework IOKit -framework GameController -framework AudioToolbox -framework CoreAudio -framework Security -framework CoreFoundation -framework Carbon $(ADDON_LIBDIR) $(ADDON_LIBS)
+
+#---------------------------------------------------------------------------------
+# list of directories containing libraries, this must be the top level containing
+# include and lib
+#---------------------------------------------------------------------------------
+LIBDIRS	:= $(VULKAN_SDK)
+
+#---------------------------------------------------------------------------------
+# no real need to edit anything past this point unless you need to add additional
+# rules for different file extensions
+#---------------------------------------------------------------------------------
+ifneq ($(notdir $(BUILD)),$(notdir $(CURDIR)))
+#---------------------------------------------------------------------------------
+
+# Helper to handle both relative and absolute paths in VPATH
+MAKE_VPATH = $(if $(or $(filter /%,$(1)),$(findstring :,$(1))),$(1),$(CURDIR)/$(1))
+
+export VPATH	:=	$(foreach dir,$(SOURCES),$(call MAKE_VPATH,$(dir)))
+
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+
+#---------------------------------------------------------------------------------
+# automatically build a list of object files for our project
+#---------------------------------------------------------------------------------
+CFILES			:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+MMFILES			:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.mm)))
+
+#---------------------------------------------------------------------------------
+# use CXX for linking C++ projects, CC for standard C
+#---------------------------------------------------------------------------------
+ifeq ($(strip $(CPPFILES)),)
+	export LD	:=	$(CC)
+else
+	export LD	:=	$(CXX)
+endif
+
+export OFILES_SOURCES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(MMFILES:.mm=.o)
+export OFILES := $(OFILES_SOURCES)
+
+#---------------------------------------------------------------------------------
+# build a list of include paths
+#---------------------------------------------------------------------------------
+export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(call MAKE_VPATH,$(dir))) \
+					$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+					-I$(CURDIR)/$(BUILD)
+
+#---------------------------------------------------------------------------------
+# build a list of library paths
+#---------------------------------------------------------------------------------
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
+					-L$(CURDIR)/../External/Bullet/Build/Mac$(BUILD_SUFFIX) \
+					-L$(CURDIR)/../Engine/Build/Mac$(BUILD_SUFFIX)
+
+# .macho keeps the loose runtime from colliding with Packaged/Mac/<Project>/
+# (the content directory); the .app bundle is the real deliverable.
+export OUTPUT	:=	$(OUTPUT_DIR)/$(TARGET).macho
+export ENGINE_LIB := $(CURDIR)/../Engine/Build/Mac$(BUILD_SUFFIX)/$(ENGINE_LIB_NAME)
+.PHONY: $(BUILD) clean
+
+#---------------------------------------------------------------------------------
+all: $(BUILD)
+
+OutputDirs:
+	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
+	[ -d $(BUILD) ] || mkdir -p $(BUILD)
+
+MakeEngine:
+	$(MAKE) --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Mac $(ENGINE_TARGET)
+
+$(BUILD): OutputDirs MakeEngine
+	[ -d $@ ] || mkdir -p $@
+	# Recurse via the same makefile we were invoked with. The packager copies this
+	# file to Makefile_TEMP and injects CFLAGS/LIBS/SOURCES for native addons; if we
+	# hard-coded `-f Makefile_Mac_Game` here, the inner compile pass would silently
+	# fall back to the pristine source and ignore all addon-injected flags.
+	$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/$(firstword $(MAKEFILE_LIST))
+ifneq ($(strip $(POLYPHASE_SHARED)),)
+	cp $(ENGINE_LIB) $(OUTPUT_DIR)/$(ENGINE_LIB_NAME)
+endif
+
+#---------------------------------------------------------------------------------
+clean:
+	@echo clean ...
+	@rm -fr $(BUILD) $(OUTPUT_DIR)
+	@$(MAKE) clean --no-print-directory -C $(CURDIR)/../Engine -f $(CURDIR)/../Engine/Makefile_Mac
+
+#---------------------------------------------------------------------------------
+else
+
+#---------------------------------------------------------------------------------
+# main targets
+#---------------------------------------------------------------------------------
+# Explicit link rule: the Mach-O has no extension, and an extension-less `%:`
+# pattern rule would match every target under make 3.81.
+$(OUTPUT): $(OFILES) $(ENGINE_LIB)
+	$(SILENTMSG) linking ... $(notdir $@)
+	$(SILENTCMD)$(LD) $(OFILES) $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+
+$(ENGINE_LIB): 
+
+$(OFILES_SOURCES) : 
+
+-include $(DEPSDIR)/*.d
+
+#---------------------------------------------------------------------------------
+endif
+#---------------------------------------------------------------------------------

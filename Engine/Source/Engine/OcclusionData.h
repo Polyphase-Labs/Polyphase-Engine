@@ -30,7 +30,7 @@ class POLYPHASE_API OcclusionData
 {
 public:
 
-    static const uint32_t kNoSet = 0xFFFFFFFFu;
+    static constexpr uint32_t kNoSet = 0xFFFFFFFFu;   // constexpr: ODR-used (vector::assign takes a reference)
 
     bool IsValid() const;
     bool HasDynamicTable() const;

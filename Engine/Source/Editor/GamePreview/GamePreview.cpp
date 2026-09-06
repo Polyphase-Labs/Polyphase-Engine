@@ -256,6 +256,11 @@ void GamePreview::GetPlatformResolution(Platform platform, uint32_t& outWidth, u
             outHeight = 1080;
             outName = "Linux";
             break;
+        case Platform::Mac:
+            outWidth = 1920;
+            outHeight = 1080;
+            outName = "Mac";
+            break;
         case Platform::Android:
             outWidth = 1080;
             outHeight = 1920;

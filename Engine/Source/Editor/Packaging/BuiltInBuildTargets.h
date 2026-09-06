@@ -7,7 +7,7 @@ class BuildTargetRegistry;
 /**
  * @brief Engine-side registration of the built-in build targets.
  *
- * Registers Windows / Linux / Android / GameCube / Wii / N3DS into the
+ * Registers Windows / Linux / Mac / Android / GameCube / Wii / N3DS into the
  * BuildTargetRegistry so they appear alongside addon-provided targets in
  * the Packaging UI dropdown and can be looked up by string id, plus the
  * Linux packaging targets (RPM, AppImage) that ride on Platform::Linux.
@@ -40,6 +40,7 @@ namespace BuiltInBuildTargets
     extern const char* const kGameCubeId;  // "polyphase.gamecube"
     extern const char* const kWiiId;       // "polyphase.wii"
     extern const char* const kN3DSId;      // "polyphase.n3ds"
+    extern const char* const kMacId;       // "polyphase.mac"
 
     /**
      * @brief Look up the canonical built-in id for a Platform enum value, or "" if unknown.

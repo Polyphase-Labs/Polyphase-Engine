@@ -2,7 +2,7 @@
 
 ## Overview
 
-The engine abstracts platform differences through a C-style API in `System.h` with platform-specific implementations. Five platforms are supported: Windows, Linux, Android, GameCube/Wii (Dolphin), and Nintendo 3DS.
+The engine abstracts platform differences through a C-style API in `System.h` with platform-specific implementations. Six platforms are supported: Windows, Linux, macOS (Apple Silicon), Android, GameCube/Wii (Dolphin), and Nintendo 3DS.
 
 ## Key Files
 
@@ -12,6 +12,7 @@ The engine abstracts platform differences through a C-style API in `System.h` wi
 | `Engine/Source/System/SystemTypes.h` | Platform-specific typedefs, SystemState, enums |
 | `Engine/Source/System/Windows/` | Windows implementation |
 | `Engine/Source/System/Linux/` | Linux implementation |
+| `Engine/Source/System/Mac/` | macOS implementation (`System_Mac.cpp` POSIX half, `System_MacCocoa.mm` Cocoa half) |
 | `Engine/Source/System/Android/` | Android implementation |
 | `Engine/Source/System/Dolphin/` | GameCube/Wii implementation |
 | `Engine/Source/System/3DS/` | Nintendo 3DS implementation |
@@ -60,11 +61,11 @@ Thread/mutex types differ per platform:
 | Platform | ThreadObject | MutexObject |
 |----------|-------------|-------------|
 | Windows | `HANDLE` | `HANDLE` |
-| Linux/Android | `pthread_t` | `pthread_mutex_t` |
+| Linux/Android/macOS | `pthread_t` | `pthread_mutex_t` |
 | GameCube | `lwp_t` | `mutex_t` |
 | 3DS | `Thread` | `uint32_t` |
 
-**SystemState** struct holds platform-specific window/device state (HWND on Windows, xcb_window on Linux, ANativeWindow on Android, etc.).
+**SystemState** struct holds platform-specific window/device state (HWND on Windows, xcb_window on Linux, opaque NSWindow/NSView/CAMetalLayer pointers plus the backing scale on macOS, ANativeWindow on Android, etc.).
 
 **LogSeverity** enum: `Debug`, `Warning`, `Error`, `Count`.
 
@@ -75,12 +76,13 @@ Thread/mutex types differ per platform:
 Defined at compile time (one per build):
 - `PLATFORM_WINDOWS=1`
 - `PLATFORM_LINUX=1`
+- `PLATFORM_MAC=1`
 - `PLATFORM_ANDROID=1`
 - `PLATFORM_DOLPHIN=1`
 - `PLATFORM_3DS=1`
 
 Graphics backend (one per build):
-- `API_VULKAN=1` (Windows, Linux, Android)
+- `API_VULKAN=1` (Windows, Linux, macOS via MoltenVK, Android)
 - `API_GX=1` (GameCube/Wii)
 - `API_C3D=1` (3DS)
 
@@ -88,7 +90,7 @@ Graphics backend (one per build):
 
 **File:** `Engine/Source/Input/Input.h` — all functions prefixed with `INP_`.
 
-Platform implementations in `Input/Windows/`, `Input/Linux/`, etc.
+Platform implementations in `Input/Windows/`, `Input/Linux/`, `Input/Mac/` (GameController.framework; keyboard/mouse arrive from the Cocoa event pump in `System_MacCocoa.mm`), etc.
 
 **Keyboard:** `INP_IsKeyDown(key)`, `INP_IsKeyJustDown(key)`, `INP_IsKeyJustUp(key)`
 
@@ -106,7 +108,7 @@ Gamepad types: `Standard` (Xbox/generic), `GameCube`, `Wiimote`, `WiiClassic`.
 
 **File:** `Engine/Source/Audio/Audio.h` — all functions prefixed with `AUD_`.
 
-Platform implementations in `Audio/Windows/` (XAudio2), `Audio/Linux/` (ALSA/PulseAudio), `Audio/Android/` (OpenSL ES), `Audio/Dolphin/` (DSP), `Audio/3DS/` (hardware).
+Platform implementations in `Audio/Windows/` (XAudio2), `Audio/Linux/` (ALSA/PulseAudio), `Audio/Mac/` (CoreAudio AudioUnit), `Audio/Android/` (OpenSL ES), `Audio/Dolphin/` (DSP), `Audio/3DS/` (hardware).
 
 **Playback:** `AUD_Play(voiceIndex, soundWave, volume, pitch, loop, startTime, spatial)`, `AUD_Stop()`, `AUD_IsPlaying()`
 

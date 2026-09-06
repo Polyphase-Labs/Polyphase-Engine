@@ -227,6 +227,7 @@ What the release workflow produces and where it ends up:
 | `polyphase-sdk-windows-x64.zip` | `build-windows` → `package_windows_sdk.py` | GitHub Release asset. Headers + import libs (`Polyphase.lib`, `Lua.lib`, plus the optional W1 `PolyphaseEditor.lib` / `PolyphaseGame.lib`) for native-addon CI. |
 | `polyphase-engine_<version>_amd64.deb` | `build-linux` → `build_deb_linux.sh` | GitHub Release asset. Debian/Ubuntu installer. |
 | `PolyphaseEditor-linux-x64.tar.gz` | `build-linux` → `build_tarball_linux.sh` | GitHub Release asset. Generic Linux tarball with `install.sh`. |
+| `PolyphaseEditor-<version>-macos-arm64.dmg` | *(not yet in CI)* `Installers/build_dmg_mac.sh` on a macOS host | Signed (ad-hoc by default) `Polyphase.app` disk image. Needs a `macos-14` runner with the Vulkan SDK; see `Documentation/Development/Platforms/Mac/Overview.md`. |
 | `polyphaselabs/polyphase-engine:<ver>` | `publish-docker-images` → `Docker/Dockerfile` | Docker Hub image. Engine + prebuilt headless editor + `build-{editor,linux,3ds,gcn,wii}` helper scripts. |
 | `polyphase-editor-tree` (artifact, not released) | `build-linux` (uploads), `verify-test-project` (consumes) | CI-only. Whole engine tree + the static `PolyphaseEditor.elf`, used by the per-platform packaging matrix to gate the release. |
 

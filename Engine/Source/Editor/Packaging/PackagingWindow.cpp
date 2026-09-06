@@ -32,7 +32,7 @@ BuildProfile* sActiveProfileForOptionsTrampoline = nullptr;
 #include <mutex>
 #include <unordered_map>
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 #include <sys/wait.h>
 #include <signal.h>
 #include <fcntl.h>
@@ -849,14 +849,25 @@ void PackagingWindow::DrawProfileSettings()
 
     ImGui::Spacing();
 
-    // Use Docker checkbox (optional on all platforms — Windows builds GCN/Wii/3DS natively)
+    // Use Docker checkbox (optional on all platforms — Windows builds GCN/Wii/3DS natively).
+    // Mac builds need the Apple toolchain and codesign, which no container provides.
+    const bool dockerUnsupported = (profile->mTargetPlatform == Platform::Mac);
+    if (dockerUnsupported && profile->mUseDocker)
+    {
+        profile->mUseDocker = false;
+        changed = true;
+    }
+    ImGui::BeginDisabled(dockerUnsupported);
     if (Polyphase::Checkbox("Use Docker", &profile->mUseDocker))
     {
         changed = true;
     }
-    if (ImGui::IsItemHovered())
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("Use Docker for building instead of local tools");
+        ImGui::SetTooltip(dockerUnsupported
+            ? "macOS builds cannot be produced in Docker: they need the Apple toolchain,\nMoltenVK and codesign on a macOS host."
+            : "Use Docker for building instead of local tools");
     }
 
     ImGui::Spacing();
@@ -1693,6 +1704,9 @@ std::string PackagingWindow::BuildDockerCommand(const BuildProfile& profile)
         case Platform::GameCube: buildCmd = "build-gcn";   break;
         case Platform::Wii:      buildCmd = "build-wii";   break;
         case Platform::N3DS:     buildCmd = "build-3ds";   break;
+        case Platform::Mac:
+            LogError("Mac builds cannot be produced in Docker: the Apple toolchain, MoltenVK and codesign need a macOS host. Build natively on macOS.");
+            return "";
         default:
             LogError("Docker build not supported for platform: %s", GetPlatformString(profile.mTargetPlatform));
             return "";
@@ -1747,7 +1761,7 @@ void PackagingWindow::StartAsyncDockerBuild(const BuildProfile& profile, bool ru
     mBuildState.mComplete.store(false);
     mBuildState.mSuccess.store(false);
     mBuildState.mExitCode.store(0);
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
     mBuildState.mProcessId = 0;
 #elif PLATFORM_WINDOWS
     mBuildState.mProcessHandle = nullptr;
@@ -2045,7 +2059,7 @@ void PackagingWindow::CancelDockerBuild()
 
     mBuildState.mCancelRequested.store(true);
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
     if (mBuildState.mProcessId > 0)
     {
         kill(mBuildState.mProcessId, SIGTERM);
@@ -2124,7 +2138,8 @@ void PackagingWindow::FinalizeBuild()
             }
         }
         else if (mBuildState.mTargetPlatform == Platform::Windows ||
-                 mBuildState.mTargetPlatform == Platform::Linux)
+                 mBuildState.mTargetPlatform == Platform::Linux ||
+                 mBuildState.mTargetPlatform == Platform::Mac)
         {
             // Desktop build: no emulator involved, run the packaged game
             // directly on the host.

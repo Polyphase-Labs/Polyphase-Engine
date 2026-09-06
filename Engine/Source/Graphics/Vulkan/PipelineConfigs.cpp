@@ -114,7 +114,13 @@ void InitPipelineConfigs()
         state.mVertexShader = gVulkanContext->GetGlobalShader("Quad.vert");
         state.mFragmentShader = gVulkanContext->GetGlobalShader("Quad.frag");
         state.mVertexType = VertexType::VertexUI;
+#if PLATFORM_MAC
+        // MoltenVK/Metal has no triangle-fan topology; Quad expands its fan
+        // into a list (see Quad::kExpandFanToList).
+        state.mPrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+#else
         state.mPrimitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+#endif
         state.mCullMode = VK_CULL_MODE_NONE;
         state.mDepthTestEnabled = false;
         state.mBlendStates[0].blendEnable = true;

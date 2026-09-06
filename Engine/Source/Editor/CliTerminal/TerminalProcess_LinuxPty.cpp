@@ -1,5 +1,5 @@
 #if EDITOR
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 
 #include "TerminalProcess_LinuxPty.h"
 
@@ -12,7 +12,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#if PLATFORM_MAC
+#include <util.h>         // forkpty (libSystem)
+#else
 #include <pty.h>          // forkpty (glibc / libutil)
+#endif
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <termios.h>
@@ -334,5 +338,5 @@ void TerminalProcess_LinuxPty::CloseFds()
     mPid = -1;
 }
 
-#endif // PLATFORM_LINUX
+#endif // PLATFORM_LINUX || PLATFORM_MAC
 #endif // EDITOR

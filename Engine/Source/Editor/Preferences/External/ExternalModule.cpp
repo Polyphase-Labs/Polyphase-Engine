@@ -61,6 +61,28 @@ void ExternalModule::Render()
 
     ImGui::Spacing();
 
+#if PLATFORM_MAC
+    // Vulkan SDK root (macOS). The Makefiles, glslc and the .app packager all
+    // read VULKAN_SDK; a Finder-launched editor has no shell environment, so
+    // this lets the user pin the SDK explicitly.
+    ImGui::Text("Vulkan SDK Root:");
+    ImGui::SetNextItemWidth(-1);
+    char vulkanBuffer[512];
+    strncpy(vulkanBuffer, mVulkanSdkPath.c_str(), sizeof(vulkanBuffer) - 1);
+    vulkanBuffer[sizeof(vulkanBuffer) - 1] = '\0';
+    if (ImGui::InputText("##VulkanSdkPath", vulkanBuffer, sizeof(vulkanBuffer)))
+    {
+        mVulkanSdkPath = vulkanBuffer;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("e.g. ~/VulkanSDK/1.4.357.1/macOS. Leave empty to use $VULKAN_SDK or the\nnewest install under ~/VulkanSDK. Takes effect on the next editor start.");
+    }
+
+    ImGui::Spacing();
+#endif
+
 #if PLATFORM_WINDOWS
     // Use WSL
     if (Polyphase::Checkbox("Use WSL", &mUseWSL))
@@ -88,6 +110,7 @@ void ExternalModule::LoadSettings(const rapidjson::Document& doc)
 {
     mDockerPath = JsonSettings::GetString(doc, "dockerPath", "");
     mGradlePath = JsonSettings::GetString(doc, "gradlePath", "");
+    mVulkanSdkPath = JsonSettings::GetString(doc, "vulkanSdkPath", "");
     mUseWSL = JsonSettings::GetBool(doc, "useWSL", false);
 }
 
@@ -95,6 +118,7 @@ void ExternalModule::SaveSettings(rapidjson::Document& doc)
 {
     JsonSettings::SetString(doc, "dockerPath", mDockerPath);
     JsonSettings::SetString(doc, "gradlePath", mGradlePath);
+    JsonSettings::SetString(doc, "vulkanSdkPath", mVulkanSdkPath);
     JsonSettings::SetBool(doc, "useWSL", mUseWSL);
 }
 

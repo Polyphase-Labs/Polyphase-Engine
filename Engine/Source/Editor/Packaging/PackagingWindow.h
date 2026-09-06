@@ -7,7 +7,7 @@
 #include <mutex>
 #include <atomic>
 #include <set>
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 #include <sys/types.h>
 #endif
 #include "BuildProfile.h"
@@ -35,7 +35,7 @@ struct DockerBuildState
     Platform mTargetPlatform{Platform::Linux};
     std::string mOutputPath;
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
     pid_t mProcessId{0};
 #elif PLATFORM_WINDOWS
     void* mProcessHandle{nullptr};

@@ -42,6 +42,10 @@ private:
     void CheckGradle();
     void CheckDotnet();
     void CheckVulkanSDK();
+#if PLATFORM_MAC
+    void CheckXcodeTools();
+    void CheckGlslc();
+#endif
 
     bool mIsOpen = false;
     std::vector<BuildDependency> mDependencies;

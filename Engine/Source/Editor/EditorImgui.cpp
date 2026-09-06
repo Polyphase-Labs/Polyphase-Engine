@@ -166,6 +166,8 @@
 #include "backends/imgui_impl_win32.cpp"
 #elif PLATFORM_LINUX
 #include "imgui_impl_xcb.h"
+#elif PLATFORM_MAC
+#include "imgui_impl_mac.h"
 #endif
 
 // Cross-platform case-insensitive string comparison
@@ -7377,10 +7379,12 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 // Replace forward slashes with backslashes for Windows explorer
                 for (char& c : absPath) { if (c == '/') c = '\\'; }
                 SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
+#elif PLATFORM_MAC
+                SYS_ExecDetached(("open -R \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
                 // Open the containing directory
                 std::string dirPath = absPath.substr(0, absPath.find_last_of('/'));
-                SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
+                SYS_ExecDetached((SYS_OPEN_CMD " \"" + dirPath + "\"").c_str());
 #endif
             }
             else if (dir)
@@ -7389,8 +7393,8 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 #if PLATFORM_WINDOWS
                 for (char& c : absPath) { if (c == '/') c = '\\'; }
                 SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+                SYS_ExecDetached((SYS_OPEN_CMD " \"" + absPath + "\"").c_str());
 #endif
             }
         }
@@ -8908,6 +8912,7 @@ static void DrawAssetItems(AssetDir* dir, const std::string& filterLower)
                     { "GameCube", PlatformBit_GameCube },
                     { "Wii",      PlatformBit_Wii      },
                     { "3DS",      PlatformBit_N3DS     },
+                    { "Mac",      PlatformBit_Mac      },
                 };
                 for (const auto& row : kPkgRows)
                 {
@@ -9668,7 +9673,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
     if (!ImGui::CollapsingHeader("Packaging", ImGuiTreeNodeFlags_DefaultOpen))
         return;
 
-    // 6 platforms = engine's Platform enum count. Layout in two rows of three.
+    // One row per packagable platform (PSP is addon-provided). Layout in rows of three.
     struct PlatformRow { const char* label; uint32_t bit; };
     static const PlatformRow kRows[] = {
         { "Windows",  PlatformBit_Windows  },
@@ -9677,6 +9682,7 @@ static void DrawAssetPackagingSection(const std::string& assetAbsolutePath, Asse
         { "GameCube", PlatformBit_GameCube },
         { "Wii",      PlatformBit_Wii      },
         { "3DS",      PlatformBit_N3DS     }, // user-facing label; serialised as "N3DS"
+        { "Mac",      PlatformBit_Mac      },
     };
 
     bool changed = false;
@@ -10704,8 +10710,8 @@ static void DrawScriptsPanel()
                         SYS_CreateDirectory(scriptsDir.c_str());
 #if PLATFORM_WINDOWS
                         SYS_ExecDetached(("start \"\" \"" + scriptsDir + "\"").c_str());
-#elif PLATFORM_LINUX
-                        SYS_ExecDetached(("xdg-open \"" + scriptsDir + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+                        SYS_ExecDetached((SYS_OPEN_CMD " \"" + scriptsDir + "\"").c_str());
 #endif
                     }
                 }
@@ -10947,8 +10953,8 @@ static void DrawScriptsPanel()
 #if PLATFORM_WINDOWS
                                 for (char& c : absPath) { if (c == '/') c = '\\'; }
                                 SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-                                SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+                                SYS_ExecDetached((SYS_OPEN_CMD " \"" + absPath + "\"").c_str());
 #endif
                             }
                         }
@@ -11121,7 +11127,7 @@ static void DrawScriptsPanel()
 #if PLATFORM_WINDOWS
                                 std::string openCmd = "start \"\" \"" + csPath + "\"";
 #else
-                                std::string openCmd = "xdg-open \"" + csPath + "\"";
+                                std::string openCmd = SYS_OPEN_CMD " \"" + csPath + "\"";
 #endif
                                 SYS_ExecDetached(openCmd.c_str());
                             }
@@ -11214,9 +11220,11 @@ static void DrawScriptsPanel()
 #if PLATFORM_WINDOWS
                             for (char& c : absPath) { if (c == '/') c = '\\'; }
                             SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
+#elif PLATFORM_MAC
+                            SYS_ExecDetached(("open -R \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
                             std::string dirPath = absPath.substr(0, absPath.find_last_of('/'));
-                            SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
+                            SYS_ExecDetached((SYS_OPEN_CMD " \"" + dirPath + "\"").c_str());
 #endif
                         }
                         if (ImGui::Selectable(ctxMulti ? "Copy Paths" : "Copy Path"))
@@ -11569,8 +11577,8 @@ static void DrawScriptsPanel()
                         std::string packagesDir = GetEngineState()->mProjectDirectory + "Packages/";
 #if PLATFORM_WINDOWS
                         SYS_ExecDetached(("start \"\" \"" + packagesDir + "\"").c_str());
-#elif PLATFORM_LINUX
-                        SYS_ExecDetached(("xdg-open \"" + packagesDir + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+                        SYS_ExecDetached((SYS_OPEN_CMD " \"" + packagesDir + "\"").c_str());
 #endif
                     }
                 }
@@ -12148,6 +12156,8 @@ static void DrawMainMenuBar()
                     case PlayTarget::Standalone:
 #if PLATFORM_WINDOWS
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::Windows, false, false);
+#elif PLATFORM_MAC
+                        GetPackagingWindow()->BuildAndRunWithProfile(Platform::Mac, false, false);
 #else
                         GetPackagingWindow()->BuildAndRunWithProfile(Platform::Linux, false, false);
 #endif
@@ -14092,6 +14102,7 @@ ImFont* GetEditorTerminalFont()
 // Open the host OS file manager and select / reveal the given path.
 //   Windows : explorer /select,"<path>"        — selects file, opens parent
 //   Linux   : xdg-open "<parentDir>"            — open the containing folder
+//   macOS   : open -R "<file>"                   — select the file in Finder
 //             (no portable "select file" verb across desktop environments)
 static void RevealPathInOSFileManager(const std::string& path)
 {
@@ -14102,11 +14113,13 @@ static void RevealPathInOSFileManager(const std::string& path)
 #if PLATFORM_WINDOWS
     for (char& c : absPath) { if (c == '/') c = '\\'; }
     SYS_ExecDetached(("explorer /select,\"" + absPath + "\"").c_str());
+#elif PLATFORM_MAC
+    SYS_ExecDetached(("open -R \"" + absPath + "\"").c_str());
 #elif PLATFORM_LINUX
     std::string dirPath = absPath;
     size_t lastSlash = absPath.find_last_of('/');
     if (lastSlash != std::string::npos) dirPath = absPath.substr(0, lastSlash);
-    SYS_ExecDetached(("xdg-open \"" + dirPath + "\"").c_str());
+    SYS_ExecDetached((SYS_OPEN_CMD " \"" + dirPath + "\"").c_str());
 #endif
 }
 
@@ -14125,7 +14138,7 @@ static std::string MakeIntermediateNukeCommand(const std::string& intermediateDi
     for (char& c : dir) { if (c == '/') c = '\\'; }
     outShellLabel = "cmd.exe (Run as administrator)";
     return "rmdir /s /q \"" + dir + "\"";
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     outShellLabel = "Terminal";
     return "sudo rm -rf \"" + dir + "\"";
 #else

@@ -7,7 +7,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 #include <sys/types.h>
 #endif
 
@@ -155,14 +155,14 @@ struct LocalBuildState
         mForceCompile = false;
         mAndroidResolvedIconSource.clear();
         mOpenDirectoryOnFinish = true;
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
         mProcessId = 0;
 #elif PLATFORM_WINDOWS
         mProcessHandle = nullptr;
 #endif
     }
 
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
     pid_t mProcessId{0};
 #elif PLATFORM_WINDOWS
     void* mProcessHandle{nullptr};

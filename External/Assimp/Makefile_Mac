@@ -1,0 +1,183 @@
+#---------------------------------------------------------------------------------
+# Clear the implicit built in rules
+#---------------------------------------------------------------------------------
+.SUFFIXES:
+.SECONDARY:
+#---------------------------------------------------------------------------------
+export AS	:=	$(PREFIX)as
+export CC	:=	$(PREFIX)clang
+export CXX	:=	$(PREFIX)clang++
+export AR	:=	$(PREFIX)ar
+export STRIP	:=	$(PREFIX)strip
+export NM	:=	$(PREFIX)nm
+export RANLIB	:=	$(PREFIX)ranlib
+
+# Apple Silicon only. MACHDEP is also where a future x86_64/universal build
+# would add its -arch flags.
+MACHDEP	:=	-arch arm64 -mmacosx-version-min=12.0
+
+ifeq ($(V),1)
+    SILENTMSG := @true
+    SILENTCMD :=
+else
+    SILENTMSG := @echo
+    SILENTCMD := @
+endif
+
+#---------------------------------------------------------------------------------
+%.a:
+#---------------------------------------------------------------------------------
+	$(SILENTMSG) $(notdir $@)
+	$(SILENTCMD)rm -f $@
+	$(SILENTCMD)$(AR) -rcs $@ $^
+
+#---------------------------------------------------------------------------------
+%.o: %.cpp
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+%.o: %.c
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CC) -MMD -MP -MF $(DEPSDIR)/$*.d $(CFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+%.o: %.mm
+	$(SILENTMSG) $(notdir $<)
+	$(SILENTCMD)$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(OBJCXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+
+#---------------------------------------------------------------------------------
+# TARGET is the name of the output
+# BUILD is the directory where object files & intermediate files will be placed
+# SOURCES is a list of directories containing source code
+# INCLUDES is a list of directories containing extra header files
+#---------------------------------------------------------------------------------
+TARGET		:=	$(notdir $(CURDIR))
+# Mirror the Bullet PIC pattern: when the parent engine build sets
+# POLYPHASE_PIC=1 (used by libPolyphaseEditor.so / libPolyphaseGame.so),
+# route PIC objects + .a into a separate intermediate/output directory so
+# they don't clobber the regular non-PIC build.
+# W1: BUILD_SUFFIX (default empty) for cross-arch isolation; see
+# Standalone/Makefile_Mac_Game's header comment. Same pattern as Bullet.
+ifneq ($(strip $(POLYPHASE_PIC)),)
+BUILD		:=	Intermediate/Mac$(BUILD_SUFFIX)-pic
+PIC_OUTPUT_SUFFIX := -pic
+else
+BUILD		:=	Intermediate/Mac$(BUILD_SUFFIX)
+PIC_OUTPUT_SUFFIX :=
+endif
+SOURCES		:=	$(wildcard ../IrrXML/*.cpp) \
+				$(wildcard ../Zlib/*.c) \
+				$(wildcard *.cpp) \
+				$(wildcard */*.cpp) \
+				$(wildcard */*/*.cpp) \
+				$(wildcard *.c) \
+				$(wildcard */*.c) \
+				$(wildcard */*/*.c) \
+				$(wildcard contrib/openddlparser/code/*.cpp) \
+				$(wildcard contrib/poly2tri/poly2tri/*/*.cc) \
+				$(wildcard contrib/zip/*/*.c)
+INCLUDES	:=	./ ../ ../IrrXML ../Zlib contrib contrib/openddlparser/include Step contrib/src/zip
+OUTPUT_DIR	:=	$(CURDIR)/Build/Mac$(BUILD_SUFFIX)$(PIC_OUTPUT_SUFFIX)
+
+#---------------------------------------------------------------------------------
+# options for code generation
+#---------------------------------------------------------------------------------
+
+CFLAGS	= -g -O2 -Wall $(MACHDEP) -DPLATFORM_MAC=1 -DAPI_VULKAN=1 -DASSIMP_BUILD_NO_STEP_IMPORTER=1 -DASSIMP_BUILD_NO_IFC_IMPORTER=1 -DASSIMP_BUILD_NO_C4D_IMPORTER=1 $(INCLUDE)
+ifneq ($(strip $(POLYPHASE_PIC)),)
+CFLAGS	+=	-fPIC
+endif
+
+CXXFLAGS	=	$(CFLAGS) -std=gnu++17
+OBJCXXFLAGS	=	$(CXXFLAGS) -ObjC++ -fobjc-arc
+
+LDFLAGS	=	-g $(MACHDEP) -Wl,-map,$(notdir $@).map
+
+#---------------------------------------------------------------------------------
+# any extra libraries we wish to link with the project
+#---------------------------------------------------------------------------------
+LIBS	:=	-lm
+
+#---------------------------------------------------------------------------------
+# list of directories containing libraries, this must be the top level containing
+# include and lib
+#---------------------------------------------------------------------------------
+LIBDIRS	:= $(VULKAN_SDK)
+
+#---------------------------------------------------------------------------------
+# no real need to edit anything past this point unless you need to add additional
+# rules for different file extensions
+#---------------------------------------------------------------------------------
+ifneq ($(notdir $(BUILD)),$(notdir $(CURDIR)))
+#---------------------------------------------------------------------------------
+
+export VPATH	:=	$(foreach source,$(SOURCES),$(CURDIR)/$(dir $(source)))
+
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+
+#---------------------------------------------------------------------------------
+# automatically build a list of object files for our project
+#---------------------------------------------------------------------------------
+CPPFILES	:= $(foreach srcFile, $(SOURCES), $(notdir $(srcFile)))
+
+#---------------------------------------------------------------------------------
+# use CXX for linking C++ projects, CC for standard C
+#---------------------------------------------------------------------------------
+export LD	:=	$(CXX)
+
+# Only real objects go into the archive: the Linux variant also lists the raw
+# .c/.cpp/.cc names, which GNU ld ignores but Apple ld rejects.
+export OFILES_SOURCES := $(sort $(filter %.o,$(CPPFILES:.cpp=.o) $(CPPFILES:.c=.o)))
+export OFILES := $(OFILES_SOURCES)
+
+#---------------------------------------------------------------------------------
+# build a list of include paths
+#---------------------------------------------------------------------------------
+export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+					$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+					-I$(CURDIR)/$(BUILD)
+
+#---------------------------------------------------------------------------------
+# build a list of library paths
+#---------------------------------------------------------------------------------
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+export OUTPUT	:=	$(OUTPUT_DIR)/lib$(TARGET).a
+
+export SRC_LIST	:= $(SOURCES)
+export SRC_DIRS := $(foreach source,$(SOURCES), $(dir $(source)))
+.PHONY: $(BUILD) clean
+
+#---------------------------------------------------------------------------------
+all: $(BUILD)
+
+OutputDir:
+	echo $(OFILES_SOURCES)
+	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
+
+$(BUILD): OutputDir 
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile_Mac
+
+#---------------------------------------------------------------------------------
+clean:
+	@echo clean ...
+	@rm -fr $(BUILD) $(OUTPUT_DIR)
+
+#---------------------------------------------------------------------------------
+else
+
+#---------------------------------------------------------------------------------
+# main targets
+#---------------------------------------------------------------------------------
+$(OUTPUT): $(OFILES)
+
+$(OFILES_SOURCES) : 
+
+-include $(DEPSDIR)/*.d
+
+#---------------------------------------------------------------------------------
+endif
+#---------------------------------------------------------------------------------

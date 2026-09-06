@@ -72,7 +72,7 @@ static void OpenUrl(const std::string& url)
 #if PLATFORM_WINDOWS
     SYS_ExecDetached(("start \"\" " + url).c_str());
 #else
-    SYS_ExecDetached(("xdg-open " + url).c_str());
+    SYS_ExecDetached((SYS_OPEN_CMD " " + url).c_str());
 #endif
 }
 
@@ -1018,8 +1018,8 @@ static void DrawToolsMenu()
 #if PLATFORM_WINDOWS
             for (char& c : absPath) { if (c == '/') c = '\\'; }
             SYS_ExecDetached(("explorer \"" + absPath + "\"").c_str());
-#elif PLATFORM_LINUX
-            SYS_ExecDetached(("xdg-open \"" + absPath + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+            SYS_ExecDetached((SYS_OPEN_CMD " \"" + absPath + "\"").c_str());
 #endif
         };
 

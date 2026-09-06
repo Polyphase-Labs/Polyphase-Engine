@@ -12,9 +12,18 @@
 3. Go back to the root directory `cd ..`
 4. Run `Standalone/Build/Linux/PolyphaseEditor.elf` It's important that the working directory is the root directory where the Engine and Standalone folders are located.
 
+# Compiling (Terminal, macOS)
+
+1. Follow [macOS setup](Mac.md) once (Command Line Tools, Vulkan SDK, `bash Tools/prebuild_mac.sh`).
+2. From the project's root directory `cd Standalone`
+3. Run `make -f Makefile_Mac_Editor -j$(sysctl -n hw.ncpu)`
+4. Go back to the root directory `cd ..`
+5. Run `Standalone/Build/Mac/PolyphaseEditor` from the root directory (same working-directory rule as Linux). `make -f Makefile_Mac_Game` builds the game runtime that packaging reuses.
+
 ## Packaging
 
 1. When packaging for any platform on a Windows machine, you will likely need to install Msys2 so that linux commands can be executed. This comes packaged along with devkitPro libraries, so you if you install the devkitPro libraries, you shouldn't need to worry about this.
+3. Packaging for macOS (the `macOS (App Bundle)` target) requires a macOS host with the Xcode Command Line Tools and the Vulkan SDK; see [Platforms/Mac/Packaging.md](../Platforms/Mac/Packaging.md). It cannot be built through Docker.
 2. Packaging for Android requires installing Android Studio (Last tested with Android Studio 2022.2.1 Patch 2) with the following tools installed via the SDK Manager:
    - Android SDK Build Tools: 34.0.0
    - Android NDK (Side by side): 25.2.9519653

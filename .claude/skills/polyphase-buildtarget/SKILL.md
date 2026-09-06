@@ -9,8 +9,8 @@ A **build-target addon** is a special kind of native Polyphase addon: instead
 of adding nodes / assets / Lua bindings, it registers a
 `PolyphaseBuildTargetDesc` with the editor that teaches the build pipeline
 how to compile, cook, package, and launch a project for a new platform — all
-without modifying engine source. The engine ships only the framework + six
-built-in targets (Windows / Linux / Android / GameCube / Wii / 3DS); every
+without modifying engine source. The engine ships only the framework + seven
+built-in targets (Windows / Linux / macOS / Android / GameCube / Wii / 3DS); every
 other platform lives in an addon DLL that brings its own SDK code and license.
 
 | Resource                                                                                            | What it covers                                                          |
@@ -19,7 +19,8 @@ other platform lives in an addon DLL that brings its own SDK code and license.
 | `Engine/Source/Plugins/PolyphaseBuildTargetAPI.h`                                                   | `PolyphaseBuildTargetDesc` + `PolyphaseBuildContext`. ABI definition.   |
 | `Engine/Source/Plugins/EditorUIHooks.h`                                                             | `RegisterBuildTarget` / `UnregisterBuildTarget` hook signatures.        |
 | `Engine/Source/Editor/Packaging/BuildTargetRegistry.h` / `.cpp`                                     | Registry behaviour, deep-copy + hot-reload cleanup.                     |
-| `Engine/Source/Editor/Packaging/BuiltInBuildTargets.cpp`                                            | Reference: how the engine registers its own six targets.                |
+| `Engine/Source/Editor/Packaging/BuiltInBuildTargets.cpp`                                            | Reference: how the engine registers its own seven targets.              |
+| `Engine/Source/Editor/Packaging/MacBundlePackager.cpp`                                              | Reference: a canonical platform target with a real `PostPackage` (.app). |
 | `Engine/Source/Editor/ActionManager.cpp` (~lines 940, 1258, 1828, 2640)                             | Phase 1 cook hook, addon-target compile dispatch, PostPackage, run.     |
 | `M:\Projects\Polyphase\Addons\BuildTargets\BuildTarget-DevEnv\Packages\com.polyphase.build.target.dreamcast\` | Reference addon — Dreamcast via KallistiOS + mkdcdisc.        |
 

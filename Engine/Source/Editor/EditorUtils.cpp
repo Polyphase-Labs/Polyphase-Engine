@@ -175,6 +175,12 @@ std::string GetDevkitproPath()
         {
             dkpPath = dkpEnv;
         }
+        // The devkitPro installer sets DEVKITPRO in /etc/profile.d, which a
+        // Finder-launched editor (macOS) or a non-login shell never sources.
+        if (dkpPath == "" && DoesDirExist("/opt/devkitpro"))
+        {
+            dkpPath = "/opt/devkitpro";
+        }
 #endif
 
         if (dkpPath == "")

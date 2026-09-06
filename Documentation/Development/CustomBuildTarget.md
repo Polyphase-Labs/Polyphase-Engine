@@ -2,8 +2,8 @@
 
 > Add a new platform to the editor — Dreamcast, PS2, original Xbox, Xbox 360,
 > NDS, your own bespoke hardware — without touching engine source. The engine
-> ships **only** the framework + the six built-in targets (Windows / Linux /
-> Android / GameCube / Wii / 3DS); every other target lives in an addon DLL
+> ships **only** the framework + the seven built-in targets (Windows / Linux /
+> macOS / Android / GameCube / Wii / 3DS); every other target lives in an addon DLL
 > that carries its own SDK code and license.
 
 ## Why this exists
@@ -163,6 +163,7 @@ closest. Reasonable starting points:
 | Xbox 360        | `Platform::Windows` | Win32 derivatives.                           |
 | Nintendo DS     | `Platform::N3DS`    | Closer to the 3DS cook than to PC.           |
 | Bespoke / Misc. | `Platform::Linux`   | Default to the most permissive cook.         |
+| Apple platforms | `Platform::Mac`     | Vulkan desktop cook (same bytes as Linux); `Platform::Mac == 7`. |
 
 If the basePlatform cook doesn't fit your hardware (PVR2 swizzling for
 Dreamcast, GS palettes for PS2, NDS tile/palette formats…), register a
@@ -598,6 +599,7 @@ since most platforms' `mkdir` is single-level.
 | `Engine/Source/Plugins/PolyphaseBuildTargetAPI.h`                 | Descriptor + context structs. Source of truth.          |
 | `Engine/Source/Plugins/EditorUIHooks.h`                           | `RegisterBuildTarget` hook signature.                   |
 | `Engine/Source/Editor/Packaging/BuildTargetRegistry.h` / `.cpp`   | Registry implementation; deep copy + hot-reload.        |
-| `Engine/Source/Editor/Packaging/BuiltInBuildTargets.h` / `.cpp`   | How the engine registers its own six built-in targets.  |
+| `Engine/Source/Editor/Packaging/BuiltInBuildTargets.h` / `.cpp`   | How the engine registers its own seven built-in targets. |
+| `Engine/Source/Editor/Packaging/MacBundlePackager.cpp`            | A canonical built-in that keeps the legacy compile path but ships a real `PostPackage` (`.app` wrapping) — the model for "platform + bundle step" targets. |
 | `Engine/Source/Editor/ActionManager.cpp`                          | Phase 1 cook hook, addon-target dispatch, post-package. |
 | `Engine/Source/Editor/Packaging/PackagingWindow.cpp`              | Dropdown UI, "Target Options" panel.                    |

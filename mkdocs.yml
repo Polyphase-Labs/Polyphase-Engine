@@ -38,6 +38,7 @@ nav:
       - Install Environment:
           - Windows: Development/SetupEnvironment/Windows.md
           - Linux: Development/SetupEnvironment/Linux.md
+          - macOS: Development/SetupEnvironment/Mac.md
           - VS Code: Development/SetupEnvironment/VSCode.md
           - Terminal: Development/SetupEnvironment/Terminal.md
           - Compiling: Development/SetupEnvironment/Compiling.md
@@ -60,6 +61,9 @@ nav:
       - 3DS:
           - Overview: Development/Platforms/3DS/Overview.md
           - Screens: Development/Platforms/3DS/Screens.md
+      - macOS:
+          - Overview: Development/Platforms/Mac/Overview.md
+          - Packaging: Development/Platforms/Mac/Packaging.md
       - UI:
           - Overview: Development/UI/Overview.md
           - Displaying Images: Development/UI/DisplayingImages.md

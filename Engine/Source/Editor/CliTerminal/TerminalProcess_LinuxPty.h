@@ -1,7 +1,7 @@
 #pragma once
 
 #if EDITOR
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 
 #include "ITerminalOutputParser.h"
 #include "ITerminalProcess.h"

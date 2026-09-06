@@ -23,6 +23,13 @@
 #include <unistd.h>
 #include <xcb/xcb.h>
 #include <pthread.h>
+#elif PLATFORM_MAC
+#include <stdio.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <pthread.h>
 #elif PLATFORM_ANDROID
 #include <stdio.h>
 #include <dirent.h>
@@ -54,7 +61,7 @@
 typedef HANDLE ThreadObject;
 typedef HANDLE MutexObject;
 typedef DWORD ThreadFuncRet;
-#elif (PLATFORM_LINUX || PLATFORM_ANDROID)
+#elif (PLATFORM_LINUX || PLATFORM_ANDROID || PLATFORM_MAC)
 typedef pthread_t ThreadObject;
 typedef pthread_mutex_t MutexObject;
 typedef void* ThreadFuncRet;
@@ -105,7 +112,7 @@ struct DirEntry
 #elif PLATFORM_WINDOWS
     WIN32_FIND_DATA mFindData = { };
     HANDLE mFindHandle = nullptr;
-#elif (PLATFORM_LINUX || PLATFORM_ANDROID)
+#elif (PLATFORM_LINUX || PLATFORM_ANDROID || PLATFORM_MAC)
     DIR* mDir = nullptr;
 #elif PLATFORM_DOLPHIN
     DIR* mDir = nullptr;
@@ -134,6 +141,15 @@ struct SystemState
     xcb_window_t mXcbWindow = 0;
     xcb_intern_atom_reply_t* mAtomDeleteWindow = nullptr;
     xcb_cursor_t mNullCursor = XCB_NONE;
+    bool mWindowHasFocus = false;
+    bool mFullscreen = false;
+#elif PLATFORM_MAC
+    // Opaque so this header stays ObjC-free; System_Mac.mm bridge-casts them
+    // (NSWindow*, NSView*, CAMetalLayer*).
+    void* mNsWindow = nullptr;
+    void* mNsView = nullptr;
+    void* mMetalLayer = nullptr;
+    float mBackingScale = 1.0f;
     bool mWindowHasFocus = false;
     bool mFullscreen = false;
 #elif PLATFORM_ANDROID

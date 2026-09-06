@@ -1,5 +1,5 @@
 #if EDITOR
-#if PLATFORM_LINUX
+#if PLATFORM_LINUX || PLATFORM_MAC
 
 #include "TerminalProcess_Posix.h"
 
@@ -294,5 +294,5 @@ void TerminalProcess_Posix::CloseAllFds()
     mPgid = -1;
 }
 
-#endif // PLATFORM_LINUX
+#endif // PLATFORM_LINUX || PLATFORM_MAC
 #endif // EDITOR

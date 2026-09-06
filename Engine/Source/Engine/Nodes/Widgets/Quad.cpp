@@ -330,6 +330,23 @@ void Quad::InitVertexData()
     mNumVertices = GenerateRoundedFan(mVertices, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f);
 }
 
+// In-place fan -> triangle-list expansion for backends without fan topology
+// (see Quad::kExpandFanToList). outVertices must hold kMaxQuadVertices.
+static uint32_t ExpandFanToList(VertexUI* verts, uint32_t fanCount)
+{
+    VertexUI fan[Quad::kMaxFanVertices];
+    memcpy(fan, verts, fanCount * sizeof(VertexUI));
+
+    uint32_t out = 0;
+    for (uint32_t i = 1; i + 1 < fanCount; ++i)
+    {
+        verts[out++] = fan[0];
+        verts[out++] = fan[i];
+        verts[out++] = fan[i + 1];
+    }
+    return out;
+}
+
 uint32_t Quad::GenerateRoundedFan(
     VertexUI* outVertices,
     float posX, float posY, float posW, float posH,
@@ -391,7 +408,7 @@ uint32_t Quad::GenerateRoundedFan(
         outVertices[idx] = outVertices[1];
         idx++;
 
-        return idx;
+        return kExpandFanToList ? ExpandFanToList(outVertices, idx) : idx;
     }
     else
     {
@@ -401,7 +418,7 @@ uint32_t Quad::GenerateRoundedFan(
         outVertices[3] = makeVertex(1.0f, 1.0f);
         outVertices[4] = makeVertex(0.0f, 1.0f);
         outVertices[5] = makeVertex(0.0f, 0.0f);
-        return 6;
+        return kExpandFanToList ? ExpandFanToList(outVertices, 6) : 6;
     }
 }
 

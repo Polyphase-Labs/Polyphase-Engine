@@ -50,6 +50,24 @@ void BuildTargetRegistry::Register(HookId hookId, const PolyphaseBuildTargetDesc
     CopyStringField(slot->mCategory,        slot->mDesc.category,        desc->category);
     CopyStringField(slot->mBinaryExtension, slot->mDesc.binaryExtension, desc->binaryExtension);
     CopyStringField(slot->mPlatformExtensionDir, slot->mDesc.platformExtensionDir, desc->platformExtensionDir);
+
+    // emplace_back above may have reallocated the vector. Short strings live
+    // inside the std::string object itself (SSO), so every earlier entry's
+    // mDesc pointers now reference moved-from storage; re-point them all.
+    RepointDescriptorStrings();
+}
+
+void BuildTargetRegistry::RepointDescriptorStrings()
+{
+    for (RegisteredBuildTarget& t : mTargets)
+    {
+        t.mDesc.targetId             = t.mTargetId.c_str();
+        t.mDesc.displayName          = t.mDisplayName.c_str();
+        t.mDesc.iconText             = t.mIconText.c_str();
+        t.mDesc.category             = t.mCategory.c_str();
+        t.mDesc.binaryExtension      = t.mBinaryExtension.c_str();
+        t.mDesc.platformExtensionDir = t.mPlatformExtensionDir.c_str();
+    }
 }
 
 void BuildTargetRegistry::Unregister(HookId hookId, const char* targetId)
@@ -60,6 +78,7 @@ void BuildTargetRegistry::Unregister(HookId hookId, const char* targetId)
         [hookId, targetId](const RegisteredBuildTarget& t) {
             return t.mHookId == hookId && t.mTargetId == targetId;
         }), mTargets.end());
+    RepointDescriptorStrings();
 }
 
 void BuildTargetRegistry::RemoveAllForHook(HookId hookId)
@@ -71,6 +90,7 @@ void BuildTargetRegistry::RemoveAllForHook(HookId hookId)
             // with HookId 0 still can't blow away the built-in targets.
             return !t.mIsBuiltIn && t.mHookId == hookId;
         }), mTargets.end());
+    RepointDescriptorStrings();
 }
 
 const RegisteredBuildTarget* BuildTargetRegistry::Find(const char* targetId) const

@@ -309,6 +309,7 @@ static const char* GetNameForPlatform(Platform platform)
     {
         case Platform::Windows:  return "Windows";
         case Platform::Linux:    return "Linux";
+        case Platform::Mac:      return "Mac";
         case Platform::Android:  return "Android";
         case Platform::GameCube: return "GameCube";
         case Platform::Wii:      return "Wii";
@@ -408,6 +409,8 @@ void ProfilingWindow::DrawMemorySection()
         {
 #if PLATFORM_LINUX
             targetPlatform = Platform::Linux;
+#elif PLATFORM_MAC
+            targetPlatform = Platform::Mac;
 #elif PLATFORM_ANDROID
             targetPlatform = Platform::Android;
 #else

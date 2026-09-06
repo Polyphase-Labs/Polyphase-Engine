@@ -258,6 +258,8 @@ const char* CSharpManager::GetDotnetInstallCommand()
 {
 #if PLATFORM_WINDOWS
     return "winget install Microsoft.DotNet.SDK.8";
+#elif PLATFORM_MAC
+    return "brew install --cask dotnet-sdk";
 #else
     return "sudo apt install dotnet-sdk-8.0";
 #endif

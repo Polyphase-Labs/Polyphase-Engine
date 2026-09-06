@@ -6,7 +6,7 @@
 # Usage:
 #   bash Tools/CI/verify_project_build.sh <editor-binary> <project-dir> <platform>
 #
-# <platform> ∈ { Windows, Linux, Wii, GameCube, 3DS }
+# <platform> ∈ { Windows, Linux, Mac, Wii, GameCube, 3DS }
 #
 # Exit codes:
 #   0  build succeeded and artifact is present
@@ -31,11 +31,12 @@ PROJECT_ABS="$(cd "$PROJECT_DIR" && pwd)"
 case "$PLATFORM" in
   Windows)  EXT=".exe"  ;;
   Linux)    EXT=".elf"  ;;
+  Mac)      EXT=".macho" ;;
   Wii)      EXT=".dol"  ;;
   GameCube) EXT=".dol"  ;;
   3DS)      EXT=".3dsx" ;;
   *)
-    echo "Unknown platform '$PLATFORM' (expected: Windows, Linux, Wii, GameCube, 3DS)" >&2
+    echo "Unknown platform '$PLATFORM' (expected: Windows, Linux, Mac, Wii, GameCube, 3DS)" >&2
     exit 2
     ;;
 esac
@@ -92,8 +93,23 @@ if [[ ! -d "$PACKAGED_DIR" ]]; then
   exit 1
 fi
 
-# Locate a non-empty artifact with the expected extension.
-ARTIFACT="$(find "$PACKAGED_DIR" -maxdepth 2 -type f -name "*$EXT" -size +0c -print -quit)"
+# Locate a non-empty artifact with the expected extension. On Mac the
+# deliverable is the .app bundle: check its executable and its signature.
+if [[ "$PLATFORM" == "Mac" ]]; then
+  APP_DIR="$(find "$PACKAGED_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)"
+  if [[ -z "$APP_DIR" ]]; then
+    echo "FAIL: no .app bundle found in $PACKAGED_DIR" >&2
+    ls -la "$PACKAGED_DIR" >&2 || true
+    exit 1
+  fi
+  ARTIFACT="$(find "$APP_DIR/Contents/MacOS" -maxdepth 1 -type f -size +0c -print -quit)"
+  if ! codesign --verify --deep --strict "$APP_DIR"; then
+    echo "FAIL: codesign verification failed for $APP_DIR" >&2
+    exit 1
+  fi
+else
+  ARTIFACT="$(find "$PACKAGED_DIR" -maxdepth 2 -type f -name "*$EXT" -size +0c -print -quit)"
+fi
 if [[ -z "$ARTIFACT" ]]; then
   echo "FAIL: no non-empty *$EXT artifact found in $PACKAGED_DIR" >&2
   echo "----- contents of $PACKAGED_DIR -----" >&2
