@@ -5,7 +5,7 @@
 #if PLATFORM_WINDOWS
 #include "TerminalProcess_Windows.h"
 #include "TerminalProcess_WindowsConPTY.h"
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
 #include "TerminalProcess_Posix.h"
 #include "TerminalProcess_LinuxPty.h"
 #endif
@@ -14,7 +14,7 @@ ITerminalProcess* CreateTerminalProcess()
 {
 #if PLATFORM_WINDOWS
     return new TerminalProcess_Windows();
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     return new TerminalProcess_Posix();
 #else
     return nullptr;
@@ -34,7 +34,7 @@ ITerminalProcess* CreateTerminalProcessConPTY()
         return nullptr;
     }
     return new TerminalProcess_WindowsConPTY();
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     return new TerminalProcess_LinuxPty();
 #else
     return nullptr;

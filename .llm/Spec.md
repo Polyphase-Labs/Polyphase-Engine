@@ -2,7 +2,7 @@
 
 ## Project Identity
 
-**Polyphase Engine** is a multi-platform game engine with an ImGui-based editor, Vulkan rendering, Lua scripting, visual node graphs, and timeline animation. It targets Windows, Linux, Android, GameCube/Wii, and Nintendo 3DS.
+**Polyphase Engine** is a multi-platform game engine with an ImGui-based editor, Vulkan rendering, Lua scripting, visual node graphs, and timeline animation. It targets Windows, Linux, macOS (Apple Silicon, Vulkan via MoltenVK), Android, GameCube/Wii, and Nintendo 3DS.
 
 **Repository root:** The directory containing `Polyphase.sln`, `CMakeLists.txt`, and `Engine/`.
 
@@ -15,7 +15,7 @@ polyphase-engine/
 │   ├── Engine.vcxproj.filters # VS filter groups
 │   ├── CMakeLists.txt         # CMake build
 │   └── Source/
-│       ├── Audio/             # Platform-specific audio (XAudio2, ALSA, DSP)
+│       ├── Audio/             # Platform-specific audio (XAudio2, ALSA, CoreAudio, DSP)
 │       ├── Editor/            # Editor UI (#if EDITOR) — see Editor.md
 │       ├── Engine/            # Core engine classes — see Architecture.md
 │       │   ├── Assets/        # Asset type implementations — see AssetSystem.md
@@ -23,7 +23,7 @@ polyphase-engine/
 │       │   ├── NodeGraph/     # Visual scripting — see NodeGraph.md
 │       │   └── Timeline/      # Animation system — see Timeline.md
 │       ├── Graphics/          # Rendering backends — see Graphics.md
-│       │   ├── Vulkan/        # Primary backend (Windows/Linux)
+│       │   ├── Vulkan/        # Primary backend (Windows/Linux/macOS via MoltenVK)
 │       │   ├── GX/            # GameCube/Wii
 │       │   └── C3D/           # Nintendo 3DS
 │       ├── Input/             # Platform-specific input
@@ -103,7 +103,7 @@ polyphase-engine/
 | Macro | Purpose |
 |-------|---------|
 | `EDITOR` (0/1) | Guards editor-only code |
-| `PLATFORM_WINDOWS`, `PLATFORM_LINUX`, `PLATFORM_ANDROID`, `PLATFORM_DOLPHIN`, `PLATFORM_3DS` | Platform selection |
+| `PLATFORM_WINDOWS`, `PLATFORM_LINUX`, `PLATFORM_MAC`, `PLATFORM_ANDROID`, `PLATFORM_DOLPHIN`, `PLATFORM_3DS` | Platform selection |
 | `API_VULKAN`, `API_GX`, `API_C3D` | Graphics backend selection |
 | `LOGGING_ENABLED` | Logging system toggle |
 | `DECLARE_NODE(Class, Parent)` / `DEFINE_NODE(Class, Parent)` | Node RTTI + factory registration |
@@ -115,13 +115,15 @@ polyphase-engine/
 
 **Visual Studio** (`Engine.vcxproj`): Debug, DebugEditor, Release, ReleaseEditor, ReleaseSteam — for Win32, x64, Android-arm64-v8a.
 
-**CMake** (`CMakeLists.txt`): Cross-platform support.
+**Makefiles**: `Standalone/Makefile_Linux_Editor` (+ `Engine/Makefile_Linux`) and `Standalone/Makefile_Mac_Editor` (+ `Engine/Makefile_Mac`, Apple Silicon) are the canonical non-Windows builds; `Makefile_*_Game` build the game runtime and `Makefile_GCN/Wii/3DS` the consoles.
+
+**CMake** (`CMakeLists.txt`): Cross-platform support (stale on desktop; Makefiles are canonical).
 
 Editor builds define `EDITOR=1`; game builds define `EDITOR=0`.
 
 ## Asset Versioning
 
-Current: `ASSET_VERSION_CURRENT = 39`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions), v35 (MaterialLite UV source), v36 (SkeletalMesh sections), v37 (bone masks), v38 (SoundWave streaming), v39 (bone sockets + widened scene bone index). See [AssetSystem.md](AssetSystem.md).
+Current: `ASSET_VERSION_CURRENT = 43`. Key milestones: v12 (UUID support), v14 (persistent node UUIDs), v16 (node graph functions), v35 (MaterialLite UV source), v36 (SkeletalMesh sections), v37 (bone masks), v38 (SoundWave streaming), v39 (bone sockets + widened scene bone index), v40-42 (scene occlusion), v43 (`Platform::Mac` appended: InputPromptMap remaps the old `Count` sentinel). See [AssetSystem.md](AssetSystem.md).
 
 ## Maintenance
 

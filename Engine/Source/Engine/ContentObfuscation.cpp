@@ -1,7 +1,10 @@
 #include "ContentObfuscation.h"
 #include "Log.h"
 
+#if !PLATFORM_MAC
 #include <malloc.h>
+#endif
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

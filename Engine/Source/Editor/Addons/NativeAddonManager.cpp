@@ -34,12 +34,39 @@
 #include <dlfcn.h>
 #include <link.h>
 #include <unistd.h>   // ::rmdir for TryClearAddonIntermediates fallback
+#elif PLATFORM_MAC
+#include <dlfcn.h>
+#include <unistd.h>
+#include <unordered_map>
 #endif
 #include "Engine/Gizmos.h"
 #include "Engine/Assets/TinyLLMAsset.h"
 #include "Input/Input.h"
 #include "Log.h"
 #include "Stream.h"
+
+#if PLATFORM_MAC
+// macOS has no dlinfo(): remember each addon image base at load time so the
+// unload path can strip factories / purge assets by image, like Linux does.
+static std::unordered_map<void*, void*> sMacModuleBases;
+#endif
+
+#if PLATFORM_LINUX || PLATFORM_MAC
+static void* PosixModuleBase(void* moduleHandle)
+{
+#if PLATFORM_MAC
+    auto it = sMacModuleBases.find(moduleHandle);
+    return (it != sMacModuleBases.end()) ? it->second : nullptr;
+#else
+    struct link_map* lm = nullptr;
+    if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<void*>(lm->l_addr);
+#endif
+}
+#endif
 #include "Utilities.h"
 #include "Script.h"
 #include "Plugins/ImGuiPluginContext.h"
@@ -2024,6 +2051,8 @@ bool NativeAddonManager::IsBinaryDescriptorCompatible(const NativeBinaryDescript
     currentPlatform = "Windows";
 #elif PLATFORM_LINUX
     currentPlatform = "Linux";
+#elif PLATFORM_MAC
+    currentPlatform = "Mac";
 #else
     return false;
 #endif
@@ -2078,6 +2107,8 @@ bool NativeAddonManager::ResolveBinaryModulePath(const std::string& addonId,
 
 #if PLATFORM_WINDOWS
     std::string binaryFilename = binaryName + ".dll";
+#elif PLATFORM_MAC
+    std::string binaryFilename = "lib" + binaryName + ".dylib";
 #else
     std::string binaryFilename = "lib" + binaryName + ".so";
 #endif
@@ -2116,6 +2147,8 @@ bool NativeAddonManager::ResolveBinaryModulePath(const std::string& addonId,
                     std::string ext = filename.substr(dotPos);
 #if PLATFORM_WINDOWS
                     if (ext == ".dll")
+#elif PLATFORM_MAC
+                    if (ext == ".dylib")
 #else
                     if (ext == ".so")
 #endif
@@ -2157,6 +2190,8 @@ bool NativeAddonManager::ResolveBinaryModulePath(const std::string& addonId,
                     std::string ext = filename.substr(dotPos);
 #if PLATFORM_WINDOWS
                     if (ext == ".dll")
+#elif PLATFORM_MAC
+                    if (ext == ".dylib")
 #else
                     if (ext == ".so")
 #endif
@@ -2374,6 +2409,8 @@ std::string NativeAddonManager::GetOutputPath(const std::string& addonId, const 
 
 #if PLATFORM_WINDOWS
     return intermediateDir + fingerprint + "/" + binaryName + ".dll";
+#elif PLATFORM_MAC
+    return intermediateDir + fingerprint + "/lib" + binaryName + ".dylib";
 #else
     return intermediateDir + fingerprint + "/lib" + binaryName + ".so";
 #endif
@@ -2443,6 +2480,7 @@ std::string NativeAddonManager::ResolveVulkanIncludeDir()
 #else
             candidates.push_back(base + "include");
             candidates.push_back(base + "x86_64/include");
+            candidates.push_back(base + "macOS/include");
 #endif
         }
     }
@@ -2457,7 +2495,14 @@ std::string NativeAddonManager::ResolveVulkanIncludeDir()
     if (const char* home = std::getenv("HOME"))
     {
         candidates.push_back(FindNewestVulkanSdkUnder(std::string(home) + "/VulkanSDK/", "x86_64/include"));
+#if PLATFORM_MAC
+        candidates.push_back(FindNewestVulkanSdkUnder(std::string(home) + "/VulkanSDK/", "macOS/include"));
+#endif
     }
+#if PLATFORM_MAC
+    candidates.push_back("/opt/homebrew/include");
+    candidates.push_back("/usr/local/include");
+#endif
 #endif
 
     for (const std::string& dir : candidates)
@@ -2691,6 +2736,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 #elif PLATFORM_LINUX
             "PLATFORM_LINUX=1",
             "API_VULKAN=1"
+#elif PLATFORM_MAC
+            "PLATFORM_MAC=1",
+            "API_VULKAN=1"
 #elif PLATFORM_ANDROID
             "PLATFORM_ANDROID=1",
             "API_VULKAN=1"
@@ -2718,6 +2766,9 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
 #elif PLATFORM_LINUX
     const NativeModuleMetadata::PlatformExtras nativeExtras =
         state.mNativeMetadata.ResolveExtras("Linux");
+#elif PLATFORM_MAC
+    const NativeModuleMetadata::PlatformExtras nativeExtras =
+        state.mNativeMetadata.ResolveExtras("Mac");
 #else
     const NativeModuleMetadata::PlatformExtras nativeExtras =
         state.mNativeMetadata.ResolveExtras(""); // common only
@@ -3060,7 +3111,11 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libswresample)\n";
         ss << "\n";
     }
+#if PLATFORM_MAC
+    ss << "clang++ -dynamiclib -fPIC -O2 -std=c++17 -arch arm64 -mmacosx-version-min=12.0 \\\n";
+#else
     ss << "g++ -shared -fPIC -O2 -std=c++17 \\\n";
+#endif
 
     // Add defines from manifest
     for (const std::string& define : defines)
@@ -3132,7 +3187,11 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     std::vector<std::string> luaConfigsLinux = {"DebugEditor", "ReleaseEditor", "Debug", "Release"};
     for (const std::string& config : luaConfigsLinux)
     {
+#if PLATFORM_MAC
+        std::string testPath = polyphasePath + "External/Lua/Build/Mac/arm64/" + config + "/libLua.a";
+#else
         std::string testPath = polyphasePath + "External/Lua/Build/Linux/x64/" + config + "/libLua.a";
+#endif
         if (SYS_DoesFileExist(testPath.c_str(), false))
         {
             luaLibPathLinux = testPath;
@@ -3176,7 +3235,19 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     // executable is built with -rdynamic so dlopen resolves them at load time.
     // Note: --unresolved-symbols=ignore-in-shared-libs is NOT enough — it only suppresses
     // errors from .so deps, not from the .so we're producing. Use ignore-all here.
+#if PLATFORM_MAC
+    // ld64 equivalent of --unresolved-symbols=ignore-all: engine symbols resolve
+    // against the (-rdynamic) editor executable when the dylib is loaded.
+    ss << "  -Wl,-undefined,dynamic_lookup \\\n";
+    {
+        std::string outName = outputPath;
+        size_t slash = outName.find_last_of('/');
+        if (slash != std::string::npos) outName = outName.substr(slash + 1);
+        ss << "  -install_name \"@rpath/" << outName << "\" \\\n";
+    }
+#else
     ss << "  -Wl,--unresolved-symbols=ignore-all \\\n";
+#endif
     ss << "  -o \"" << outputPath << "\"\n";
     ss << "\n";
     ss << "echo \"Build succeeded\"\n";
@@ -3729,6 +3800,18 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
             state.mModuleEnd  = state.mModuleBase + info.SizeOfImage;
         }
     }
+#elif PLATFORM_MAC
+    {
+        // dladdr on the entry symbol yields the Mach-O image base; cache it for
+        // the unload path (there is no dlinfo on macOS).
+        void* entry = dlsym(handle, state.mNativeMetadata.mEntrySymbol.c_str());
+        Dl_info info = {};
+        if (entry != nullptr && dladdr(entry, &info) != 0 && info.dli_fbase != nullptr)
+        {
+            state.mModuleBase = (uintptr_t)info.dli_fbase;
+            sMacModuleBases[handle] = info.dli_fbase;
+        }
+    }
 #elif PLATFORM_LINUX
     {
         struct link_map* lm = nullptr;
@@ -3825,20 +3908,20 @@ namespace
         strip(TimelineClip::GetFactoryList(),  "TimelineClip");
         strip(TimelineTrack::GetFactoryList(), "TimelineTrack");
     }
-#elif PLATFORM_LINUX
-    // Strip factories whose object address falls inside the given .so module's memory image.
-    // Windows parity via dlinfo(RTLD_DI_LINKMAP) for the module base + dladdr per factory.
+#elif PLATFORM_LINUX || PLATFORM_MAC
+    // Strip factories whose object address falls inside the given module's memory image.
+    // Windows parity via the module base (dlinfo on Linux, cached dladdr on macOS)
+    // + dladdr per factory.
     void StripFactoriesFromModule(void* moduleHandle)
     {
         if (moduleHandle == nullptr) return;
 
-        struct link_map* lm = nullptr;
-        if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+        void* moduleBase = PosixModuleBase(moduleHandle);
+        if (moduleBase == nullptr)
         {
-            LogWarning("StripFactoriesFromModule: dlinfo failed (%s)", dlerror() ? dlerror() : "unknown");
+            LogWarning("StripFactoriesFromModule: could not resolve the module base");
             return;
         }
-        void* moduleBase = reinterpret_cast<void*>(lm->l_addr);
 
         auto strip = [&](std::vector<Factory*>& list, const char* label) {
             size_t removed = 0;
@@ -4008,7 +4091,7 @@ namespace
         PurgeStubsAndCollectUuids(stubsToPurge, outRehydrateUuids);
         PurgeTransientAssetsByVTableRange(mgr, &VTableInWinRange, &range);
     }
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
     static bool VTableInLinuxModule(void* vtable, void* ctx)
     {
         void* moduleBase = ctx;
@@ -4023,13 +4106,12 @@ namespace
         AssetManager* mgr = AssetManager::Get();
         if (mgr == nullptr) return;
 
-        struct link_map* lm = nullptr;
-        if (dlinfo(moduleHandle, RTLD_DI_LINKMAP, &lm) != 0 || lm == nullptr)
+        void* moduleBase = PosixModuleBase(moduleHandle);
+        if (moduleBase == nullptr)
         {
-            LogWarning("PurgeAssetsFromModule: dlinfo failed (%s)", dlerror() ? dlerror() : "unknown");
+            LogWarning("PurgeAssetsFromModule: could not resolve the module base");
             return;
         }
-        void* moduleBase = reinterpret_cast<void*>(lm->l_addr);
 
         std::vector<AssetStub*> stubsToPurge;
         for (auto& kv : mgr->GetAssetMap())
@@ -4193,6 +4275,9 @@ bool NativeAddonManager::UnloadNativeAddon(const std::string& addonId)
     // addon hits a duplicate-class-name assert in Node::RegisterFactory when the DLL's
     // static initializer re-registers the same class names.
     StripFactoriesFromModule(state.mModuleHandle);
+#if PLATFORM_MAC
+    sMacModuleBases.erase(state.mModuleHandle);
+#endif
 
     // Unload module
     MOD_Unload(state.mModuleHandle);
@@ -5525,6 +5610,9 @@ bool NativeAddonManager::GenerateAddonIncludesManifest()
 #elif PLATFORM_LINUX
     ss << "        \"PLATFORM_LINUX=1\",\n";
     ss << "        \"API_VULKAN=1\"\n";
+#elif PLATFORM_MAC
+    ss << "        \"PLATFORM_MAC=1\",\n";
+    ss << "        \"API_VULKAN=1\"\n";
 #elif PLATFORM_ANDROID
     ss << "        \"PLATFORM_ANDROID=1\",\n";
     ss << "        \"API_VULKAN=1\"\n";
@@ -5960,14 +6048,22 @@ static bool WriteBuildSh(const std::string& addonPath, const std::string& binary
     ss << "SOURCES=$(find Source -name \"*.cpp\" -type f)\n";
     ss << "BUILD_FAILED=0\n";
     ss << "\n";
+    ss << "if [ \"$(uname -s)\" = \"Darwin\" ]; then\n";
+    ss << "    PLAT=\"Mac\"; ARCH=\"arm64\"; EXT=\"dylib\"; PLATDEF=\"-DPLATFORM_MAC=1\"; SHA=\"shasum -a 256\"\n";
+    ss << "    SHARED=\"-dynamiclib -Wl,-undefined,dynamic_lookup -arch arm64 -mmacosx-version-min=12.0\"\n";
+    ss << "else\n";
+    ss << "    PLAT=\"Linux\"; ARCH=\"x64\"; EXT=\"so\"; PLATDEF=\"-DPLATFORM_LINUX=1\"; SHA=\"sha256sum\"\n";
+    ss << "    SHARED=\"-shared\"\n";
+    ss << "fi\n";
+    ss << "\n";
     ss << "if [[ \"$BUILD_CONFIG\" == \"Release\" ]] || [[ \"$BUILD_CONFIG\" == \"Both\" ]]; then\n";
     ss << "    echo \"Building Release configuration...\"\n";
-    ss << "    mkdir -p \"build/Linux/x64/Release\"\n";
-    ss << "    if $CXX -shared -fPIC -O2 -std=c++17 -ISource \\\n";
-    ss << "        -DOCTAVE_PLUGIN_EXPORT -DNDEBUG -DPLATFORM_LINUX=1 \\\n";
-    ss << "        -o \"build/Linux/x64/Release/lib${ADDON_NAME}.so\" $SOURCES; then\n";
+    ss << "    mkdir -p \"build/$PLAT/$ARCH/Release\"\n";
+    ss << "    if $CXX $SHARED -fPIC -O2 -std=c++17 -ISource \\\n";
+    ss << "        -DOCTAVE_PLUGIN_EXPORT -DNDEBUG $PLATDEF \\\n";
+    ss << "        -o \"build/$PLAT/$ARCH/Release/lib${ADDON_NAME}.$EXT\" $SOURCES; then\n";
     ss << "        echo \"Release build succeeded\"\n";
-    ss << "        command -v sha256sum &> /dev/null && sha256sum \"build/Linux/x64/Release/lib${ADDON_NAME}.so\" > \"build/Linux/x64/Release/${ADDON_NAME}-Linux-x64-Release.sha256\"\n";
+    ss << "        $SHA \"build/$PLAT/$ARCH/Release/lib${ADDON_NAME}.$EXT\" > \"build/$PLAT/$ARCH/Release/${ADDON_NAME}-$PLAT-$ARCH-Release.sha256\"\n";
     ss << "    else\n";
     ss << "        echo \"Release build FAILED!\"\n";
     ss << "        BUILD_FAILED=1\n";
@@ -5976,12 +6072,12 @@ static bool WriteBuildSh(const std::string& addonPath, const std::string& binary
     ss << "\n";
     ss << "if [[ \"$BUILD_CONFIG\" == \"Debug\" ]] || [[ \"$BUILD_CONFIG\" == \"Both\" ]]; then\n";
     ss << "    echo \"Building Debug configuration...\"\n";
-    ss << "    mkdir -p \"build/Linux/x64/Debug\"\n";
-    ss << "    if $CXX -shared -fPIC -O0 -g -std=c++17 -ISource \\\n";
-    ss << "        -DOCTAVE_PLUGIN_EXPORT -D_DEBUG -DPLATFORM_LINUX=1 \\\n";
-    ss << "        -o \"build/Linux/x64/Debug/lib${ADDON_NAME}.so\" $SOURCES; then\n";
+    ss << "    mkdir -p \"build/$PLAT/$ARCH/Debug\"\n";
+    ss << "    if $CXX $SHARED -fPIC -O0 -g -std=c++17 -ISource \\\n";
+    ss << "        -DOCTAVE_PLUGIN_EXPORT -D_DEBUG $PLATDEF \\\n";
+    ss << "        -o \"build/$PLAT/$ARCH/Debug/lib${ADDON_NAME}.$EXT\" $SOURCES; then\n";
     ss << "        echo \"Debug build succeeded\"\n";
-    ss << "        command -v sha256sum &> /dev/null && sha256sum \"build/Linux/x64/Debug/lib${ADDON_NAME}.so\" > \"build/Linux/x64/Debug/${ADDON_NAME}-Linux-x64-Debug.sha256\"\n";
+    ss << "        $SHA \"build/$PLAT/$ARCH/Debug/lib${ADDON_NAME}.$EXT\" > \"build/$PLAT/$ARCH/Debug/${ADDON_NAME}-$PLAT-$ARCH-Debug.sha256\"\n";
     ss << "    else\n";
     ss << "        echo \"Debug build FAILED!\"\n";
     ss << "        BUILD_FAILED=1\n";
@@ -5994,7 +6090,7 @@ static bool WriteBuildSh(const std::string& addonPath, const std::string& binary
     ss << "else\n";
     ss << "    echo \"Build Succeeded!\"\n";
     ss << "fi\n";
-    ss << "echo \"Output: build/Linux/x64/[Debug|Release]/lib${ADDON_NAME}.so\"\n";
+    ss << "echo \"Output: build/Linux/x64/[Debug|Release]/lib${ADDON_NAME}.$EXT\"\n";
     ss << "\n";
     ss << "exit $BUILD_FAILED\n";
 
@@ -6078,16 +6174,16 @@ static bool WriteGitHubWorkflowTemplate(const std::string& addonPath, const std:
     ss << "        with:\n";
     ss << "          name: ${{ env.ADDON_NAME }}-Linux-x64-Release\n";
     ss << "          path: |\n";
-    ss << "            build/Linux/x64/Release/lib${{ env.ADDON_NAME }}.so\n";
-    ss << "            build/Linux/x64/Release/*.sha256\n";
+    ss << "            build/$PLAT/$ARCH/Release/lib${{ env.ADDON_NAME }}.so\n";
+    ss << "            build/$PLAT/$ARCH/Release/*.sha256\n";
     ss << "\n";
     ss << "      - name: Upload Linux Debug artifact\n";
     ss << "        uses: actions/upload-artifact@v4\n";
     ss << "        with:\n";
     ss << "          name: ${{ env.ADDON_NAME }}-Linux-x64-Debug\n";
     ss << "          path: |\n";
-    ss << "            build/Linux/x64/Debug/lib${{ env.ADDON_NAME }}.so\n";
-    ss << "            build/Linux/x64/Debug/*.sha256\n";
+    ss << "            build/$PLAT/$ARCH/Debug/lib${{ env.ADDON_NAME }}.so\n";
+    ss << "            build/$PLAT/$ARCH/Debug/*.sha256\n";
     ss << "\n";
     ss << "  build-windows:\n";
     ss << "    runs-on: windows-latest\n";
@@ -6285,6 +6381,9 @@ bool NativeAddonManager::WriteVSCodeConfig(const std::string& addonPath)
 #elif PLATFORM_LINUX
             "PLATFORM_LINUX=1",
             "API_VULKAN=1"
+#elif PLATFORM_MAC
+            "PLATFORM_MAC=1",
+            "API_VULKAN=1"
 #elif PLATFORM_ANDROID
             "PLATFORM_ANDROID=1",
             "API_VULKAN=1"
@@ -6436,6 +6535,9 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
             "NOMINMAX"
 #elif PLATFORM_LINUX
             "PLATFORM_LINUX=1",
+            "API_VULKAN=1"
+#elif PLATFORM_MAC
+            "PLATFORM_MAC=1",
             "API_VULKAN=1"
 #elif PLATFORM_ANDROID
             "PLATFORM_ANDROID=1",
@@ -6691,6 +6793,9 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
             "NOMINMAX"
 #elif PLATFORM_LINUX
             "PLATFORM_LINUX=1",
+            "API_VULKAN=1"
+#elif PLATFORM_MAC
+            "PLATFORM_MAC=1",
             "API_VULKAN=1"
 #elif PLATFORM_ANDROID
             "PLATFORM_ANDROID=1",

@@ -904,6 +904,7 @@
     <ClCompile Include="Source\Audio\AudioResample.cpp" />
     <ClCompile Include="Source\Audio\Dolphin\Audio_Dolphin.cpp" />
     <ClCompile Include="Source\Audio\Linux\Audio_Linux.cpp" />
+    <ClCompile Include="Source\Audio\Mac\Audio_Mac.cpp" />
     <ClCompile Include="Source\Audio\Windows\Audio_Windows.cpp" />
     <ClCompile Include="Source\Editor\ActionManager.cpp" />
     <ClCompile Include="Source\Editor\BuildCache.cpp" />
@@ -1003,6 +1004,7 @@
     <ClCompile Include="Source\Editor\PlayerInputEditor.cpp" />
     <ClCompile Include="Source\Editor\PlayerInputDebugger.cpp" />
     <ClCompile Include="Source\Editor\Packaging\AppImagePackager.cpp" />
+    <ClCompile Include="Source\Editor\Packaging\MacBundlePackager.cpp" />
     <ClCompile Include="Source\Editor\Packaging\BannerGltfExporter.cpp" />
     <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp" />
     <ClCompile Include="Source\Editor\Packaging\BuildTargetRegistry.cpp" />
@@ -1413,6 +1415,7 @@
     <ClCompile Include="Source\Network\Http\HttpTypes.cpp" />
     <ClCompile Include="Source\Network\Http\JsonHelpers.cpp" />
     <ClCompile Include="Source\Network\Linux\Network_Linux.cpp" />
+    <ClCompile Include="Source\Network\Mac\Network_Mac.cpp" />
     <ClCompile Include="Source\Network\NetPlatform.cpp" />
     <ClCompile Include="Source\Network\NetPlatformEpic.cpp" />
     <ClCompile Include="Source\Network\NetPlatformSteam.cpp" />
@@ -1424,6 +1427,7 @@
     <ClCompile Include="Source\Network\WebSocketWss_Windows.cpp" />
     <ClCompile Include="Source\Serial\Windows\Serial_Windows.cpp" />
     <ClCompile Include="Source\Serial\Linux\Serial_Linux.cpp" />
+    <ClCompile Include="Source\Serial\Mac\Serial_Mac.cpp" />
     <ClCompile Include="Source\Serial\Stub\Serial_Stub.cpp" />
     <ClInclude Include="Source\Serial\Serial.h" />
     <ClInclude Include="Source\Serial\SerialTypes.h" />
@@ -1431,11 +1435,15 @@
     <ClCompile Include="Source\System\Android\System_Android.cpp" />
     <ClCompile Include="Source\System\Dolphin\System_Dolphin.cpp" />
     <ClCompile Include="Source\System\Linux\System_Linux.cpp" />
+    <ClCompile Include="Source\System\Mac\System_Mac.cpp" />
     <ClCompile Include="Source\System\SystemUtils.cpp" />
     <ClCompile Include="Source\System\Windows\System_Windows.cpp" />
     <ClCompile Include="Source\System\ModuleLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Source\System\Mac\System_MacCocoa.mm" />
+    <None Include="Source\Input\Mac\Input_Mac.mm" />
+    <None Include="Source\Editor\imgui_impl_mac.mm" />
     <None Include="Shaders\src\ColorGeometry.frag" />
     <None Include="Shaders\src\Common.glsl" />
     <None Include="Shaders\src\Depth.frag" />
@@ -1604,6 +1612,8 @@
     <ClInclude Include="Source\Editor\PlayerInputEditor.h" />
     <ClInclude Include="Source\Editor\PlayerInputDebugger.h" />
     <ClInclude Include="Source\Editor\Packaging\AppImagePackager.h" />
+    <ClInclude Include="Source\Editor\Packaging\MacBundlePackager.h" />
+    <ClInclude Include="Source\Editor\imgui_impl_mac.h" />
     <ClInclude Include="Source\Editor\Packaging\BannerGltfExporter.h" />
     <ClInclude Include="Source\Editor\Packaging\BuildProfile.h" />
     <ClInclude Include="Source\Editor\Packaging\BuildTargetRegistry.h" />

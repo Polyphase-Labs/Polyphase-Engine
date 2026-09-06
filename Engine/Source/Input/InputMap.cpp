@@ -444,6 +444,12 @@ std::string InputMap::GetPresetsDirectory()
     {
         dir = std::string(appData) + "/PolyphaseEditor/InputPresets";
     }
+#elif PLATFORM_MAC
+    const char* home = getenv("HOME");
+    if (home != nullptr)
+    {
+        dir = std::string(home) + "/Library/Application Support/PolyphaseEditor/InputPresets";
+    }
 #elif PLATFORM_LINUX
     const char* home = getenv("HOME");
     if (home != nullptr)
@@ -473,6 +479,14 @@ static void EnsurePresetsDirectory()
         {
             SYS_CreateDirectory(parentDir.c_str());
         }
+    }
+#elif PLATFORM_MAC
+    const char* home = getenv("HOME");
+    if (home != nullptr)
+    {
+        std::string parentDir = std::string(home) + "/Library/Application Support/PolyphaseEditor";
+        if (!DoesDirExist(parentDir.c_str()))
+            SYS_CreateDirectory(parentDir.c_str());
     }
 #elif PLATFORM_LINUX
     const char* home = getenv("HOME");

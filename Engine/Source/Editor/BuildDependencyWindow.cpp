@@ -8,9 +8,13 @@
 #include "Preferences/External/ExternalModule.h"
 #include "Packaging/CiaPackager.h"
 #include "Addons/NativeAddonManager.h"
+#if PLATFORM_MAC
+#include "Packaging/MacBundlePackager.h"
+#endif
 
 #include "Log.h"
 #include "System/System.h"
+#include "Utilities.h"
 
 #include "imgui.h"
 
@@ -353,6 +357,8 @@ void BuildDependencyWindow::CheckDotnet()
     dep.mDescription = "Required only for C# scripting (8.0 or newer)";
 #if PLATFORM_WINDOWS
     dep.mInstallHint = "Install via: winget install Microsoft.DotNet.SDK.8";
+#elif PLATFORM_MAC
+    dep.mInstallHint = "Install via: brew install --cask dotnet-sdk";
 #else
     dep.mInstallHint = "Install via: sudo apt install dotnet-sdk-8.0";
 #endif
@@ -387,7 +393,7 @@ void BuildDependencyWindow::CheckVulkanSDK()
     dep.mInstallHint = "Install the Vulkan SDK, make sure VULKAN_SDK is set, then restart the editor";
     dep.mInstallUrl = "https://vulkan.lunarg.com/sdk/home";
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
+#if PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC
     std::string includeDir = NativeAddonManager::ResolveVulkanIncludeDir();
     if (!includeDir.empty())
     {
@@ -406,11 +412,77 @@ void BuildDependencyWindow::CheckVulkanSDK()
     mDependencies.push_back(dep);
 }
 
+#if PLATFORM_MAC
+void BuildDependencyWindow::CheckXcodeTools()
+{
+    BuildDependency dep;
+    dep.mName = "Xcode Command Line Tools";
+    dep.mDescription = "clang, make, codesign, install_name_tool — required to compile and package on macOS";
+    dep.mInstallHint = "Run: xcode-select --install";
+    dep.mInstallUrl = "https://developer.apple.com/xcode/resources/";
+
+    std::string output;
+    SYS_Exec("xcode-select -p 2>/dev/null", &output);
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
+        output.pop_back();
+
+    if (!output.empty() && DoesDirExist(output.c_str()))
+    {
+        dep.mStatus = DependencyStatus::Found;
+        dep.mVersion = output;
+    }
+    else
+    {
+        dep.mStatus = DependencyStatus::NotFound;
+    }
+
+    mDependencies.push_back(dep);
+}
+
+void BuildDependencyWindow::CheckGlslc()
+{
+    BuildDependency dep;
+    dep.mName = "glslc / MoltenVK (Vulkan SDK)";
+    dep.mDescription = "Shader compiler and Metal-backed Vulkan runtime from the LunarG Vulkan SDK for macOS";
+    dep.mInstallHint = "Install the LunarG Vulkan SDK to ~/VulkanSDK and set VULKAN_SDK (or Preferences > External > Vulkan SDK Root)";
+    dep.mInstallUrl = "https://vulkan.lunarg.com/sdk/home#mac";
+
+    std::string sdkRoot = MacBundlePackager::ResolveVulkanSdkRoot();
+    if (!sdkRoot.empty() && SYS_DoesFileExist((sdkRoot + "/bin/glslc").c_str(), false))
+    {
+        dep.mStatus = DependencyStatus::Found;
+        dep.mVersion = sdkRoot;
+    }
+    else
+    {
+        std::string output;
+        SYS_Exec("command -v glslc 2>/dev/null", &output);
+        while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' '))
+            output.pop_back();
+        if (!output.empty())
+        {
+            dep.mStatus = DependencyStatus::Found;
+            dep.mVersion = output + " (no MoltenVK found; packaging needs the full SDK)";
+        }
+        else
+        {
+            dep.mStatus = DependencyStatus::NotFound;
+        }
+    }
+
+    mDependencies.push_back(dep);
+}
+#endif
+
 void BuildDependencyWindow::RunChecks()
 {
     mDependencies.clear();
 
     CheckMake();
+#if PLATFORM_MAC
+    CheckXcodeTools();
+    CheckGlslc();
+#endif
     CheckDevkitPro();
     CheckDevkitPPC();
     CheckDevkitARM();
@@ -547,7 +619,7 @@ void BuildDependencyWindow::Draw()
 #if PLATFORM_WINDOWS
                         std::string cmd = "start " + dep.mInstallUrl;
 #else
-                        std::string cmd = "xdg-open " + dep.mInstallUrl + " &";
+                        std::string cmd = SYS_OPEN_CMD " " + dep.mInstallUrl + " &";
 #endif
                         SYS_Exec(cmd.c_str());
                     }

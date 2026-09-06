@@ -1,4 +1,4 @@
-#if EDITOR && PLATFORM_LINUX
+#if EDITOR && (PLATFORM_LINUX || PLATFORM_MAC)
 
 #include "HttpClient.h"
 #include "Network/Http/HttpClient.h"
@@ -80,7 +80,15 @@ bool HttpClient::InitializePlatform()
     sAvailable = false;
 
     // Try to load libcurl
+#if PLATFORM_MAC
+    sCurlHandle = dlopen("libcurl.4.dylib", RTLD_LAZY);
+    if (!sCurlHandle)
+    {
+        sCurlHandle = dlopen("/usr/lib/libcurl.4.dylib", RTLD_LAZY);
+    }
+#else
     sCurlHandle = dlopen("libcurl.so.4", RTLD_LAZY);
+#endif
     if (!sCurlHandle)
     {
         // Try alternate names

@@ -19,8 +19,20 @@ void SYS_AcquireFileData(const char* path, bool isAsset, int32_t maxSize, char*&
 void SYS_ReleaseFileData(char* data);
 std::string SYS_GetExecutablePath();
 std::string SYS_GetPolyphasePath();
+#if PLATFORM_MAC
+// "" when not running from an .app bundle, else "<bundle>/Contents/Resources/".
+std::string SYS_GetBundleResourcePath();
+// backingScaleFactor of the main screen (2.0 on Retina), usable before the window exists.
+float SYS_GetDisplayScale();
+#endif
 std::string SYS_GetCurrentDirectoryPath();
 std::string SYS_GetAbsolutePath(const std::string& relativePath);
+// Shell verb that opens a file/URL/folder with its default handler on POSIX hosts.
+#if PLATFORM_MAC
+#define SYS_OPEN_CMD "open"
+#else
+#define SYS_OPEN_CMD "xdg-open"
+#endif
 void SYS_ExplorerOpenDirectory(const std::string& dirPath);
 void SYS_OpenFileWithDefaultApp(const std::string& filePath);
 void SYS_SetWorkingDirectory(const std::string& dirPath);

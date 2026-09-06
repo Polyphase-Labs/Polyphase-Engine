@@ -339,7 +339,7 @@ void AppSettingsWindow::DrawRuntimeSection()
 #if PLATFORM_WINDOWS
                 SYS_ExecDetached(CSharpManager::GetDotnetInstallCommand());
 #else
-                std::string openUrl = std::string("xdg-open \"") + CSharpManager::GetDotnetInstallUrl() + "\"";
+                std::string openUrl = std::string(SYS_OPEN_CMD " \"") + CSharpManager::GetDotnetInstallUrl() + "\"";
                 SYS_ExecDetached(openUrl.c_str());
 #endif
                 LogDebug("[CSharp] running: %s — use Tools > CSharp > Check Dependencies to re-probe when done.",

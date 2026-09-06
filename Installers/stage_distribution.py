@@ -7,7 +7,7 @@ clean output directory. This is the shared foundation for both Windows
 and Linux installers.
 
 Usage:
-    python stage_distribution.py --platform windows|linux [--output-dir dist/Editor] [--verbose]
+    python stage_distribution.py --platform windows|linux|mac [--output-dir dist/Editor] [--verbose]
 """
 
 import argparse
@@ -147,6 +147,45 @@ def stage_vulkan_headers(dist, verbose=False):
     return n
 
 
+def resolve_vulkan_sdk_mac():
+    """VULKAN_SDK, else the newest ~/VulkanSDK/<ver>/macOS that has MoltenVK."""
+    sdk = os.environ.get("VULKAN_SDK", "")
+    candidates = []
+    if sdk:
+        candidates.append(Path(sdk))
+        candidates.append(Path(sdk) / "macOS")
+    home = Path.home() / "VulkanSDK"
+    if home.is_dir():
+        for ver in sorted(home.iterdir(), reverse=True):
+            candidates.append(ver / "macOS")
+    for c in candidates:
+        if (c / "lib" / "libMoltenVK.dylib").is_file() and (c / "lib" / "libvulkan.1.dylib").is_file():
+            return c
+    return None
+
+
+def stage_vulkan_runtime_mac(dist, verbose=False):
+    """Copy the Vulkan loader + MoltenVK into dist/lib/ for the .app bundler.
+
+    build_app_mac.sh moves them into Contents/Frameworks and writes a
+    bundle-relative ICD manifest, so the shipped editor needs no VULKAN_SDK to
+    render. Only WARNS when no SDK is found, like stage_vulkan_headers.
+    """
+    sdk = resolve_vulkan_sdk_mac()
+    if sdk is None:
+        print("  WARNING: no macOS Vulkan SDK found; MoltenVK NOT staged. "
+              "The bundled editor will need a system Vulkan loader.")
+        return 0
+    n = 0
+    for name in ("libvulkan.1.dylib", "libMoltenVK.dylib"):
+        if copy_file(sdk / "lib" / name, dist / "lib" / name, verbose):
+            n += 1
+    icd = sdk / "share" / "vulkan" / "icd.d" / "MoltenVK_icd.json"
+    if copy_file(icd, dist / "lib" / "MoltenVK_icd.json.sdk", verbose):
+        n += 1
+    return n
+
+
 def run_generators(engine_root, verbose=False):
     """Run code generators to ensure Generated/ is fresh."""
     tools_dir = engine_root / "Tools"
@@ -199,6 +238,12 @@ def stage(platform, output_dir, engine_root, verbose=False):
     if platform == "windows":
         binary_src = engine_root / "Standalone" / "Build" / "Windows" / "x64" / "ReleaseEditor" / "Polyphase.exe"
         binary_dst = dist / "Polyphase.exe"
+    elif platform == "mac":
+        # macOS: Makefile_Mac_Editor produces an extension-less Mach-O.
+        binary_src = engine_root / "Standalone" / "Build" / "Mac" / "PolyphaseEditor"
+        if not binary_src.exists():
+            binary_src = engine_root / "PolyphaseEditor"
+        binary_dst = dist / "PolyphaseEditor"
     else:
         # Linux binary - Makefile produces PolyphaseEditor.elf, we install as PolyphaseEditor
         binary_src = engine_root / "Standalone" / "Build" / "Linux" / "PolyphaseEditor.elf"
@@ -250,7 +295,7 @@ def stage(platform, output_dir, engine_root, verbose=False):
     print("Staging Engine project files...")
     for fname in ["Engine.vcxproj", "Engine.vcxproj.filters", "CMakeLists.txt",
                    "Makefile_3DS", "Makefile_GCN", "Makefile_Wii", "Makefile_Linux",
-                   "FeatureFlags.cpp"]:
+                   "Makefile_Mac", "FeatureFlags.cpp"]:
         copy_file(engine_root / "Engine" / fname, dist / "Engine" / fname, verbose)
 
     # --- Engine/External (PolyVox and other Engine-level dependencies) ---
@@ -302,6 +347,13 @@ def stage(platform, output_dir, engine_root, verbose=False):
     if platform == "windows":
         game_exe = engine_root / "Standalone" / "Build" / "Windows" / "x64" / "Release" / "Polyphase.exe"
         game_dst = dist / "Standalone" / "Build" / "Windows" / "x64" / "Release" / "Polyphase.exe"
+        if copy_file(game_exe, game_dst, verbose):
+            log(f"Game exe: {game_exe}", verbose)
+        else:
+            print("  WARNING: Prebuilt game exe not found (builds will require compilation)")
+    elif platform == "mac":
+        game_exe = engine_root / "Standalone" / "Build" / "Mac" / "Polyphase.macho"
+        game_dst = dist / "Standalone" / "Build" / "Mac" / "Polyphase.macho"
         if copy_file(game_exe, game_dst, verbose):
             log(f"Game exe: {game_exe}", verbose)
         else:
@@ -384,6 +436,25 @@ def stage(platform, output_dir, engine_root, verbose=False):
         polyphase_game_lib = engine_root / "Engine" / "Build" / "Windows" / "x64" / "Release Shared" / "PolyphaseGame.lib"
         if copy_file(polyphase_game_lib, dist / "PolyphaseGame.lib", verbose):
             log(f"PolyphaseGame.lib: {polyphase_game_lib}", verbose)
+    elif platform == "mac":
+        # macOS: libLua.a for native addon builds (make -C External/Lua macosx).
+        lua_lib = engine_root / "External" / "Lua" / "Build" / "Mac" / "arm64" / "ReleaseEditor" / "libLua.a"
+        if not lua_lib.exists():
+            lua_lib = engine_root / "External" / "Lua" / "liblua.a"
+        if copy_file(lua_lib, dist / "lib" / "libLua.a", verbose):
+            log(f"libLua.a: {lua_lib}", verbose)
+        else:
+            print("  WARNING: libLua.a not found - native addon builds may need system Lua")
+
+        editor_dylib = engine_root / "Engine" / "Build" / "Mac" / "libPolyphaseEditor.dylib"
+        if copy_file(editor_dylib, dist / "libPolyphaseEditor.dylib", verbose):
+            log(f"libPolyphaseEditor.dylib: {editor_dylib}", verbose)
+        game_dylib = engine_root / "Engine" / "Build" / "Mac" / "libPolyphaseGame.dylib"
+        if copy_file(game_dylib, dist / "libPolyphaseGame.dylib", verbose):
+            log(f"libPolyphaseGame.dylib: {game_dylib}", verbose)
+
+        n = stage_vulkan_runtime_mac(dist, verbose)
+        log(f"  {n} Vulkan runtime files", verbose)
     else:
         # Linux: Stage libLua.a for native addon builds
         lua_lib = engine_root / "External" / "Lua" / "Build" / "Linux" / "x64" / "ReleaseEditor" / "libLua.a"
@@ -423,7 +494,7 @@ def main():
     parser.add_argument(
         "--platform",
         required=True,
-        choices=["windows", "linux"],
+        choices=["windows", "linux", "mac"],
         help="Target platform",
     )
     parser.add_argument(

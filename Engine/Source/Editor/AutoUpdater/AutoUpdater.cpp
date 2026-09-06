@@ -451,6 +451,14 @@ void AutoUpdater::LaunchInstaller()
 
     // Request editor shutdown
     Quit();
+#elif PLATFORM_MAC
+    // Mount the disk image (or reveal whatever was downloaded); the user drags
+    // the new Polyphase.app over the old one.
+    {
+        std::string command = "open \"" + installerPath + "\"";
+        system(command.c_str());
+    }
+    Quit();
 #endif
 }
 

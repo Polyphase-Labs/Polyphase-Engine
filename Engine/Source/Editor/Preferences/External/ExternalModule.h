@@ -27,6 +27,8 @@ public:
 
     const std::string& GetDockerPath() const { return mDockerPath; }
     const std::string& GetGradlePath() const { return mGradlePath; }
+    /** macOS: explicit LunarG Vulkan SDK root (…/VulkanSDK/<ver>/macOS); empty = auto-detect. */
+    const std::string& GetVulkanSdkPath() const { return mVulkanSdkPath; }
     bool GetUseWSL() const { return mUseWSL; }
 
     /** Returns the resolved Docker invocation prefix (e.g. "docker", "wsl docker", "wsl /usr/bin/docker") */
@@ -38,6 +40,7 @@ public:
 private:
     std::string mDockerPath;   // Custom Docker executable path (empty = "docker")
     std::string mGradlePath;   // Custom Gradle executable path (empty = "gradle")
+    std::string mVulkanSdkPath; // macOS: Vulkan SDK root override (empty = $VULKAN_SDK / ~/VulkanSDK)
     bool mUseWSL = false;      // Windows only: prefix Docker commands with "wsl"
 };
 

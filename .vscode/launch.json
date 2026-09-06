@@ -49,6 +49,34 @@
         },
 
         {
+            "name": "Polyphase Editor - Mac",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Standalone/Build/Mac/PolyphaseEditor",
+            "args": ["-validate", "0"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "Make Standalone Editor - Mac"
+        },
+
+        {
+            "name": "Polyphase Game - Mac",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Standalone/Build/Mac/Polyphase.macho",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "Make Standalone Game - Mac"
+        },
+
+        {
             "name": "Polyphase Game (Shared)",
             "type": "cppdbg",
             "request": "launch",

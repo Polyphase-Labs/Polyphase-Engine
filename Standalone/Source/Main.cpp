@@ -22,7 +22,7 @@
 #include <string>
 #endif
 
-#define EMBEDDED_ENABLED         (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS)
+#define EMBEDDED_ENABLED         (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS || PLATFORM_MAC)
 #define EMBEDDED_SCRIPTS_ONLY    (PLATFORM_ANDROID)
 
 #if EMBEDDED_ENABLED
@@ -154,6 +154,8 @@ static void DiscoverAndQueueRuntimeAddons()
 
 #if PLATFORM_WINDOWS
     const std::string kAddonExt = ".dll";
+#elif PLATFORM_MAC
+    const std::string kAddonExt = ".dylib";
 #else
     const std::string kAddonExt = ".so";
 #endif

@@ -42,6 +42,8 @@ enum class Platform : int
     // PSP addon. The expansion `Platform::1` is a syntax error. `Psp` is
     // unaffected and `GetPlatformString` still returns "PSP" for display.
     Psp,
+    // Appended after Psp so every existing serialized value keeps its number.
+    Mac,
 
     Count
 };
@@ -57,6 +59,7 @@ enum PlatformBit : uint32_t
     PlatformBit_Wii      = 1u << int(Platform::Wii),
     PlatformBit_N3DS     = 1u << int(Platform::N3DS),
     PlatformBit_Psp      = 1u << int(Platform::Psp),
+    PlatformBit_Mac      = 1u << int(Platform::Mac),
 
     PlatformBit_All      = (1u << int(Platform::Count)) - 1u,
 };
@@ -464,6 +467,7 @@ struct EngineConfig
     uint32_t mEmbeddedConfigSize = 0;
 
     float mEditorInterfaceScale = 1.0f;
+    bool mEditorInterfaceScaleExplicit = false;   // true once Config.ini supplied a value
     int32_t mColorScale = 2;
 
     std::string mIconPath;

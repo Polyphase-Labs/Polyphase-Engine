@@ -257,8 +257,8 @@ void EditorHotkeysWindow::DrawPresetBar()
 #if PLATFORM_WINDOWS
             for (char& c : dir) { if (c == '/') c = '\\'; }
             SYS_ExecDetached(("explorer \"" + dir + "\"").c_str());
-#elif PLATFORM_LINUX
-            SYS_ExecDetached(("xdg-open \"" + dir + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+            SYS_ExecDetached((SYS_OPEN_CMD " \"" + dir + "\"").c_str());
 #endif
         }
         ImGui::SameLine();

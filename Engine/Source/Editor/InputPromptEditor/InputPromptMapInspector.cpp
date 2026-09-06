@@ -301,7 +301,7 @@ void InputPromptMapInspector::DrawToolbar(InputPromptMap* map)
 
 void InputPromptMapInspector::DrawFilterRow()
 {
-    const char* platforms[] = { "All", "Windows", "Linux", "Android", "GameCube", "Wii", "N3DS", "PSP" };
+    const char* platforms[] = { "All", "Windows", "Linux", "Android", "GameCube", "Wii", "N3DS", "PSP", "Mac" };
     int filterPlatformIdx = mFilterPlatform + 1;
     ImGui::SetNextItemWidth(90.0f);
     if (ImGui::Combo("Platform##Filter", &filterPlatformIdx, platforms, IM_ARRAYSIZE(platforms)))
@@ -341,7 +341,7 @@ void InputPromptMapInspector::DrawEntryTable(InputPromptMap* map)
     if (!map) return;
     auto& entries = map->GetEntries();
 
-    const char* platforms[] = { "Any", "Windows", "Linux", "Android", "GameCube", "Wii", "N3DS", "PSP" };
+    const char* platforms[] = { "Any", "Windows", "Linux", "Android", "GameCube", "Wii", "N3DS", "PSP", "Mac" };
     const char* gpTypes[]   = { "Any/N-A", "Standard", "GameCube", "Wiimote", "WiiClassic", "DualShock4", "DualSense" };
     const char* kinds[]     = { "Sprite", "Glyph", "Text" };
 

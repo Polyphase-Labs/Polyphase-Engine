@@ -307,6 +307,7 @@ bool InstancedMesh3D::ShouldUnroll() const
 
     if (platform == Platform::Windows ||
         platform == Platform::Linux ||
+        platform == Platform::Mac ||
         platform == Platform::Android)
     {
         return false;

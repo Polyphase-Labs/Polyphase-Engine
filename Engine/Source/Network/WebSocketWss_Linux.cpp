@@ -1,9 +1,10 @@
-#if PLATFORM_LINUX && !defined(POLYPHASE_PLATFORM_ADDON)
+#if (PLATFORM_LINUX || PLATFORM_MAC) && !defined(POLYPHASE_PLATFORM_ADDON)
 
 #include "Network/WebSocketTransport.h"
 #include "Log.h"
 
 #include <dlfcn.h>
+#include <cstdlib>
 #include <stdio.h>
 #include <string.h>
 
@@ -98,14 +99,31 @@ namespace
         sTried = true;
 
         const char* names[] = {
+#if PLATFORM_MAC
+            // System libcurl lives in the dyld shared cache; Homebrew curl
+            // (which has WebSocket support) is the preferred override.
+            "libcurl.4.dylib",
+            "/usr/lib/libcurl.4.dylib",
+            "/opt/homebrew/opt/curl/lib/libcurl.4.dylib",
+            "/usr/local/opt/curl/lib/libcurl.4.dylib"
+#else
             "libcurl.so.4",
             "libcurl.so",
             "libcurl-gnutls.so.4",
             "libcurl.so.3"
+#endif
         };
 
+        if (const char* override = getenv("POLYPHASE_LIBCURL"))
+        {
+            if (override[0] != '\0')
+            {
+                sApi.lib = dlopen(override, RTLD_LAZY);
+            }
+        }
         for (const char* n : names)
         {
+            if (sApi.lib != nullptr) break;
             sApi.lib = dlopen(n, RTLD_LAZY);
             if (sApi.lib != nullptr) break;
         }
@@ -141,7 +159,11 @@ namespace
             // Pre-7.86 libcurl, or a build with --disable-websockets.
             dlclose(sApi.lib);
             sApi.lib = nullptr;
+#if PLATFORM_MAC
+            sApi.missingMessage = "The system libcurl has no WebSocket support. Run `brew install curl` and set POLYPHASE_LIBCURL=/opt/homebrew/opt/curl/lib/libcurl.4.dylib.";
+#else
             sApi.missingMessage = "The installed libcurl has no WebSocket support (needs >= 7.86).";
+#endif
             return sApi;
         }
 

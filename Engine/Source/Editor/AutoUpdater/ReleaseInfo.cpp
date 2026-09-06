@@ -253,6 +253,24 @@ const ReleaseAsset* ReleaseInfo::GetAssetForPlatform() const
             return &asset;
         }
     }
+#elif PLATFORM_MAC
+    // Prefer a disk image, then anything labelled macOS.
+    for (const ReleaseAsset& asset : mAssets)
+    {
+        if (asset.mName.find(".dmg") != std::string::npos)
+        {
+            return &asset;
+        }
+    }
+    for (const ReleaseAsset& asset : mAssets)
+    {
+        if (asset.mName.find("macos") != std::string::npos ||
+            asset.mName.find("macOS") != std::string::npos ||
+            asset.mName.find("Mac") != std::string::npos)
+        {
+            return &asset;
+        }
+    }
 #endif
 
     return nullptr;

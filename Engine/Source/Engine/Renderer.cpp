@@ -52,7 +52,10 @@
 #include <set>
 #include <fstream>
 #include <algorithm>
+#if !PLATFORM_MAC
 #include <malloc.h>
+#endif
+#include <stdlib.h>
 
 #include <btBulletDynamicsCommon.h>
 
@@ -117,7 +120,7 @@ void Renderer::Initialize()
 
     mStatsWidget = Node::Construct<StatsOverlay>();
 
-#if (PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_ANDROID) && !_DEBUG
+#if (PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC || PLATFORM_ANDROID) && !_DEBUG
     if (mConsoleWidget != nullptr)
     {
         mConsoleWidget->SetVisible(false);

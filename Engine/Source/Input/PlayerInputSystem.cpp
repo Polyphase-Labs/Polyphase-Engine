@@ -79,6 +79,7 @@ PlayerInputSystem::PlayerInputSystem()
         break;
     case Platform::Windows:
     case Platform::Linux:
+    case Platform::Mac:
     default:
         // Desktop platforms — keep the default-constructed Keyboard kind,
         // which is the right starting assumption when there's no controller

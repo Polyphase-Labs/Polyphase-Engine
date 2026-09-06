@@ -83,6 +83,32 @@
 
         {
             "type": "shell",
+            "label": "Make Standalone Editor - Mac",
+            "command": "VULKAN_SDK=\"${VULKAN_SDK:-$HOME/VulkanSDK/1.4.357.1/macOS}\" make -j \"$(sysctl -n hw.ncpu)\" -f Makefile_Mac_Editor -C ${workspaceFolder}/Standalone/",
+            "args": [],
+            "options": {},
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "macOS (Apple Silicon): builds Standalone/Build/Mac/PolyphaseEditor. Needs the LunarG Vulkan SDK (see Documentation/Development/SetupEnvironment/Mac.md)."
+        },
+
+        {
+            "type": "shell",
+            "label": "Make Standalone Game - Mac",
+            "command": "VULKAN_SDK=\"${VULKAN_SDK:-$HOME/VulkanSDK/1.4.357.1/macOS}\" make -j \"$(sysctl -n hw.ncpu)\" -f Makefile_Mac_Game -C ${workspaceFolder}/Standalone/",
+            "args": [],
+            "options": {},
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "macOS: builds the game runtime Standalone/Build/Mac/Polyphase.macho that packaging reuses."
+        },
+
+        {
+            "type": "shell",
             "label": "Make Standalone Wii",
             "command": "make -j 16 -f Makefile_Wii -C ${workspaceFolder}/Standalone/",
             "args": [],

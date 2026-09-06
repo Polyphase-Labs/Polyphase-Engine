@@ -115,6 +115,7 @@ const char* GetPlatformOutputExtension(Platform platform)
         case Platform::GameCube: return ".dol";
         case Platform::Wii:      return ".dol";
         case Platform::N3DS:     return ".3dsx";
+        case Platform::Mac:      return ".macho"; // loose Mach-O; the .app is built by PostPackage
         default:                 return "";
     }
 }
@@ -138,6 +139,7 @@ bool PlatformUsesShaderFiles(Platform platform)
     {
         case Platform::Windows:
         case Platform::Linux:
+        case Platform::Mac:
         case Platform::Android:
             return true;
         default:

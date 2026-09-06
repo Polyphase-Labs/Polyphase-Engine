@@ -725,9 +725,19 @@ void MaterialBase::Compile()
     SYS_Exec(compStr.c_str());
     //SYS_Exec("cd Engine/Saves && \"./compile.bat\"");
 #else
-    std::string compStr = "cd Engine/Saves && \"%VULKAN_SDK%/Bin/glslc TempMaterialVert.vert -Os -o TempMaterialVert.bin\" -I \"../Shaders/GLSL/src\"";
+    // POSIX: prefer the SDK's glslc, else whatever is on PATH.
+    std::string glslc = "glslc";
+    if (const char* sdk = getenv("VULKAN_SDK"))
+    {
+        std::string candidate = std::string(sdk) + "/bin/glslc";
+        if (SYS_DoesFileExist(candidate.c_str(), false))
+        {
+            glslc = candidate;
+        }
+    }
+    std::string compStr = "cd Engine/Saves && \"" + glslc + "\" TempMaterialVert.vert -Os -o TempMaterialVert.bin -I \"../Shaders/GLSL/src\"";
     SYS_Exec(compStr.c_str());
-    compStr = "cd Engine/Saves && \"%VULKAN_SDK%/Bin/glslc TempMaterialFrag.frag -Os -o TempMaterialFrag.bin\" -I \"../Shaders/GLSL/src\"";
+    compStr = "cd Engine/Saves && \"" + glslc + "\" TempMaterialFrag.frag -Os -o TempMaterialFrag.bin -I \"../Shaders/GLSL/src\"";
     SYS_Exec(compStr.c_str());
     //SYS_Exec("cd Engine/Saves && \"./compile.sh\"");
 #endif

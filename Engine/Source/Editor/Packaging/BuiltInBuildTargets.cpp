@@ -8,6 +8,7 @@
 #include "RpmPackager.h"
 #include "AppImagePackager.h"
 #include "CiaPackager.h"
+#include "MacBundlePackager.h"
 
 namespace BuiltInBuildTargets
 {
@@ -17,6 +18,7 @@ namespace BuiltInBuildTargets
     const char* const kGameCubeId = "polyphase.gamecube";
     const char* const kWiiId      = "polyphase.wii";
     const char* const kN3DSId     = "polyphase.n3ds";
+    const char* const kMacId      = MacBundlePackager::kTargetId;
 
     const char* IdForPlatform(int platform)
     {
@@ -28,6 +30,7 @@ namespace BuiltInBuildTargets
         case Platform::GameCube: return kGameCubeId;
         case Platform::Wii:      return kWiiId;
         case Platform::N3DS:     return kN3DSId;
+        case Platform::Mac:      return kMacId;
         default: return "";
         }
     }
@@ -67,6 +70,17 @@ namespace BuiltInBuildTargets
         RegisterBuiltIn(registry, kGameCubeId, "GameCube",         "Console",   Platform::GameCube, ".dol",  false, true);
         RegisterBuiltIn(registry, kWiiId,      "Wii",              "Console",   Platform::Wii,      ".dol",  true,  true);
         RegisterBuiltIn(registry, kN3DSId,     "Nintendo 3DS",     "Handheld",  Platform::N3DS,     ".3dsx", true,  true);
+
+        // macOS is the canonical (platform-owning) target for Platform::Mac,
+        // yet it ships real callbacks: the Makefile compile path is shared
+        // with Linux, and PostPackage wraps the Mach-O into <Project>.app.
+        // Registered straight from its descriptor (RegisterBuiltIn would null
+        // the callbacks).
+        {
+            PolyphaseBuildTargetDesc desc{};
+            MacBundlePackager::FillDesc(desc);
+            registry.Register(/*hookId=*/ 0, &desc, /*isBuiltIn=*/ true);
+        }
 
         // Linux packaging targets. Each shares Platform::Linux with kLinuxId —
         // they reuse the same compile and cook path entirely and only add a

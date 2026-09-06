@@ -423,6 +423,12 @@ std::string EditorHotkeyMap::GetPresetsDirectory()
     {
         dir = std::string(appData) + "/PolyphaseEditor/HotkeyPresets";
     }
+#elif PLATFORM_MAC
+    const char* home = getenv("HOME");
+    if (home != nullptr)
+    {
+        dir = std::string(home) + "/Library/Application Support/PolyphaseEditor/HotkeyPresets";
+    }
 #elif PLATFORM_LINUX
     const char* home = getenv("HOME");
     if (home != nullptr)
@@ -447,6 +453,14 @@ static void EnsureHotkeyPresetsDirectory()
     if (appData != nullptr)
     {
         std::string parent = std::string(appData) + "/PolyphaseEditor";
+        if (!DoesDirExist(parent.c_str()))
+            SYS_CreateDirectory(parent.c_str());
+    }
+#elif PLATFORM_MAC
+    const char* home = getenv("HOME");
+    if (home != nullptr)
+    {
+        std::string parent = std::string(home) + "/Library/Application Support/PolyphaseEditor";
         if (!DoesDirExist(parent.c_str()))
             SYS_CreateDirectory(parent.c_str());
     }

@@ -12,7 +12,7 @@
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `platform` | `Platform` | Target platform (Windows, Linux, Android, GameCube, Wii, N3DS) |
+| `platform` | `Platform` | Target platform (Windows, Linux, Mac, Android, GameCube, Wii, N3DS) |
 | `embedded` | `bool` | Whether to embed assets into the executable |
 
 ---
@@ -83,7 +83,7 @@ const std::string& projectName = engineState->mProjectName;
 **Directory Structure Created:**
 ```
 {ProjectDir}/Packaged/
-    └── {Platform}/           <- e.g., Windows/, Linux/, N3DS/
+    └── {Platform}/           <- e.g., Windows/, Linux/, Mac/, N3DS/
         ├── Engine/
         └── {ProjectName}/
 ```
@@ -142,8 +142,8 @@ Copies to packaged directory:
 
 ### Step 8: Platform-Specific Tasks
 
-#### Vulkan Platforms (Windows, Linux, Android)
-1. Compiles SPIR-V shaders via `compile.bat` (Windows) or `compile.sh` (Linux)
+#### Vulkan Platforms (Windows, Linux, Mac, Android)
+1. Compiles SPIR-V shaders via `compile.bat` (Windows) or `compile.sh` (Linux/macOS)
 2. Copies shader binaries to `{PackagedDir}/Engine/Shaders/GLSL/bin/`
 
 #### Static Content / Content Pak
@@ -184,7 +184,7 @@ The critical distinction is at line 407-411:
 
 ```cpp
 if (standalone && !IsHeadless() &&
-    (platform == Platform::Windows || platform == Platform::Linux))
+    (platform == Platform::Windows || platform == Platform::Linux || platform == Platform::Mac))
 {
     needCompile = !SYS_DoesFileExist(prebuiltExeName.c_str(), false);
 }
@@ -249,6 +249,13 @@ make -C {BuildProjDir} -f Makefile_TEMP -j 12
 strip --strip-debug {BuildDir}/Linux/{ExeName}.elf
 ```
 
+### macOS
+```
+make -C {BuildProjDir} -f Makefile_TEMP -j 12        # from Makefile_Mac_Game
+strip -S {BuildDir}/Mac/{ExeName}.macho
+```
+The canonical `polyphase.mac` target then runs `MacBundlePackager::PostPackage`, which wraps the Mach-O, the loose payload and MoltenVK into `Packaged/Mac/{ProjectName}.app` and signs it (ad-hoc unless a signing identity is set). See [Platforms/Mac/Packaging.md](Platforms/Mac/Packaging.md). macOS targets cannot be built through Docker.
+
 ### Android
 ```
 cd {BuildProjDir}/Android && ./gradlew assembleRelease
@@ -275,6 +282,7 @@ Uses DevkitPro toolchain (Makefile_GCN, Makefile_Wii, Makefile_3DS)
 |----------|-----------|-----------|
 | Windows | `Build/Windows/x64/Release/` | `.exe` |
 | Linux | `Build/Linux/` | `.elf` |
+| Mac | `Build/Mac/` | `.macho` + `.app` from PostPackage |
 | Android | `Android/app/build/outputs/apk/release/` | `.apk` |
 | GameCube | `Build/GCN/` | `.dol` |
 | Wii | `Build/Wii/` | `.dol` |

@@ -14,6 +14,10 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <sys/ioctl.h>
+#elif PLATFORM_MAC
+#include <sys/socket.h>
+#include <netdb.h>
+#include <sys/ioctl.h>
 #elif PLATFORM_ANDROID
 #include <sys/socket.h>
 #include <netdb.h>
@@ -36,6 +40,8 @@
 #elif PLATFORM_WINDOWS
     typedef SOCKET SocketHandle;
 #elif PLATFORM_LINUX
+    typedef int32_t SocketHandle;
+#elif PLATFORM_MAC
     typedef int32_t SocketHandle;
 #elif PLATFORM_ANDROID
     typedef int32_t SocketHandle;

@@ -2,7 +2,7 @@
 // and shipped game (runtime addon DLL/SO discovery in POLYPHASE_DLL_CONSUMER
 // builds). Consoles compile to nothing here — they keep the source-compile-in
 // addon model.
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
+#if PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC
 
 #include "ModuleLoader.h"
 #include "Log.h"
@@ -146,7 +146,7 @@ const char* MOD_GetError()
     return sLastError.c_str();
 }
 
-#elif PLATFORM_LINUX
+#elif PLATFORM_LINUX || PLATFORM_MAC
 
 #include <dlfcn.h>
 
@@ -239,4 +239,4 @@ const char* MOD_GetError()
 
 #endif // Platform
 
-#endif // PLATFORM_WINDOWS || PLATFORM_LINUX
+#endif // PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC

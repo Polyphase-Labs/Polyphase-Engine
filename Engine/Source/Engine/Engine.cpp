@@ -403,6 +403,8 @@ Platform StringToPlatform(const char* str)
     if (strcmp(str, "GameCube") == 0) return Platform::GameCube;
     if (strcmp(str, "Wii") == 0) return Platform::Wii;
     if (strcmp(str, "3DS") == 0) return Platform::N3DS;
+    if (strcmp(str, "PSP") == 0) return Platform::Psp;
+    if (strcmp(str, "Mac") == 0) return Platform::Mac;
     return Platform::Count;  // Invalid
 }
 
@@ -779,10 +781,13 @@ bool Initialize()
     }
 
 #if EDITOR
-    if (!IsHeadless())
-    {
-        AssetManager::Get()->ImportEngineAssets();
-    }
+    // Headless too: the PNG-backed engine textures (T_White, T_DefaultColor,
+    // ...) only exist as stubs once imported, and the cook walks stubs. Without
+    // this a headless package ships no engine textures and the game crashes on
+    // its first UI quad (null Renderer::mWhiteTexture). Discover("Engine") above
+    // has already registered the on-disk .oct files, so this only adds the
+    // PNG-imported ones (CreateSubdirectory reuses existing dirs).
+    AssetManager::Get()->ImportEngineAssets();
 #endif
 
     if (!IsHeadless())
@@ -2184,7 +2189,10 @@ void ReadEngineConfig(std::string path)
                 sEngineConfig.mLqEnableMipMaps = strToBool(value);
 
             else if (keyStr == "EditorInterfaceScale")
+            {
                 sEngineConfig.mEditorInterfaceScale = (float)atof(value);
+                sEngineConfig.mEditorInterfaceScaleExplicit = true;
+            }
             else if (keyStr == "ScriptHotReload")
                 sEngineConfig.mScriptHotReload = strToBool(value);
             else if (keyStr == "CSharpScripting")
@@ -2256,6 +2264,21 @@ void GameMain(int32_t argc, char** argv)
 {
     sEngineState.mArgC = argc;
     sEngineState.mArgV = argv;
+
+#if PLATFORM_MAC
+    // Launched from Finder / `open`, a bundled game starts with cwd=/ while its
+    // Config.ini and content sit in Contents/Resources. Pivot there before the
+    // config is read.
+    if (!SYS_DoesFileExist("Config.ini", false))
+    {
+        std::string resources = SYS_GetBundleResourcePath();
+        if (resources != "")
+        {
+            SYS_SetWorkingDirectory(resources);
+        }
+    }
+#endif
+
     ReadCommandLineArgs(argc, argv);
     OctPreInitialize(sEngineConfig);
     ReadEngineConfig();

@@ -16,6 +16,8 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Nintendo3DS")
     set(PLATFORM_NAME "3ds")
 elseif(CMAKE_SYSTEM_NAME MATCHES ".*Linux")
     set(PLATFORM_NAME "Linux")
+elseif(APPLE)
+    set(PLATFORM_NAME "Mac")
 endif()
 
 string(TOUPPER ${PLATFORM_NAME} PLATFORM_DEF)

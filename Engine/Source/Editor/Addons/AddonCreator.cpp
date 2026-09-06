@@ -927,8 +927,8 @@ void AddonCreator::OpenInExternalEditor(const std::string& path)
 {
 #if PLATFORM_WINDOWS
     SYS_ExecDetached(("start \"\" \"" + path + "\"").c_str());
-#elif PLATFORM_LINUX
-    SYS_ExecDetached(("xdg-open \"" + path + "\"").c_str());
+#elif PLATFORM_LINUX || PLATFORM_MAC
+    SYS_ExecDetached((SYS_OPEN_CMD " \"" + path + "\"").c_str());
 #endif
 }
 

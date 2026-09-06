@@ -5,17 +5,17 @@
  * @brief Cross-platform dynamic library loading utility.
  *
  * Available in EDITOR builds (for hot-loading native addons in the editor)
- * and in shipped Windows/Linux game builds (for loading addon DLLs/SOs that
+ * and in shipped Windows/Linux/macOS game builds (for loading addon DLLs/SOs/dylibs that
  * sit alongside the game exe). Consoles (3DS, Wii, GCN, Dolphin, Android)
  * keep the source-compile-in addon model and do not expose this API.
  */
 
-#if PLATFORM_WINDOWS || PLATFORM_LINUX
+#if PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC
 
 /**
  * @brief Load a dynamic library.
  *
- * @param path Path to the library file (.dll on Windows, .so on Linux)
+ * @param path Path to the library file (.dll on Windows, .so on Linux, .dylib on macOS)
  * @return Handle to loaded library, or nullptr on failure
  */
 void* MOD_Load(const char* path);
@@ -43,4 +43,4 @@ void MOD_Unload(void* handle);
  */
 const char* MOD_GetError();
 
-#endif // PLATFORM_WINDOWS || PLATFORM_LINUX
+#endif // PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC

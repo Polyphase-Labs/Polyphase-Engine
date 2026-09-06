@@ -3,6 +3,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <cstdlib>   // getenv for addon-recovery sentinel path resolution
+#if PLATFORM_MAC
+#include "Packaging/MacBundlePackager.h"
+#include "Preferences/JsonSettings.h"
+#include "document.h"
+#endif
 #include <chrono>
 
 #if PLATFORM_WINDOWS
@@ -193,6 +198,111 @@ static void SaveEditorWindowState()
 
 void OctPreInitialize(EngineConfig& config);
 
+#if PLATFORM_MAC
+// See the call site in EditorMain(). Reads the External preferences file
+// directly because PreferencesManager is created after Initialize().
+static void SetupMacToolchainEnvironment()
+{
+    std::string sdkRoot;
+
+    // 1. Explicit preference (Preferences > External > Vulkan SDK Root).
+    {
+        std::string prefsPath = JsonSettings::GetPreferencesDirectory() + "/External.json";
+        char* data = nullptr;
+        uint32_t size = 0;
+        if (SYS_DoesFileExist(prefsPath.c_str(), false))
+        {
+            SYS_AcquireFileData(prefsPath.c_str(), false, 0, data, size);
+        }
+        if (data != nullptr)
+        {
+            rapidjson::Document doc;
+            doc.Parse(data, size);
+            SYS_ReleaseFileData(data);
+            if (!doc.HasParseError() && doc.IsObject() &&
+                doc.HasMember("vulkanSdkPath") && doc["vulkanSdkPath"].IsString())
+            {
+                sdkRoot = doc["vulkanSdkPath"].GetString();
+                if (!sdkRoot.empty() && sdkRoot[0] == '~')
+                {
+                    const char* home = std::getenv("HOME");
+                    if (home != nullptr) sdkRoot = std::string(home) + sdkRoot.substr(1);
+                }
+                while (!sdkRoot.empty() && sdkRoot.back() == '/') sdkRoot.pop_back();
+                if (!SYS_DoesFileExist((sdkRoot + "/lib/libMoltenVK.dylib").c_str(), false))
+                {
+                    LogWarning("Vulkan SDK Root preference '%s' has no lib/libMoltenVK.dylib; ignoring.", sdkRoot.c_str());
+                    sdkRoot.clear();
+                }
+            }
+        }
+    }
+
+    // 2. $VULKAN_SDK, then the newest ~/VulkanSDK/<ver>/macOS.
+    if (sdkRoot.empty())
+    {
+        sdkRoot = MacBundlePackager::ResolveVulkanSdkRoot();
+    }
+
+    // Inside a bundle the loader finds Contents/Resources/vulkan/icd.d on its
+    // own; a bare dev binary needs to be pointed at the SDK's manifest.
+    const bool bundled = SYS_GetBundleResourcePath() != "";
+
+    if (!sdkRoot.empty())
+    {
+        setenv("VULKAN_SDK", sdkRoot.c_str(), 0);
+
+        if (!bundled && std::getenv("VK_DRIVER_FILES") == nullptr && std::getenv("VK_ICD_FILENAMES") == nullptr)
+        {
+            std::string icd = sdkRoot + "/share/vulkan/icd.d/MoltenVK_icd.json";
+            if (SYS_DoesFileExist(icd.c_str(), false))
+            {
+                setenv("VK_DRIVER_FILES", icd.c_str(), 0);
+            }
+        }
+        if (std::getenv("VK_ADD_LAYER_PATH") == nullptr && std::getenv("VK_LAYER_PATH") == nullptr)
+        {
+            std::string layers = sdkRoot + "/share/vulkan/explicit_layer.d";
+            if (DoesDirExist(layers.c_str()))
+            {
+                setenv("VK_ADD_LAYER_PATH", layers.c_str(), 0);
+            }
+        }
+    }
+
+    // PATH for the child processes (make, glslc, cmake, git, python3, ...).
+    {
+        std::string path = std::getenv("PATH") ? std::getenv("PATH") : "";
+        std::string prefix;
+        if (!sdkRoot.empty() && path.find(sdkRoot + "/bin") == std::string::npos)
+        {
+            prefix += sdkRoot + "/bin:";
+        }
+        for (const char* dir : { "/opt/homebrew/bin", "/usr/local/bin" })
+        {
+            if (path.find(dir) == std::string::npos && DoesDirExist(dir))
+            {
+                prefix += std::string(dir) + ":";
+            }
+        }
+        if (!prefix.empty())
+        {
+            setenv("PATH", (prefix + path).c_str(), 1);
+        }
+    }
+
+    if (sdkRoot.empty())
+    {
+        LogWarning("No macOS Vulkan SDK found (VULKAN_SDK unset, nothing under ~/VulkanSDK). "
+                   "Packaging and native addon builds need it; see Documentation/Development/SetupEnvironment/Mac.md");
+    }
+    else
+    {
+        LogDebug("Vulkan SDK root: %s", sdkRoot.c_str());
+    }
+}
+#endif
+
 void EditorMain(int32_t argc, char** argv)
 {
     GetEngineState()->mArgC = argc;
@@ -273,6 +383,26 @@ void EditorMain(int32_t argc, char** argv)
     }
 
     ReadEngineConfig();
+
+#if PLATFORM_MAC
+    // Finder / Dock launches carry no shell environment: no VULKAN_SDK, no
+    // Homebrew on PATH, no ICD manifest. Fill those in from the preference or
+    // the newest ~/VulkanSDK install so the loader finds MoltenVK and the
+    // child make/glslc/cmake processes the editor spawns still work.
+    SetupMacToolchainEnvironment();
+
+    // The engine works in backing pixels, so on a Retina display the UI would
+    // render at half size. Default the interface scale to the display scale
+    // unless Config.ini pinned one.
+    {
+        EngineConfig* mutableConfig = GetMutableEngineConfig();
+        float displayScale = SYS_GetDisplayScale();
+        if (!mutableConfig->mEditorInterfaceScaleExplicit && displayScale > 1.0f)
+        {
+            mutableConfig->mEditorInterfaceScale = displayScale;
+        }
+    }
+#endif
 
     Initialize();
 
@@ -444,6 +574,16 @@ void EditorMain(int32_t argc, char** argv)
         {
             sentinelDir = std::string(appData) + "\\Polyphase\\";
             for (char& c : sentinelDir) { if (c == '/') c = '\\'; }
+        }
+        else
+        {
+            sentinelDir = SYS_GetAbsolutePath("./");
+        }
+#elif PLATFORM_MAC
+        const char* home = std::getenv("HOME");
+        if (home != nullptr && *home != 0)
+        {
+            sentinelDir = std::string(home) + "/Library/Application Support/Polyphase/";
         }
         else
         {

@@ -7,7 +7,10 @@
 #include "Log.h"
 #include "Maths.h"
 
+#if !PLATFORM_MAC
 #include <malloc.h>
+#endif
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unordered_set>

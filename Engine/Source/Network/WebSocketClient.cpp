@@ -745,7 +745,7 @@ namespace
     ClientState* sState = nullptr;
 }
 
-#if !PLATFORM_WINDOWS && !PLATFORM_LINUX
+#if !PLATFORM_WINDOWS && !PLATFORM_LINUX && !PLATFORM_MAC
 
 // No TLS stack on this target. Phase 3 supplies the Windows (WinHTTP) and
 // Linux (libcurl) message transports; everything else fails wss:// loudly

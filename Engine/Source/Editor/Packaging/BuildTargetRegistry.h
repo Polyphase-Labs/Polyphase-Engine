@@ -84,6 +84,9 @@ public:
     void Clear();
 
 private:
+    /** Re-point every mDesc string at its owning std::string (after vector moves). */
+    void RepointDescriptorStrings();
+
     std::vector<RegisteredBuildTarget> mTargets;
 };
 

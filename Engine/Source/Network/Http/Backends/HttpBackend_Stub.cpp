@@ -8,7 +8,7 @@
 // Note: PLATFORM_WEB has no HttpBackend at all -- the Web build supplies the
 // whole Http:: namespace directly (Runtime/Web/Http_Web.cpp), because this
 // interface is blocking and the browser build is single-threaded.
-#if !PLATFORM_WINDOWS && !PLATFORM_LINUX && !PLATFORM_3DS && !PLATFORM_DOLPHIN && !PLATFORM_PSP && !PLATFORM_WEB
+#if !PLATFORM_WINDOWS && !PLATFORM_LINUX && !PLATFORM_MAC && !PLATFORM_3DS && !PLATFORM_DOLPHIN && !PLATFORM_PSP && !PLATFORM_WEB
 
 #include "Network/Http/Backends/HttpBackend.h"
 

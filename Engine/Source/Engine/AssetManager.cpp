@@ -60,7 +60,15 @@ namespace
         { "Wii",      PlatformBit_Wii      },
         { "N3DS",     PlatformBit_N3DS     },
         { "3DS",      PlatformBit_N3DS     },
+        { "PSP",      PlatformBit_Psp      },
+        { "Mac",      PlatformBit_Mac      },
     };
+
+    // Before PSP/Mac were nameable, a sidecar listing all six original
+    // platforms meant "everything". Keep that meaning when loading old files.
+    static const uint32_t kLegacyNamedAllMask =
+        PlatformBit_Windows | PlatformBit_Linux | PlatformBit_Android |
+        PlatformBit_GameCube | PlatformBit_Wii | PlatformBit_N3DS;
 
     static uint32_t PlatformBitFromName(const char* name)
     {
@@ -2580,6 +2588,11 @@ AssetMetaSidecar AssetManager::LoadAssetMeta(const std::string& assetPath)
                 mask |= PlatformBitFromName(arr[i].GetString());
             }
         }
+        if ((mask & kLegacyNamedAllMask) == kLegacyNamedAllMask)
+        {
+            mask = PlatformBit_All;
+        }
+
         if (mask != 0u)
         {
             out.mPlatformMask = mask;

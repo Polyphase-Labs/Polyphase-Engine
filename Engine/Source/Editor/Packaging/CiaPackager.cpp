@@ -1476,7 +1476,7 @@ namespace CiaPackager
 #if PLATFORM_WINDOWS
                             SYS_ExecDetached("start https://www.python.org/downloads/");
 #else
-                            SYS_ExecDetached("xdg-open https://www.python.org/downloads/ &");
+                            SYS_ExecDetached(SYS_OPEN_CMD " https://www.python.org/downloads/ &");
 #endif
                         }
                     }

@@ -4,7 +4,10 @@
 #include "AssetManager.h"
 #include "Engine.h"
 
+#if !PLATFORM_MAC
 #include <malloc.h>
+#endif
+#include <stdlib.h>
 
 // stb_image is needed at runtime for Texture::LoadFromMemory (HTTP -> Texture).
 // stb_image_write / resize stay editor-only since they're only used by import.

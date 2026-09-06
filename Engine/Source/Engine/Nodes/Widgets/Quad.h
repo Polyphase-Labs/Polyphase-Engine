@@ -23,7 +23,16 @@ public:
     DECLARE_NODE(Quad, Widget);
 
     static constexpr int32_t kCornerSegments = 8;
-    static constexpr int32_t kMaxQuadVertices = 2 + 4 * (kCornerSegments + 1); // 38
+    static constexpr int32_t kMaxFanVertices = 2 + 4 * (kCornerSegments + 1); // 38
+#if PLATFORM_MAC
+    // MoltenVK/Metal has no triangle-fan topology, so GenerateRoundedFan
+    // expands the fan into a triangle list: (n - 2) triangles for n fan verts.
+    static constexpr bool kExpandFanToList = true;
+    static constexpr int32_t kMaxQuadVertices = 3 * (kMaxFanVertices - 2);
+#else
+    static constexpr bool kExpandFanToList = false;
+    static constexpr int32_t kMaxQuadVertices = kMaxFanVertices;
+#endif
 
     friend class Button;
 

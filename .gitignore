@@ -369,3 +369,6 @@ polyphase-sdk-*.zip
 
 # Vulkan headers staged by Installers/stage_distribution.py for native addon builds
 External/Vulkan/
+
+# macOS editor binary copied to the repo root by Standalone/Makefile_Mac_Editor
+/PolyphaseEditor
