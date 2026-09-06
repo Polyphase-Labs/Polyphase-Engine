@@ -995,6 +995,8 @@
     <ClCompile Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.cpp" />
     <ClCompile Include="Source\Editor\Addons\NativeAddonManager.cpp" />
     <ClCompile Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.cpp" />
+    <ClCompile Include="Source\Editor\CharacterCreator\CharacterCreatorDialog.cpp" />
+    <ClCompile Include="Source\Editor\CharacterCreator\CharacterRigBuilder.cpp" />
     <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp">
       <!-- /GL disabled: this TU pulls in the full zep single-header build, and MSVC LTCG ICEs on zep/src/mode.cpp during ReleaseEditor link. -->
       <WholeProgramOptimization>false</WholeProgramOptimization>
@@ -1606,6 +1608,8 @@
     <ClInclude Include="Source\Editor\MemorySnapshot\MemorySnapshotWindow.h" />
     <ClInclude Include="Source\Editor\Addons\NativeAddonManager.h" />
     <ClInclude Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.h" />
+    <ClInclude Include="Source\Editor\CharacterCreator\CharacterCreatorDialog.h" />
+    <ClInclude Include="Source\Editor\CharacterCreator\CharacterRigBuilder.h" />
     <ClInclude Include="Source\Editor\ScriptEditor\ScriptEditorWindow.h" />
     <ClInclude Include="Source\Editor\BuildDependencyWindow.h" />
     <ClInclude Include="Source\Editor\InputMapWindow.h" />

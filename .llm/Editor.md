@@ -213,6 +213,7 @@ enum class PaintMode { None, Color, Instance };
 | Directory | Contents |
 |-----------|----------|
 | `Addons/` | AddonManager, AddonCreator, NativeAddonManager, AddonsWindow |
+| `CharacterCreator/` | Tools > Create > First/Third Person Character. `CharacterRigBuilder` builds the capsule + camera (+ pivot/mesh) + Controller rig the built-in `Engine/Scripts/*PersonController.lua` expect, either cloned into the open scene (one undo step) or captured to a `<Name>.oct` Scene asset and instanced. The dialog is a regular `ImGui::Begin` window, not a popup modal, because `AssetRefPicker` autocomplete/drag-drop breaks under modals. |
 | `DebugLog/` | DebugLogWindow (bottom panel log viewer) |
 | `GamePreview/` | Device resolution preview |
 | `ImGuizmo/` | Transform gizmo library |

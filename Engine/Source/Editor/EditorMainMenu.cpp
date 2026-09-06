@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorMainMenu.h"
+#include "CharacterCreator/CharacterCreatorDialog.h"
 
 #include "EditorImgui.h"
 #include "EditorState.h"
@@ -928,6 +929,27 @@ static void DrawToolsMenu()
     if (ImGui::BeginMenu("Addons"))
     {
         DrawToolsAddonsMenu();
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Create"))
+    {
+        // Ready-to-play character rigs (capsule + camera + built-in controller).
+        const bool canCreate = hasProject && !IsPlayingInEditor();
+        ImGui::BeginDisabled(!canCreate);
+        if (ImGui::MenuItem("First Person Character"))
+        {
+            OpenCreateCharacterDialog(CharacterRigType::FirstPerson);
+        }
+        if (ImGui::MenuItem("Third Person Character"))
+        {
+            OpenCreateCharacterDialog(CharacterRigType::ThirdPerson);
+        }
+        ImGui::EndDisabled();
+        if (!canCreate && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("%s", hasProject ? "Stop play-in-editor first." : "Open a project first.");
+        }
         ImGui::EndMenu();
     }
 

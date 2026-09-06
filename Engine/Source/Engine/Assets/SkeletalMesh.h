@@ -205,6 +205,9 @@ public:
 
     Bounds GetBounds() const;
     AABB GetAABB() const;
+    // Exact bind-pose box from the vertices, without the Bounds Scale
+    // padding GetAABB() applies. Use for placement/fitting, not culling.
+    AABB GetBindPoseAABB() const { return mAABB; }
 
     const glm::mat4 GetBindPoseMatrix(int32_t boneIndex) const;
 

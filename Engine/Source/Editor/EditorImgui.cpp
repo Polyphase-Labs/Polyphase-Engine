@@ -139,6 +139,7 @@
 #include "Preferences/External/EditorsModule.h"
 #include "Packaging/PackagingSettings.h"
 #include "ScriptCreator/ScriptCreatorDialog.h"
+#include "CharacterCreator/CharacterCreatorDialog.h"
 #include "ControllerServer/ControllerServer.h"
 #include "Preferences/Network/NetworkModule.h"
 #include "AutoUpdater/AutoUpdater.h"
@@ -16535,6 +16536,7 @@ void EditorImguiDraw()
         DrawEditorAlertModal();
         DrawAddonsDialogs();
         DrawScriptCreatorDialogs();
+        DrawCharacterCreatorDialogs();
 
         GetPreferencesWindow()->Draw();
         GetPackagingWindow()->Draw();

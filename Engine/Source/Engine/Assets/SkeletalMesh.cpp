@@ -418,6 +418,14 @@ void SkeletalMesh::Create()
 
     OCT_ASSERT(mNumVertices <= MAX_MESH_VERTEX_COUNT); // Vertex index must fit into IndexType width.
 
+    // LoadStream restores the bounding sphere but not mAABB, so a mesh loaded
+    // from disk would otherwise report the default unit box from GetAABB().
+    // Recompute from the vertices while they are still in memory.
+    if (mNumVertices > 0 && mVertices.size() >= mNumVertices)
+    {
+        ComputeBounds();
+    }
+
     GFX_CreateSkeletalMeshResource(this, mNumVertices, mVertices.data(), mNumIndices, mIndices.data());
 
     // Backend draw loop assumes at least one section. Editor paths that

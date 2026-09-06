@@ -1652,6 +1652,12 @@
     <ClCompile Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.cpp">
       <Filter>Source Files\Editor</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Editor\CharacterCreator\CharacterCreatorDialog.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\CharacterCreator\CharacterRigBuilder.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Editor\ScriptEditor\ScriptEditorWindow.cpp">
       <Filter>Source Files\Editor\ScriptEditor</Filter>
     </ClCompile>
@@ -3304,6 +3310,12 @@
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ScriptCreator\ScriptCreatorDialog.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CharacterCreator\CharacterCreatorDialog.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\CharacterCreator\CharacterRigBuilder.h">
       <Filter>Source Files\Editor</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\ScriptEditor\ScriptEditorWindow.h">
