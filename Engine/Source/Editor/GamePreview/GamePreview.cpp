@@ -13,6 +13,7 @@
 #include "Nodes/Widgets/Widget.h"
 #include "EditorState.h"
 #include "EditorIcons.h"
+#include "EditorImageCache.h"
 #include "EditorUIHookManager.h"
 #include "Packaging/PackagingSettings.h"
 #include "Input/Input.h"
@@ -80,13 +81,10 @@ void GamePreview::Disable()
     mEnabled = false;
 
 #if API_VULKAN
-    DeviceWaitIdle();
-
-    if (mImGuiTexId != 0)
-    {
-        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)mImGuiTexId);
-        mImGuiTexId = 0;
-    }
+    // Deferred: this can run mid-frame (menu toggle) while the current draw
+    // list still references the descriptor set. See RetireTexture.
+    EditorImageCache::RetireTexture(mImGuiTexId);
+    mImGuiTexId = 0;
 #endif
 
     DestroyRenderTargets();
@@ -98,13 +96,16 @@ void GamePreview::Disable()
 void GamePreview::CreateRenderTargets(uint32_t w, uint32_t h)
 {
 #if API_VULKAN
-    // Clean up old targets first
-    if (mImGuiTexId != 0)
-    {
-        DeviceWaitIdle();
-        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)mImGuiTexId);
-        mImGuiTexId = 0;
-    }
+    // Clean up old targets first. The old descriptor set is released at the
+    // top of the next frame, not here: ApplyProjectDefaults reaches this from
+    // ActionManager::OpenProject, which "Create New Project" invokes inside
+    // the ImGui frame after DrawPanel has already queued an ImGui::Image with
+    // the old handle. Freeing it now made the Vulkan backend bind a dead
+    // descriptor set when it replayed that draw list (SIGSEGV in RADV on
+    // Linux; Windows drivers happened to tolerate it). The Images themselves
+    // already go through the frame-deferred DestroyQueue.
+    EditorImageCache::RetireTexture(mImGuiTexId);
+    mImGuiTexId = 0;
     DestroyRenderTargets();
 
     // Color render target

@@ -162,6 +162,17 @@ void EditorImageCache::RetirePending()
     sPendingRelease.clear();
 }
 
+void EditorImageCache::RetireTexture(ImTextureID texId)
+{
+    if (texId == 0)
+    {
+        return;
+    }
+    CacheEntry entry;
+    entry.mTexId = texId;
+    sPendingRelease.push_back(entry);
+}
+
 void EditorImageCache::Shutdown()
 {
     InvalidateAll();
@@ -187,6 +198,7 @@ bool EditorImageCache::GetSize(const std::string& absPath, int32_t& outWidth, in
 void EditorImageCache::Invalidate(const std::string& absPath) { (void)absPath; }
 void EditorImageCache::InvalidateAll() {}
 void EditorImageCache::RetirePending() {}
+void EditorImageCache::RetireTexture(ImTextureID texId) { (void)texId; }
 void EditorImageCache::Shutdown() {}
 
 #endif // API_VULKAN

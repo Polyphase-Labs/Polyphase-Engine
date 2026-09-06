@@ -13,6 +13,7 @@
 #include "Input/Input.h"
 #include "Assets/Scene.h"
 #include "EditorState.h"
+#include "EditorImageCache.h"
 
 #include "imgui.h"
 
@@ -63,18 +64,13 @@ void SecondScreenPreview::Disable()
     mEnabled = false;
 
 #if API_VULKAN
-    DeviceWaitIdle();
-
-    if (mTop.mImGuiTexId != 0)
-    {
-        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)mTop.mImGuiTexId);
-        mTop.mImGuiTexId = 0;
-    }
-    if (mBottom.mImGuiTexId != 0)
-    {
-        ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)mBottom.mImGuiTexId);
-        mBottom.mImGuiTexId = 0;
-    }
+    // Deferred release: Disable can run inside the ImGui frame while this
+    // frame's draw list still references these descriptor sets (see
+    // EditorImageCache::RetireTexture and the matching GamePreview note).
+    EditorImageCache::RetireTexture(mTop.mImGuiTexId);
+    mTop.mImGuiTexId = 0;
+    EditorImageCache::RetireTexture(mBottom.mImGuiTexId);
+    mBottom.mImGuiTexId = 0;
 #endif
 
     DestroyScreenTargets(mTop);

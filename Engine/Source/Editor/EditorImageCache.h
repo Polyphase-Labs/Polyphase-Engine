@@ -61,6 +61,17 @@ namespace EditorImageCache
     void RetirePending();
 
     /**
+     * Queue a descriptor set created elsewhere (ImGui_ImplVulkan_AddTexture on
+     * a render target, say) for the same deferred release as cache entries.
+     * ImGui_ImplVulkan_RemoveTexture frees immediately; if the caller runs
+     * inside an ImGui frame, this frame's draw list may already reference the
+     * handle and the Vulkan backend will bind a freed set when it replays the
+     * list (a segfault on RADV). RetirePending frees it at the top of the
+     * next frame, after a DeviceWaitIdle. No-op for a 0 handle.
+     */
+    void RetireTexture(ImTextureID texId);
+
+    /**
      * Release everything. Must run while the Vulkan device is still alive --
      * i.e. from EditorImguiPreShutdown, never from a static destructor.
      */
