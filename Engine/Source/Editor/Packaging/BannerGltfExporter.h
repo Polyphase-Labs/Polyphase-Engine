@@ -2,6 +2,7 @@
 
 #if EDITOR
 
+#include <cstdint>
 #include <string>
 
 /**

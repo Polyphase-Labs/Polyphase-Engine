@@ -341,7 +341,8 @@ namespace MacBundlePackager
             s += "for f in \"$OUTDIR\"/*.dylib; do [ -f \"$f\" ] && cp \"$f\" \"$APP/Contents/Frameworks/\"; done\n";
             s += "cp \"$WORK/MoltenVK_icd.json\" \"$APP/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json\"\n";
             s += "cp \"$WORK/Info.plist\" \"$APP/Contents/Info.plist\"\n";
-            s += "printf 'APPL????' > \"$APP/Contents/PkgInfo\"\n";
+            // "?\?" keeps GCC from reading "??'" as a trigraph.
+            s += "printf 'APPL?\?\?\?' > \"$APP/Contents/PkgInfo\"\n";
             s += "\n";
             s += "# Make the exe find the bundled loader through @rpath (before signing:\n";
             s += "# editing a Mach-O invalidates its signature).\n";

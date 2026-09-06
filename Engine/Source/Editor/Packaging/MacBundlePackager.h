@@ -14,7 +14,7 @@
  * arm64 Mach-O with Makefile_Mac_Game exactly like Linux. PostPackage then
  * wraps the staged payload into <Project>.app:
  *
- *   Contents/MacOS/<Project>              the Mach-O (from Packaged/Mac/<Project>.macho; + MacOS/Addons/*.dylib)
+ *   Contents/MacOS/<Project>              the Mach-O (from Packaged/Mac/<Project>.macho; + MacOS/Addons/<name>.dylib)
  *   Contents/Frameworks/                  libvulkan.1.dylib + libMoltenVK.dylib
  *   Contents/Resources/                   the loose Packaged/Mac tree
  *   Contents/Resources/vulkan/icd.d/      MoltenVK_icd.json (bundle-relative)
