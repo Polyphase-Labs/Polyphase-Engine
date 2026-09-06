@@ -48,6 +48,9 @@ public:
     static bool LoadFromMemory(const uint8_t* data, size_t size, Texture& out);
 
     void SetMipmapped(bool mipmapped);
+    // False whenever Filter Type is Nearest, regardless of the Mipmapped
+    // property: mip levels are averaged, so they would blur pixel art at
+    // distance on every backend. GetMipLevels() follows the same rule.
     bool IsMipmapped() const;
     bool IsRenderTarget() const;
     bool IsSrgb() const;
@@ -78,6 +81,13 @@ public:
     void SetForceHighQuality(bool forceHq);
 
     static bool HandlePropChange(class Datum* datum, uint32_t index, const void* newValue);
+
+#if EDITOR
+    // Tear down and rebuild the GPU resource from mPixels after a sampler-
+    // affecting change (filter, wrap, mipmapped). Bumps the resource
+    // generation. Editor-only: the runtime frees mPixels in Create().
+    void RecreateResource();
+#endif
 
     const std::vector<uint8_t>& GetPixels() const { return mPixels; }
 

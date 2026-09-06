@@ -1922,14 +1922,18 @@ void CacheEditSceneLinkedProps(EditScene& editScene)
 
                 LinkedSceneProps linkedSceneProps;
                 linkedSceneProps.mNode = node;
-                GatherNonDefaultProperties(node, linkedSceneProps.mProps);
+
+                // One default instance for the root props and every child
+                // override (see Scene::AddNodeDef).
+                NodePtr defaultRoot = linkedScene->Instantiate();
+                GatherNonDefaultProperties(node, linkedSceneProps.mProps, defaultRoot);
 
                 // Cache subscene overrides of child nodes
                 Node* sceneRoot = node;
                 for (uint32_t i = 0; i < sceneRoot->GetNumChildren(); ++i)
                 {
                     Node* child = sceneRoot->GetChild(i);
-                    GatherSubSceneOverrides(child, sceneRoot, linkedSceneProps.mSubSceneOverrides);
+                    GatherSubSceneOverrides(child, sceneRoot, linkedSceneProps.mSubSceneOverrides, defaultRoot.Get());
                 }
 
                 RecordNodePaths(node, linkedSceneProps.mProps);

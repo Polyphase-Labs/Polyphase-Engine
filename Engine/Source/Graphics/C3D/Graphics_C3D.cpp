@@ -681,7 +681,10 @@ void GFX_CreateTextureResource(Texture* texture, std::vector<uint8_t>& data)
 
     if (texture->IsMipmapped())
     {
-        C3D_TexSetFilterMipmap(&resource->mTex, GPU_LINEAR);
+        // Nearest textures pick a single mip level instead of blending two:
+        // trilinear blending on a 400x240 target (where almost everything is
+        // minified) makes a Nearest texture look Linear.
+        C3D_TexSetFilterMipmap(&resource->mTex, gpuFilter);
     }
 }
 

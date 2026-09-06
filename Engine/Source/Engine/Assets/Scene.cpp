@@ -607,9 +607,17 @@ NodePtr Scene::Instantiate()
             // allocates a Node, sets parent, restores properties. Step is
             // throttled so this is cheap; non-editor callers (e.g. PIE
             // clone) still pump correctly because PIE is wrapped too.
+            // Only the outermost scene reports progress: a nested linked-scene
+            // Instantiate would otherwise reset the bar to 0 for its own
+            // (smaller) node count, making one open look like a loop. Nested
+            // builds still pump (null msg / zero total keeps text + fraction)
+            // so the modal keeps animating through a large sub-scene.
             if ((i & 31) == 0 && EditorProgress::IsActive())
             {
-                EditorProgress::Step("Instantiating scene tree...", (int)i, (int)totalDefs);
+                if (sInstantiationCount == 1)
+                    EditorProgress::Step("Instantiating scene tree...", (int)i, (int)totalDefs);
+                else
+                    EditorProgress::Step(nullptr, 0, 0);
             }
 #endif
             // LogDebug("  [%u] name='%s' type=%u parentIdx=%u hasScene=%d",
@@ -1094,11 +1102,11 @@ void Scene::AddNodeDef(Node* node, Platform platform, std::vector<Node*>& nodeLi
             memcpy(nodeDef.mExtraData.data(), extraDataStream.GetData(), extraDataStream.GetSize());
         }
 
-        GatherNonDefaultProperties(node, nodeDef.mProperties);
-        RecordNodePaths(node, nodeDef.mProperties);
-
         if (scene == nullptr)
         {
+            GatherNonDefaultProperties(node, nodeDef.mProperties);
+            RecordNodePaths(node, nodeDef.mProperties);
+
             for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
             {
                 AddNodeDef(node->GetChild(i), platform, nodeList);
@@ -1106,10 +1114,18 @@ void Scene::AddNodeDef(Node* node, Platform platform, std::vector<Node*>& nodeLi
         }
         else
         {
+            // One default instance of the linked scene covers both the root's
+            // non-default props and every child's override. Instantiating it
+            // per child (or per descendant, as the gatherer used to) turns a
+            // save into hundreds of full sub-scene builds.
+            NodePtr defaultRoot = scene->Instantiate();
+            GatherNonDefaultProperties(node, nodeDef.mProperties, defaultRoot);
+            RecordNodePaths(node, nodeDef.mProperties);
+
             // Find all of the overridden properties for child nodes
             for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
             {
-                GatherSubSceneOverrides(node->GetChild(i), node, nodeDef.mSubSceneOverrides);
+                GatherSubSceneOverrides(node->GetChild(i), node, nodeDef.mSubSceneOverrides, defaultRoot.Get());
             }
         }
     }

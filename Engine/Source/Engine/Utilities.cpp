@@ -696,7 +696,8 @@ static bool BuildDescendantPath(Node* current, Node* target, std::string& outPat
     return false;
 }
 
-void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs)
+void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs,
+                             Node* defaultSceneRoot)
 {
     OCT_ASSERT(sceneRoot);
 
@@ -704,6 +705,21 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
         return;
 
     OCT_ASSERT(node != sceneRoot);
+
+    // One default instance serves this node and every descendant. This used
+    // to be re-instantiated per visited node, which made a save or open of a
+    // scene containing a large linked scene instantiate that scene once for
+    // each of its nodes (hundreds of full tree builds, each pumping the
+    // "Instantiating scene tree..." progress bar).
+    NodePtr ownedDefaultRoot;
+    if (defaultSceneRoot == nullptr)
+    {
+        Scene* srcScene = sceneRoot->GetScene();
+        ownedDefaultRoot = srcScene ? srcScene->Instantiate() : nullptr;
+        defaultSceneRoot = ownedDefaultRoot.Get();
+    }
+    if (defaultSceneRoot == nullptr)
+        return;
 
     SubSceneOverride over;
     over.mPath = FindRelativeNodePath(sceneRoot, node);
@@ -734,13 +750,12 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
         // not yet parented). Still recurse so we don't miss its children.
         for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
         {
-            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
+            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs, defaultSceneRoot);
         }
         return;
     }
 
-    NodePtr defaultSceneRoot = sceneRoot->GetScene()->Instantiate();
-    NodePtr defaultNode = ResolvePtr(ResolveNodePath(defaultSceneRoot.Get(), over.mPath));
+    NodePtr defaultNode = ResolvePtr(ResolveNodePath(defaultSceneRoot, over.mPath));
 
     if (defaultNode == nullptr)
     {
@@ -751,7 +766,7 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
         // descendants that DO have source counterparts.
         for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
         {
-            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
+            GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs, defaultSceneRoot);
         }
         return;
     }
@@ -796,7 +811,7 @@ void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOv
 
     for (uint32_t i = 0; i < node->GetNumChildren(); ++i)
     {
-        GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs);
+        GatherSubSceneOverrides(node->GetChild(i), sceneRoot, overs, defaultSceneRoot);
     }
 }
 

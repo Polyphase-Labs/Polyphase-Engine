@@ -92,13 +92,7 @@ bool Texture::HandlePropChange(Datum* datum, uint32_t index, const void* newValu
     {
 #if EDITOR
         // Need to recreate the texture resource to show changes.
-        GFX_DestroyTextureResource(texture);
-        GFX_CreateTextureResource(texture, texture->mPixels);
-
-        // The Texture* is unchanged but the image view and sampler behind it are
-        // brand new, so every editor-side cache of a handle derived from them is
-        // now dangling. See Texture::GetResourceGeneration().
-        texture->mResourceGeneration++;
+        texture->RecreateResource();
 #endif
     }
 
@@ -106,6 +100,45 @@ bool Texture::HandlePropChange(Datum* datum, uint32_t index, const void* newValu
 
     return success;
 }
+
+#if EDITOR
+void Texture::RecreateResource()
+{
+    GFX_DestroyTextureResource(this);
+    GFX_CreateTextureResource(this, mPixels);
+
+    // The Texture* is unchanged but the image view and sampler behind it are
+    // brand new, so every editor-side cache of a handle derived from them is
+    // now dangling. See Texture::GetResourceGeneration().
+    mResourceGeneration++;
+}
+#endif
+
+#if EDITOR
+// Downscale for a cook / LQ save. Nearest-filtered textures (pixel art) are
+// point-sampled so the hard texel edges survive; the smooth sRGB resample
+// would bake a blur into the texels that no sampler setting can undo.
+static void ResizeForCook(const Texture* texture,
+                          const uint8_t* src, int32_t srcW, int32_t srcH,
+                          uint8_t* dst, int32_t dstW, int32_t dstH)
+{
+    const int32_t srcStride = srcW * RGBA8_SIZE;
+    const int32_t dstStride = dstW * RGBA8_SIZE;
+    if (texture->GetFilterType() == FilterType::Nearest)
+    {
+        stbir_resize(src, srcW, srcH, srcStride,
+                     dst, dstW, dstH, dstStride,
+                     stbir_pixel_layout::STBIR_RGBA, STBIR_TYPE_UINT8_SRGB,
+                     STBIR_EDGE_CLAMP, STBIR_FILTER_POINT_SAMPLE);
+    }
+    else
+    {
+        stbir_resize_uint8_srgb(src, srcW, srcH, srcStride,
+                                dst, dstW, dstH, dstStride,
+                                stbir_pixel_layout::STBIR_RGBA);
+    }
+}
+#endif
 
 bool UseCookedTextures(Platform platform)
 {
@@ -225,16 +258,9 @@ void CookTexture(
         {
             pixels.resize(texWidth * texHeight * sizeof(uint32_t));
 
-            stbir_resize_uint8_srgb(
-                srcPixels.data(),
-                texture->GetWidth(),
-                texture->GetHeight(),
-                texture->GetWidth() * sizeof(uint32_t),
-                pixels.data(),
-                texWidth,
-                texHeight,
-                texWidth * sizeof(uint32_t),
-                stbir_pixel_layout::STBIR_RGBA);
+            ResizeForCook(texture,
+                          srcPixels.data(), (int32_t)texture->GetWidth(), (int32_t)texture->GetHeight(),
+                          pixels.data(), texWidth, texHeight);
         }
     }
 
@@ -459,12 +485,9 @@ void Texture::SaveStream(Stream& stream, Platform platform)
         outW = glm::max<uint32_t>(mWidth  >> (mLowQualityDownsampleFactor - 1), 1u);
         outH = glm::max<uint32_t>(mHeight >> (mLowQualityDownsampleFactor - 1), 1u);
         rawOutPixels.resize(outW * outH * RGBA8_SIZE);
-        stbir_resize_uint8_srgb(
-            mPixels.data(),
-            (int)mWidth, (int)mHeight, (int)(mWidth * RGBA8_SIZE),
-            rawOutPixels.data(),
-            (int)outW, (int)outH, (int)(outW * RGBA8_SIZE),
-            stbir_pixel_layout::STBIR_RGBA);
+        ResizeForCook(this,
+                      mPixels.data(), (int32_t)mWidth, (int32_t)mHeight,
+                      rawOutPixels.data(), (int32_t)outW, (int32_t)outH);
     }
 
     stream.WriteUint32(outW);     // <- effective width (LQ-resized for raw path)
@@ -773,9 +796,14 @@ void Texture::SetMipmapped(bool mipmapped)
     mMipLevels = mMipmapped ? static_cast<int32_t>(floor(log2(std::max(mWidth, mHeight))) + 1) : 1;
 }
 
+// Nearest filtering disables mipmapping on every backend. Mip levels are
+// averaged downscales of the base image, so once a Nearest texture is
+// minified (which at console resolutions is nearly always) the sampler reads
+// pre-blurred texels and the "pixel" look is gone regardless of the filter
+// bits. Pixel art expects the base level at every distance.
 bool Texture::IsMipmapped() const
 {
-    return mMipmapped;
+    return mMipmapped && mFilterType != FilterType::Nearest;
 }
 
 bool Texture::IsRenderTarget() const
@@ -805,7 +833,8 @@ uint32_t Texture::GetHeight() const
 
 uint32_t Texture::GetMipLevels() const
 {
-    return mMipLevels;
+    // See IsMipmapped(): Nearest textures expose a single level.
+    return IsMipmapped() ? mMipLevels : 1;
 }
 
 uint32_t Texture::GetLayers() const

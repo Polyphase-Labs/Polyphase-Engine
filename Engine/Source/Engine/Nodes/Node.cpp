@@ -1053,11 +1053,13 @@ NodePtr Node::Clone(bool recurse, bool instantiateLinkedScene, bool resolveNodeP
 
         if (srcScene)
         {
-            // Copy all subscene overrides
+            // Copy all subscene overrides, comparing every child against one
+            // default instance of the linked scene.
             std::vector<SubSceneOverride> overs;
+            NodePtr defaultRoot = srcScene->Instantiate();
             for (uint32_t i = 0; i < GetNumChildren(); ++i)
             {
-                GatherSubSceneOverrides(GetChild(i), this, overs);
+                GatherSubSceneOverrides(GetChild(i), this, overs, defaultRoot.Get());
             }
 
             for (uint32_t i = 0; i < overs.size(); ++i)

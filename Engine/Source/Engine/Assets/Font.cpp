@@ -50,6 +50,36 @@ bool Font::HandlePropChange(Datum* datum, uint32_t index, const void* newValue)
 
         success = true;
     }
+    else if (prop->mName == "Filter Type" ||
+             prop->mName == "Wrap Mode" ||
+             prop->mName == "Mipmapped")
+    {
+        // The baked atlas is what actually gets sampled (and cooked), so the
+        // sampler settings have to reach it now, not at the next Rebuild Font.
+        if (prop->mName == "Filter Type")
+        {
+            font->mFilterType = *(const FilterType*)newValue;
+        }
+        else if (prop->mName == "Wrap Mode")
+        {
+            font->mWrapMode = *(const WrapMode*)newValue;
+        }
+        else
+        {
+            font->mMipmapped = *(const bool*)newValue;
+        }
+
+        Texture* texture = font->mTexture.Get<Texture>();
+        if (texture != nullptr)
+        {
+            texture->SetFilterType(font->mFilterType);
+            texture->SetWrapMode(font->mWrapMode);
+            texture->SetMipmapped(font->mMipmapped);
+            texture->RecreateResource();
+        }
+
+        success = true;
+    }
 #endif
 
     HandleAssetPropChange(datum, index, newValue);
@@ -110,6 +140,11 @@ void Font::LoadStream(Stream& stream, Platform platform)
         {
             Texture* texture = NewTransientAsset<Texture>();
             texture->LoadStream(stream, platform);
+            // The font's own Filter Type / Wrap Mode are authoritative. Fonts
+            // saved before these were pushed into the atlas on property change
+            // still carry the atlas's stale (Linear) sampler settings.
+            texture->SetFilterType(mFilterType);
+            texture->SetWrapMode(mWrapMode);
             texture->Create();
             texture->SetName("FontTexture");
             texture->SetForceHighQuality(true);
@@ -251,7 +286,7 @@ void Font::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Integer, "Size", this, &mSize, 1, Font::HandlePropChange));
     outProps.push_back(Property(DatumType::Float, "Line Spacing", this, &mLineSpacing, 1, HandleAssetPropChange));
 
-    outProps.push_back(Property(DatumType::Bool, "Mipmapped", this, &mMipmapped, 1, HandleAssetPropChange));
+    outProps.push_back(Property(DatumType::Bool, "Mipmapped", this, &mMipmapped, 1, Font::HandlePropChange));
     outProps.push_back(Property(DatumType::Integer, "Filter Type", this, &mFilterType, 1, Font::HandlePropChange, NULL_DATUM, int32_t(FilterType::Count), gFilterEnumStrings));
     outProps.push_back(Property(DatumType::Integer, "Wrap Mode", this, &mWrapMode, 1, Font::HandlePropChange, NULL_DATUM, int32_t(WrapMode::Count), gWrapEnumStrings));
 

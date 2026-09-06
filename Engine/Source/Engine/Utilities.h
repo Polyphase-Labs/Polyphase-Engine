@@ -53,7 +53,12 @@ glm::mat4 MakeTransform(glm::vec3 translation, glm::vec3 rotation, glm::vec3 sca
 btTransform MakeBulletTransform(glm::vec3 translation, glm::vec3 rotationDegrees);
 
 void GatherNonDefaultProperties(Node* node, std::vector<Property>& props, NodePtr refNode = nullptr);
-void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs);
+// defaultSceneRoot: a freshly instantiated copy of sceneRoot's linked Scene to
+// compare against. Pass one instance for the whole sub-tree (see Scene::AddNodeDef);
+// when null the function instantiates the scene itself, once, for this call and
+// its recursion.
+void GatherSubSceneOverrides(Node* node, Node* sceneRoot, std::vector<SubSceneOverride>& overs,
+                             Node* defaultSceneRoot = nullptr);
 void ApplySubSceneOverride(Node* sceneRoot, const SubSceneOverride& over);
 
 void RemoveSpacesFromString(std::string& str);

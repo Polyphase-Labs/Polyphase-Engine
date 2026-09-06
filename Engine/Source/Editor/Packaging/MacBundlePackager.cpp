@@ -519,10 +519,10 @@ namespace MacBundlePackager
             }
             SYS_IterateDirectory(entry);
         }
-        if (entry.mDir != nullptr)
-        {
-            SYS_CloseDirectory(entry);
-        }
+        // Close unconditionally: DirEntry's handle member is platform-specific
+        // (mDir on POSIX, mFindHandle on Windows) and this file compiles on
+        // every editor host. SYS_CloseDirectory tolerates a failed open.
+        SYS_CloseDirectory(entry);
         return best;
     }
 
