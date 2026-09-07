@@ -10,6 +10,7 @@
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
+#include "Utils/Sha256.h"
 #if EDITOR
 #include "LuaDebugger/LuaDebugger.h"
 
@@ -274,6 +275,22 @@ void ForceLinkage()
     // the linker doesn't see as referenced — without this call the auto-register
     // never runs and GetOctHooks() returns an empty struct.
     FORCE_LINK_CALL(OctHookAutoRegister);
+
+    // Sha256 (Engine/Utils/Sha256.h) is POLYPHASE_API but has no Node/Asset
+    // registration of its own, so FORCE_LINK_CALL doesn't apply -- its only
+    // in-engine caller today is EngineRuntimeValidator.cpp, whose own call
+    // chain isn't reachable from every build config. Standalone.exe exports
+    // symbols for native addons to link against directly (this is where
+    // com.polyphase.format.io.glb's PlatformBundler hit LNK2019 for
+    // Sha256::HashHex), and MSVC only pulls an .obj out of a static library
+    // into the final exe if something already-linked references it -- so
+    // without a real call here, Sha256.obj gets silently dropped and the
+    // export never exists for addons to import, regardless of the
+    // POLYPHASE_API marking. This keeps it linked unconditionally.
+    {
+        const uint8_t forceLinkSha256Dummy = 0;
+        (void)Sha256::HashHex(&forceLinkSha256Dummy, 1);
+    }
 
     // Node Types
     FORCE_LINK_CALL(Node);
