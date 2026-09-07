@@ -31,7 +31,22 @@ import androidx.core.view.WindowInsetsCompat;
 // used — removed entirely, along with viewBinding in build.gradle.
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.SocketTimeoutException;
+import java.net.URL;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 public class PolyphaseActivity extends NativeActivity {
 
@@ -179,5 +194,232 @@ public class PolyphaseActivity extends NativeActivity {
         }
 
         return retList;
+    }
+
+    // ===== HTTP (native HttpBackend_Android.cpp bridge) =====================
+    //
+    // Native holds no long-lived JNI object refs across the request beyond
+    // what these three calls pass back and forth. httpOpen() does the
+    // connect (following redirects itself, since HttpURLConnection won't
+    // cross http<->https on its own) and returns everything native needs to
+    // populate HttpResponse's status/headers/finalUrl; httpReadChunk() is
+    // then polled in a loop so native can check its cancellation flag between
+    // chunks instead of blocking on the whole body at once; httpClose()
+    // releases the stream and connection. See HttpBackend_Android.cpp for the
+    // native side of this contract.
+
+    private static class HttpConn {
+        HttpURLConnection connection;
+        InputStream inputStream;
+    }
+
+    private static void installTrustAllForConnection(HttpsURLConnection https)
+    {
+        // Only ever installed on a single connection instance when the
+        // caller explicitly asked to skip verification (HttpRequest::VerifySsl(false))
+        // -- never touches the process-wide SSL defaults.
+        try
+        {
+            TrustManager[] trustAll = new TrustManager[] {
+                new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                }
+            };
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAll, new SecureRandom());
+            https.setSSLSocketFactory(sslContext.getSocketFactory());
+            https.setHostnameVerifier(new HostnameVerifier() {
+                public boolean verify(String hostname, SSLSession session) { return true; }
+            });
+        }
+        catch (Exception e)
+        {
+            Log.d("Polyphase", "installTrustAllForConnection failed: " + e.getMessage());
+        }
+    }
+
+    // Returns Object[6]: { HttpConn connOrNull, Integer status, String errorCode,
+    //                      String errorMessage, String finalUrl, String[] headerLines }.
+    // errorCode is one of "none"/"timeout"/"tls"/"badresponse"/"network"/"unknown";
+    // native maps it onto HttpError. connOrNull is null when errorCode != "none".
+    public Object[] httpOpen(String verb, String url, String[] headerLines, byte[] body,
+                              int timeoutMs, int maxRedirects, boolean verifySsl)
+    {
+        String currentUrl = url;
+        int redirectsLeft = maxRedirects;
+
+        try
+        {
+            while (true)
+            {
+                URL u = new URL(currentUrl);
+                HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                conn.setRequestMethod(verb);
+                conn.setConnectTimeout(timeoutMs);
+                conn.setReadTimeout(timeoutMs);
+                // Followed manually below -- the built-in follower refuses to
+                // cross http<->https, unlike curl's CURLOPT_FOLLOWLOCATION.
+                conn.setInstanceFollowRedirects(false);
+
+                if (headerLines != null)
+                {
+                    for (String line : headerLines)
+                    {
+                        int idx = line.indexOf(':');
+                        if (idx > 0)
+                        {
+                            String key = line.substring(0, idx);
+                            String value = line.substring(Math.min(idx + 2, line.length()));
+                            conn.setRequestProperty(key, value);
+                        }
+                    }
+                }
+
+                if (!verifySsl && conn instanceof HttpsURLConnection)
+                {
+                    installTrustAllForConnection((HttpsURLConnection) conn);
+                }
+
+                boolean hasBody = body != null && body.length > 0 &&
+                    (verb.equals("POST") || verb.equals("PUT") || verb.equals("PATCH"));
+
+                if (hasBody)
+                {
+                    conn.setDoOutput(true);
+                    OutputStream os = conn.getOutputStream();
+                    os.write(body);
+                    os.flush();
+                    os.close();
+                }
+
+                int status = conn.getResponseCode();
+                boolean isRedirect = (status == 301 || status == 302 || status == 303 ||
+                                       status == 307 || status == 308);
+
+                if (isRedirect && redirectsLeft > 0)
+                {
+                    String location = conn.getHeaderField("Location");
+                    conn.disconnect();
+
+                    if (location == null)
+                    {
+                        return new Object[] { null, 0, "badresponse",
+                            "Redirect with no Location header", currentUrl, null };
+                    }
+
+                    currentUrl = new URL(new URL(currentUrl), location).toString();
+                    --redirectsLeft;
+                    continue;
+                }
+
+                ArrayList<String> headerList = new ArrayList<>();
+                for (int i = 0; ; ++i)
+                {
+                    String key = conn.getHeaderFieldKey(i);
+                    String value = conn.getHeaderField(i);
+                    if (key == null && value == null)
+                    {
+                        break;
+                    }
+                    if (key != null)
+                    {
+                        headerList.add(key + ": " + value);
+                    }
+                }
+
+                InputStream stream;
+                try
+                {
+                    stream = conn.getInputStream();
+                }
+                catch (IOException e)
+                {
+                    // 4xx/5xx responses throw here; the body (if any) is on getErrorStream().
+                    stream = conn.getErrorStream();
+                }
+
+                HttpConn wrapper = new HttpConn();
+                wrapper.connection = conn;
+                wrapper.inputStream = stream;
+
+                return new Object[] { wrapper, status, "none", "",
+                    conn.getURL().toString(), headerList.toArray(new String[0]) };
+            }
+        }
+        catch (SocketTimeoutException e)
+        {
+            return new Object[] { null, 0, "timeout", String.valueOf(e.getMessage()), currentUrl, null };
+        }
+        catch (SSLException e)
+        {
+            return new Object[] { null, 0, "tls", String.valueOf(e.getMessage()), currentUrl, null };
+        }
+        catch (MalformedURLException e)
+        {
+            return new Object[] { null, 0, "badresponse", String.valueOf(e.getMessage()), currentUrl, null };
+        }
+        catch (IOException e)
+        {
+            return new Object[] { null, 0, "network", String.valueOf(e.getMessage()), currentUrl, null };
+        }
+        catch (Exception e)
+        {
+            return new Object[] { null, 0, "unknown", String.valueOf(e.getMessage()), currentUrl, null };
+        }
+    }
+
+    // Reads up to maxLen bytes. Empty array = EOF, null = read error.
+    public byte[] httpReadChunk(Object connWrapper, int maxLen)
+    {
+        HttpConn wrapper = (HttpConn) connWrapper;
+        if (wrapper.inputStream == null)
+        {
+            return new byte[0];
+        }
+
+        try
+        {
+            byte[] buffer = new byte[maxLen];
+            int read = wrapper.inputStream.read(buffer);
+            if (read <= 0)
+            {
+                return new byte[0];
+            }
+            if (read == maxLen)
+            {
+                return buffer;
+            }
+            byte[] result = new byte[read];
+            System.arraycopy(buffer, 0, result, 0, read);
+            return result;
+        }
+        catch (IOException e)
+        {
+            return null;
+        }
+    }
+
+    public void httpClose(Object connWrapper)
+    {
+        HttpConn wrapper = (HttpConn) connWrapper;
+
+        try
+        {
+            if (wrapper.inputStream != null)
+            {
+                wrapper.inputStream.close();
+            }
+        }
+        catch (IOException e)
+        {
+            // Best-effort cleanup.
+        }
+
+        if (wrapper.connection != null)
+        {
+            wrapper.connection.disconnect();
+        }
     }
 }

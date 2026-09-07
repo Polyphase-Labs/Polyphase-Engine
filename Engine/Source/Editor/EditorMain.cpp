@@ -441,6 +441,106 @@ void EditorMain(int32_t argc, char** argv)
     {
         LogDebug("Headless mode: Starting");
         LogDebug("Headless mode: Project path = %s", engineConfig->mProjectPath.c_str());
+
+        // -serve: a long-running service that loads native addons and serves
+        // ControllerServer's REST API, as opposed to the one-shot -build cook
+        // below. Split out early because the two share almost nothing past
+        // ActionManager::Create()/BuildCache::Create() -- the service needs
+        // addons, EditorState and a main loop that the cook path has no use for.
+        if (IsHeadlessService())
+        {
+            LogDebug("Headless service: starting on port %d", engineConfig->mServicePort);
+
+            ActionManager::Create();
+            BuildCache::Create();
+            EditorUIHookManager::Create();
+            PreferencesManager::Create();
+            NativeAddonManager::Create();
+            AddonManager::Create();
+
+            // Wire addon-registered EditorUIHooks (REST routes, node/asset
+            // categories, ...) into the engine API addons receive in OnLoad --
+            // same connection the interactive editor makes after these Creates.
+            if (NativeAddonManager::Get() != nullptr && EditorUIHookManager::Get() != nullptr)
+            {
+                NativeAddonManager::Get()->GetEngineAPI()->editorUI = EditorUIHookManager::Get()->GetHooks();
+            }
+
+            if (engineConfig->mProjectPath != "")
+            {
+                // Loads native addons as a side effect (Engine.cpp's
+                // ReloadAllNativeAddons gate allows this under
+                // IsHeadlessService()), same ordering the interactive editor
+                // relies on: addon node/asset types must register before any
+                // scene deserializes.
+                LoadProject(engineConfig->mProjectPath);
+
+                if (ActionManager::Get()->CheckProjectNeedsUpgrade())
+                {
+                    LogDebug("Headless service: Auto-upgrading assets to new UUID format...");
+                    ActionManager::Get()->UpgradeProject();
+                }
+            }
+            else
+            {
+                LogError("Headless service: -serve requires -project <path>");
+            }
+
+            // EditorState::Init() only constructs an editor camera, viewports
+            // and the paint/sculpt managers -- every GFX call it reaches is
+            // IsHeadless()-guarded (see Graphics_Vulkan.cpp), so it's safe with
+            // no renderer. It's what makes GetEditorState()->GetAssetDirectory()
+            // and OpenEditScene's GetEditorCamera() non-null for any addon
+            // route that touches them.
+            GetEditorState()->Init();
+
+            // Plain LoadProject() above leaves GetAssetDirectory() null (only
+            // ActionManager::OpenProject or the asset browser populate it),
+            // and a null AssetDir* makes RegisterAsset produce an empty mPath
+            // -- assets would register in memory and never reach disk. Fix it
+            // up explicitly rather than routing through the interactive-only
+            // OpenProject.
+            GetEditorState()->SetAssetDirectory(AssetManager::Get()->FindProjectDirectory(), false);
+
+            ControllerServer::Create();
+            ControllerServer::Get()->Start(engineConfig->mServicePort);
+            LogDebug("Headless service: listening on port %d", engineConfig->mServicePort);
+
+            bool running = true;
+            while (running)
+            {
+                running = Update();
+                if (!running)
+                    break;
+
+                if (NativeAddonManager::Get() != nullptr)
+                {
+                    const float deltaTime = GetAppClock()->DeltaTime();
+                    NativeAddonManager::Get()->TickAsyncBuilds();
+                    NativeAddonManager::Get()->TickEditorAllPlugins(deltaTime);
+                }
+
+                if (ControllerServer::Get() != nullptr)
+                {
+                    ControllerServer::Get()->Tick();
+                }
+
+                SYS_Sleep(4);
+            }
+
+            LogDebug("Headless service: shutting down");
+
+            ControllerServer::Destroy();
+            AddonManager::Destroy();
+            NativeAddonManager::Destroy();
+            PreferencesManager::Destroy();
+            EditorUIHookManager::Destroy();
+            BuildCache::Destroy();
+            ActionManager::Destroy();
+            Shutdown();
+            return;
+        }
+
         LogDebug("Headless mode: Build platform = %d", (int)engineConfig->mBuildPlatform);
 
         ActionManager::Create();

@@ -562,11 +562,20 @@ void Texture::Create()
     mResourceGeneration++;
 
 #if !EDITOR
-    // This pixel data is transferred to the GPU resource in GFX_CreateTextureResource(), so now 
+    // This pixel data is transferred to the GPU resource in GFX_CreateTextureResource(), so now
     // we can clear the mPixels vector and shrink it so to free memory.
     // Keep copy of pixels when in editor so they can be saved without reading from the texture.
-    mPixels.clear();
-    mPixels.shrink_to_fit();
+    //
+    // Exception: a producer that needs to read the pixels back on the CPU
+    // (a webcam snapshot that gets PNG-encoded and uploaded, a procedural
+    // texture that gets saved) opts in with SetRetainPixels(true) before
+    // Create(). Without it, GetPixels() is empty in a shipped build even
+    // though the same code works in the editor -- see SetRetainPixels().
+    if (!mRetainPixels)
+    {
+        mPixels.clear();
+        mPixels.shrink_to_fit();
+    }
 #endif
 }
 
@@ -767,12 +776,18 @@ void Texture::UpdatePixels(const uint8_t* data, size_t byteSize)
     OCT_ASSERT(byteSize == size_t(mWidth) * size_t(mHeight) * RGBA8_SIZE);
 
 #if EDITOR
-    if (mPixels.size() != byteSize)
-    {
-        mPixels.resize(byteSize);
-    }
-    memcpy(mPixels.data(), data, byteSize);
+    const bool keepCpuCopy = true;   // the editor always keeps mPixels (needed to save the asset)
+#else
+    const bool keepCpuCopy = mRetainPixels;
 #endif
+    if (keepCpuCopy)
+    {
+        if (mPixels.size() != byteSize)
+        {
+            mPixels.resize(byteSize);
+        }
+        memcpy(mPixels.data(), data, byteSize);
+    }
 
 #if API_VULKAN
     if (mResource.mImage != nullptr)

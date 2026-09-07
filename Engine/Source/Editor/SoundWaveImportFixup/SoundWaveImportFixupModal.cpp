@@ -35,6 +35,19 @@ void SoundWaveImportFixupModal::Enqueue(SoundWave* wave, const std::string& sour
     row.mNumChannels   = wave->GetNumChannels();
     row.mBitsPerSample = wave->GetBitsPerSample();
 
+    if (IsHeadless())
+    {
+        // No modal will ever draw, so an enqueued row would defer the import
+        // auto-save forever. Resolve to the runtime target rate, matching what
+        // the console cook paths already assume.
+        const uint32_t srcRate = row.mSrcSampleRate;
+        ApplyResample(row);
+        LogWarning("SoundWaveImportFixupModal: '%s' is %u Hz; headless, "
+            "auto-resampled to %u Hz.",
+            sourcePath.c_str(), srcRate, kTargetSampleRate);
+        return;
+    }
+
     mRows.push_back(std::move(row));
     mModalRequested = true;
 

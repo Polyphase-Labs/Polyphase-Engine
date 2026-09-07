@@ -415,6 +415,11 @@ bool IsHeadless()
     return sEngineConfig.mHeadless && sEngineConfig.mProjectPath != "";
 }
 
+bool IsHeadlessService()
+{
+    return IsHeadless() && sEngineConfig.mHeadlessService;
+}
+
 void ReadCommandLineArgs(int32_t argc, char** argv)
 {
     for (int32_t i = 0; i < argc; ++i)
@@ -497,6 +502,22 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
         else if (strcmp(argv[i], "-headless") == 0)
         {
             sEngineConfig.mHeadless = true;
+        }
+        else if (strcmp(argv[i], "-serve") == 0)
+        {
+            // Implies -headless; a bare "-serve" with no project path still
+            // falls back to the normal editor via IsHeadless()'s project-path
+            // check, same as a bare "-headless" does.
+            sEngineConfig.mHeadless = true;
+            sEngineConfig.mHeadlessService = true;
+
+            // Optional port, e.g. "-serve 8080". Distinguish it from the next
+            // flag by checking it doesn't start with '-'.
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                sEngineConfig.mServicePort = atoi(argv[i + 1]);
+                ++i;
+            }
         }
         else if (strcmp(argv[i], "-build") == 0)
         {
@@ -1499,7 +1520,12 @@ void LoadProject(const std::string& path, bool discoverAssets)
     // via DEFINE_NODE's static initializers; if scenes deserialize first, those node types
     // are unknown and get replaced with their nearest registered parent class (e.g.
     // VideoPlayer3D -> Node3D), silently corrupting the scene's type layout.
-    if (!IsHeadless())
+    //
+    // A one-shot -headless -build cook skips this (NativeAddonManager is never
+    // even created for it -- see EditorMain.cpp). A -serve headless service
+    // does create it and needs the same load-before-discover ordering as the
+    // interactive editor.
+    if (!IsHeadless() || IsHeadlessService())
     {
         NativeAddonManager* nam = NativeAddonManager::Get();
         if (nam != nullptr)

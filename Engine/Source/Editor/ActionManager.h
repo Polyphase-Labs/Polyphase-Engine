@@ -480,7 +480,7 @@ public:
     void WriteProjectLocalPolyphaseConfig();
 
     void OpenScene();
-    void OpenScene(Scene* scene);
+    POLYPHASE_API void OpenScene(Scene* scene);
     // Defer OpenScene so the progress modal renders before Scene::Instantiate
     // (which builds the node tree) blocks the main thread on large scenes.
     // Pass nullptr to trigger the OS file dialog inside the worker; pass a
@@ -537,8 +537,11 @@ public:
     void DeleteNode(Node* node);
     void RunScript();
     void ImportAsset();
-    Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
-    Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
+    // POLYPHASE_API: the per-asset mesh importers, exposed so an addon can drive
+    // a conversion pipeline without going through ImportScene -- which ends in
+    // OpenEditScene and so requires a fully initialized editor.
+    POLYPHASE_API Asset* ImportAsset(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
+    POLYPHASE_API Asset* ImportAssetCombined(const std::string& path, const std::string& overrideBaseName = "", const MeshImportOptions* meshOpts = nullptr);
 
     // Loose-file import: copies the user-picked file(s) into the current
     // AssetDir verbatim (no .oct conversion) and registers them with the
@@ -603,7 +606,10 @@ public:
         bool mUniqueNames = true;
     };
     void BeginRetargetAnimation(AssetStub* sourceClipStub);
-    bool RetargetAnimation(const RetargetAnimationOptions& options);
+    // POLYPHASE_API: takes an explicit mTargetDir, so unlike most import actions
+    // it never reads EditorState::GetAssetDirectory() and is callable from a
+    // headless cook.
+    POLYPHASE_API bool RetargetAnimation(const RetargetAnimationOptions& options);
     void DrawRetargetAnimationModal();
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);

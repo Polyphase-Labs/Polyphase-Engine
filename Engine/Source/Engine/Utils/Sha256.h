@@ -13,7 +13,9 @@
 #include <cstdint>
 #include <string>
 
-struct Sha256
+#include "PolyphaseAPI.h"
+
+struct POLYPHASE_API Sha256
 {
     // Hash an arbitrary contiguous buffer.
     static std::string HashHex(const void* data, size_t size);
