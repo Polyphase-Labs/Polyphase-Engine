@@ -14837,6 +14837,15 @@ static void DrawOcclusionStaleToast()
 
 void EditorImguiDraw()
 {
+    // Headless (-serve/-build) never creates an ImGui context -- there is no
+    // window to draw into. ImGui::GetIO() a few lines below hard-asserts with
+    // no current context and aborts the whole process; nothing upstream of
+    // this call (Engine::Update) checked for that.
+    if (IsHeadless())
+    {
+        return;
+    }
+
     // Release any thumbnails invalidated during the previous frame. Must happen
     // before NewFrame() -- ImGui_ImplVulkan_RemoveTexture is immediate, so the
     // descriptor sets can only be freed once last frame's draw list is done.

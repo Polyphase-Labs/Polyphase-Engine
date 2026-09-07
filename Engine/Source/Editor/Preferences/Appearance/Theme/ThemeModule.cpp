@@ -46,7 +46,13 @@ std::string ThemeModule::LoadSavedFontPreference()
 
 ThemeModule::ThemeModule()
 {
-    if (GetFeatureFlagsEditor().mShowTheming) {
+    // Headless (-serve / -build) never creates an ImGui context -- there is
+    // no UI to theme. EditorTheme::ApplyTheme -> ApplyFutureDarkTheme calls
+    // ImGui::GetStyle(), which hard-asserts with no current context
+    // (GImGui == nullptr), aborting the whole process before it can even
+    // start serving. Same class of fix as EditorProgress/the import-fixup
+    // modals elsewhere in this codebase.
+    if (GetFeatureFlagsEditor().mShowTheming && !IsHeadless()) {
     CssThemeManager::Get().LoadThemeList();
     EditorTheme::RefreshThemeNames();
     RefreshAvailableFonts();
@@ -399,8 +405,14 @@ void ThemeModule::LoadSettings(const rapidjson::Document& doc)
     // Refresh fonts and find the index
     RefreshAvailableFonts();
 
-    // Apply theme on load
-    EditorTheme::ApplyTheme(mCurrentTheme);
+    // Apply theme on load. Headless (-serve/-build) has no ImGui context --
+    // see the constructor's comment above for why this must not run there.
+    // The theme-type/font bookkeeping above this still runs unconditionally;
+    // only the actual ImGui-touching call is skipped.
+    if (!IsHeadless())
+    {
+        EditorTheme::ApplyTheme(mCurrentTheme);
+    }
 }
 
 void ThemeModule::SaveSettings(rapidjson::Document& doc)

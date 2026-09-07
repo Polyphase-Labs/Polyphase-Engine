@@ -1219,6 +1219,15 @@ bool Update()
     }
 #endif
 
+    // Headless (-serve/-build) never creates a graphics device/swapchain --
+    // GFX_CreateTextureResource and friends check IsHeadless() individually
+    // because texture creation is reachable from genuinely headless asset
+    // work (cooking/import), but the render pipeline itself assumes a live
+    // context throughout with no such checks (e.g. GFX_MakePerspectiveMatrix
+    // dereferences the global VulkanContext singleton unconditionally, which
+    // is null headless -- segfaults instead of erroring). Skip the whole
+    // pass here rather than patching every leaf GFX_* call.
+    if (!IsHeadless())
     {
         SCOPED_FRAME_STAT("Render");
         for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
