@@ -392,10 +392,16 @@ ContentPak::MountHandle ContentPak::MountMemory(const void* data, uint32_t size,
     const MountHandle handle = mount->mHandle;
     const uint32_t entryCount = parsed.mEntryCount;
 
-    sMounts.push_back(std::move(mount));
-
+    // Log before the move -- sMounts.push_back(std::move(mount)) nulls out
+    // this local unique_ptr, so `mount->mDebugName` right after it was a
+    // null-pointer deref (mDebugName lives at some small offset into the
+    // now-gone object, so it reliably crashed inside std::string's own SSO
+    // check rather than at the dereference itself, which made it look like
+    // string corruption rather than what it actually was).
     LogDebug("ContentPak: mounted '%s' from memory (%u bytes, %u entries, handle=%u)",
         mount->mDebugName.c_str(), size, entryCount, handle);
+
+    sMounts.push_back(std::move(mount));
     return handle;
 }
 

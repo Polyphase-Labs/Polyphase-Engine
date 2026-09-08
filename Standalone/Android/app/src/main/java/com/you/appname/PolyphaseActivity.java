@@ -1,8 +1,10 @@
 package com.you.appname;
 
+import android.Manifest;
 import android.app.NativeActivity;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiManager.MulticastLock;
@@ -129,6 +131,49 @@ public class PolyphaseActivity extends NativeActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    }
+
+    // ===== Camera permission (native WebcamBackend_Android.cpp bridge) ======
+    //
+    // requestPermissions() is asynchronous -- its result lands on the UI
+    // thread via onRequestPermissionsResult, not back on this call. Native
+    // can't block a capture-thread call waiting for a user dialog, so the
+    // contract is poll-based: call requestCameraPermission() once, then poll
+    // getCameraPermissionState() (-1 = still waiting on the user, 0 = denied,
+    // 1 = granted) from Open() on a retry.
+    private static final int CAMERA_PERMISSION_REQUEST_CODE = 4242;
+    private volatile int cameraPermissionState = -1;
+
+    public boolean hasCameraPermission()
+    {
+        return checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    public void requestCameraPermission()
+    {
+        if (hasCameraPermission())
+        {
+            cameraPermissionState = 1;
+            return;
+        }
+        cameraPermissionState = -1;
+        requestPermissions(new String[] { Manifest.permission.CAMERA }, CAMERA_PERMISSION_REQUEST_CODE);
+    }
+
+    public int getCameraPermissionState()
+    {
+        return cameraPermissionState;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults)
+    {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE)
+        {
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            cameraPermissionState = granted ? 1 : 0;
+        }
     }
 
     void setSystemOrientation(int orientation)

@@ -398,6 +398,48 @@ AssetManager then owns the memory (freed on `RefSweep` at refcount 0), so the
 producer holds an `AssetRef` and releases it rather than deleting. Engine
 precedent: `Terrain3D`'s baked splatmap, `Font` atlases.
 
+### A scene with no `Camera3D` lays out its UI wrong (engine supplies a fallback)
+
+**Confirmed by A/B test:** a scene with no `Camera3D` renders its UI offset,
+with large unpainted regions. Reproducible on Android; desktop can mask it.
+`World::RegisterNode` makes the first registered `Camera3D` active, so a scene
+with none leaves `mActiveCamera` null and the renderer takes a different frame
+path entirely.
+
+**Handled automatically now:** `World::EnsureFallbackCamera()` (called once per
+`World::Update`) spawns a transient *"Fallback Camera"* when the scene provides
+none, and retires it as soon as a real `Camera3D` registers — `RegisterNode`
+yields the active slot to any real camera that arrives while the stand-in holds
+it, and the stand-in is detached on the next update (never mid-registration).
+Skipped when headless, and gated on `GetActiveCamera()` so the editor camera
+and camera overrides don't trigger it. It logs a warning once.
+
+Still **add a real `Camera3D`** to any scene you author — the stand-in sits at
+`(0, 0, 10)` with default settings, which is not the framing you want for
+anything with 3D content.
+
+**Fixed alongside:** the UI pass set the viewport but not the scissor,
+inheriting the *scene* viewport (window viewport x Resolution Scale) and
+clipping the whole UI when Resolution Scale < 1.0. `Renderer.cpp` now sets it.
+
+### What `Scissor` actually does
+
+- Clips **rendering** (`Widget::Render` -> `GFX_SetScissor`) **and input**
+  (`ContainsMouse(testScissor=true)` clamps the hit-test rect, so content
+  scrolled out of view can't be clicked). The input half makes it
+  load-bearing, not cosmetic.
+- `Button`, `Canvas`, `InputField`, `ScrollContainer`, `Slider` and `Window`
+  enable it in their own `Create()`. Leave it on for the containers; it's safe
+  to disable on a `Button` (worst case an overlong label overflows its rect).
+- Only **drawable** widgets apply it — `Canvas` and plain `Widget` return
+  `mNode = nullptr` from `GetDrawData()`, never enter `mWidgetDraws`, and so
+  never call `Widget::Render()`. Their flag still bounds descendants through
+  the parent-clamp in `UpdateRect()`.
+- The UI pass sets the viewport but **not** the scissor, so it inherits the
+  previous pass's scissor until the first drawable widget sets one.
+- CSS `overflow: hidden` maps to it (`UITypes.cpp`); `overflow: visible` is a
+  no-op, so a class default can't be overridden from a stylesheet.
+
 ## Reference Files
 
 - **Simple widget**: `Button.h/.cpp`

@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.you.polyphaseb'
+    namespace 'com.uai.personalake'
     compileSdk 33
 
     defaultConfig {
-        applicationId "com.you.polyphaseb"
+        applicationId "com.uai.personalake"
         minSdk 24
         targetSdk 33
         versionCode 1
