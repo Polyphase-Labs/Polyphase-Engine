@@ -5,38 +5,18 @@
 # consumer can include() unconditionally.
 
 set(POLYPHASE_ADDON_SOURCE_DIRS
-    # addon: com.polyphase.assetio.camera (7 files in 5 dirs)
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source/Editor"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source/Lua"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source/Net"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source/Util"
-    # addon: com.polyphase.formats.webcam (13 files in 6 dirs)
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source/Backends"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source/Editor"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source/Lua"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source/Nodes"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source/Util"
 )
 
 set(POLYPHASE_ADDON_INCLUDE_DIRS
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/Source"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/../../../../../Polyphase/CODE/mergePolyphase/polyphase-engine/Engine/Source/Editor"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.assetio.camera/../../../../../Polyphase/CODE/mergePolyphase/polyphase-engine/External/Assimp/contrib/rapidjson"
-    "M:/Projects/Polyphase/ServerIO/Code/Polyphase-AssetIO-Camera/Packages/com.polyphase.formats.webcam/Source"
 )
 
 set(POLYPHASE_ADDON_DEFINES
-    POLYPHASE_WITH_CAMERA2=1
 )
 
 set(POLYPHASE_ADDON_LIB_DIRS
 )
 
 set(POLYPHASE_ADDON_LIBS
-    camera2ndk
-    mediandk
 )
 
 set(POLYPHASE_ADDON_REGISTRAR "M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/Standalone/Generated/AddonPlugins.cpp")
