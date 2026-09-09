@@ -527,8 +527,18 @@ void ApplyCSSProperty(
 
     if (propName == "overflow")
     {
-        if (value.mType == CSSValueType::Enum && value.mString == "hidden")
-            widget->EnableScissor(true);
+        if (value.mType == CSSValueType::Enum)
+        {
+            // `visible` must actively clear the flag, not just fall through.
+            // Button, Canvas, InputField, ScrollContainer, Slider and Window all
+            // enable scissor in their own Create(), so without this a stylesheet
+            // could never override a class default -- `overflow: visible` was a
+            // silent no-op on exactly the widgets it would be written for.
+            if (value.mString == "hidden" || value.mString == "clip")
+                widget->EnableScissor(true);
+            else if (value.mString == "visible")
+                widget->EnableScissor(false);
+        }
         return;
     }
 

@@ -9,6 +9,15 @@
 3. After the game crashes, go to the `./Polyphase.log` file in your game's directory and open it with a text editor.
 4. Look for any error messages or warnings that might indicate the cause of the black screen.
 
+## No `Camera3D` in the scene
+A scene with no active `Camera3D` never performs the full-window paint that the
+post-process step normally does, so anything your UI doesn't cover stays black.
+This bites pure-UI scenes hardest (menus, HUD-only scenes, kiosk screens) —
+add a `Camera3D` even when the scene has no 3D content. See
+[Android > Parts of the UI are missing](#parts-of-the-ui-are-missing--large-black-bands-or-most-of-the-screen-unpainted)
+for the mechanism; it is not Android-specific, but Android is where it shows up
+most reliably.
+
 ## 	Check Project Directory Structure vs Project Name
 You project directory that the `{ProjectName}.oct` file is in must be named the same as the project name. For example, if your project is named "MyGame", the directory should be named "MyGame" and contain the `MyGame.oct` file. If there is a mismatch, the game will not load at all after a successful build.
 
@@ -16,6 +25,156 @@ You project directory that the `{ProjectName}.oct` file is in must be named the 
 The log file is opened line-buffered and flushed per write, so once logging is enabled every complete line lands on disk immediately. If the log is still empty after the game has clearly produced output, check:
 - `Config.ini` has both `Logging=1` **and** `LogToFile=1`. `Logging=0` compiles-in but silences all `LogDebug/Warning/Error` calls.
 - The log is written to the game's working directory (the folder containing the `.exe`), not the project directory. It is named `{ProjectName}.log`, falling back to `Polyphase.log` if the project name is not yet set at init.
+
+
+# Android
+
+## Seeing logs from an Android build
+
+`adb logcat -s Polyphase:V` is the fastest and most reliable channel — every
+`LogDebug` / `LogWarning` / `LogError` is routed to Android's log under the tag
+`Polyphase`, whether or not `Log To File` is enabled. Leave it running while you
+reproduce the problem; a capture taken only at launch usually misses the
+interesting part.
+
+Two things silence it:
+- `Config.ini` must have `Logging=1`. With `Logging=0` every `Log*` call returns
+  immediately and nothing reaches logcat *or* the file.
+- Settings changed in *App Settings* only take effect in the **next package**.
+  Toggling `Log To File` does not alter an APK already installed on the device.
+
+## `Log To File` produces no file on Android
+
+Unlike desktop, the log is written to the app's private internal storage
+(`ANativeActivity::internalDataPath`), not a working directory — an Android
+NativeActivity has no writable current directory, so a relative path silently
+fails. Retrieve it with:
+
+```
+adb shell run-as com.your.applicationid cat files/{ProjectName}.log
+```
+
+Prefer `adb logcat` (above) for live debugging.
+
+## Parts of the UI are missing — UI offset into a corner, or large black bands
+
+**Cause: the scene has no `Camera3D`.** Confirmed by A/B test — a UI-only scene
+with no camera renders its UI offset and leaves large regions unpainted; adding
+a `Camera3D` fixes it. Most visible on Android; desktop can mask it, so it is
+easy to ship without noticing.
+
+**This is now handled automatically.** `World::EnsureFallbackCamera()` spawns a
+transient *"Fallback Camera"* whenever the loaded scene provides none, and
+retires it the moment a real `Camera3D` registers (including one arriving later
+from a scene instantiated into the root, or a streamed-in level). You will see
+this warning once when it kicks in:
+
+```
+World: scene '<name>' has no Camera3D -- using a transient fallback camera.
+```
+
+The fallback is a safety net, not a recommendation — **add a real `Camera3D` to
+the scene**. The stand-in sits at `(0, 0, 10)` with default settings, which is
+almost certainly not the framing you want if the scene has any 3D content.
+
+If you are on an older engine build without the fallback, add a `Camera3D`
+manually. And when you do, check *what filled the gap*: a camera also enables
+`Skybox3D`, so a skybox painting previously-black regions can mask a UI that
+never reached the screen edges.
+
+**A related engine bug was fixed at the same time.** The UI pass set the
+viewport but not the scissor, so it inherited the **scene** viewport (the window
+viewport scaled by *Resolution Scale*). With Resolution Scale below 1.0 the
+entire UI was clipped to that smaller rectangle. If you saw UI clipped into a
+corner on an older build, check Resolution Scale.
+
+## What `Scissor` does, and when to turn it off
+
+`Scissor` clips a widget's subtree to its rectangle — both **rendering**
+(`Widget::Render` -> `GFX_SetScissor`) and **input** (`ContainsMouse` hit-tests
+the clipped rect, so content scrolled out of view can't be clicked). The input
+half is what makes it load-bearing rather than cosmetic.
+
+These classes enable it themselves in `Create()`, so seeing it on is normal and
+not a scene-authoring mistake: `Button`, `Canvas`, `InputField`,
+`ScrollContainer`, `Slider`, `Window`.
+
+- **Leave it on** for `ScrollContainer`, `InputField`, `Window` — clipping is
+  their entire function, and disabling it also makes invisible off-screen
+  content clickable.
+- **Safe to turn off** on a `Button` if you need to: its only clipped content is
+  the auto-created child `Text`, so the sole consequence is that an overlong
+  label overflows the button rect.
+- Only **drawable** widgets ever apply a scissor. `Canvas` and plain `Widget`
+  return no draw data, so `Widget::Render()` never runs for them and their
+  `Scissor` flag has no direct effect of its own (it still bounds descendants
+  via the parent-clamp in `UpdateRect`).
+- CSS `overflow: hidden` maps to it (`UITypes.cpp`), but `overflow: visible` is
+  currently a no-op — so a class default can't be overridden from a stylesheet.
+
+## A runtime-generated texture (photo snapshot, video frame, procedural image) renders black on Android but is fine on Windows
+
+Applies to a texture that is created, uploaded **once**, and displayed — as
+opposed to a live feed that re-uploads every frame.
+
+The GPU upload was historically submitted without waiting for completion. A
+continuously-updating texture hides that (the next frame's upload corrects it),
+but a one-shot texture has no next upload, so on slower mobile GPUs it can be
+sampled before its pixels have landed — and then stays black forever. The engine
+now waits for the initial `Texture::Create()` upload; if you see this on an
+older engine build, update.
+
+If it is still black, verify the source pixels are actually non-black before
+blaming the GPU — a camera pointed at a dark room produces a legitimately black
+image, which looks identical to this bug.
+
+## A native addon behaves as if its platform code isn't there on Android
+
+Symptoms: a feature that works on desktop silently does nothing on device, an
+addon falls back to its stub/no-op path, or libraries declared in
+`package.json` fail to link.
+
+The `nativePerPlatform` block is matched by a **case-sensitive** key, so the
+platform section must be spelled exactly `"Android"`. To confirm what the
+Android build actually received, package for Android and read
+`Standalone/Generated/AddonInject.cmake` — `POLYPHASE_ADDON_DEFINES` and
+`POLYPHASE_ADDON_LIBS` should contain your entries. If they are empty, the
+per-platform block never applied.
+
+Also note `POLYPHASE_ADDON_LIBS` feeds CMake's `target_link_libraries`
+directly: list bare library names (`camera2ndk`), not `-l`-prefixed flags.
+
+## Which changes need the editor rebuilt before packaging for Android?
+
+Only **editor-only** code — anything under `#if EDITOR`, such as
+`ActionManager.cpp` (which implements packaging itself). Ordinary engine source,
+including the Vulkan renderer, is recompiled from scratch by the Android
+NDK/CMake pass on every *Package -> Android*, so an engine runtime fix needs
+only a repackage. Lua scripts and addon C++ likewise need only a repackage —
+though with **Embedded Mode** on, scripts are baked into the binary at package
+time, so editing a `.lua` still requires repackaging and reinstalling; there is
+no hot-reload into an installed APK.
+
+## An Android feature needs a runtime permission (camera, microphone, location)
+
+Android permissions can only be requested by the Java `Activity`, and the answer
+arrives asynchronously — no native call can block waiting for it. The engine's
+pattern (see the `com.polyphase.formats.webcam` addon) is:
+
+1. Declare `<uses-permission>` in
+   `Standalone/Android/app/src/main/AndroidManifest.xml`.
+2. Add `has*Permission()` / `request*Permission()` / `get*PermissionState()`
+   methods to `PolyphaseActivity.java`.
+3. Call them over JNI from native code.
+4. **Poll, don't block.** Fire the request once, return failure, and retry
+   later. `WebcamPlayer3D` does this automatically via its
+   `Retry On Open Failure` / `Open Retry Interval` properties, so the feed
+   simply appears a second after the user taps Allow.
+
+If a permission dialog never appears at all, check that the permission is
+requested from *every* entry point that needs it — some devices return empty
+results from enumeration APIs until permission is granted, so code that only
+requests on "open" can fail earlier and never ask.
 
 
 # Native addon won't load on the installed editor (works fine in VS)

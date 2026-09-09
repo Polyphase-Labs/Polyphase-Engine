@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.polyphase.filebrowser'
+    namespace 'com.you.polyphaseb'
     compileSdk 33
 
     defaultConfig {
-        applicationId "com.polyphase.filebrowser"
+        applicationId "com.you.polyphaseb"
         minSdk 24
         targetSdk 33
         versionCode 1

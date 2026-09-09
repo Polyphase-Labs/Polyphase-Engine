@@ -165,6 +165,18 @@ void EditorState::Shutdown()
 
 void EditorState::Update(float deltaTime)
 {
+    // This entire function is viewport/overlay/ImGui bookkeeping (panel
+    // geometry via EditorImguiGetViewport, Viewport3D::Update -- which
+    // queries ImGui::GetIO() for hover state -- and the PAUSED/PLAYING
+    // overlay text). Headless (-serve/-build) has no window, viewport, or
+    // ImGui context at all, so none of it applies; without this guard,
+    // Viewport3D::ShouldHandleInput's ImGui::GetIO() call hard-asserts with
+    // no current context and aborts the whole process every frame.
+    if (IsHeadless())
+    {
+        return;
+    }
+
     // TODO-NODE: Handle Widgets/2D? Maybe split modes to 3D and 2D
     if (!mPlayInEditor || mEjected || mPlayInGameWindow)
     {

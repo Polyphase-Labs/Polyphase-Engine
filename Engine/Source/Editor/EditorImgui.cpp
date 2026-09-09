@@ -1788,6 +1788,12 @@ namespace EditorProgress
 
     static void DoPumpUnthrottled()
     {
+        // Headless has no ImGui context and no initialized renderer, so the
+        // ImGui::GetTime() below and Renderer::Render() further down would both
+        // fault. There is nothing on screen to animate either.
+        if (IsHeadless())
+            return;
+
         EditorState* es = GetEditorState();
         if (!es->mProgressActive)
             return;
@@ -1825,6 +1831,12 @@ namespace EditorProgress
 
     void Begin(const char* title, const char* status, bool cancellable)
     {
+        // Leave mProgressActive false headless. Every other entry point in this
+        // namespace short-circuits on that flag, so guarding Begin makes the
+        // whole modal inert instead of each function needing its own check.
+        if (IsHeadless())
+            return;
+
         EditorState* es = GetEditorState();
         es->mProgressActive = true;
         es->mProgressCancellable = cancellable;
@@ -14825,6 +14837,15 @@ static void DrawOcclusionStaleToast()
 
 void EditorImguiDraw()
 {
+    // Headless (-serve/-build) never creates an ImGui context -- there is no
+    // window to draw into. ImGui::GetIO() a few lines below hard-asserts with
+    // no current context and aborts the whole process; nothing upstream of
+    // this call (Engine::Update) checked for that.
+    if (IsHeadless())
+    {
+        return;
+    }
+
     // Release any thumbnails invalidated during the previous frame. Must happen
     // before NewFrame() -- ImGui_ImplVulkan_RemoveTexture is immediate, so the
     // descriptor sets can only be freed once last frame's draw list is done.

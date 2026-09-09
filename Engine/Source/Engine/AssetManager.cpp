@@ -1721,7 +1721,20 @@ void AssetManager::SaveAsset(AssetStub& stub)
 
         if (stub.mDirectory && !DoesDirExist(stub.mDirectory->mPath.c_str()))
         {
-            CreateDir(stub.mDirectory->mPath.c_str());
+            // CreateDir() is a single-level mkdir. A brand new AssetDir chain
+            // (e.g. a cook pipeline creating "AssetIO/<uuid>/<mesh>/" in one
+            // shot, with neither level ever materialized on disk) needs every
+            // missing ancestor made first, root to leaf, or mkdir fails with
+            // ENOENT on the innermost path and the asset silently never saves.
+            std::vector<AssetDir*> missingDirs;
+            for (AssetDir* dir = stub.mDirectory; dir != nullptr && !DoesDirExist(dir->mPath.c_str()); dir = dir->mParentDir)
+            {
+                missingDirs.push_back(dir);
+            }
+            for (auto it = missingDirs.rbegin(); it != missingDirs.rend(); ++it)
+            {
+                CreateDir((*it)->mPath.c_str());
+            }
         }
 
         stub.mAsset->SaveFile(stub.mPath.c_str(), Platform::Count);

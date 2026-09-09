@@ -1268,10 +1268,17 @@ void VulkanContext::CreateInstance()
     ciInstance.enabledLayerCount = mEnabledLayersCount;
     ciInstance.ppEnabledLayerNames = mEnabledLayers;
 
+#if PLATFORM_MAC
+    // portabilityEnumFound is only ever set true in the PLATFORM_MAC branch
+    // above -- VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR needs the
+    // same guard, since it's a beta-extension constant (vulkan_beta.h) that
+    // other platforms' Vulkan headers don't necessarily ship (e.g. the
+    // Android NDK's vulkan_core.h doesn't declare it at all).
     if (portabilityEnumFound)
     {
         ciInstance.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     }
+#endif
 
 #if ENABLE_FULL_VALIDATION
     if (mValidate)

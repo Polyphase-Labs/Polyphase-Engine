@@ -516,6 +516,7 @@ void Quad::Render()
 {
     Widget::Render();
 
+
     if (mBorderNumVertices > 0)
     {
         GFX_DrawQuadBorder(this);

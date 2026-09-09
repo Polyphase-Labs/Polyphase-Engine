@@ -91,6 +91,16 @@ public:
 
     const std::vector<uint8_t>& GetPixels() const { return mPixels; }
 
+    // Keep mPixels resident after Create() in runtime builds too (the editor
+    // always keeps it, to save the asset). Opt in for runtime-generated
+    // textures whose pixels must be read back on the CPU -- a webcam/photo
+    // snapshot that gets PNG-encoded and uploaded, a procedural image that
+    // gets saved. Costs width * height * 4 bytes per texture, so leave it off
+    // for anything that is only ever drawn (a streaming video/webcam feed).
+    // Set it before Create(); UpdatePixels() keeps the copy in sync while on.
+    void SetRetainPixels(bool retain) { mRetainPixels = retain; }
+    bool GetRetainPixels() const { return mRetainPixels; }
+
     // Bumped every time the backing GPU resource is torn down and rebuilt --
     // Create(), Destroy(), or an editor property change (Filter Type, Wrap Mode,
     // Mipmapped) that forces a rebuild behind an unchanged Texture*.
@@ -116,6 +126,12 @@ protected:
     bool mSrgb;
     bool mForceHighQuality;
     uint8_t mLowQualityDownsampleFactor;
+    // Placed here on purpose: it lands in the 3 bytes of padding before mUvMax
+    // (three 4-byte enums + four bools + one uint8 = 17 bytes from a 4-aligned
+    // base; glm::vec2 needs 4-byte alignment), so it changes neither
+    // sizeof(Texture) nor any existing member offset. Already-built addon DLLs
+    // that include this header stay ABI-compatible. See SetRetainPixels().
+    bool mRetainPixels = false;
 
     // Content UV maximum. See GetUVMax() doc above. Default (1,1) — set by the
     // graphics backend when it has to pad the physical texture beyond the

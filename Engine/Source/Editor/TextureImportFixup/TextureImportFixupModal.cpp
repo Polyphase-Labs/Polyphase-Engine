@@ -42,6 +42,20 @@ void TextureImportFixupModal::Enqueue(Texture* tex,
     row.mResizeWidth   = Maths::PrevPowerOfTwo(srcW);
     row.mResizeHeight  = Maths::PrevPowerOfTwo(srcH);
 
+    if (IsHeadless())
+    {
+        // Nothing will ever draw the modal, so an enqueued row would strand the
+        // asset with an empty mPixels and ActionManager::ImportAsset would skip
+        // its save -- a silent, pixel-less import. Resolve immediately with the
+        // non-destructive choice (pad keeps every source texel) and let the
+        // caller's normal auto-save run, since the row never becomes pending.
+        ApplyPad(row);
+        LogWarning("TextureImportFixupModal: '%s' is %ux%u (not power-of-two); "
+            "headless, auto-padded to %ux%u.",
+            sourcePath.c_str(), srcW, srcH, row.mPadWidth, row.mPadHeight);
+        return;
+    }
+
     mRows.push_back(std::move(row));
     mModalRequested = true;
 

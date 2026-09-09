@@ -478,6 +478,13 @@ struct EngineConfig
     bool mBuildEmbedded = false;
     std::string mBuildTargetId;                 // -build <targetId> (e.g. polyphase.n3ds.cia); empty = platform build
 
+    // Headless *service* mode (-serve [port]): unlike a one-shot -headless
+    // -build cook, this variant loads native addons and runs a REST server via
+    // ControllerServer so an external process can drive imports/cooks/queries
+    // over HTTP for as long as the process is up. Implies mHeadless.
+    bool mHeadlessService = false;
+    int32_t mServicePort = 7890;                // matches NetworkModule's default port
+
     // Set when the editor was launched with --addon-recovery=<pid>. Value is
     // the PID of the prior editor process whose sentinel JSON we should look
     // for. EditorMain reads this on startup and triggers the addon-recovery

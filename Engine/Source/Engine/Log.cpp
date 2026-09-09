@@ -35,6 +35,19 @@ static void OpenLogFile()
         // boot in Main_PSP). PBP boots resolve to the same place their cwd
         // would have, so this is correct for both packaging layouts.
         logName = std::string("ms0:/PSP/GAME/POLYPHASE/") + logName;
+#elif PLATFORM_ANDROID
+        // A NativeActivity process has no meaningful writable cwd -- a bare
+        // relative fopen() silently fails against Android's sandboxed
+        // filesystem (mLogFile stays null, no crash, but the file never
+        // appears anywhere a user could find it). Anchor it to the app's
+        // private internal storage instead, same fix shape as the PSP case
+        // above. internalDataPath is already app-writable with no extra
+        // permission (unlike external storage).
+        if (engineState->mSystem.mActivity != nullptr &&
+            engineState->mSystem.mActivity->internalDataPath != nullptr)
+        {
+            logName = std::string(engineState->mSystem.mActivity->internalDataPath) + "/" + logName;
+        }
 #endif
         engineState->mLogFile = fopen(logName.c_str(), "w");
 

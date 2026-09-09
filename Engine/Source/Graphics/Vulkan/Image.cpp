@@ -58,7 +58,8 @@ Image::Image(ImageDesc imageDesc, SamplerDesc samplerDesc, const char* debugObje
     ciImage.arrayLayers = mLayers;
     ciImage.format = mFormat;
     ciImage.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ciImage.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+    // See the mLayout comment in Image.h -- must stay in sync with it.
+    ciImage.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     ciImage.usage = mUsage;
     ciImage.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ciImage.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -198,7 +199,7 @@ uint32_t Image::GetHeight() const
     return mHeight;
 }
 
-void Image::Update(const void* srcData)
+void Image::Update(const void* srcData, bool waitForCompletion)
 {
     OCT_ASSERT(srcData != nullptr);
     OCT_ASSERT(mImage != VK_NULL_HANDLE);
@@ -229,7 +230,25 @@ void Image::Update(const void* srcData)
         VkImageLayout savedLayout = mLayout;
         Transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         CopyBufferToImage(stagingBuffer->Get(), mImage, mWidth, mHeight);
-        Transition(savedLayout != VK_IMAGE_LAYOUT_PREINITIALIZED ? savedLayout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // A fresh image starts in a sentinel layout (UNDEFINED; PREINITIALIZED
+        // for an externally-created one). Neither is a legal newLayout, so
+        // land on SHADER_READ_ONLY instead of "restoring" the sentinel.
+        // Clear() below has the mirror-image guard -- keep the two in sync.
+        const bool savedIsSentinel = (savedLayout == VK_IMAGE_LAYOUT_UNDEFINED ||
+                                      savedLayout == VK_IMAGE_LAYOUT_PREINITIALIZED);
+        Transition(savedIsSentinel ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : savedLayout);
+
+        // See the header comment on waitForCompletion. The three ops above
+        // each submit their own fire-and-forget one-time command buffer
+        // (BeginCommandBuffer/EndCommandBuffer, no fence) -- this blocks
+        // until the graphics queue has actually finished all of them, so a
+        // caller that immediately samples this image afterward (a one-shot
+        // snapshot texture) is guaranteed to see the new content rather than
+        // whatever was there before the upload lands.
+        if (waitForCompletion)
+        {
+            vkQueueWaitIdle(GetVulkanContext()->GetGraphicsQueue());
+        }
 
         GetDestroyQueue()->Destroy(stagingBuffer);
     }
@@ -393,7 +412,12 @@ void Image::Clear(glm::vec4 color)
         vkCmdClearColorImage(cb, mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearValue, 1, &subresourceRange);
         EndCommandBuffer(cb);
 
-        Transition(originalLayout != VK_IMAGE_LAYOUT_UNDEFINED ? originalLayout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // Mirror of the sentinel guard in Update() above -- this one used to
+        // check only UNDEFINED, so a Clear() on a fresh (then-PREINITIALIZED)
+        // image transitioned it back to PREINITIALIZED, an illegal newLayout.
+        const bool originalIsSentinel = (originalLayout == VK_IMAGE_LAYOUT_UNDEFINED ||
+                                         originalLayout == VK_IMAGE_LAYOUT_PREINITIALIZED);
+        Transition(originalIsSentinel ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : originalLayout);
     }
 }
 

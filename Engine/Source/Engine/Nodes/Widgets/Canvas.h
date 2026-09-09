@@ -5,7 +5,7 @@
 
 class UIDocument;
 
-class Canvas : public Widget
+class POLYPHASE_API Canvas : public Widget
 {
 public:
 

@@ -2150,16 +2150,28 @@ void RegisterRoutes(void* appPtr, ControllerServer* server)
                 {
                     LogRequest(server, route.mMethod.c_str(), route.mPath.c_str());
 
-                    char responseBuffer[4096] = {};
+                    // Heap-backed, not a stack array: this used to be a
+                    // plain `char responseBuffer[4096]`, which was fine at
+                    // 4KB but became a real concern once addon routes
+                    // started wanting much larger single responses (e.g.
+                    // com.polyphase.format.io.glb's chunked bundle download,
+                    // upsized from 4KB to cut a ~600-request download for a
+                    // ~2MB file down to a handful) -- Crow worker threads
+                    // aren't guaranteed a large default stack, so a big
+                    // local array here risked overflowing it under
+                    // concurrent load. std::vector<char> costs one heap
+                    // allocation per addon-route request instead.
+                    constexpr size_t kAddonResponseBufferSize = 256 * 1024;
+                    std::vector<char> responseBuffer(kAddonResponseBufferSize, '\0');
                     route.mCallback(
                         route.mMethod.c_str(),
                         route.mPath.c_str(),
                         req.body.c_str(),
-                        responseBuffer,
-                        sizeof(responseBuffer),
+                        responseBuffer.data(),
+                        (int32_t)responseBuffer.size(),
                         route.mUserData);
 
-                    return crow::response(200, "application/json", std::string(responseBuffer));
+                    return crow::response(200, "application/json", std::string(responseBuffer.data()));
                 }
             }
         }

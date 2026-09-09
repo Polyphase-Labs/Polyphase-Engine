@@ -40,6 +40,13 @@ public:
     Node3D* GetAudioReceiver();
 
     void SetActiveCamera(Camera3D* activeCamera);
+
+    // Keeps a transient stand-in camera alive whenever the loaded scene has no
+    // Camera3D of its own, and retires it the moment a real one registers.
+    // Called once per World::Update. See the implementation for why a scene
+    // without any camera renders its UI incorrectly.
+    void EnsureFallbackCamera();
+    Camera3D* GetFallbackCamera() const { return mFallbackCamera; }
     void SetCameraOverride(Camera3D* camera) { mCameraOverride = camera; }
     Camera3D* GetCameraOverride() const { return mCameraOverride; }
     void SetAudioReceiver(Node3D* newReceiver);
@@ -259,6 +266,9 @@ private:
     float mOcclusionMoveEps2 = 0.0f;
     Camera3D* mActiveCamera;
     Camera3D* mCameraOverride = nullptr;
+    // Transient stand-in spawned by EnsureFallbackCamera() when the scene has
+    // no camera. Raw pointer, cleared in UnregisterNode like mActiveCamera.
+    Camera3D* mFallbackCamera = nullptr;
     Node3D* mAudioReceiver;
     bool mPendingClear = false;
     bool mAutoNavRebuild = false;

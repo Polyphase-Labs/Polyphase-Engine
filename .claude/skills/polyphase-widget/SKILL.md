@@ -343,6 +343,103 @@ CHECK_VECTOR(L, arg)    // glm::vec4
 CHECK_WIDGET(L, arg)    // Widget*
 ```
 
+## Common Gotchas (widget instances, not just new widget types)
+
+These bite when *using* Widget/Canvas/Quad/etc. from addon or editor-tool code
+that builds a UI tree programmatically (`Node::Construct<T>()` + `AddChild`),
+not just when authoring a brand-new widget class.
+
+### `SetAnchorMode(Stretch/Fill mode)` alone does not size the widget
+
+`Widget::UpdateRect()`'s stretch-axis math is: if the corresponding margin bit
+(`MF_Right`/`MF_Bottom`) is **not** active, width/height resolves as
+`parentRect.mWidth * mSize.x` (a ratio) — and `mSize` is NOT 1.0 by default.
+Calling only `SetAnchorMode(AnchorMode::FullStretch)` (or any other
+Stretch/Fill mode) leaves `mSize` untouched, so the widget resolves to 0×0.
+Fix with one of:
+
+- `SetFullScreen()` — sets `AnchorMode::FullStretch` + `SetSize(1, 1)` +
+  `SetOffset(0, 0)` together (the ratio arm, `mSize` = 1.0 = 100%).
+- `SetMargins(left, top, right, bottom)` — even all-zero values are
+  sufficient; this sets the margin-active bits AND writes `mSize`/`mOffset`
+  from the pixel margins in one call (the margin arm).
+
+Either alone is self-sufficient; don't mix `SetAnchorMode(Stretch)` with
+neither. This also means a 0-sized ancestor silently zeroes every
+descendant's *computed* rect too (parent rect flows down via `GetRect()`),
+so if a deeply-nested widget reports 0×0, check every ancestor up to the
+tree root for this exact mistake before suspecting the leaf widget itself.
+
+### Widget/Canvas color alpha cascades multiplicatively down the tree
+
+`Widget::UpdateColor()` computes `mColor.a = parentAlpha * ownOpacityFloat`
+(`GetOpacityFloat()`, from `SetOpacity`/byte 0-255) every frame. A plain
+`Widget` or `Canvas` never draws a background of its own — `mColor` exists
+solely to propagate tint/opacity to actual drawable descendants (`Quad`,
+`Button`, `Text`, `CheckBox`, ...). The natural instinct for a pure grouping
+container with no visible background is `SetColor(glm::vec4(0,0,0,0))` ("make
+it transparent") — **don't**: alpha 0 multiplies down and forces every
+descendant to render at alpha 0 too, regardless of the descendant's own
+color, hiding the entire subtree. Use alpha `1.0` for a see-through
+container (RGB is irrelevant since nothing draws it); reserve alpha < 1 on a
+container for an intentional whole-subtree fade.
+
+### A Quad silently refuses textures that aren't registered assets
+
+`Quad::ResolveQuadTexture` runs `AssetManager::IsAssetLive()` on the bound
+texture before every use (`PreRender`, `UpdateVertexData`, `GetTexture`) to
+defend against dangling `Asset*`. A `Texture` created with a bare
+`new Texture()` is not in the AssetManager's map or transient list, so it
+fails that check: the Quad calls `ClearDangling()` on its ref and renders
+nothing — even though `SetTexture()` returned normally. Runtime-generated
+textures (video frames, webcam feeds, procedural images, snapshots) must be
+created via `NewTransientAsset<Texture>()`, which registers them. The
+AssetManager then owns the memory (freed on `RefSweep` at refcount 0), so the
+producer holds an `AssetRef` and releases it rather than deleting. Engine
+precedent: `Terrain3D`'s baked splatmap, `Font` atlases.
+
+### A scene with no `Camera3D` lays out its UI wrong (engine supplies a fallback)
+
+**Confirmed by A/B test:** a scene with no `Camera3D` renders its UI offset,
+with large unpainted regions. Reproducible on Android; desktop can mask it.
+`World::RegisterNode` makes the first registered `Camera3D` active, so a scene
+with none leaves `mActiveCamera` null and the renderer takes a different frame
+path entirely.
+
+**Handled automatically now:** `World::EnsureFallbackCamera()` (called once per
+`World::Update`) spawns a transient *"Fallback Camera"* when the scene provides
+none, and retires it as soon as a real `Camera3D` registers — `RegisterNode`
+yields the active slot to any real camera that arrives while the stand-in holds
+it, and the stand-in is detached on the next update (never mid-registration).
+Skipped when headless, and gated on `GetActiveCamera()` so the editor camera
+and camera overrides don't trigger it. It logs a warning once.
+
+Still **add a real `Camera3D`** to any scene you author — the stand-in sits at
+`(0, 0, 10)` with default settings, which is not the framing you want for
+anything with 3D content.
+
+**Fixed alongside:** the UI pass set the viewport but not the scissor,
+inheriting the *scene* viewport (window viewport x Resolution Scale) and
+clipping the whole UI when Resolution Scale < 1.0. `Renderer.cpp` now sets it.
+
+### What `Scissor` actually does
+
+- Clips **rendering** (`Widget::Render` -> `GFX_SetScissor`) **and input**
+  (`ContainsMouse(testScissor=true)` clamps the hit-test rect, so content
+  scrolled out of view can't be clicked). The input half makes it
+  load-bearing, not cosmetic.
+- `Button`, `Canvas`, `InputField`, `ScrollContainer`, `Slider` and `Window`
+  enable it in their own `Create()`. Leave it on for the containers; it's safe
+  to disable on a `Button` (worst case an overlong label overflows its rect).
+- Only **drawable** widgets apply it — `Canvas` and plain `Widget` return
+  `mNode = nullptr` from `GetDrawData()`, never enter `mWidgetDraws`, and so
+  never call `Widget::Render()`. Their flag still bounds descendants through
+  the parent-clamp in `UpdateRect()`.
+- The UI pass sets the viewport but **not** the scissor, so it inherits the
+  previous pass's scissor until the first drawable widget sets one.
+- CSS `overflow: hidden` maps to it (`UITypes.cpp`); `overflow: visible` is a
+  no-op, so a class default can't be overridden from a stylesheet.
+
 ## Reference Files
 
 - **Simple widget**: `Button.h/.cpp`

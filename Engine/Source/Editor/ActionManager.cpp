@@ -3714,9 +3714,17 @@ void ActionManager::BuildPhase1()
             // Lua errors, just `nil`s where addon-registered globals
             // should be. That's exactly the FPS-Demo Android failure mode
             // before this hook was added.
+            // "Android" (capitalized), not "android" -- nativePerPlatform keys
+            // are case-sensitive and every addon's package.json (and the
+            // NativeAddonManager.cpp doc comment) uses "Android". Passing the
+            // lowercase form here meant ResolveExtras("android") never matched
+            // ANY addon's nativePerPlatform.Android block on ANY project --
+            // extraDefines/extraLibs/extraLibDirs were silently dropped for
+            // every Android build (extraIncludeDirs from a common, non-platform
+            // block could still slip through, masking the bug).
             InjectNativeAddonsIntoCmake(buildProjDir + "Generated/AddonInject.cmake",
                                         buildProjDir,
-                                        "android");
+                                        "Android");
 
             // Standalone-mode builds drive gradlew from the engine's
             // Standalone/Android/ tree (buildProjDir = polyphaseDir +

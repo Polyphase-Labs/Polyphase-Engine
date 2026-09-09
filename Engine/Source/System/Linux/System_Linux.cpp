@@ -465,6 +465,16 @@ void SYS_Shutdown()
 
 void SYS_Update()
 {
+    // Skip in headless mode since we didn't create any XCB resources (see
+    // SYS_Initialize's matching skip and SYS_Shutdown's equivalent guard).
+    // This whole function exists to translate XCB window events into engine
+    // input state -- with no window/connection, xcb_poll_for_event dereferences
+    // a null XCB connection and segfaults instead of erroring gracefully.
+    if (IsHeadless())
+    {
+        return;
+    }
+
     int32_t prevMouseX = 0;
     int32_t prevMouseY = 0;
     INP_GetMousePosition(prevMouseX, prevMouseY);

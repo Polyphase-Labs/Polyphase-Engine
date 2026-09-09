@@ -46,6 +46,7 @@ SOURCES		:=	Source \
 				Source/Engine/UI \
 				Source/Engine/Timeline \
 				Source/Engine/Timeline/Tracks \
+				Source/Engine/Utils \
 				Source/Plugins \
 				Source/System \
 				Source/System/3DS \
