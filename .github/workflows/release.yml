@@ -397,6 +397,123 @@ jobs:
           path: dist/PolyphaseEditor-linux-x64.tar.gz
 
   # =========================================================================
+  #  macOS: Build engine + create .dmg
+  #
+  #  Apple Silicon only — Standalone/Makefile_Mac_{Editor,Game} hardcode
+  #  `-arch arm64 -mmacosx-version-min=12.0`, so this must run on an arm64
+  #  runner image (macos-14+; the `-large` variants are Intel). Pinned rather
+  #  than `macos-latest` for the same reason build-windows stopped pinning a
+  #  VS generator: image jumps have broken us before, and mac minutes are
+  #  the most expensive in the pool.
+  #
+  #  Toolchain: Xcode CLT + cmake + python3 ship on the runner image. The
+  #  LunarG Vulkan SDK (MoltenVK, loader, glslc, shaderc, spirv-cross) comes
+  #  from the install-vulkan-sdk-mac composite action — engine-repo mirror
+  #  first, LunarG CDN fallback — and is cached across runs.
+  #
+  #  Packaging is entirely the existing Installers/build_dmg_mac.sh chain
+  #  (-> build_app_mac.sh -> stage_distribution.py --platform mac). The
+  #  bundle is ad-hoc signed: export MAC_SIGN_IDENTITY / MAC_NOTARY_PROFILE
+  #  on the dmg step (plus a keychain import) when a Developer ID is wired
+  #  up. Users of ad-hoc builds right-click > Open once, per Mac.md.
+  #
+  #  Not ported here: the CI smoke addon (build_smoke_addon.sh is Linux-only
+  #  — GNU ld flags, PLATFORM_LINUX) and the verify-test-project matrix.
+  # =========================================================================
+  build-mac:
+    # Same fail-fast rationale as build-windows / build-linux above.
+    needs: publish-docker-images
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize submodules
+        run: |
+          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
+          git submodule update --recursive
+
+      # Keep this version in lockstep with the action's default and
+      # Documentation/Development/SetupEnvironment/Mac.md.
+      - name: Cache Vulkan SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/VulkanSDK/1.4.357.1
+          key: vulkan-sdk-macos-1.4.357.1
+
+      - name: Install Vulkan SDK (macOS)
+        uses: ./.github/actions/install-vulkan-sdk-mac
+        with:
+          version: 1.4.357.1
+
+      # libgit2 (arm64, SecureTransport) + shader compile + embedded asset
+      # stubs in one go. Hard-fails if VULKAN_SDK has no bin/glslc.
+      - name: Prebuild (libgit2 + shaders + embedded stubs)
+        run: bash Tools/prebuild_mac.sh
+
+      - name: Build Engine (Mac Editor)
+        run: make -C Standalone -f Makefile_Mac_Editor -j$(sysctl -n hw.ncpu)
+
+      # The game runtime is staged into the bundle
+      # (Contents/Resources/Standalone/Build/Mac/Polyphase.macho) and reused
+      # by the Packaging window for script-only projects — without it the
+      # shipped editor can't package anything on a machine with no toolchain.
+      - name: Build Engine (Mac Game runtime)
+        run: make -C Standalone -f Makefile_Mac_Game -j$(sysctl -n hw.ncpu)
+
+      # Same story as Linux: the engine compiles Lua straight into
+      # libEngineEditor.a, so build libLua.a separately for native-addon
+      # link support. `a` (archive only) with explicit flags instead of the
+      # `macosx` convenience target, which also links lua/luac against
+      # -lreadline that we don't need. `make clean` afterwards keeps the
+      # in-tree .o files out of the staged External/Lua tree.
+      - name: Build libLua.a for native addons
+        run: |
+          make -C External/Lua a SYSCFLAGS="-DLUA_USE_MACOSX" MYCFLAGS="-arch arm64 -mmacosx-version-min=12.0" -j$(sysctl -n hw.ncpu)
+          mkdir -p External/Lua/Build/Mac/arm64/ReleaseEditor
+          cp External/Lua/liblua.a External/Lua/Build/Mac/arm64/ReleaseEditor/libLua.a
+          make -C External/Lua clean
+
+      # stage_distribution.py only WARNS when libLua.a is missing (and would
+      # silently fall back to the in-tree liblua.a we just cleaned). Fail
+      # loudly here instead.
+      - name: Verify import library for native addon builds
+        run: |
+          LUA_LIB="External/Lua/Build/Mac/arm64/ReleaseEditor/libLua.a"
+          if [ ! -f "$LUA_LIB" ]; then
+            echo "ERROR: libLua.a was not produced by the Lua build."
+            echo "       Expected: $LUA_LIB"
+            exit 1
+          fi
+          echo "[OK] libLua.a found."
+
+      # build_dmg_mac.sh drives build_app_mac.sh, which stages dist/Editor
+      # (stage_distribution.py --platform mac), wraps it into
+      # dist/Polyphase.app with MoltenVK + the loader in Contents/Frameworks,
+      # ad-hoc signs it, then wraps the app into a UDZO dmg with an
+      # /Applications shortcut. Output name carries POLYPHASE_VERSION_STRING.
+      - name: Build .dmg
+        run: bash Installers/build_dmg_mac.sh
+
+      - name: Verify dmg
+        run: |
+          shopt -s nullglob
+          dmgs=(dist/PolyphaseEditor-*-macos-arm64.dmg)
+          if [ ${#dmgs[@]} -ne 1 ]; then
+            echo "ERROR: expected exactly one dmg in dist/, found ${#dmgs[@]}:"
+            ls -la dist/ || true
+            exit 1
+          fi
+          ls -la "${dmgs[0]}"
+          hdiutil verify "${dmgs[0]}"
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/PolyphaseEditor-*-macos-arm64.dmg
+          if-no-files-found: error
+
+  # =========================================================================
   #  Verify the engine can package a real project end-to-end (Linux/Wii/
   #  GameCube/3DS) by headless-building $TEST_PROJECT_REPO. Gates the
   #  release so a regression in the headless build path or a per-platform
@@ -625,7 +742,7 @@ jobs:
   #  Create GitHub Release with all artifacts
   # =========================================================================
   create-release:
-    needs: [build-windows, build-linux, verify-test-project]
+    needs: [build-windows, build-linux, build-mac, verify-test-project]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -639,7 +756,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
-          pattern: '{windows-installer,windows-sdk,linux-deb,linux-tarball}'
+          pattern: '{windows-installer,windows-sdk,linux-deb,linux-tarball,macos-dmg}'
           merge-multiple: true
 
       - name: List release assets
@@ -656,3 +773,4 @@ jobs:
             release-assets/**/polyphase-sdk-windows-x64.zip
             release-assets/**/polyphase-engine_*_amd64.deb
             release-assets/**/PolyphaseEditor-linux-x64.tar.gz
+            release-assets/**/PolyphaseEditor-*-macos-arm64.dmg

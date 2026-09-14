@@ -1,0 +1,116 @@
+name: Install Vulkan SDK for macOS (Polyphase mirror + LunarG fallback)
+description: >
+  Installs the LunarG Vulkan SDK for macOS into ~/VulkanSDK/<version> and
+  exports VULKAN_SDK=~/VulkanSDK/<version>/macOS (the layout every mac
+  Makefile, Tools/prebuild_mac.sh and Installers/stage_distribution.py
+  expect). The installer zip is fetched from a GitHub Release asset on the
+  Polyphase-Labs/Polyphase-Engine repo first (tag `vulkan-sdk-<version>`,
+  asset `vulkansdk-macos-<version>.zip`) and falls back to LunarG's CDN when
+  no mirror asset has been published yet — LunarG cycles old SDKs off their
+  CDN, so uploading the mirror asset makes releases reproducible long-term.
+  macOS (arm64) runners only — Windows uses ../install-vulkan-sdk, Linux
+  uses the polyphaselabs/polyphase-bare Docker image with the SDK baked in.
+  Companion documentation: Documentation/Development/SetupEnvironment/Mac.md
+  must list the same version this action defaults to.
+
+inputs:
+  version:
+    description: >
+      Vulkan SDK version. The mirror release tag on the engine repo must be
+      `vulkan-sdk-<version>` and the asset `vulkansdk-macos-<version>.zip`
+      (the unmodified LunarG installer zip).
+    required: false
+    default: 1.4.357.1
+  polyphase-repo:
+    description: >
+      Repo that hosts the mirrored Vulkan SDK zip asset. Override per fork
+      that publishes under a different namespace.
+    required: false
+    default: Polyphase-Labs/Polyphase-Engine
+  mirror-url:
+    description: >
+      Full asset URL override. If non-empty, takes precedence over the
+      version/polyphase-repo combo and the LunarG fallback.
+    required: false
+    default: ''
+
+outputs:
+  vulkan-sdk-dir:
+    description: Absolute path to the SDK's macOS/ subdirectory (VULKAN_SDK).
+    value: ${{ steps.install.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download and install Vulkan SDK
+      id: install
+      shell: bash
+      run: |
+        set -euo pipefail
+        ver="${{ inputs.version }}"
+        repo="${{ inputs.polyphase-repo }}"
+        override="${{ inputs.mirror-url }}"
+
+        root="$HOME/VulkanSDK/$ver"
+        sdk="$root/macOS"
+
+        echo "Vulkan SDK $ver (macOS)"
+        echo "  install root: $root"
+        echo "  VULKAN_SDK  : $sdk"
+
+        # actions/cache may have restored a previous install; skip the
+        # download + installer run when the tree is already complete.
+        if [ -x "$sdk/bin/glslc" ] && [ -f "$sdk/lib/libMoltenVK.dylib" ]; then
+          echo "  already installed (cache hit) — skipping download"
+        else
+          zip="$RUNNER_TEMP/vulkansdk-macos-$ver.zip"
+          mirror="https://github.com/$repo/releases/download/vulkan-sdk-$ver/vulkansdk-macos-$ver.zip"
+          lunarg="https://sdk.lunarg.com/sdk/download/$ver/mac/vulkansdk-macos-$ver.zip"
+
+          fetch() {
+            echo "  downloading: $1"
+            curl -fSL --retry 3 --retry-delay 5 -A "Mozilla/5.0" -o "$zip" "$1"
+          }
+
+          if [ -n "$override" ]; then
+            fetch "$override"
+          elif ! fetch "$mirror"; then
+            echo "::warning::No mirror asset at $mirror — falling back to LunarG CDN. Upload vulkansdk-macos-$ver.zip to the vulkan-sdk-$ver release to make this reproducible."
+            fetch "$lunarg"
+          fi
+
+          extract="$RUNNER_TEMP/vulkansdk-extract"
+          rm -rf "$extract"
+          mkdir -p "$extract"
+          unzip -q "$zip" -d "$extract"
+
+          # LunarG ships an InstallBuilder .app; drive it headlessly exactly as
+          # Documentation/Development/SetupEnvironment/Mac.md documents.
+          app="$(find "$extract" -maxdepth 2 -name 'vulkansdk-macOS-*.app' -print -quit)"
+          if [ -z "$app" ]; then
+            echo "::error::Installer app not found inside $zip"
+            find "$extract" -maxdepth 2 -print
+            exit 1
+          fi
+          installer="$(find "$app/Contents/MacOS" -maxdepth 1 -type f -name 'vulkansdk-macOS-*' -print -quit)"
+          echo "  installer  : $installer"
+          mkdir -p "$root"
+          "$installer" --root "$root" --accept-licenses --default-answer --confirm-command install
+          rm -rf "$extract" "$zip"
+        fi
+
+        # Sanity-check the pieces the build actually consumes: glslc for
+        # Tools/prebuild_mac.sh, shaderc/spirv-cross for Makefile_Mac_Editor's
+        # LIBS, MoltenVK + loader for stage_distribution.py's runtime staging.
+        for f in bin/glslc lib/libMoltenVK.dylib lib/libvulkan.1.dylib lib/libshaderc_combined.a lib/libspirv-cross-core.a share/vulkan/icd.d/MoltenVK_icd.json; do
+          if [ ! -e "$sdk/$f" ]; then
+            echo "::error::Vulkan SDK install incomplete: $sdk/$f missing"
+            ls -la "$sdk" "$sdk/lib" 2>/dev/null || true
+            exit 1
+          fi
+        done
+        echo "[OK] Vulkan SDK $ver installed at $sdk"
+
+        echo "VULKAN_SDK=$sdk" >> "$GITHUB_ENV"
+        echo "$sdk/bin" >> "$GITHUB_PATH"
+        echo "dir=$sdk" >> "$GITHUB_OUTPUT"

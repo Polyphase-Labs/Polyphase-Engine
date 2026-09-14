@@ -42,6 +42,8 @@ Note: The system `curl` on macOS has no WebSocket support, so `wss://` connectio
   ```
 
   The SDK ships the same thing as `~/VulkanSDK/<ver>/setup-env.sh`; `source` it instead if you prefer.
+
+  Note: the release workflow's `build-mac` job installs this same version through `.github/actions/install-vulkan-sdk-mac` (engine-repo mirror first, LunarG CDN fallback). Bumping the SDK version here means bumping that action's default and the `actions/cache` key in `.github/workflows/release.yml` too. Uploading the unmodified `vulkansdk-macos-<ver>.zip` as an asset on a `vulkan-sdk-<ver>` GitHub Release makes CI independent of LunarG cycling old SDKs off their CDN.
 - Close and reopen your terminal (or run `source ~/.zshrc`)
 - Verify the driver is visible:
 
