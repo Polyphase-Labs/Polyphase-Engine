@@ -244,6 +244,9 @@ static void UpdateDrawableSize()
 {
     GetEngineState()->mSystem.mWindowHasFocus = true;
     INP_TrapCursor(INP_IsCursorTrapped());
+#if EDITOR
+    ImGui_ImplMac_EnsureKeyResponder();
+#endif
 }
 
 - (void)windowDidResignKey:(NSNotification*)notification
@@ -259,11 +262,17 @@ static void UpdateDrawableSize()
 - (void)windowDidEnterFullScreen:(NSNotification*)notification
 {
     GetEngineState()->mSystem.mFullscreen = true;
+#if EDITOR
+    ImGui_ImplMac_EnsureKeyResponder();
+#endif
 }
 
 - (void)windowDidExitFullScreen:(NSNotification*)notification
 {
     GetEngineState()->mSystem.mFullscreen = false;
+#if EDITOR
+    ImGui_ImplMac_EnsureKeyResponder();
+#endif
 }
 
 @end
@@ -410,10 +419,6 @@ static void HandleNSEvent(NSEvent* event)
     default:
         break;
     }
-
-#if EDITOR
-    ImGui_ImplMac_EventHandler((__bridge void*)event);
-#endif
 }
 
 static void BuildMainMenu()
@@ -574,8 +579,15 @@ void SYS_Update()
                                               inMode:NSDefaultRunLoopMode
                                              dequeue:YES]) != nil)
         {
+            // Engine key/mouse state first, then Cocoa dispatch (which is
+            // what drives the ImGui text input responder), then ImGui. The
+            // ImGui handler has to run last so it can tell whether the
+            // responder produced any characters for this event.
             HandleNSEvent(event);
             [NSApp sendEvent:event];
+#if EDITOR
+            ImGui_ImplMac_EventHandler((__bridge void*)event);
+#endif
         }
     }
 
@@ -677,6 +689,15 @@ void SYS_DrainDroppedFiles(std::vector<std::string>& outPaths)
 // ---------------------------------------------------------------------------
 // Dialogs
 // ---------------------------------------------------------------------------
+// A modal NSOpenPanel/NSSavePanel takes first responder and does not give it
+// back to the ImGui text input responder on dismissal.
+static void RestoreKeyResponderAfterModal()
+{
+#if EDITOR
+    ImGui_ImplMac_EnsureKeyResponder();
+#endif
+}
+
 static NSURL* ProjectDirectoryURL()
 {
     const std::string& projDir = GetEngineState()->mProjectDirectory;
@@ -707,6 +728,8 @@ std::vector<std::string> SYS_OpenFileDialog()
                 retFilenames.push_back(std::string(url.path.UTF8String));
             }
         }
+
+        RestoreKeyResponderAfterModal();
     }
 
     // Callers index [0] unconditionally (the zenity path always pushed one entry).
@@ -731,6 +754,8 @@ std::string SYS_SaveFileDialog()
         {
             result = panel.URL.path.UTF8String;
         }
+
+        RestoreKeyResponderAfterModal();
     }
 
     return result;
@@ -753,6 +778,8 @@ std::string SYS_SelectFolderDialog()
         {
             result = panel.URL.path.UTF8String;
         }
+
+        RestoreKeyResponderAfterModal();
     }
 
     return result;

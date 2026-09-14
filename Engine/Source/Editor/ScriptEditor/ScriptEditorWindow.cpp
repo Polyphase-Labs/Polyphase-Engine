@@ -15,6 +15,7 @@
 #endif
 
 #include "ScriptEditorWindow.h"
+#include "EditorImgui.h"
 #include "Preferences/JsonSettings.h"
 #include "Log.h"
 #include "System/System.h"
@@ -148,16 +149,15 @@ void ScriptEditorWindow::DrawContent()
     // --- Keyboard shortcuts (only when this panel is focused) ---
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
     {
-        ImGuiIO& io = ImGui::GetIO();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+        if (EditorShortcutModDown() && ImGui::IsKeyPressed(ImGuiKey_S, false))
         {
             DoSave();
         }
-        else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false))
+        else if (EditorShortcutModDown() && ImGui::IsKeyPressed(ImGuiKey_O, false))
         {
             DoOpen();
         }
-        else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false))
+        else if (EditorShortcutModDown() && ImGui::IsKeyPressed(ImGuiKey_N, false))
         {
             DoNew();
         }

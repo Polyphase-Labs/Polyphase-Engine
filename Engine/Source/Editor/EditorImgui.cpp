@@ -6609,9 +6609,9 @@ static void DrawScenePanel()
                         // Shift+click: select range from anchor to clicked node
                         GetEditorState()->SelectNodesInRange(rootNode, node);
                     }
-                    else if (ImGui::GetIO().KeyCtrl)
+                    else if (EditorShortcutModDown())
                     {
-                        // Ctrl+click: toggle selection / add to selection
+                        // Ctrl+click (Cmd on Mac): toggle selection / add to selection
                         if (nodeSelected)
                         {
                             GetEditorState()->DeselectNode(node);
@@ -11046,9 +11046,9 @@ static void DrawScriptsPanel()
                     {
                         const std::string& clickedName = entry->mFullPath;
 
-                        if (ImGui::GetIO().KeyCtrl)
+                        if (EditorShortcutModDown())
                         {
-                            // Ctrl+click: toggle this row in the selection.
+                            // Ctrl+click (Cmd on Mac): toggle this row in the selection.
                             auto it = std::find(sSelectedScripts.begin(), sSelectedScripts.end(), clickedName);
                             if (it != sSelectedScripts.end())
                             {

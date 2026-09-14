@@ -2,6 +2,7 @@
 
 #include "PackagingWindow.h"
 #include "EditorWidgets.h"
+#include "EditorImgui.h"
 #include "PackagingSettings.h"
 #include "BuildTargetRegistry.h"
 #include "EditorUIHookManager.h"
@@ -2319,7 +2320,7 @@ void PackagingWindow::DrawBuildOutputModal()
                 {
                     int lo = mSelectionAnchor < rowIndex ? mSelectionAnchor : rowIndex;
                     int hi = mSelectionAnchor > rowIndex ? mSelectionAnchor : rowIndex;
-                    if (!io.KeyCtrl)
+                    if (!EditorShortcutModDown())
                     {
                         mSelectedLineIndices.clear();
                     }
@@ -2328,7 +2329,7 @@ void PackagingWindow::DrawBuildOutputModal()
                         mSelectedLineIndices.insert(i);
                     }
                 }
-                else if (io.KeyCtrl)
+                else if (EditorShortcutModDown())
                 {
                     if (mSelectedLineIndices.count(rowIndex) != 0)
                     {
@@ -2408,7 +2409,7 @@ void PackagingWindow::DrawBuildOutputModal()
         mSelectionLineCount = globalLineIndex;
 
         // Ctrl+A inside the focused output area selects every visible line.
-        if (ImGui::IsWindowFocused() && io.KeyCtrl &&
+        if (ImGui::IsWindowFocused() && EditorShortcutModDown() &&
             ImGui::IsKeyPressed(ImGuiKey_A, false))
         {
             mSelectedLineIndices.clear();
@@ -2420,7 +2421,7 @@ void PackagingWindow::DrawBuildOutputModal()
 
         // Ctrl+C copies the current selection (or the whole log if nothing
         // is selected) so the standard shortcut works without right-click.
-        if (ImGui::IsWindowFocused() && io.KeyCtrl &&
+        if (ImGui::IsWindowFocused() && EditorShortcutModDown() &&
             ImGui::IsKeyPressed(ImGuiKey_C, false))
         {
             if (!mSelectedLineIndices.empty())

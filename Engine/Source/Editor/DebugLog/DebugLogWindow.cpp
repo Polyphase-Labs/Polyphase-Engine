@@ -2,6 +2,7 @@
 
 #include "DebugLogWindow.h"
 #include "EditorWidgets.h"
+#include "EditorImgui.h"
 #include "Editor/EditorUIHookManager.h"
 #include "Engine.h"
 #include "Clock.h"
@@ -479,9 +480,9 @@ void DebugLogWindow::DrawContent()
             if (ImGui::Selectable(label, highlight, ImGuiSelectableFlags_AllowDoubleClick))
             {
                 const ImGuiIO& io = ImGui::GetIO();
-                if (io.KeyCtrl)
+                if (EditorShortcutModDown())
                 {
-                    // Ctrl+Click: toggle this entry
+                    // Ctrl+Click (Cmd on Mac): toggle this entry
                     if (isSelected)
                         mSelectedEntries.erase(entryIdx);
                     else
@@ -584,13 +585,12 @@ void DebugLogWindow::DrawContent()
     // Keyboard shortcuts (when log child is hovered and no popup open)
     if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId))
     {
-        const ImGuiIO& io = ImGui::GetIO();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C))
+        if (EditorShortcutModDown() && ImGui::IsKeyPressed(ImGuiKey_C))
         {
             if (!mSelectedEntries.empty())
                 CopySelectedToClipboard();
         }
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A))
+        if (EditorShortcutModDown() && ImGui::IsKeyPressed(ImGuiKey_A))
         {
             mSelectedEntries.clear();
             for (int idx : filteredIndices)

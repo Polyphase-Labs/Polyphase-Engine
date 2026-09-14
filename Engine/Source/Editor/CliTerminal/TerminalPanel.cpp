@@ -447,7 +447,7 @@ void TerminalPanel::DrawOutput()
                 {
                     int lo = mSelectionAnchor < rowIndex ? mSelectionAnchor : rowIndex;
                     int hi = mSelectionAnchor > rowIndex ? mSelectionAnchor : rowIndex;
-                    if (!io.KeyCtrl)
+                    if (!EditorShortcutModDown())
                     {
                         mSelectedLineIndices.clear();
                     }
@@ -456,7 +456,7 @@ void TerminalPanel::DrawOutput()
                         mSelectedLineIndices.insert(i);
                     }
                 }
-                else if (io.KeyCtrl)
+                else if (EditorShortcutModDown())
                 {
                     if (mSelectedLineIndices.count(rowIndex) != 0)
                     {
@@ -544,7 +544,7 @@ void TerminalPanel::DrawOutput()
     mSelectionLineCount = globalLineIndex;
 
     // Ctrl+A while the output area is focused selects every visible row.
-    if (ImGui::IsWindowFocused() && io.KeyCtrl &&
+    if (ImGui::IsWindowFocused() && EditorShortcutModDown() &&
         ImGui::IsKeyPressed(ImGuiKey_A, false))
     {
         mSelectedLineIndices.clear();
@@ -565,7 +565,7 @@ void TerminalPanel::DrawOutput()
         ForwardKeysToProcess();
     }
     else if (ImGui::IsWindowHovered() && ImGui::IsKeyPressed(ImGuiKey_C) &&
-             (ImGui::GetIO().KeyCtrl))
+             EditorShortcutModDown())
     {
         // Pipe-mode fallback: Ctrl+C copies the current selection if any,
         // otherwise the entire log.

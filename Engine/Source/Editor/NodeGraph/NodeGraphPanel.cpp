@@ -2,6 +2,7 @@
 
 #include "NodeGraph/NodeGraphPanel.h"
 #include "EditorWidgets.h"
+#include "EditorImgui.h"
 #include "EditorState.h"
 #include "EditorConstants.h"
 #include "EditorIcons.h"
@@ -2433,7 +2434,7 @@ void DrawNodeGraphContent()
     }
 
     // Ctrl+C — Copy selected nodes to clipboard
-    if (ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+    if (ImGui::IsKeyPressed(ImGuiKey_C) && EditorShortcutModDown() && !ImGui::GetIO().WantTextInput)
     {
         int selectedCount = ed::GetSelectedObjectCount();
         if (selectedCount > 0)
@@ -2453,14 +2454,14 @@ void DrawNodeGraphContent()
     }
 
     // Ctrl+V — Paste from clipboard
-    if (ImGui::IsKeyPressed(ImGuiKey_V) && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+    if (ImGui::IsKeyPressed(ImGuiKey_V) && EditorShortcutModDown() && !ImGui::GetIO().WantTextInput)
     {
         glm::vec2 pastePos(sCanvasCenter.x, sCanvasCenter.y);
         GraphClipboard::PasteFromClipboard(graph, pastePos, sEditedAsset);
     }
 
     // Ctrl+D — Duplicate selection
-    if (ImGui::IsKeyPressed(ImGuiKey_D) && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+    if (ImGui::IsKeyPressed(ImGuiKey_D) && EditorShortcutModDown() && !ImGui::GetIO().WantTextInput)
     {
         int selectedCount = ed::GetSelectedObjectCount();
         if (selectedCount > 0)
