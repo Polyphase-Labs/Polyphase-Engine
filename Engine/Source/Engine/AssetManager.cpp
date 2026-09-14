@@ -1465,6 +1465,18 @@ Asset* AssetManager::LoadAsset(AssetStub& stub)
             stub.mAsset->EnsureUuid();
             stub.mUuid = stub.mAsset->GetUuid();
         }
+
+#if EDITOR
+        // A file duplicated/renamed outside the editor (e.g. copied in Explorer)
+        // keeps its old serialized Name baked in, even though the stub's name
+        // (and on-disk filename) reflect the new copy. Reconcile so displays
+        // like the scene tab title match the file it was actually opened from.
+        if (stub.mAsset != nullptr &&
+            stub.mAsset->GetName() != stub.mName)
+        {
+            stub.mAsset->SetName(stub.mName);
+        }
+#endif
     }
 
     return stub.mAsset;
