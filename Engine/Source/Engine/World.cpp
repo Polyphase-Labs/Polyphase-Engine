@@ -1363,8 +1363,14 @@ void World::RegisterNode(Node* node, bool subRoot)
     }
     else if (nodeType == Camera3D::GetStaticType())
     {
+        // Also yield when the fallback stand-in currently holds the slot: a real
+        // camera arriving later (scene load, spawned prefab, level streamed in)
+        // must take over from it. EnsureFallbackCamera() then retires the
+        // stand-in on the next update -- detaching a node here, in the middle of
+        // registering another one, is not safe.
         if (mActiveCamera == nullptr ||
-            mActiveCamera->IsEditorCamera())
+            mActiveCamera->IsEditorCamera() ||
+            mActiveCamera == mFallbackCamera)
         {
             mActiveCamera = node->As<Camera3D>();
         }
@@ -1408,6 +1414,11 @@ void World::UnregisterNode(Node* node, bool subRoot)
     if (node == mActiveCamera)
     {
         SetActiveCamera(nullptr);
+    }
+
+    if (node == mFallbackCamera)
+    {
+        mFallbackCamera = nullptr;
     }
 
     UnregisterNodeUuid(node);
@@ -1512,6 +1523,10 @@ void World::Update(float deltaTime)
         mLoadedSceneName = mQueuedSceneName;
         mQueuedSceneName.clear();
     }
+
+    // After any queued level swap, so a scene loaded this frame is evaluated
+    // with its own cameras already registered.
+    EnsureFallbackCamera();
 
     // Ensure world root node is set to replicate. (Otherwise clients will see nothing)
     // This might a heavy-handed approach but I don't want a developer to worry about needing to
@@ -2460,6 +2475,63 @@ void World::AddNewlyRegisteredNode(Node* node)
     {
         // This should really only be called for Widgets when they are first made visible
         sNewlyRegisteredNodes.insert(ResolveWeakPtr(node));
+    }
+}
+
+// A scene with no Camera3D leaves the renderer with no active camera, which
+// sends the frame down a different path and lays the UI out incorrectly --
+// widgets end up offset and large regions of the screen go unpainted. It is
+// reproducible on Android and easy to ship without noticing, because a scene
+// authored with any camera at all (including one added incidentally) hides it.
+//
+// Rather than require every UI-only scene to carry a dummy camera, keep a
+// transient stand-in alive whenever the scene provides none, and retire it as
+// soon as a real camera registers (see RegisterNode).
+void World::EnsureFallbackCamera()
+{
+    // Headless cooks never render, and must not gain an extra node in the tree.
+    if (IsHeadless())
+    {
+        return;
+    }
+
+    // A real camera has taken over. Retire the stand-in here rather than in
+    // RegisterNode so a node is never detached mid-registration. Clear the
+    // member before detaching: Detach() unregisters, which re-enters
+    // UnregisterNode and would clear it anyway.
+    if (mFallbackCamera != nullptr &&
+        mActiveCamera != mFallbackCamera)
+    {
+        Camera3D* retired = mFallbackCamera;
+        mFallbackCamera = nullptr;
+        retired->Detach();
+        return;
+    }
+
+    // GetActiveCamera(), not mActiveCamera, is the real test -- it also accounts
+    // for the camera override and, in the editor, the editor camera. Neither
+    // needs a stand-in. A world with no root node has nothing to attach to yet.
+    if (mFallbackCamera == nullptr &&
+        mRootNode != nullptr &&
+        GetActiveCamera() == nullptr)
+    {
+        mFallbackCamera = SpawnDefaultCamera();
+
+        if (mFallbackCamera != nullptr)
+        {
+            mFallbackCamera->SetName("Fallback Camera");
+
+            // SpawnDefaultCamera -> RegisterNode already made it active (the
+            // slot was empty), but don't depend on that ordering.
+            if (mActiveCamera == nullptr)
+            {
+                mActiveCamera = mFallbackCamera;
+            }
+
+            LogWarning("World: scene '%s' has no Camera3D -- using a transient fallback camera. "
+                       "Add a Camera3D to the scene; UI-only scenes need one too.",
+                       mLoadedSceneName.empty() ? "<unnamed>" : mLoadedSceneName.c_str());
+        }
     }
 }
 

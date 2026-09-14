@@ -146,7 +146,12 @@ public:
     void DiscoverDirectory(AssetDir* directory, bool engineDir);
     void RefreshDirectory(AssetDir* directory);
     void Discover(const char* directoryName, const char* directoryPath);
-    void DiscoverAssetRegistry(const char* registryPath);
+    // POLYPHASE_API: additive, and works with EDITOR=0 -- it ends in
+    // RegisterAsset and never clears the lookup maps, so an addon can call it
+    // once per downloaded content bundle to fold that bundle's stubs into the
+    // live registry. Registry paths resolve through Stream::ReadFile, so a
+    // registry living inside a mounted Content.pak is readable.
+    POLYPHASE_API void DiscoverAssetRegistry(const char* registryPath);
     void DiscoverEmbeddedAssets(struct EmbeddedFile* assets, uint32_t numAssets);
     void Purge(bool purgeEngineAssets);
     POLYPHASE_API bool PurgeAsset(const char* name);
@@ -205,7 +210,11 @@ public:
     std::vector<Asset*>& GetTransientAssets();
     std::vector<AssetStub*> GatherDirtyAssets();
 
-    AssetStub* RegisterAsset(const std::string& filename, TypeId type, AssetDir* directory, EmbeddedFile* embeddedAsset, bool engineAsset, uint64_t uuid = 0);
+    // POLYPHASE_API: lets an addon register an asset it did not create on disk --
+    // e.g. a stub whose mPath is a key inside a mounted Content.pak, which
+    // Asset::LoadFile then resolves through Stream::ReadFile. Pass a non-null
+    // directory: a null one yields an empty mPath and the asset never persists.
+    POLYPHASE_API AssetStub* RegisterAsset(const std::string& filename, TypeId type, AssetDir* directory, EmbeddedFile* embeddedAsset, bool engineAsset, uint64_t uuid = 0);
     // POLYPHASE_API: exposed to addons so a plugin-registered "Create Asset"
     // menu entry can drop the .oct directly into the asset browser tree
     // (RegisterAsset + SaveAsset under the hood) without bouncing through

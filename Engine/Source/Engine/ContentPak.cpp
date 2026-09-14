@@ -5,7 +5,6 @@
 
 #if !PLATFORM_MAC
 #include <malloc.h>
-#include <stdint.h>
 #endif
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,6 +12,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 
 // Header layout, all multi-byte fields written byte-wise little-endian so the
 // same pak reads identically on big-endian Dolphin and little-endian desktop:
@@ -55,11 +55,43 @@ namespace
         uint32_t mPathLength = 0;
     };
 
-    FILE* sPakFile = nullptr;
-    MutexObject* sPakMutex = nullptr;
-    std::string sPakPath;
-    std::vector<PakRecord> sRecords;
-    std::vector<char> sPathBlob;
+    // One mounted archive, file- or memory-backed. Held behind unique_ptr in
+    // sMounts so a later push_back never invalidates a pointer a caller is
+    // still holding -- ContentPak::FindEntry hands a MountHandle to callers
+    // that outlive the lookup (e.g. SysFile).
+    struct PakMount
+    {
+        ContentPak::MountHandle mHandle = 0;
+        std::string mDebugName;
+
+        bool mIsMemory = false;
+
+        // File-backed.
+        FILE* mFile = nullptr;
+        std::string mPakPath;   // resolved path, for independent streaming handles
+
+        // Memory-backed.
+        const uint8_t* mMemoryData = nullptr;
+        uint32_t mMemorySize = 0;
+        bool mOwnsMemory = false;
+
+        MutexObject* mMutex = nullptr;
+        std::vector<PakRecord> mRecords;
+        std::vector<char> mPathBlob;
+
+        ~PakMount()
+        {
+            if (mFile != nullptr) fclose(mFile);
+            if (mOwnsMemory && mMemoryData != nullptr) free((void*)mMemoryData);
+            if (mMutex != nullptr) SYS_DestroyMutex(mMutex);
+        }
+    };
+
+    // Mounts stack in push order; sMounts.back() is searched first. A
+    // monotonically increasing counter keeps handles unique across the
+    // lifetime of the process even as mounts come and go.
+    std::vector<std::unique_ptr<PakMount>> sMounts;
+    ContentPak::MountHandle sNextHandle = 0;
 
     inline uint32_t RdLE32(const uint8_t* p)
     {
@@ -127,37 +159,130 @@ namespace
         return hash;
     }
 
-    // Binary search by hash, then confirm against the stored path. Equal hashes
-    // are scanned linearly so a collision falls through to a miss instead of
-    // returning the wrong entry.
-    const PakRecord* Find(const char* path)
+    PakMount* FindMount(ContentPak::MountHandle handle)
     {
-        if (sRecords.empty() || path == nullptr) return nullptr;
+        for (auto& mount : sMounts)
+        {
+            if (mount->mHandle == handle) return mount.get();
+        }
+        return nullptr;
+    }
 
-        const std::string key = Canonicalise(path);
-        const uint64_t hash = HashKey(key);
+    // Binary search a single mount's records by hash, then confirm against the
+    // stored path. Equal hashes are scanned linearly so a collision falls
+    // through to a miss instead of returning the wrong entry.
+    const PakRecord* FindInMount(const PakMount* mount, const std::string& key, uint64_t hash)
+    {
+        const std::vector<PakRecord>& records = mount->mRecords;
 
         size_t lo = 0;
-        size_t hi = sRecords.size();
+        size_t hi = records.size();
         while (lo < hi)
         {
             const size_t mid = lo + (hi - lo) / 2;
-            if (sRecords[mid].mPathHash < hash) lo = mid + 1;
+            if (records[mid].mPathHash < hash) lo = mid + 1;
             else hi = mid;
         }
 
-        for (size_t i = lo; i < sRecords.size() && sRecords[i].mPathHash == hash; ++i)
+        for (size_t i = lo; i < records.size() && records[i].mPathHash == hash; ++i)
         {
-            const PakRecord& rec = sRecords[i];
+            const PakRecord& rec = records[i];
             if (rec.mPathLength == key.size() &&
-                rec.mPathOffset + rec.mPathLength <= sPathBlob.size() &&
-                memcmp(&sPathBlob[rec.mPathOffset], key.c_str(), key.size()) == 0)
+                rec.mPathOffset + rec.mPathLength <= mount->mPathBlob.size() &&
+                memcmp(&mount->mPathBlob[rec.mPathOffset], key.c_str(), key.size()) == 0)
             {
                 return &rec;
             }
         }
 
         return nullptr;
+    }
+
+    struct FindResult
+    {
+        PakMount* mMount = nullptr;
+        const PakRecord* mRecord = nullptr;
+    };
+
+    // Newest-mounted-first, so a later mount shadows an earlier one instead of
+    // colliding with it.
+    FindResult Find(const char* path)
+    {
+        if (sMounts.empty() || path == nullptr) return FindResult();
+
+        const std::string key = Canonicalise(path);
+        const uint64_t hash = HashKey(key);
+
+        for (auto it = sMounts.rbegin(); it != sMounts.rend(); ++it)
+        {
+            const PakRecord* rec = FindInMount(it->get(), key, hash);
+            if (rec != nullptr)
+            {
+                FindResult result;
+                result.mMount = it->get();
+                result.mRecord = rec;
+                return result;
+            }
+        }
+
+        return FindResult();
+    }
+
+    // Shared header parse, fed either a file (Mount) or an in-memory buffer
+    // (MountMemory).
+    struct ParsedHeader
+    {
+        uint32_t mEntryCount = 0;
+        uint32_t mIndexOffset = 0;
+        uint32_t mIndexSize = 0;
+    };
+
+    bool ParseAndCheckHeader(const uint8_t* header, ParsedHeader& out)
+    {
+        if (memcmp(header, kPakMagic, sizeof(kPakMagic)) != 0 ||
+            RdLE32(header + 8) != kPakVersion ||
+            RdLE32(header + 24) != Fnv1a32(header, 24))
+        {
+            return false;
+        }
+
+        out.mEntryCount = RdLE32(header + 12);
+        out.mIndexOffset = RdLE32(header + 16);
+        out.mIndexSize = RdLE32(header + 20);
+        return true;
+    }
+
+    // `index` holds indexSize raw bytes copied out of the source (file or
+    // memory); ContentObfuscation::DecodeInPlace mutates it in place.
+    bool FinishMount(PakMount& mount, std::vector<char>& index, const ParsedHeader& parsed)
+    {
+        uint32_t decodedSize = 0;
+        if (!ContentObfuscation::DecodeInPlace(index.data(), parsed.mIndexSize, &decodedSize, nullptr))
+        {
+            LogError("ContentPak: '%s' index failed to decode", mount.mDebugName.c_str());
+            return false;
+        }
+
+        const uint32_t recordBytes = parsed.mEntryCount * kRecordSize;
+        if (decodedSize < recordBytes)
+        {
+            LogError("ContentPak: '%s' index is truncated", mount.mDebugName.c_str());
+            return false;
+        }
+
+        mount.mRecords.resize(parsed.mEntryCount);
+        for (uint32_t i = 0; i < parsed.mEntryCount; ++i)
+        {
+            const uint8_t* rec = (const uint8_t*)index.data() + (i * kRecordSize);
+            mount.mRecords[i].mPathHash = RdLE64(rec);
+            mount.mRecords[i].mDataOffset = RdLE32(rec + 8);
+            mount.mRecords[i].mDataSize = RdLE32(rec + 12);
+            mount.mRecords[i].mPathOffset = RdLE32(rec + 16);
+            mount.mRecords[i].mPathLength = RdLE32(rec + 20);
+        }
+
+        mount.mPathBlob.assign(index.begin() + recordBytes, index.begin() + decodedSize);
+        return true;
     }
 }
 
@@ -262,11 +387,9 @@ static bool ReadThroughAlignedBounce(FILE* file, const char* pakPath, uint32_t o
     return true;
 }
 
-bool ContentPak::Mount(const char* pakPath)
+ContentPak::MountHandle ContentPak::Mount(const char* pakPath)
 {
-    Unmount();
-
-    if (pakPath == nullptr) return false;
+    if (pakPath == nullptr) return 0;
 
     // Try the raw path first (works where the CWD is already the content root),
     // then the platform-resolved one. 3DS needs "romfs:/" prepended and PS2 a
@@ -285,50 +408,49 @@ bool ContentPak::Mount(const char* pakPath)
         PAK_IO_UNLOCK();
     }
 
-    if (file == nullptr) return false;
+    if (file == nullptr) return 0;
 
-    // The header goes through the same aligned, uncached path as everything
-    // else: a plain fread would land it in newlib's recycled FILE buffer, which
-    // on PS2 hardware came back as garbage ("not a valid pak") over SMB.
+    // The header goes through the same aligned path as everything else: a
+    // plain fread would land it in newlib's recycled FILE buffer, which on PS2
+    // hardware came back as garbage ("not a valid pak").
     uint8_t header[kHeaderSize] = { };
+    ParsedHeader parsed;
     if (!ReadThroughAlignedBounce(file, resolvedPath.c_str(), 0, kHeaderSize, (char*)header) ||
-        memcmp(header, kPakMagic, sizeof(kPakMagic)) != 0 ||
-        RdLE32(header + 8) != kPakVersion ||
-        RdLE32(header + 24) != Fnv1a32(header, 24))
+        !ParseAndCheckHeader(header, parsed))
     {
         fclose(file);
         LogError("ContentPak: '%s' is not a valid pak", pakPath);
-        return false;
+        return 0;
     }
 
-    const uint32_t entryCount = RdLE32(header + 12);
-    const uint32_t indexOffset = RdLE32(header + 16);
-    const uint32_t indexSize = RdLE32(header + 20);
-
-    if (indexSize == 0)
+    if (parsed.mIndexSize == 0)
     {
         fclose(file);
         LogError("ContentPak: '%s' index is unreadable", pakPath);
-        return false;
+        return 0;
     }
 
-    // Read + decode, retried. DecodeInPlace verifies a checksum over the whole
+    std::unique_ptr<PakMount> mount(new PakMount());
+    mount->mDebugName = pakPath;
+    mount->mFile = file;
+    mount->mPakPath = resolvedPath;
+    mount->mIsMemory = false;
+
+    // Read + decode, retried. FinishMount verifies a checksum over the whole
     // index, so it doubles as an end-to-end check of the read itself; on the
     // one platform where reads have come back wrong (PS2 hardware, see
     // ReadThroughAlignedBounce) a second attempt is cheap and tells the log
     // whether the fault was transient or deterministic.
-    std::vector<char> index(indexSize);
-    uint32_t decodedSize = 0;
+    std::vector<char> index(parsed.mIndexSize);
     bool indexOk = false;
     for (int attempt = 1; attempt <= 3 && !indexOk; ++attempt)
     {
-        if (!ReadThroughAlignedBounce(file, resolvedPath.c_str(), indexOffset, indexSize, index.data()))
+        if (!ReadThroughAlignedBounce(file, resolvedPath.c_str(), parsed.mIndexOffset, parsed.mIndexSize, index.data()))
         {
             LogWarning("ContentPak: '%s' index read failed (attempt %d of 3)", pakPath, attempt);
             continue;
         }
-        decodedSize = 0;
-        indexOk = ContentObfuscation::DecodeInPlace(index.data(), indexSize, &decodedSize, nullptr);
+        indexOk = FinishMount(*mount, index, parsed);
         if (!indexOk)
         {
             LogWarning("ContentPak: '%s' index decode failed (attempt %d of 3) -- re-reading", pakPath, attempt);
@@ -336,112 +458,172 @@ bool ContentPak::Mount(const char* pakPath)
     }
     if (!indexOk)
     {
-        fclose(file);
-        LogError("ContentPak: '%s' index failed to decode", pakPath);
-        return false;
+        return 0;   // mount's destructor closes `file`
     }
 
-    const uint32_t recordBytes = entryCount * kRecordSize;
-    if (decodedSize < recordBytes)
-    {
-        fclose(file);
-        LogError("ContentPak: '%s' index is truncated", pakPath);
-        return false;
-    }
+    mount->mMutex = SYS_CreateMutex();
+    mount->mHandle = ++sNextHandle;
+    const MountHandle handle = mount->mHandle;
+    const uint32_t entryCount = parsed.mEntryCount;
 
-    sRecords.resize(entryCount);
-    for (uint32_t i = 0; i < entryCount; ++i)
-    {
-        const uint8_t* rec = (const uint8_t*)index.data() + (i * kRecordSize);
-        sRecords[i].mPathHash = RdLE64(rec);
-        sRecords[i].mDataOffset = RdLE32(rec + 8);
-        sRecords[i].mDataSize = RdLE32(rec + 12);
-        sRecords[i].mPathOffset = RdLE32(rec + 16);
-        sRecords[i].mPathLength = RdLE32(rec + 20);
-    }
+    sMounts.push_back(std::move(mount));
 
-    sPathBlob.assign(index.begin() + recordBytes, index.begin() + decodedSize);
-
-    sPakFile = file;
-    // Store what actually opened, so streaming handles reopen the same file.
-    sPakPath = resolvedPath;
-    if (sPakMutex == nullptr)
-    {
-        sPakMutex = SYS_CreateMutex();
-    }
-
-    LogDebug("ContentPak: mounted '%s' (%u entries)", pakPath, entryCount);
-    return true;
+    LogDebug("ContentPak: mounted '%s' (%u entries, handle=%u)", pakPath, entryCount, handle);
+    return handle;
 }
 
-void ContentPak::Unmount()
+ContentPak::MountHandle ContentPak::MountMemory(const void* data, uint32_t size,
+                                                const char* debugName, bool takeOwnership)
 {
-    if (sPakFile != nullptr)
+    if (data == nullptr || size < kHeaderSize) return 0;
+
+    const uint8_t* bytes = (const uint8_t*)data;
+
+    ParsedHeader parsed;
+    if (!ParseAndCheckHeader(bytes, parsed))
     {
-        fclose(sPakFile);
-        sPakFile = nullptr;
+        LogError("ContentPak: memory mount '%s' is not a valid pak",
+            debugName != nullptr ? debugName : "<unnamed>");
+        return 0;
     }
 
-    sPakPath.clear();
-    sRecords.clear();
-    sPathBlob.clear();
+    if (parsed.mIndexSize == 0 ||
+        (uint64_t)parsed.mIndexOffset + parsed.mIndexSize > size)
+    {
+        LogError("ContentPak: memory mount '%s' index is out of range",
+            debugName != nullptr ? debugName : "<unnamed>");
+        return 0;
+    }
+
+    // DecodeInPlace mutates its buffer, so copy the index out of the caller's
+    // (possibly read-only, possibly shared) memory first.
+    std::vector<char> index(bytes + parsed.mIndexOffset, bytes + parsed.mIndexOffset + parsed.mIndexSize);
+
+    std::unique_ptr<PakMount> mount(new PakMount());
+    mount->mDebugName = debugName != nullptr ? debugName : "<unnamed>";
+    mount->mIsMemory = true;
+    mount->mMemoryData = bytes;
+    mount->mMemorySize = size;
+    mount->mOwnsMemory = takeOwnership;
+
+    if (!FinishMount(*mount, index, parsed))
+    {
+        mount->mOwnsMemory = false;   // caller retains ownership on failure
+        return 0;
+    }
+
+    mount->mMutex = SYS_CreateMutex();
+    mount->mHandle = ++sNextHandle;
+    const MountHandle handle = mount->mHandle;
+    const uint32_t entryCount = parsed.mEntryCount;
+
+    // Log before the move -- sMounts.push_back(std::move(mount)) nulls out
+    // this local unique_ptr, so `mount->mDebugName` right after it was a
+    // null-pointer deref (mDebugName lives at some small offset into the
+    // now-gone object, so it reliably crashed inside std::string's own SSO
+    // check rather than at the dereference itself, which made it look like
+    // string corruption rather than what it actually was).
+    LogDebug("ContentPak: mounted '%s' from memory (%u bytes, %u entries, handle=%u)",
+        mount->mDebugName.c_str(), size, entryCount, handle);
+
+    sMounts.push_back(std::move(mount));
+    return handle;
+}
+
+void ContentPak::Unmount(MountHandle handle)
+{
+    for (size_t i = 0; i < sMounts.size(); ++i)
+    {
+        if (sMounts[i]->mHandle == handle)
+        {
+            sMounts.erase(sMounts.begin() + i);
+            return;
+        }
+    }
+}
+
+void ContentPak::UnmountAll()
+{
+    sMounts.clear();
 }
 
 bool ContentPak::IsMounted()
 {
-    return sPakFile != nullptr;
+    return !sMounts.empty();
 }
 
 bool ContentPak::Exists(const char* path)
 {
-    return IsMounted() && Find(path) != nullptr;
+    return Find(path).mRecord != nullptr;
 }
 
-const char* ContentPak::GetPakPath()
+const char* ContentPak::GetPakPath(MountHandle handle)
 {
-    return sPakPath.c_str();
+    PakMount* mount = FindMount(handle);
+    static const char* kEmpty = "";
+    return (mount != nullptr && !mount->mIsMemory) ? mount->mPakPath.c_str() : kEmpty;
+}
+
+bool ContentPak::GetMountMemory(MountHandle handle, const uint8_t*& outData, uint32_t& outSize)
+{
+    PakMount* mount = FindMount(handle);
+    if (mount == nullptr || !mount->mIsMemory) { outData = nullptr; outSize = 0; return false; }
+
+    outData = mount->mMemoryData;
+    outSize = mount->mMemorySize;
+    return true;
 }
 
 void ContentPak::List(const char* prefix, std::vector<std::string>& outKeys)
 {
     outKeys.clear();
 
-    if (!IsMounted() || prefix == nullptr) return;
+    if (sMounts.empty() || prefix == nullptr) return;
 
     const std::string want = Canonicalise(prefix);
 
-    // Records are ordered by hash, not by path, so this is a linear scan. It runs
-    // once per prefix at startup over a few hundred entries -- not worth a second
-    // index.
-    for (size_t i = 0; i < sRecords.size(); ++i)
+    // Records aren't ordered by path within a mount, and mounts aren't ordered
+    // by content either, so this is a full linear scan. It runs once per prefix
+    // at startup over a few hundred entries -- not worth a second index. Newer
+    // mounts are scanned first and a key already emitted is skipped, so a
+    // shadowing entry in a later mount is the one reported.
+    for (auto it = sMounts.rbegin(); it != sMounts.rend(); ++it)
     {
-        const PakRecord& rec = sRecords[i];
-
-        if (rec.mPathLength < want.size() ||
-            rec.mPathOffset + rec.mPathLength > sPathBlob.size())
+        const PakMount* mount = it->get();
+        for (size_t i = 0; i < mount->mRecords.size(); ++i)
         {
-            continue;
-        }
+            const PakRecord& rec = mount->mRecords[i];
 
-        if (memcmp(&sPathBlob[rec.mPathOffset], want.c_str(), want.size()) == 0)
-        {
-            outKeys.push_back(std::string(&sPathBlob[rec.mPathOffset], rec.mPathLength));
+            if (rec.mPathLength < want.size() ||
+                rec.mPathOffset + rec.mPathLength > mount->mPathBlob.size())
+            {
+                continue;
+            }
+
+            if (memcmp(&mount->mPathBlob[rec.mPathOffset], want.c_str(), want.size()) == 0)
+            {
+                std::string key(&mount->mPathBlob[rec.mPathOffset], rec.mPathLength);
+                if (std::find(outKeys.begin(), outKeys.end(), key) == outKeys.end())
+                {
+                    outKeys.push_back(std::move(key));
+                }
+            }
         }
     }
 }
 
-bool ContentPak::FindEntry(const char* path, uint32_t& outDataOffset, uint32_t& outDataSize)
+bool ContentPak::FindEntry(const char* path, MountHandle& outMount, uint32_t& outDataOffset, uint32_t& outDataSize)
 {
+    outMount = 0;
     outDataOffset = 0;
     outDataSize = 0;
 
-    if (!IsMounted()) return false;
+    const FindResult found = Find(path);
+    if (found.mRecord == nullptr) return false;
 
-    const PakRecord* rec = Find(path);
-    if (rec == nullptr) return false;
-
-    outDataOffset = rec->mDataOffset;
-    outDataSize = rec->mDataSize;
+    outMount = found.mMount->mHandle;
+    outDataOffset = found.mRecord->mDataOffset;
+    outDataSize = found.mRecord->mDataSize;
     return true;
 }
 
@@ -450,10 +632,11 @@ bool ContentPak::Read(const char* path, int32_t maxSize, char*& outData, uint32_
     outData = nullptr;
     outSize = 0;
 
-    if (!IsMounted()) return false;
+    const FindResult found = Find(path);
+    if (found.mRecord == nullptr) return false;
 
-    const PakRecord* rec = Find(path);
-    if (rec == nullptr) return false;
+    PakMount* mount = found.mMount;
+    const PakRecord* rec = found.mRecord;
 
     uint32_t readSize = rec->mDataSize;
     if (maxSize > 0)
@@ -471,14 +654,25 @@ bool ContentPak::Read(const char* path, int32_t maxSize, char*& outData, uint32_
         return false;
     }
 
-    // The async asset loader shares this handle with the main thread, so the
-    // seek and read have to be atomic with respect to each other.
+    if (mount->mIsMemory)
     {
-        ScopedLock lock(sPakMutex);
+        if ((uint64_t)rec->mDataOffset + readSize > mount->mMemorySize)
+        {
+            free(buffer);
+            LogError("ContentPak: '%s' entry runs past the end of its memory mount", path);
+            return false;
+        }
+        memcpy(buffer, mount->mMemoryData + rec->mDataOffset, readSize);
+    }
+    else
+    {
+        // The async asset loader shares this handle with the main thread, so the
+        // seek and read have to be atomic with respect to each other.
+        ScopedLock lock(mount->mMutex);
 
         // Sector-aligned, cache-line-aligned, short-read-safe. See
         // ReadThroughAlignedBounce for why a plain fseek+fread is not enough.
-        if (!ReadThroughAlignedBounce(sPakFile, sPakPath.c_str(), rec->mDataOffset, readSize, buffer))
+        if (!ReadThroughAlignedBounce(mount->mFile, mount->mPakPath.c_str(), rec->mDataOffset, readSize, buffer))
         {
             free(buffer);
             LogError("ContentPak: read of %u bytes at %u failed for '%s'",

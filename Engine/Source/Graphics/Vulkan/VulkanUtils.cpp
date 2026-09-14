@@ -175,16 +175,25 @@ void TransitionImageLayout(
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     }
 
+    // srcAccessMask = 0 for a PREINITIALIZED source, not HOST_WRITE_BIT:
+    // HOST_WRITE is only valid when srcStageMask includes
+    // VK_PIPELINE_STAGE_HOST_BIT, and srcMask here is ALL_COMMANDS_BIT (no
+    // host stage). Desktop drivers ignored the ill-formed barrier; mobile
+    // drivers treated it as undefined behaviour and the following copy read
+    // back as black. Engine-created images now start UNDEFINED (see
+    // Image.h), so these branches only see an externally-created image, but
+    // they need to be spec-valid either way -- matching the UNDEFINED
+    // branches below, which already use 0.
     if (oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED &&
         newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
     {
-        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     }
     else if (oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED &&
         newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
     {
-        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     }
     else if ((oldLayout == VK_IMAGE_LAYOUT_UNDEFINED || oldLayout == VK_IMAGE_LAYOUT_PREINITIALIZED) &&
@@ -1173,7 +1182,12 @@ void CreateTextureResource(Texture* texture, uint8_t* pixels)
 
     if (pixels != nullptr)
     {
-        resource->mImage->Update(pixels);
+        // waitForCompletion=true: this is the texture's ONE-TIME initial
+        // upload (Texture::Create()), often followed immediately by the
+        // caller sampling it the same frame (e.g. a webcam snapshot bound
+        // straight to a Quad) -- see Image::Update()'s header comment for
+        // why the default fire-and-forget submission isn't safe here.
+        resource->mImage->Update(pixels, true);
     }
     else
     {

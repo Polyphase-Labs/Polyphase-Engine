@@ -494,7 +494,16 @@ bool StaticMesh::Import(const std::string& path, ImportOptions* options)
 
         // TODO: If supporting lightmap textures and automatic lightmap UV generation, then do not
         // join identical vertices. Auto-generated lightmap UVs will have all-unique vertices.
-        const aiScene* scene = importer.ReadFile(path, aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices | aiProcess_Triangulate);
+        //
+        // aiProcess_GenSmoothNormals: some source formats/exporters omit
+        // vertex normals entirely (e.g. a bare Wavefront .obj with no `vn`
+        // lines -- confirmed from a real AI-generated mesh, not a
+        // hypothetical). Without this flag Assimp leaves mesh->mNormals
+        // null, and the unconditional `normals[i]` access below (unlike the
+        // texcoord reads just above it, which already null-check) segfaults
+        // instead of importing with degenerate shading.
+        const aiScene* scene = importer.ReadFile(path, aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices |
+                                                        aiProcess_Triangulate | aiProcess_GenSmoothNormals);
 
         if (scene == nullptr)
         {
@@ -991,7 +1000,10 @@ void StaticMesh::Create(
             vertices[i].mPosition = glm::vec3(positions[i].x, positions[i].y, positions[i].z);
             vertices[i].mTexcoord0 = texcoords0 ? glm::vec2(texcoords0[i].x, texcoords0[i].y) : glm::vec2(0.0f, 0.0f);
             vertices[i].mTexcoord1 = texcoords1 ? glm::vec2(texcoords1[i].x, texcoords1[i].y) : glm::vec2(0.0f, 0.0f);
-            vertices[i].mNormal = glm::vec3(normals[i].x, normals[i].y, normals[i].z);
+            // aiProcess_GenSmoothNormals (see the ReadFile() call above) means
+            // this should always be non-null in practice; kept defensive
+            // rather than assumed, same spirit as the texcoord reads above.
+            vertices[i].mNormal = normals ? glm::vec3(normals[i].x, normals[i].y, normals[i].z) : glm::vec3(0.0f, 0.0f, 1.0f);
 
             glm::vec4 color4f = glm::vec4(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
             vertices[i].mColor = ColorFloat4ToUint32(color4f);
@@ -1007,7 +1019,10 @@ void StaticMesh::Create(
             vertices[i].mPosition = glm::vec3(positions[i].x, positions[i].y, positions[i].z);
             vertices[i].mTexcoord0 = texcoords0 ? glm::vec2(texcoords0[i].x, texcoords0[i].y) : glm::vec2(0.0f, 0.0f);
             vertices[i].mTexcoord1 = texcoords1 ? glm::vec2(texcoords1[i].x, texcoords1[i].y) : glm::vec2(0.0f, 0.0f);
-            vertices[i].mNormal = glm::vec3(normals[i].x, normals[i].y, normals[i].z);
+            // aiProcess_GenSmoothNormals (see the ReadFile() call above) means
+            // this should always be non-null in practice; kept defensive
+            // rather than assumed, same spirit as the texcoord reads above.
+            vertices[i].mNormal = normals ? glm::vec3(normals[i].x, normals[i].y, normals[i].z) : glm::vec3(0.0f, 0.0f, 1.0f);
         }
     }
 

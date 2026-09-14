@@ -3,11 +3,13 @@
 #include <vector>
 #include <string>
 
+#include "PolyphaseAPI.h"
+
 class Asset;
 class AssetDir;
 struct AssetStub;
 
-class AssetDir
+class POLYPHASE_API AssetDir
 {
 public:
     std::string mName;

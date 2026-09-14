@@ -1873,7 +1873,15 @@ void Renderer::Render(World* world, int32_t screenIndex)
             // ******************
             //  UI
             // ******************
+            // Set the scissor as well as the viewport. Both branches above leave
+            // the scissor at the SCENE viewport, which is the window viewport
+            // scaled by Resolution Scale (GetSceneViewport) -- with a scale below
+            // 1.0 the UI would be clipped to that smaller rect until the first
+            // drawable widget happened to set its own scissor in Widget::Render.
+            // Widgets that are laid out but non-drawable (Canvas, plain Widget)
+            // never set one at all.
             GFX_SetViewport(viewportX, viewportY, viewportWidth, viewportHeight);
+            GFX_SetScissor(viewportX, viewportY, viewportWidth, viewportHeight);
             GFX_BeginRenderPass(RenderPassId::Ui);
             RenderDraws(mWidgetDraws);
             GFX_EndRenderPass();

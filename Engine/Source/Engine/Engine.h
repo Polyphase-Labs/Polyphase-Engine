@@ -93,6 +93,10 @@ bool IsPlayingInEditor();
 bool IsPlaying();
 
 POLYPHASE_API bool IsHeadless();
+// True only for -serve: a long-running headless process that loads native
+// addons and serves ControllerServer's REST API, as opposed to a one-shot
+// -headless -build cook. Implies IsHeadless().
+POLYPHASE_API bool IsHeadlessService();
 
 bool IsGameTickEnabled();
 

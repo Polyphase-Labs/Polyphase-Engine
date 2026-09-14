@@ -414,6 +414,38 @@ Polyphase targets multiple platforms. Be aware of conditional compilation:
 | `API_GX`           | GameCube/Wii rendering   |
 | `API_C3D`          | 3DS rendering            |
 
+### Android specifics
+
+- **`adb logcat -s Polyphase:V` is the diagnostic channel.** `SYS_Log`
+  (`System_Android.cpp`) routes every `LogDebug`/`LogWarning`/`LogError` to
+  `__android_log_vprint` under the tag `Polyphase`, independent of the
+  `LogToFile` setting. Fastest way to see what a device build is doing. Note
+  the `Log*` functions return early unless `EngineConfig::mLogging` is on
+  (default true, but a project `Config.ini` can turn it off).
+- **`LogToFile` writes to app-private internal storage** on Android
+  (`ANativeActivity::internalDataPath`), not the working directory — a
+  NativeActivity has no writable cwd, so a bare relative `fopen` silently
+  fails and no file ever appears. Pull it with
+  `adb shell run-as <package> cat files/<Project>.log`.
+- **Engine source is recompiled per target; only editor-only code needs an
+  editor rebuild.** `Engine/Source/**` (Vulkan backend included) is built
+  fresh by the Android NDK/CMake pass on every *Package -> Android*. Only
+  `#if EDITOR` code (e.g. `ActionManager.cpp`, which drives packaging itself)
+  requires rebuilding the desktop editor first. Don't send someone through a
+  full editor rebuild to test an engine runtime fix.
+- **A scene with no `Camera3D` lays out its UI wrong.** `World::RegisterNode`
+  makes the first registered camera active; with none, `mActiveCamera` stays
+  null and the renderer takes a different frame path -- UI ends up offset with
+  large unpainted regions (confirmed on Android, maskable on desktop).
+  `World::EnsureFallbackCamera()` now spawns a transient stand-in when the
+  scene provides none and retires it once a real camera registers. Authored
+  scenes should still carry their own camera. Fixed alongside: the UI pass set
+  the viewport but not the scissor, inheriting the *scene* viewport (window
+  viewport x Resolution Scale).
+- **Window size != swapchain extent.** `mWindowWidth/Height` come from
+  `ANativeWindow_get*` and exclude display-cutout insets; the Vulkan surface's
+  `currentExtent` can be larger. UI lays out against the window size.
+
 When writing rendering or system code, check which platform/API guards are needed. Most gameplay and editor code is platform-agnostic.
 
 ---
@@ -427,6 +459,17 @@ Before fixing a bug or adding a feature:
 3. **Check the `.llm/` docs** for architectural context and gotchas.
 4. **Look at similar existing implementations.** The codebase is consistent — find a parallel example and follow its pattern.
 5. **Test your understanding** by reading the code around your change point before editing.
+6. **Bisect the data before blaming the engine.** When something renders or
+   behaves wrong on one platform only, cut the scene/asset down until the
+   symptom flips — delete subtrees, swap in a known-good asset, toggle one
+   property. A minimal repro localizes the cause in a single step, where
+   reading renderer internals can burn hours confirming theories that were
+   never the cause.
+7. **Prefer one decisive measurement over another plausible theory.** Log the
+   actual runtime values, or A/B against a known-good input, and let the
+   result choose the next step. If two consecutive fixes based on code reading
+   change nothing, stop and measure — the model of the bug is wrong, not the
+   fix.
 
 ---
 
@@ -462,6 +505,27 @@ Before fixing a bug or adding a feature:
   Forgetting this produces tiles/meshes that look 2× or 4× too bright. See `StaticMesh.cpp:154` and `PaintManager.cpp:514` for the canonical pattern.
 - **Mesh upload dirty flags are separate from mesh dirty.** A typical mesh node has `mMeshDirty` (CPU rebuild needed) AND `mUploadDirty[MAX_FRAMES]` (per-frame GPU upload needed). `RebuildMeshInternal()` only touches `mMeshDirty`. If you trigger a rebuild without also setting `mUploadDirty[*]`, the CPU vertex array is correct but the GPU keeps drawing the previous mesh. **Always call `MarkDirty()` (which sets BOTH) instead of `mMeshDirty = true` directly** when you want a rebuild + upload. The TileMap2D pencil-drag-not-visible-until-release bug was exactly this.
 - **`SM_Cube` is a 2-unit cube** (vertices at ±1), not a unit cube. Scaling by `(width, height, depth)` produces a `2*width × 2*height × 2*depth` cube. Halve your scale or use a different mesh.
+
+### Vulkan texture upload
+
+- **A texture uploaded once and sampled immediately must wait for the upload.**
+  `Image::Update()` submits its layout transitions and buffer->image copy with
+  `vkQueueSubmit(..., VK_NULL_HANDLE)` — no fence, no wait. For a *streaming*
+  texture (`Texture::UpdatePixels` every frame) that's fine: a frame that
+  samples slightly stale contents is corrected by the next upload, invisibly.
+  A **one-shot** texture (a snapshot, a generated image created and bound in
+  the same frame) has no next upload, so a slow queue can sample it before the
+  copy lands — it renders black, forever, and only on slower GPUs. Pass
+  `Image::Update(src, /*waitForCompletion*/ true)` for that case;
+  `CreateTextureResource` already does for the initial `Texture::Create()`
+  upload. Leave the per-frame streaming path unwaited.
+- **Image initial layout is `UNDEFINED`, not `PREINITIALIZED`.**
+  `PREINITIALIZED` is only meaningful for LINEAR-tiled, host-written memory;
+  every `Image` here is OPTIMAL-tiled and device-local. Keep
+  `ciImage.initialLayout` (`Image.cpp`) and `Image::mLayout` (`Image.h`) in
+  sync. Both `Update()` and `Clear()` must treat UNDEFINED *and*
+  PREINITIALIZED as "sentinel — never transition back *to* it", since neither
+  is a legal `newLayout`.
 
 ### Mouse input in editor
 

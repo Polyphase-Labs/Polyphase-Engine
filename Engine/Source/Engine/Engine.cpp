@@ -10,6 +10,7 @@
 #include "Engine.h"
 #include "Log.h"
 #include "Script.h"
+#include "Utils/Sha256.h"
 #if EDITOR
 #include "LuaDebugger/LuaDebugger.h"
 
@@ -275,6 +276,22 @@ void ForceLinkage()
     // never runs and GetOctHooks() returns an empty struct.
     FORCE_LINK_CALL(OctHookAutoRegister);
 
+    // Sha256 (Engine/Utils/Sha256.h) is POLYPHASE_API but has no Node/Asset
+    // registration of its own, so FORCE_LINK_CALL doesn't apply -- its only
+    // in-engine caller today is EngineRuntimeValidator.cpp, whose own call
+    // chain isn't reachable from every build config. Standalone.exe exports
+    // symbols for native addons to link against directly (this is where
+    // com.polyphase.format.io.glb's PlatformBundler hit LNK2019 for
+    // Sha256::HashHex), and MSVC only pulls an .obj out of a static library
+    // into the final exe if something already-linked references it -- so
+    // without a real call here, Sha256.obj gets silently dropped and the
+    // export never exists for addons to import, regardless of the
+    // POLYPHASE_API marking. This keeps it linked unconditionally.
+    {
+        const uint8_t forceLinkSha256Dummy = 0;
+        (void)Sha256::HashHex(&forceLinkSha256Dummy, 1);
+    }
+
     // Node Types
     FORCE_LINK_CALL(Node);
     FORCE_LINK_CALL(Node3D);
@@ -415,6 +432,11 @@ bool IsHeadless()
     return sEngineConfig.mHeadless && sEngineConfig.mProjectPath != "";
 }
 
+bool IsHeadlessService()
+{
+    return IsHeadless() && sEngineConfig.mHeadlessService;
+}
+
 void ReadCommandLineArgs(int32_t argc, char** argv)
 {
     for (int32_t i = 0; i < argc; ++i)
@@ -497,6 +519,22 @@ void ReadCommandLineArgs(int32_t argc, char** argv)
         else if (strcmp(argv[i], "-headless") == 0)
         {
             sEngineConfig.mHeadless = true;
+        }
+        else if (strcmp(argv[i], "-serve") == 0)
+        {
+            // Implies -headless; a bare "-serve" with no project path still
+            // falls back to the normal editor via IsHeadless()'s project-path
+            // check, same as a bare "-headless" does.
+            sEngineConfig.mHeadless = true;
+            sEngineConfig.mHeadlessService = true;
+
+            // Optional port, e.g. "-serve 8080". Distinguish it from the next
+            // flag by checking it doesn't start with '-'.
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+            {
+                sEngineConfig.mServicePort = atoi(argv[i + 1]);
+                ++i;
+            }
         }
         else if (strcmp(argv[i], "-build") == 0)
         {
@@ -1181,6 +1219,15 @@ bool Update()
     }
 #endif
 
+    // Headless (-serve/-build) never creates a graphics device/swapchain --
+    // GFX_CreateTextureResource and friends check IsHeadless() individually
+    // because texture creation is reachable from genuinely headless asset
+    // work (cooking/import), but the render pipeline itself assumes a live
+    // context throughout with no such checks (e.g. GFX_MakePerspectiveMatrix
+    // dereferences the global VulkanContext singleton unconditionally, which
+    // is null headless -- segfaults instead of erroring). Skip the whole
+    // pass here rather than patching every leaf GFX_* call.
+    if (!IsHeadless())
     {
         SCOPED_FRAME_STAT("Render");
         for (int32_t i = 0; i < int32_t(sWorlds.size()); ++i)
@@ -1511,7 +1558,12 @@ void LoadProject(const std::string& path, bool discoverAssets)
     // via DEFINE_NODE's static initializers; if scenes deserialize first, those node types
     // are unknown and get replaced with their nearest registered parent class (e.g.
     // VideoPlayer3D -> Node3D), silently corrupting the scene's type layout.
-    if (!IsHeadless())
+    //
+    // A one-shot -headless -build cook skips this (NativeAddonManager is never
+    // even created for it -- see EditorMain.cpp). A -serve headless service
+    // does create it and needs the same load-before-discover ordering as the
+    // interactive editor.
+    if (!IsHeadless() || IsHeadlessService())
     {
         NativeAddonManager* nam = NativeAddonManager::Get();
         if (nam != nullptr)

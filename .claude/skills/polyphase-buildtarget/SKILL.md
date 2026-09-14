@@ -355,6 +355,61 @@ any new fixed-function or fixed-pipeline platform, not just PSP.
 
 ### Build system
 
+- **A new source DIRECTORY under `Engine/Source` breaks every build target at
+  once.** Console/addon Makefiles enumerate engine source dirs explicitly in
+  `SOURCES` — they do not glob `Engine/Source` recursively — so a directory
+  added to the engine is silently not compiled. Adding a *file* to an existing
+  listed dir is fine; adding a *dir* is not. The failure surfaces only at link
+  time, as an undefined symbol, on targets nobody builds daily — long after the
+  change that caused it.
+
+  Worked example (2026-09): `Engine/Source/Engine/Utils` (`Sha256.cpp`) was
+  added and listed in the five built-in Makefiles (`Engine/Makefile_Wii`,
+  `_GCN`, `_3DS`, `_Linux`, `_Mac`) but in **none** of the 11 out-of-tree
+  build-target Makefiles. Every one of them would have failed on
+  `Sha256::HashHex`, because `Engine.cpp`'s `ForceLinkage()` references it
+  **unconditionally** — there is no `#if` to opt a platform out.
+
+  When you add an engine source dir, update all of them:
+  - the 5 built-ins under `Engine/Makefile_*`
+  - every `Addons/BuildTargets/BuildTarget-*/Packages/com.polyphase.build.target.*/Makefile_*`
+    — and note PSP and N64 each have **two** copies (`BuildTarget-DevEnv` plus
+    the per-target project; `BuildTarget-N64` and `BuildTarget-N64_2`). Missing
+    the staging copy just reintroduces the bug later.
+
+  Verify by diffing what a built-in compiles against what a target compiles,
+  rather than eyeballing lists — the only legitimate differences should be
+  platform-specific dirs (`Audio/Dolphin`, `Graphics/GX`, `System/Dolphin`, ...):
+
+  ```python
+  # run from the engine root; compares a built-in Makefile against a target's
+  import re
+  from pathlib import Path
+
+  real = {p.parent.as_posix().replace('Engine/Source/', '')
+          for p in Path('Engine/Source').rglob('*') if p.suffix in ('.cpp', '.c')}
+
+  def listed(mk):
+      t = Path(mk).read_text(encoding='utf-8', errors='replace')
+      a = set(re.findall(r'Engine/Source/([A-Za-z0-9_/]+)', t))   # $(POLYPHASE_PATH)/... form
+      b = set(re.findall(r'(?m)^\s+Source/([A-Za-z0-9_/]+)\s', t))  # built-in relative form
+      return a | b
+
+  gap = sorted((listed('Engine/Makefile_Wii') & real) - listed('<target Makefile>'))
+  print(gap)  # expect only platform-specific dirs (Audio/Dolphin, Graphics/GX, ...)
+  ```
+
+- **Regular (non-build-target) addons are NOT affected by this** — don't mass-edit
+  them. They `file(GLOB_RECURSE SOURCES "Source/*.cpp")` over their own tree only
+  and reference `Engine/Source*` purely as `target_include_directories`; they link
+  against the prebuilt engine rather than rebuilding it. Verified across all 55
+  addon `CMakeLists.txt` that mention `Engine/Source/Engine`: zero compile engine
+  sources. An addon only cares that the *symbol* is exported — which for
+  `Sha256::HashHex` is exactly what the `ForceLinkage()` call guarantees (MSVC
+  drops an unreferenced `.obj` from a static lib, so `POLYPHASE_API` alone is not
+  enough to produce the export).
+
+
 - **Verify the SDK's Makefile actually tracks header deps.** PSPSDK's
   `build.mak` emits **no `.d` files** in this distribution — header changes
   don't invalidate stale `.o` files. After editing any engine header that

@@ -5,12 +5,9 @@
 # consumer can include() unconditionally.
 
 set(POLYPHASE_ADDON_SOURCE_DIRS
-    # addon: com.polyphase.runtime.filebrowser.core (1 files in 1 dirs)
-    "M:/Projects/Polyphase/Addons/Filebrowser/Filebrowser-Demo/Packages/com.polyphase.runtime.filebrowser.core/Source"
 )
 
 set(POLYPHASE_ADDON_INCLUDE_DIRS
-    "M:/Projects/Polyphase/Addons/Filebrowser/Filebrowser-Demo/Packages/com.polyphase.runtime.filebrowser.core/Source"
 )
 
 set(POLYPHASE_ADDON_DEFINES

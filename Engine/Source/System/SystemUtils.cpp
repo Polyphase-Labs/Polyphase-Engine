@@ -501,7 +501,9 @@ const char* SYS_LookupEmbeddedRawAsset(const char* path, uint32_t& outSize)
 // ============================================================================
 struct SysFile
 {
-    FILE* mFile = nullptr;
+    FILE* mFile = nullptr;               // null when mMemoryData is used instead
+    const uint8_t* mMemoryData = nullptr; // set when the entry lives in a memory-mounted pak
+    uint32_t mMemorySize = 0;
     uint32_t mPayloadBase = 0;   // physical offset of decoded byte 0
     uint32_t mDecodedPos = 0;    // logical read cursor, in decoded space
     uint32_t mSalt = 0;
@@ -548,21 +550,33 @@ SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
     SYSFILE_IO_GUARD();
 
     FILE* file = nullptr;
+    const uint8_t* memoryData = nullptr;
+    uint32_t memorySize = 0;
     uint32_t entryBase = 0;
 
-    // A packed asset lives at an offset inside Content.pak. Open an independent
-    // handle on the archive rather than sharing the one ContentPak::Read uses --
-    // streaming holds its handle for the life of the sound and seeks freely, so
-    // sharing would mean fighting for the file position on every chunk.
+    // A packed asset lives at an offset inside a mounted pak. A memory mount has
+    // no file to open -- point straight at its buffer. A file-backed mount opens
+    // an independent handle on the archive rather than sharing the one
+    // ContentPak::Read uses -- streaming holds its handle for the life of the
+    // sound and seeks freely, so sharing would mean fighting for the file
+    // position on every chunk.
+    ContentPak::MountHandle pakMount = 0;
     uint32_t pakOffset = 0;
     uint32_t pakSize = 0;
-    if (ContentPak::FindEntry(path, pakOffset, pakSize))
+    if (ContentPak::FindEntry(path, pakMount, pakOffset, pakSize))
     {
-        file = fopen(ContentPak::GetPakPath(), "rb");
-        entryBase = pakOffset;
+        if (ContentPak::GetMountMemory(pakMount, memoryData, memorySize))
+        {
+            entryBase = pakOffset;
+        }
+        else
+        {
+            file = fopen(ContentPak::GetPakPath(pakMount), "rb");
+            entryBase = pakOffset;
+        }
     }
 
-    if (file == nullptr)
+    if (file == nullptr && memoryData == nullptr)
     {
         entryBase = 0;
         file = fopen(path, "rb");
@@ -574,42 +588,56 @@ SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
         }
     }
 
-    if (file == nullptr) return nullptr;
+    if (file == nullptr && memoryData == nullptr) return nullptr;
 
     SysFile* handle = new SysFile();
     handle->mFile = file;
+    handle->mMemoryData = memoryData;
+    handle->mMemorySize = memorySize;
     handle->mPayloadBase = entryBase;
 
     char header[ContentObfuscation::kHeaderSize];
-    if (fseek(file, (long)entryBase, SEEK_SET) == 0 &&
-        fread(header, 1, sizeof(header), file) == sizeof(header) &&
-        ContentObfuscation::IsContainer(header, (uint32_t)sizeof(header)))
+    bool readHeader = false;
+    if (file != nullptr)
+    {
+        readHeader = (fseek(file, (long)entryBase, SEEK_SET) == 0 &&
+            fread(header, 1, sizeof(header), file) == sizeof(header));
+    }
+    else if ((uint64_t)entryBase + sizeof(header) <= memorySize)
+    {
+        memcpy(header, memoryData + entryBase, sizeof(header));
+        readHeader = true;
+    }
+
+    if (readHeader && ContentObfuscation::IsContainer(header, (uint32_t)sizeof(header)))
     {
         handle->mObfuscated = true;
         handle->mPayloadBase = entryBase + ContentObfuscation::kHeaderSize;
         handle->mSalt = ContentObfuscation::GetSalt(header);
     }
 
-    fseek(file, (long)handle->mPayloadBase, SEEK_SET);
+    if (file != nullptr)
+    {
+        fseek(file, (long)handle->mPayloadBase, SEEK_SET);
+    }
     return handle;
 }
 
 uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
 {
-    if (file == nullptr || file->mFile == nullptr || dst == nullptr || bytes == 0) return 0;
+    if (file == nullptr || dst == nullptr || bytes == 0) return 0;
 
-    // Read in slices, releasing the SIF lock between them.
-    //
-    // Holding the lock across a whole streaming chunk starved the audio mixer,
-    // which needs it every ~2 ms to top up audsrv: the result was audible
-    // glitching for the duration of each read. Slicing caps the worst-case wait
-    // for any other RPC client at roughly one slice instead of one whole read.
-    //
-    // 8 KB is ~3 ms over ps2link, comfortably inside the mixer's ring margin.
-    // On platforms where the macros are no-ops this is one fread per slice and
-    // costs nothing measurable.
     uint32_t read = 0;
+    if (file->mFile != nullptr)
     {
+        // Read in slices, releasing the SIF lock between them.
+        //
+        // Holding the lock across a whole streaming chunk starved the audio
+        // mixer, which needs it every ~2 ms to top up audsrv: the result was
+        // audible glitching for the duration of each read. Slicing caps the
+        // worst-case wait for any other RPC client at roughly one slice.
+        // 8 KB is ~3 ms over ps2link. On platforms where the macros are no-ops
+        // this is one fread per slice and costs nothing measurable.
         constexpr uint32_t kIoSliceBytes = 8 * 1024;
         uint8_t* out = (uint8_t*)dst;
         while (read < bytes)
@@ -626,6 +654,16 @@ uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
             if (got < want) break;      // EOF or error
         }
     }
+    else if (file->mMemoryData != nullptr)
+    {
+        const uint32_t pos = file->mPayloadBase + file->mDecodedPos;
+        if (pos < file->mMemorySize)
+        {
+            read = bytes;
+            if ((uint64_t)pos + read > file->mMemorySize) read = file->mMemorySize - pos;
+            memcpy(dst, file->mMemoryData + pos, read);
+        }
+    }
 
     if (file->mObfuscated && read > 0)
     {
@@ -638,16 +676,24 @@ uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
 
 bool SYS_FileSeek(SysFile* file, uint64_t absoluteOffset)
 {
-    if (file == nullptr || file->mFile == nullptr) return false;
+    if (file == nullptr) return false;
 
     file->mDecodedPos = (uint32_t)absoluteOffset;
 
-    // Music/asset files are well under 2 GB, so a `long` offset is sufficient and
-    // portable across the 32-bit console newlibs (avoids _fseeki64/fseeko split).
-    SYSFILE_IO_LOCK();
-    const bool ok = fseek(file->mFile, (long)(file->mPayloadBase + absoluteOffset), SEEK_SET) == 0;
-    SYSFILE_IO_UNLOCK();
-    return ok;
+    if (file->mFile != nullptr)
+    {
+        // Music/asset files are well under 2 GB, so a `long` offset is sufficient
+        // and portable across the 32-bit console newlibs (avoids _fseeki64/fseeko
+        // split).
+        SYSFILE_IO_LOCK();
+        const bool ok = fseek(file->mFile, (long)(file->mPayloadBase + absoluteOffset), SEEK_SET) == 0;
+        SYSFILE_IO_UNLOCK();
+        return ok;
+    }
+
+    // Memory-backed: there is no cursor to move, SYS_FileRead computes the
+    // offset from mDecodedPos every call. Bounds are checked there too.
+    return file->mMemoryData != nullptr;
 }
 
 void SYS_FileClose(SysFile* file)

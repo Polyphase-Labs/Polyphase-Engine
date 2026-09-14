@@ -117,7 +117,18 @@ void AUD_Shutdown()
 }
 
 void AUD_Update()
-{   
+{
+    // AUD_Initialize() already logs and returns early (leaving sSoundDevice
+    // null) if snd_pcm_open fails -- e.g. no "default" ALSA device, which is
+    // routine on a headless server / SSH session with no audio hardware or
+    // session bus. Nothing here checked for that before calling into ALSA
+    // with a null handle, which hard-asserts inside libasound and aborts the
+    // whole process. Silently no-op instead: no device means no audio to mix.
+    if (sSoundDevice == nullptr)
+    {
+        return;
+    }
+
     int32_t frames = (int32_t) snd_pcm_avail(sSoundDevice);
     frames = glm::min(int32_t(sMixBufferLen) / 4, frames);
 
