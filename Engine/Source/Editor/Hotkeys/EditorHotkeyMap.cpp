@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "EditorHotkeyMap.h"
+#include "EditorImgui.h"
 
 #include "EditorState.h"
 #include "Input/Input.h"
@@ -197,7 +198,7 @@ bool EditorHotkeyMap::IsActionJustTriggeredImGui(EditorAction action) const
         return false;
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (io.KeyCtrl  != b.mCtrl)  return false;
+    if (EditorShortcutModDown() != b.mCtrl)  return false;
     if (io.KeyShift != b.mShift) return false;
     if (io.KeyAlt   != b.mAlt)   return false;
 

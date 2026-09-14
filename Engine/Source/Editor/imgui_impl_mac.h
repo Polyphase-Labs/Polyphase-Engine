@@ -23,6 +23,11 @@ IMGUI_IMPL_API void     ImGui_ImplMac_NewFrame();
 
 IMGUI_IMPL_API int32_t  ImGui_ImplMac_EventHandler(void* nsEvent);
 
+// Re-assert the NSTextInputClient responder as the window's first responder.
+// Cheap and idempotent; call it after anything that can steal first responder
+// (window becoming key, fullscreen transitions, native modal panels).
+IMGUI_IMPL_API void     ImGui_ImplMac_EnsureKeyResponder();
+
 #endif // #ifndef IMGUI_DISABLE
 
 #endif

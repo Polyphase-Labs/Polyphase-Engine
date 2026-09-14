@@ -20,6 +20,17 @@ void EditorImguiInit();
 void EditorImguiDraw();
 
 /**
+ * The platform's shortcut modifier as ImGui resolves it: Cmd on macOS, Ctrl
+ * everywhere else. Use this instead of io.KeyCtrl for editor shortcuts and
+ * multi-select modifiers -- on Mac the two are distinct, and io.KeyCtrl means
+ * the physical Control key (which a terminal still needs for control codes).
+ */
+inline bool EditorShortcutModDown()
+{
+    return ImGui::IsKeyDown(ImGuiMod_Shortcut);
+}
+
+/**
  * Returns the monospace terminal font (Roboto Mono with extended Unicode
  * coverage) loaded at editor init for the CLI Terminal panel. May return
  * nullptr if the font file was missing — callers should handle that case

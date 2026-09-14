@@ -30,6 +30,7 @@ struct ImGui_ImplMac_Data
     ImGuiMacObserver*           Observer;
     ImGuiMacKeyEventResponder*  KeyEventResponder;
     NSTextInputContext*         InputContext;
+    int                         CharsThisEvent;
 
     ImGui_ImplMac_Data()        { memset((void*)this, 0, sizeof(*this)); }
 };
@@ -105,6 +106,12 @@ static ImGui_ImplMac_Data* ImGui_ImplMac_GetBackendData()
         characters = (NSString*)aString;
 
     io.AddInputCharactersUTF8(characters.UTF8String);
+
+    ImGui_ImplMac_Data* bd = ImGui_ImplMac_GetBackendData();
+    if (bd != nullptr)
+    {
+        bd->CharsThisEvent += (int)characters.length;
+    }
 }
 
 - (BOOL)acceptsFirstResponder
@@ -362,6 +369,7 @@ bool ImGui_ImplMac_Init(void* nsView)
     bd->KeyEventResponder = [[ImGuiMacKeyEventResponder alloc] initWithFrame:NSZeroRect];
     bd->InputContext = [[NSTextInputContext alloc] initWithClient:bd->KeyEventResponder];
     [view addSubview:bd->KeyEventResponder];
+    ImGui_ImplMac_EnsureKeyResponder();
 
     io.SetPlatformImeDataFn = [](ImGuiViewport* viewport, ImGuiPlatformImeData* data) -> void
     {
@@ -451,9 +459,21 @@ static void ImGui_ImplMac_UpdateKeyModifiers()
 {
     ImGui_ImplMac_Data* bd = ImGui_ImplMac_GetBackendData();
     ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(ImGuiMod_Ctrl,  IsControlDown());
-    io.AddKeyEvent(ImGuiMod_Shift, IsShiftDown());
-    io.AddKeyEvent(ImGuiMod_Alt,   IsAltDown());
+
+    // Read the hardware state rather than the engine key array. HandleFlagsChanged
+    // deliberately aliases Cmd onto Ctrl so the editor's Ctrl-named hotkeys fire
+    // from Cmd, but ImGui has to see the two apart: under ConfigMacOSXBehaviors it
+    // resolves ImGuiMod_Shortcut to Super, and Shortcut() matches the modifier set
+    // exactly, so a Cmd that also reads as Ctrl never matches and kills the
+    // built-in Cmd+A / Cmd+C / Cmd+V / Cmd+X / Cmd+Z in every text field. Polling
+    // also self-heals a modifier stranded by a Cmd+Tab that took its key-up event
+    // to another app.
+    NSEventModifierFlags flags = [NSEvent modifierFlags];
+    bd->SuperDown = (flags & NSEventModifierFlagCommand) != 0;
+
+    io.AddKeyEvent(ImGuiMod_Ctrl,  (flags & NSEventModifierFlagControl) != 0);
+    io.AddKeyEvent(ImGuiMod_Shift, (flags & NSEventModifierFlagShift) != 0);
+    io.AddKeyEvent(ImGuiMod_Alt,   (flags & NSEventModifierFlagOption) != 0);
     io.AddKeyEvent(ImGuiMod_Super, bd->SuperDown);
 }
 
@@ -476,6 +496,19 @@ void ImGui_ImplMac_NewFrame()
 
     if (io.WantTextInput)
         [bd->KeyEventResponder updateImePosWithView:bd->View];
+}
+
+void ImGui_ImplMac_EnsureKeyResponder()
+{
+    ImGui_ImplMac_Data* bd = ImGui_ImplMac_GetBackendData();
+    if (bd == nullptr || bd->KeyEventResponder == nil)
+        return;
+
+    NSWindow* window = bd->KeyEventResponder.window;
+    if (window != nil && window.firstResponder != bd->KeyEventResponder)
+    {
+        [window makeFirstResponder:bd->KeyEventResponder];
+    }
 }
 
 // Must only be called for a mouse event, otherwise an exception occurs.
@@ -564,16 +597,51 @@ int32_t ImGui_ImplMac_EventHandler(void* nsEvent)
 
     if (event.type == NSEventTypeKeyDown || event.type == NSEventTypeKeyUp)
     {
-        if ([event isARepeat])
-            return 0;
-
-        int key_code = (int)[event keyCode];
-        ImGuiKey key = ImGui_ImplMac_KeyCodeToImGuiKey(key_code);
-        if (key != ImGuiKey_None)
+        // ImGui does its own repeat timing for key actions, so auto-repeats
+        // must not re-enter AddKeyEvent. They still have to reach the
+        // character path below or held keys would type a single character.
+        if (![event isARepeat])
         {
-            io.AddKeyEvent(key, event.type == NSEventTypeKeyDown);
-            io.SetKeyEventNativeData(key, key_code, -1);
+            int key_code = (int)[event keyCode];
+            ImGuiKey key = ImGui_ImplMac_KeyCodeToImGuiKey(key_code);
+            if (key != ImGuiKey_None)
+            {
+                io.AddKeyEvent(key, event.type == NSEventTypeKeyDown);
+                io.SetKeyEventNativeData(key, key_code, -1);
+            }
         }
+
+        if (event.type == NSEventTypeKeyDown)
+        {
+            // The pump calls us after -[NSApp sendEvent:], so by now the
+            // responder chain has had its chance: a working NSTextInputClient
+            // path has already pushed composed text through insertText:. When
+            // it hasn't -- responder chain broken, or the text input manager
+            // declining to serve the process -- fall back to the characters
+            // the window server already composed for this event. That keeps
+            // typing alive without the responder, and still honours the active
+            // keyboard layout and modifiers.
+            if (bd->CharsThisEvent > 0)
+            {
+                bd->CharsThisEvent = 0;
+            }
+            else
+            {
+                NSString* chars = [event characters];
+                for (NSUInteger i = 0; i < chars.length; ++i)
+                {
+                    unichar c = [chars characterAtIndex:i];
+
+                    // Control codes, and the private-use block AppKit uses to
+                    // report arrows / F-keys / Home / End, are not text.
+                    if (c < 32 || c == 127 || (c >= 0xF700 && c <= 0xF8FF))
+                        continue;
+
+                    io.AddInputCharacter((unsigned int)c);
+                }
+            }
+        }
+
         return 0;
     }
 
