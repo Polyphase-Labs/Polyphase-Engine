@@ -22,6 +22,38 @@
 #define ENABLE_LIBOGC_CONSOLE 0
 
 static bool sRunning = true;
+
+// EXI channel a USB Gecko was detected on, or -1 for none. SYS_Log mirrors every
+// line onto it, giving a serial console on the host with no cable-specific code
+// (an FTDI original and a CDC clone both just appear as a COM/tty port there).
+//
+// Writing the bytes ourselves rather than leaning on a libogc console sink is
+// what keeps this identical across both targets: GameCube builds against libogc2
+// (whose SYS_Report has its own gecko path, via SYS_EnableGecko) while Wii builds
+// against libogc v1 (whose SYS_Report goes to the EXI UART instead, and which has
+// no SYS_EnableGecko at all). usb_sendbuffer/usb_isgeckoalive exist in both.
+static s32 sGeckoChan = -1;
+
+static void InitUSBGecko()
+{
+#if !POLYPHASE_GDB
+    // Probe slot B first: the memory card save path below is CARD_SLOTA-only, so
+    // slot B is the free one and where a Gecko conventionally lives.
+    //
+    // Skipped entirely for GDB builds — there the stub (DEBUG_Init, called from
+    // Main.cpp's OctPreInitialize) owns the EXI channel and speaks the GDB remote
+    // protocol over it, so raw log text on the same wire would corrupt packets.
+    for (s32 chan = 1; chan >= 0; --chan)
+    {
+        if (usb_isgeckoalive(chan))
+        {
+            sGeckoChan = chan;
+            break;
+        }
+    }
+#endif
+}
+
 static bool sFatInit = false;
 static void InitFAT()
 {
@@ -45,6 +77,9 @@ void SYS_Initialize()
     SystemState& system = engine.mSystem;
 
     system.mFrameIndex = 0;
+
+    // Before VIDEO_Init so boot-time logs make it onto the wire too.
+    InitUSBGecko();
 
     VIDEO_Init();
     GXRModeObj* rmode = VIDEO_GetPreferredMode(&system.mGxRmode);
@@ -859,19 +894,33 @@ void SYS_Log(LogSeverity severity, const char* format, va_list arg)
 {
     // SYS_Report() allows logging in Dolphin with a .dol file.
     // Printf logging requires .elf.
-#if PLATFORM_WII
-    // Not sure if there's a way to turn the va_list back into a variadic args
-    // to pass to SYS_Report, so just vsprintf it to a buffer first.
+    //
+    // Format once up front: SYS_Reportv only exists on the GameCube's libogc2,
+    // and the buffer is what gets mirrored to the USB Gecko below. Going through
+    // "%s\n" rather than passing logBuffer as the format string also keeps a log
+    // line containing a stray '%' from being re-expanded.
     char logBuffer[256];
-    vsnprintf(logBuffer, 255, format, arg);
+    int32_t logLength = vsnprintf(logBuffer, sizeof(logBuffer), format, arg);
+    if (logLength < 0)
+    {
+        return;
+    }
+    if (logLength >= (int32_t)sizeof(logBuffer))
+    {
+        logLength = (int32_t)sizeof(logBuffer) - 1;
+    }
 
-    SYS_Report(logBuffer);
-    SYS_Report("\n");
-#else
-    // SYS_Reportv doesn't exist in libogc, use buffer approach like Wii
-    SYS_Reportv(format, arg);
-    SYS_Report("\n");
-#endif
+    SYS_Report("%s\n", logBuffer);
+
+    if (sGeckoChan >= 0)
+    {
+        // Non-safe send: drops bytes when the FIFO backs up rather than blocking
+        // on the host, so an unplugged cable or a closed terminal can never hang
+        // the game. Newline goes out separately to keep logBuffer's 255-char
+        // budget for the message itself.
+        usb_sendbuffer(sGeckoChan, logBuffer, logLength);
+        usb_sendbuffer(sGeckoChan, "\n", 1);
+    }
 
     // I'm not sure if printf() is needed for the libogc console, but the console
     // is currently broken right now and causes polyphase to crash.

@@ -22,6 +22,23 @@
 #include <string>
 #endif
 
+#if PLATFORM_DOLPHIN && POLYPHASE_GDB
+// GDB-over-USB-Gecko source-level debugging, enabled by building the GameCube or
+// Wii target with POLYPHASE_GDB=1 (see Makefile_GCN / Makefile_Wii — it also
+// drops to -Og, forces DWARF-4 and links -ldb).
+//
+//   make -f Makefile_Wii POLYPHASE_GDB=1
+//   powerpc-eabi-gdb Build/Wii/Polyphase.elf
+//   (gdb) target remote \\.\COM4     # or /dev/ttyACM0 on a CDC clone
+//
+// POLYPHASE_GDB_CHANNEL is the EXI channel the Gecko sits on: 1 = memory card
+// slot B (default — the engine's save path uses slot A), 0 = slot A.
+#include <debug.h>
+#ifndef POLYPHASE_GDB_CHANNEL
+#define POLYPHASE_GDB_CHANNEL 1
+#endif
+#endif
+
 #define EMBEDDED_ENABLED         (PLATFORM_DOLPHIN || PLATFORM_3DS || PLATFORM_LINUX || PLATFORM_WINDOWS || PLATFORM_MAC)
 #define EMBEDDED_SCRIPTS_ONLY    (PLATFORM_ANDROID)
 
@@ -35,6 +52,14 @@ extern uint32_t gNumEmbeddedAssets;
 
 void OctPreInitialize(EngineConfig& config)
 {
+#if PLATFORM_DOLPHIN && POLYPHASE_GDB
+    // _break() traps and waits for the host to attach. This is the earliest hook
+    // the game owns — before ReadEngineConfig and Initialize() — so a breakpoint
+    // set from GDB can catch engine startup itself.
+    DEBUG_Init(GDBSTUB_DEVICE_USB, POLYPHASE_GDB_CHANNEL);
+    _break();
+#endif
+
     GetEngineState()->mStandalone = true;
 
 #if !EDITOR

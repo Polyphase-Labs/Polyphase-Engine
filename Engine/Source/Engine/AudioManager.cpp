@@ -615,11 +615,25 @@ void AudioManager::Initialize()
 {
     sStreamMutex = SYS_CreateMutex();
 #if defined(POLYPHASE_PLATFORM_ADDON)
-    // NOTE: a dedicated streaming I/O thread (StreamingIOThread) is available but
-    // left DISABLED — on the emulated GD-ROM each fs read command blocks the whole
-    // machine (~150 ms), so moving it to a thread doesn't unblock the render frame.
-    // Real hardware may benefit; flip sStreamThreadRun on to try. The practical
-    // mitigation is a large read chunk (fewer reads) — see kStreamChunkBytes.
+    // Streaming pump stays on the frame thread.
+    //
+    // Threading it (sStreamThreadRun = true + SYS_CreateThread) DOES remove the
+    // visual hitch: profiled on PS2 hardware, UpdateStreamingSources() blocked
+    // the render thread ~310 ms every ~5 s, and moving it off-thread fixed that
+    // cleanly. But it also produced audible glitching and doubled-up playback
+    // that was never tracked down.
+    //
+    // The stream layer itself is NOT the cause - instrumented on hardware, the
+    // ring runs full (≈68 rejects/s, ≈0 underruns), so the producer always has
+    // data and the mixer is never short. The remaining fault is above this, in
+    // source management, and until that is understood the audible problem is
+    // worse than the hitch. Left disabled deliberately, not by oversight.
+    //
+    // To retry: set sStreamThreadRun = true and create the thread here. Keep the
+    // PS2-side fixes that landed alongside it - SysFile I/O is now under
+    // Ps2_SifLock (sliced, so a long read cannot starve the mixer) and worker
+    // threads run at 0x38, below the audio mixer. Both are needed for this to
+    // stand any chance, and both are correct regardless.
     sStreamThreadRun = false;
     (void)&StreamingIOThread;
 #endif

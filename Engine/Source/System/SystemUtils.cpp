@@ -508,9 +508,44 @@ struct SysFile
     bool mObfuscated = false;
 };
 
+// ---- PS2: serialise stdio against the other SIF RPC users --------------------
+// On PS2 every stdio call on host:/cdrom0: is a SIF RPC to the IOP, and ps2sdk's
+// RPC packet pool is shared and unguarded. The audio mixer thread polls audsrv
+// ~500x/s and the asset loader reads files, so a THIRD caller here -- the audio
+// streaming I/O thread -- can hand the same packet to rpc_packet_free twice.
+// That crashes in _request_end (sifrpc.c:318) with a null-packet dereference.
+//
+// Ps2_SifLock/Unlock live in the PS2 build target's System_PS2.cpp and already
+// guard the loader and the mixer; these wrappers bring the SysFile streaming
+// path under the same lock. No-ops everywhere else.
+#if PLATFORM_PS2
+extern void Ps2_SifLock();
+extern void Ps2_SifUnlock();
+extern void Ps2_SyncDCacheRange(void* p, size_t n);
+  #define SYSFILE_IO_LOCK()   Ps2_SifLock()
+  #define SYSFILE_IO_UNLOCK() Ps2_SifUnlock()
+  #define SYSFILE_IO_SYNC(p, n) Ps2_SyncDCacheRange((p), (n))
+  // Scoped form for SYS_FileOpenRead, which has several exits and does three
+  // fopens plus a header read. Safe to hold across that whole function: nothing
+  // it calls takes the lock again (the semaphore is not recursive).
+  struct SysFileIoGuard
+  {
+      SysFileIoGuard()  { Ps2_SifLock();   }
+      ~SysFileIoGuard() { Ps2_SifUnlock(); }
+  };
+  #define SYSFILE_IO_GUARD() SysFileIoGuard sysFileIoGuard_
+#else
+  #define SYSFILE_IO_LOCK()   ((void)0)
+  #define SYSFILE_IO_UNLOCK() ((void)0)
+  #define SYSFILE_IO_GUARD()  ((void)0)
+  #define SYSFILE_IO_SYNC(p, n) ((void)0)
+#endif
+
 SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
 {
     if (path == nullptr) return nullptr;
+
+    SYSFILE_IO_GUARD();
 
     FILE* file = nullptr;
     uint32_t entryBase = 0;
@@ -563,7 +598,34 @@ uint32_t SYS_FileRead(SysFile* file, void* dst, uint32_t bytes)
 {
     if (file == nullptr || file->mFile == nullptr || dst == nullptr || bytes == 0) return 0;
 
-    const uint32_t read = (uint32_t)fread(dst, 1, bytes, file->mFile);
+    // Read in slices, releasing the SIF lock between them.
+    //
+    // Holding the lock across a whole streaming chunk starved the audio mixer,
+    // which needs it every ~2 ms to top up audsrv: the result was audible
+    // glitching for the duration of each read. Slicing caps the worst-case wait
+    // for any other RPC client at roughly one slice instead of one whole read.
+    //
+    // 8 KB is ~3 ms over ps2link, comfortably inside the mixer's ring margin.
+    // On platforms where the macros are no-ops this is one fread per slice and
+    // costs nothing measurable.
+    uint32_t read = 0;
+    {
+        constexpr uint32_t kIoSliceBytes = 8 * 1024;
+        uint8_t* out = (uint8_t*)dst;
+        while (read < bytes)
+        {
+            uint32_t want = bytes - read;
+            if (want > kIoSliceBytes) want = kIoSliceBytes;
+
+            SYSFILE_IO_LOCK();
+            const uint32_t got = (uint32_t)fread(out + read, 1, want, file->mFile);
+            SYSFILE_IO_UNLOCK();
+            SYSFILE_IO_SYNC(out + read, got);
+
+            read += got;
+            if (got < want) break;      // EOF or error
+        }
+    }
 
     if (file->mObfuscated && read > 0)
     {
@@ -582,13 +644,21 @@ bool SYS_FileSeek(SysFile* file, uint64_t absoluteOffset)
 
     // Music/asset files are well under 2 GB, so a `long` offset is sufficient and
     // portable across the 32-bit console newlibs (avoids _fseeki64/fseeko split).
-    return fseek(file->mFile, (long)(file->mPayloadBase + absoluteOffset), SEEK_SET) == 0;
+    SYSFILE_IO_LOCK();
+    const bool ok = fseek(file->mFile, (long)(file->mPayloadBase + absoluteOffset), SEEK_SET) == 0;
+    SYSFILE_IO_UNLOCK();
+    return ok;
 }
 
 void SYS_FileClose(SysFile* file)
 {
     if (file == nullptr) return;
 
-    if (file->mFile != nullptr) fclose(file->mFile);
+    if (file->mFile != nullptr)
+    {
+        SYSFILE_IO_LOCK();
+        fclose(file->mFile);
+        SYSFILE_IO_UNLOCK();
+    }
     delete file;
 }

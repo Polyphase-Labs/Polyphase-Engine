@@ -29,7 +29,30 @@ OUTPUT_DIR	:=	$(CURDIR)/Build/GCN
 # options for code generation
 #---------------------------------------------------------------------------------
 
-CFLAGS	= -g -O2 -Wall $(MACHDEP) $(INCLUDE) -DPLATFORM_GAMECUBE=1 -DPLATFORM_DOLPHIN=1 -DAPI_GX=1
+#---------------------------------------------------------------------------------
+# GDB-over-USB-Gecko debugging. Enable with:
+#
+#   make -f Makefile_GCN clean && make -f Makefile_GCN POLYPHASE_GDB=1
+#
+# devkitPPC pins GDB at 7.6.2, which cannot parse the DWARF-5 that modern GCC
+# emits by default — hence -gdwarf-4 -gstrict-dwarf. -O2 inlines away most of
+# what you'd want to step through, so drop to -Og. Command-line variables
+# propagate to the MakeEngine sub-make, so the engine library picks up the same
+# flags with no further plumbing.
+#
+# Two things live outside this Makefile: the `clean` above (objects carry no
+# dependency on this flag, so a stale tree links a DWARF-5/O2 mix), and libogc2
+# itself, which needs the same two DWARF flags for its own frames to resolve.
+#---------------------------------------------------------------------------------
+ifeq ($(POLYPHASE_GDB),1)
+GDB_CFLAGS	:=	-Og -gdwarf-4 -gstrict-dwarf -DPOLYPHASE_GDB=1
+GDB_LIBS	:=	-ldb
+else
+GDB_CFLAGS	:=	-O2
+GDB_LIBS	:=
+endif
+
+CFLAGS	= -g $(GDB_CFLAGS) -Wall $(MACHDEP) $(INCLUDE) -DPLATFORM_GAMECUBE=1 -DPLATFORM_DOLPHIN=1 -DAPI_GX=1
 CXXFLAGS	=	$(CFLAGS)
 
 LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
@@ -37,7 +60,7 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngine -lBullet -lasnd -lbba -lfat -lmbedtls -lmbedx509 -lmbedcrypto -logc -lm
+LIBS	:=	-lEngine -lBullet -lasnd -lbba -lfat -lmbedtls -lmbedx509 -lmbedcrypto $(GDB_LIBS) -logc -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

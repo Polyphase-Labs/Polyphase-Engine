@@ -5,6 +5,7 @@
 
 #if !PLATFORM_MAC
 #include <malloc.h>
+#include <stdint.h>
 #endif
 #include <stdlib.h>
 #include <stdio.h>
@@ -160,6 +161,107 @@ namespace
     }
 }
 
+// Every byte that comes out of the pak goes through this. What it has to get
+// right was established on real PS2 hardware, one photo of the boot tty at a
+// time (2026-09-13), because PCSX2 reproduces none of it:
+//   * every fopen/fseek/fread is a SIF RPC into one shared client buffer, and
+//     the audio mixer thread is in that buffer every couple of milliseconds --
+//     hence PAK_IO_LOCK around each request, exactly as SystemUtils' streaming
+//     handle already did. Without it the index and assets came back scrambled;
+//   * requests are kept sector-aligned and whole-sector-sized so the loader's
+//     cdvdman (OPL) serves them in one piece rather than three;
+//   * the destination is ordinary cached memory. Handing the IOP an "uncached"
+//     0x2000_0000 alias looked clever and broke every read on hardware: the
+//     DMA never lands there. ps2sdk's own write-back/invalidate is sufficient.
+// The extra memcpy costs ~1 ms per MB; the scratch is a constant 32 KB; peak
+// memory for a multi-MB asset does not double.
+#if PLATFORM_PS2
+extern void Ps2_SifLock();
+extern void Ps2_SifUnlock();
+extern void Ps2_SyncDCacheRange(void* p, size_t n);
+extern bool Ps2_DiscReadRange(const char* path, uint32_t offset, uint32_t bytes, void* dst, uint32_t* got);
+  // Disc boots read the pak with sceCdRead (see Ps2_DiscReadRange); returns
+  // false when not applicable and the fread path below runs instead.
+  #define PAK_DIRECT_READ(path, off, n, dst, got) Ps2_DiscReadRange((path), (off), (n), (dst), (got))
+  #define PAK_IO_LOCK()        Ps2_SifLock()
+  #define PAK_IO_UNLOCK()      Ps2_SifUnlock()
+  // The read is a DMA into a buffer the CPU last touched moments ago; make the
+  // data cache agree with RAM before copying out of it. See Ps2_SyncDCacheRange.
+  #define PAK_IO_SYNC(p, n)    Ps2_SyncDCacheRange((p), (n))
+#else
+  #define PAK_DIRECT_READ(path, off, n, dst, got) (false)
+  #define PAK_IO_LOCK()        ((void)0)
+  #define PAK_IO_UNLOCK()      ((void)0)
+  #define PAK_IO_SYNC(p, n)    ((void)0)
+#endif
+
+static bool ReadThroughAlignedBounce(FILE* file, const char* pakPath, uint32_t offset, uint32_t size, char* dst)
+{
+    constexpr uint32_t kSector = 2048;
+    constexpr uint32_t kAlign  = 64;
+    // 32 KB slices: long enough to amortise the per-request cost of a disc
+    // read, short enough that the audio mixer (which needs the same lock every
+    // ~2 ms) is not starved for more than one slice.
+    constexpr uint32_t kBounce = 32 * 1024;
+
+    static char* sBounceRaw = nullptr;
+    static char* sBounce    = nullptr;
+    if (sBounce == nullptr)
+    {
+        sBounceRaw = (char*)malloc(kBounce + kAlign);
+        if (sBounceRaw == nullptr) return false;
+        sBounce = (char*)(((uintptr_t)sBounceRaw + (kAlign - 1)) & ~(uintptr_t)(kAlign - 1));
+    }
+
+    if (size == 0) return true;
+
+    uint32_t pos = offset - (offset % kSector);
+    const uint32_t end = offset + size;
+    bool seeked = false;   // the fread path seeks lazily, only if the direct path declines
+
+    while (pos < end)
+    {
+        uint32_t want = end - pos;
+        if (want % kSector != 0) want += kSector - (want % kSector);   // whole sectors
+        if (want > kBounce) want = kBounce;
+
+        uint32_t got = 0;
+        if (!PAK_DIRECT_READ(pakPath, pos, want, sBounce, &got))
+        {
+            PAK_IO_LOCK();
+            if (!seeked)
+            {
+                seeked = (fseek(file, (long)pos, SEEK_SET) == 0);
+            }
+            if (seeked)
+            {
+                while (got < want)
+                {
+                    const size_t n = fread(sBounce + got, 1, (size_t)(want - got), file);
+                    if (n == 0) break;
+                    got += (uint32_t)n;
+                }
+            }
+            PAK_IO_UNLOCK();
+            if (!seeked) return false;
+            PAK_IO_SYNC(sBounce, got);
+        }
+        if (got == 0) return false;
+
+        const uint32_t chunkEnd  = pos + got;
+        const uint32_t copyStart = (offset > pos) ? offset : pos;
+        const uint32_t copyEnd   = (end < chunkEnd) ? end : chunkEnd;
+        if (copyEnd > copyStart)
+        {
+            memcpy(dst + (copyStart - offset), sBounce + (copyStart - pos), copyEnd - copyStart);
+        }
+
+        pos = chunkEnd;
+        if (got < want && pos < end) return false;   // hit EOF before the range was covered
+    }
+    return true;
+}
+
 bool ContentPak::Mount(const char* pakPath)
 {
     Unmount();
@@ -171,18 +273,25 @@ bool ContentPak::Mount(const char* pakPath)
     // "host:" device prefix, which SYS_GetAbsolutePath supplies -- without this
     // the pak simply fails to open on those targets.
     std::string resolvedPath = pakPath;
+    PAK_IO_LOCK();
     FILE* file = fopen(pakPath, "rb");
+    PAK_IO_UNLOCK();
 
     if (file == nullptr)
     {
         resolvedPath = SYS_GetAbsolutePath(pakPath);
+        PAK_IO_LOCK();
         file = fopen(resolvedPath.c_str(), "rb");
+        PAK_IO_UNLOCK();
     }
 
     if (file == nullptr) return false;
 
+    // The header goes through the same aligned, uncached path as everything
+    // else: a plain fread would land it in newlib's recycled FILE buffer, which
+    // on PS2 hardware came back as garbage ("not a valid pak") over SMB.
     uint8_t header[kHeaderSize] = { };
-    if (fread(header, 1, kHeaderSize, file) != kHeaderSize ||
+    if (!ReadThroughAlignedBounce(file, resolvedPath.c_str(), 0, kHeaderSize, (char*)header) ||
         memcmp(header, kPakMagic, sizeof(kPakMagic)) != 0 ||
         RdLE32(header + 8) != kPakVersion ||
         RdLE32(header + 24) != Fnv1a32(header, 24))
@@ -196,18 +305,36 @@ bool ContentPak::Mount(const char* pakPath)
     const uint32_t indexOffset = RdLE32(header + 16);
     const uint32_t indexSize = RdLE32(header + 20);
 
-    std::vector<char> index(indexSize);
-    if (indexSize == 0 ||
-        fseek(file, (long)indexOffset, SEEK_SET) != 0 ||
-        fread(index.data(), 1, indexSize, file) != indexSize)
+    if (indexSize == 0)
     {
         fclose(file);
         LogError("ContentPak: '%s' index is unreadable", pakPath);
         return false;
     }
 
+    // Read + decode, retried. DecodeInPlace verifies a checksum over the whole
+    // index, so it doubles as an end-to-end check of the read itself; on the
+    // one platform where reads have come back wrong (PS2 hardware, see
+    // ReadThroughAlignedBounce) a second attempt is cheap and tells the log
+    // whether the fault was transient or deterministic.
+    std::vector<char> index(indexSize);
     uint32_t decodedSize = 0;
-    if (!ContentObfuscation::DecodeInPlace(index.data(), indexSize, &decodedSize, nullptr))
+    bool indexOk = false;
+    for (int attempt = 1; attempt <= 3 && !indexOk; ++attempt)
+    {
+        if (!ReadThroughAlignedBounce(file, resolvedPath.c_str(), indexOffset, indexSize, index.data()))
+        {
+            LogWarning("ContentPak: '%s' index read failed (attempt %d of 3)", pakPath, attempt);
+            continue;
+        }
+        decodedSize = 0;
+        indexOk = ContentObfuscation::DecodeInPlace(index.data(), indexSize, &decodedSize, nullptr);
+        if (!indexOk)
+        {
+            LogWarning("ContentPak: '%s' index decode failed (attempt %d of 3) -- re-reading", pakPath, attempt);
+        }
+    }
+    if (!indexOk)
     {
         fclose(file);
         LogError("ContentPak: '%s' index failed to decode", pakPath);
@@ -349,11 +476,13 @@ bool ContentPak::Read(const char* path, int32_t maxSize, char*& outData, uint32_
     {
         ScopedLock lock(sPakMutex);
 
-        if (fseek(sPakFile, (long)rec->mDataOffset, SEEK_SET) != 0 ||
-            fread(buffer, 1, readSize, sPakFile) != readSize)
+        // Sector-aligned, cache-line-aligned, short-read-safe. See
+        // ReadThroughAlignedBounce for why a plain fseek+fread is not enough.
+        if (!ReadThroughAlignedBounce(sPakFile, sPakPath.c_str(), rec->mDataOffset, readSize, buffer))
         {
             free(buffer);
-            LogError("ContentPak: failed reading '%s' from pak", path);
+            LogError("ContentPak: read of %u bytes at %u failed for '%s'",
+                     (unsigned)readSize, (unsigned)rec->mDataOffset, path);
             return false;
         }
     }

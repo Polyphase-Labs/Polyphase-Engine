@@ -61,7 +61,19 @@ BULLET_DIR	:=	$(CURDIR)/../External/Bullet
 # options for code generation
 #---------------------------------------------------------------------------------
 
-CFLAGS	= -g -O2 -Wall $(MACHDEP) $(INCLUDE) -DPLATFORM_WII=1 -DPLATFORM_DOLPHIN=1 -DAPI_GX=1
+#---------------------------------------------------------------------------------
+# GDB-over-USB-Gecko debugging — see the matching block in Standalone/Makefile_Wii.
+# Normally set from there (command-line variables propagate into this sub-make);
+# the block is duplicated here so building the engine library directly with
+# POLYPHASE_GDB=1 produces a matching archive rather than a DWARF-5/O2 mix.
+#---------------------------------------------------------------------------------
+ifeq ($(POLYPHASE_GDB),1)
+GDB_CFLAGS	:=	-Og -gdwarf-4 -gstrict-dwarf -DPOLYPHASE_GDB=1
+else
+GDB_CFLAGS	:=	-O2
+endif
+
+CFLAGS	= -g $(GDB_CFLAGS) -Wall $(MACHDEP) $(INCLUDE) -DPLATFORM_WII=1 -DPLATFORM_DOLPHIN=1 -DAPI_GX=1
 CXXFLAGS	=	$(CFLAGS)
 
 LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map

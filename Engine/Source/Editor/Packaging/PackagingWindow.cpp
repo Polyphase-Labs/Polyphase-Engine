@@ -741,6 +741,28 @@ void PackagingWindow::DrawProfileSettings()
 
     ImGui::Spacing();
 
+    // A build-target addon whose output is a disc image declares it with
+    // POLYPHASE_OPT_DISC_CONTENT: nothing embedded, everything static and packed
+    // into Content.pak is the only layout that boots there. Force the values and
+    // show the checkboxes disabled rather than let the profile be saved into a
+    // shape that boots with no assets.
+    const auto discOptIt = profile->mTargetOptions.find(POLYPHASE_OPT_DISC_CONTENT);
+    const bool discContent =
+        (discOptIt != profile->mTargetOptions.end() && discOptIt->second == "1");
+    if (discContent &&
+        (profile->mEmbedded || !profile->mStaticContent || !profile->mContentPak))
+    {
+        profile->mEmbedded = false;
+        profile->mStaticContent = true;
+        profile->mContentPak = true;
+        changed = true;
+    }
+    if (discContent)
+    {
+        ImGui::TextDisabled("Disc layout set by the build target: Embedded off, Static Content and Content Pak on.");
+        ImGui::BeginDisabled();
+    }
+
     // Embedded mode
     if (Polyphase::Checkbox("Embedded Mode", &profile->mEmbedded))
     {
@@ -758,6 +780,10 @@ void PackagingWindow::DrawProfileSettings()
     if (Polyphase::Checkbox("Static Content", &profile->mStaticContent))
     {
         changed = true;
+    }
+    if (discContent)
+    {
+        ImGui::EndDisabled();
     }
     if (ImGui::IsItemHovered())
     {
@@ -802,10 +828,12 @@ void PackagingWindow::DrawProfileSettings()
     if (profile->mStaticContent && !pakRedundant)
     {
         ImGui::Indent();
+        if (discContent) ImGui::BeginDisabled();
         if (Polyphase::Checkbox("Content Pak", &profile->mContentPak))
         {
             changed = true;
         }
+        if (discContent) ImGui::EndDisabled();
         if (ImGui::IsItemHovered())
         {
             ImGui::SetTooltip("Pack assets, scripts and the asset registry into a single\n"
@@ -1545,6 +1573,15 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
     mBuildInProgress = true;
 
     // Delegate to ActionManager's BuildData (now non-blocking)
+    // POLYPHASE_OPT_DISC_CONTENT applies at build time too, so a queued profile
+    // whose settings were never drawn this session still builds the disc layout.
+    const auto discOptIt = profile.mTargetOptions.find(POLYPHASE_OPT_DISC_CONTENT);
+    const bool discContent =
+        (discOptIt != profile.mTargetOptions.end() && discOptIt->second == "1");
+    const bool buildEmbedded = discContent ? false : profile.mEmbedded;
+    const bool buildStatic   = discContent || profile.mStaticContent;
+    const bool buildPak      = discContent || profile.mContentPak;
+
     ActionManager* am = ActionManager::Get();
     if (am != nullptr)
     {
@@ -1556,27 +1593,27 @@ void PackagingWindow::ExecuteLocalBuild(const BuildProfile& profile, bool runAft
         // Hand the active profile's per-target options to the build so addon
         // build-target callbacks can read them via ctx->GetProfileSetting.
         am->GetBuildState().mTargetOptions = profile.mTargetOptions;
-        am->GetBuildState().mStaticContent = profile.mStaticContent;
-        am->GetBuildState().mContentPak = profile.mContentPak;
+        am->GetBuildState().mStaticContent = buildStatic;
+        am->GetBuildState().mContentPak = buildPak;
         // Prefer the registry-resolved target id when present so addon-
         // provided targets dispatch through their descriptor callbacks. Falls
         // back to legacy Platform-only build when mTargetId is empty (old
         // profiles saved before mTargetId existed).
         if (!profile.mTargetId.empty())
         {
-            am->BuildData(profile.mTargetId, profile.mEmbedded);
+            am->BuildData(profile.mTargetId, buildEmbedded);
         }
         else
         {
-            am->BuildData(profile.mTargetPlatform, profile.mEmbedded);
+            am->BuildData(profile.mTargetPlatform, buildEmbedded);
         }
         // Re-set run-after-build flags after BuildData (Reset() clears them in normal path)
         am->GetBuildState().mRunAfterBuild = runAfterBuild;
         am->GetBuildState().mRunOnDevice = runOnDevice;
         am->GetBuildState().mTargetOptions = profile.mTargetOptions;
         am->GetBuildState().mOpenDirectoryOnFinish = profile.mOpenDirectoryOnFinish;
-        am->GetBuildState().mStaticContent = profile.mStaticContent;
-        am->GetBuildState().mContentPak = profile.mContentPak;
+        am->GetBuildState().mStaticContent = buildStatic;
+        am->GetBuildState().mContentPak = buildPak;
     }
 
     mBuildInProgress = false;

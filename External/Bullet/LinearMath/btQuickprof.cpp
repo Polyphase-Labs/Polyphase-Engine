@@ -736,6 +736,17 @@ void btLeaveProfileZoneDefault()
     #undef BT_HAVE_TLS
   #endif
 #endif  // defined(__ANDROID__) && defined(__clang__)
+
+// POLYPHASE: some targets have a compiler that accepts __thread but no TLS
+// RUNTIME -- the SDK never establishes a thread pointer, so the first access
+// faults. Xbox 360 (libxenon) is one: nothing in the SDK touches r2, the
+// PowerPC32 TP register. Bullet already models this as a capability, so just
+// clear it and let the existing non-TLS fallback below apply. Such targets are
+// single-threaded by construction, so a per-thread index is meaningless there
+// anyway.
+#if defined(POLYPHASE_NO_TLS)
+#undef BT_HAVE_TLS
+#endif
 // clang-format on
 
 unsigned int btQuickprofGetCurrentThreadIndex2()

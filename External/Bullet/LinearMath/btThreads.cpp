@@ -79,7 +79,19 @@ subject to the following restrictions:
 #include <atomic>
 #include <thread>
 
+// POLYPHASE: some targets have C++11 atomics but NO TLS runtime, so
+// `thread_local` compiles and links yet faults on first access -- the SDK
+// never establishes a thread pointer. Xbox 360 (libxenon) is one: nothing in
+// the SDK touches r2, the PowerPC32 thread-pointer register. Bullet already
+// has a plain-`static` arm for TLS-less builds further down; this just makes
+// it reachable when the limitation is the RUNTIME rather than the compiler.
+// Safe because such targets are single-threaded by construction, so
+// btGetCurrentThreadIndex only ever describes the one thread.
+#if defined(POLYPHASE_NO_TLS)
+#define THREAD_LOCAL_STATIC static
+#else
 #define THREAD_LOCAL_STATIC thread_local static
+#endif
 
 bool btSpinMutex::tryLock()
 {

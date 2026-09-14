@@ -289,6 +289,9 @@ void AppSettingsWindow::DrawRuntimeSection()
 
     if (Polyphase::Checkbox("Logging", &config->mLogging))
     {
+        // EngineConfig::mLogging is only copied into the log system's gate at
+        // InitializeLog(); flip the live gate too or the change waits for a restart.
+        EnableLog(config->mLogging);
         changed = true;
     }
 

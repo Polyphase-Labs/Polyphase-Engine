@@ -1,4 +1,5 @@
 #include "AssetManager.h"
+#include "System/SystemConstants.h"   // POLYPHASE_THREAD_LOCAL
 #include "Asset.h"
 #include "AssetDir.h"
 #include "Engine.h"
@@ -556,7 +557,7 @@ void AssetManager::DiscoverDirectory(AssetDir* directory, bool engineDir)
 #if EDITOR
     // Per-file tick counter (static so the count is per-recursion, not
     // per-call). EditorProgress::Step throttles internally to ~60Hz.
-    static thread_local uint32_t sDiscoverTickCounter = 0;
+    static POLYPHASE_THREAD_LOCAL uint32_t sDiscoverTickCounter = 0;
 #endif
 
     // Phase 2: Process files. The directory handle is closed, so it's safe to

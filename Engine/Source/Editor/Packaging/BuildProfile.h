@@ -136,4 +136,14 @@ bool PlatformUsesShaderFiles(Platform platform);
  */
 #define POLYPHASE_OPT_HIDE_CONTENT_PAK "polyphase.hideContentPak"
 
+/**
+ * @brief Target-option key a build-target addon can set to "1" to declare that
+ *        its output is a disc image with exactly one viable content layout:
+ *        Embedded OFF, Static Content ON, Content Pak ON. The packaging window
+ *        forces those values and shows the three checkboxes disabled, and the
+ *        build applies the same forcing so a queued or never-drawn profile
+ *        cannot ship loose files onto a disc.
+ */
+#define POLYPHASE_OPT_DISC_CONTENT "polyphase.discContent"
+
 #endif

@@ -1,4 +1,5 @@
 #include "Nodes/Widgets/Widget.h"
+#include "System/SystemConstants.h"   // POLYPHASE_THREAD_LOCAL
 #include "Renderer.h"
 #include "InputDevices.h"
 #include "Engine.h"
@@ -89,6 +90,7 @@ bool Widget::HandlePropChange(Datum* datum, uint32_t index, const void* newValue
 
     return success;
 }
+
 
 Widget::Widget() :
     mTransform(1.0f),
@@ -1188,8 +1190,8 @@ void Widget::MarkDirty()
     // crash. Cap recursion depth per outer entry via a thread-local counter
     // and bail with a log the first few times so the offending scene shows
     // up in the log without spamming forever.
-    static thread_local uint32_t sMarkDirtyDepth = 0;
-    static thread_local uint32_t sCycleWarnCount = 0;
+    static POLYPHASE_THREAD_LOCAL uint32_t sMarkDirtyDepth = 0;
+    static POLYPHASE_THREAD_LOCAL uint32_t sCycleWarnCount = 0;
     constexpr uint32_t kMarkDirtyDepthLimit = 512;
 
     if (sMarkDirtyDepth >= kMarkDirtyDepthLimit)

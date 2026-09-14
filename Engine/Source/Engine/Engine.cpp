@@ -1445,6 +1445,7 @@ void LoadProject(const std::string& path, bool discoverAssets)
     sEngineState.mProjectPath = path;
     sEngineState.mProjectDirectory = path.substr(0, path.find_last_of("/\\") + 1);
 
+    LogDebug("Loading project '%s'", path.c_str());
     Stream projFileStream;
     projFileStream.ReadFile(path.c_str(), true);
 
@@ -1476,6 +1477,17 @@ void LoadProject(const std::string& path, bool discoverAssets)
 
     std::string configPath = sEngineState.mProjectDirectory + "Config.ini";
     ReadEngineConfig(configPath);
+
+#if EDITOR
+    // mLogging is per-project (it lives in the project's Config.ini, read just above),
+    // but the log gate is otherwise only synced from it once, at engine Initialize(),
+    // which runs before any project is open. Headless cooks keep logging so packaging
+    // failures stay diagnosable.
+    if (!IsHeadless())
+    {
+        EnableLog(sEngineConfig.mLogging);
+    }
+#endif
 
 #if EDITOR
     // .octp `name=` is the canonical project name (it's what packaging reads to derive
