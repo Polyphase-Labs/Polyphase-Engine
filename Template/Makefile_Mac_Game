@@ -74,7 +74,6 @@ SOURCES		:=	Source \
 				Generated
 INCLUDES	:=	Include ../Engine/Include ../Engine/Include/Engine ../External ../External/Bullet $(VULKAN_SDK)/include
 OUTPUT_DIR	:=	$(CURDIR)/Build/Mac
-ARCH_INTERMEDIATE_ROOT	:=	$(CURDIR)/Intermediate/Mac
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -151,20 +150,23 @@ export ENGINE_LIB := $(CURDIR)/../Engine/Build/Mac/libEngineGame.a
 #---------------------------------------------------------------------------------
 all: $(BUILD)
 
-# Arch stamp: everything under $(OUTPUT_DIR) and $(ARCH_INTERMEDIATE_ROOT) is
-# only valid for the MAC_ARCH it was compiled for. On a mismatch wipe both so a
-# thin archive can never be linked into a universal binary or vice versa. A
+# Arch stamp (per flavour): this makefile's own objects under $(BUILD) and
+# its binary $(OUTPUT) are only valid for the MAC_ARCH they were compiled
+# for. On a mismatch wipe just those two, never the whole Build/Mac: it also
+# holds the editor binary that may be driving this very build (packaging a
+# game for another arch must not delete the editor). Engine/Bullet/Assimp
+# stamp their whole output dir instead, since their archives are shared. A
 # missing stamp on an existing tree means arm64 (the only arch any tree could
 # have been built for before MAC_ARCH existed), so no forced rebuild there.
-# Prerequisite of the first-running targets below so nothing races the rm -rf
-# under -j.
-MAC_ARCH_STAMP := $(OUTPUT_DIR)/.mac_arch
+# Prerequisite of the first-running targets below so nothing races the
+# rm -rf under -j.
+MAC_ARCH_STAMP := $(OUTPUT_DIR)/.mac_arch-$(notdir $(BUILD))
 .PHONY: ArchStamp
 ArchStamp:
 	@have="arm64"; [ -f "$(MAC_ARCH_STAMP)" ] && have="$$(cat "$(MAC_ARCH_STAMP)")"; \
-	if [ "$$have" != "$(MAC_ARCH_RESOLVED)" ] && { [ -d "$(OUTPUT_DIR)" ] || [ -d "$(ARCH_INTERMEDIATE_ROOT)" ]; }; then \
-	    echo "MAC_ARCH $$have -> $(MAC_ARCH_RESOLVED): cleaning $(OUTPUT_DIR) $(ARCH_INTERMEDIATE_ROOT)"; \
-	    rm -rf "$(OUTPUT_DIR)" "$(ARCH_INTERMEDIATE_ROOT)"; \
+	if [ "$$have" != "$(MAC_ARCH_RESOLVED)" ] && { [ -f "$(OUTPUT)" ] || [ -d "$(CURDIR)/$(BUILD)" ]; }; then \
+	    echo "MAC_ARCH $$have -> $(MAC_ARCH_RESOLVED): cleaning $(OUTPUT) $(CURDIR)/$(BUILD)"; \
+	    rm -rf "$(OUTPUT)" "$(CURDIR)/$(BUILD)"; \
 	fi; \
 	mkdir -p "$(OUTPUT_DIR)"; echo "$(MAC_ARCH_RESOLVED)" > "$(MAC_ARCH_STAMP)"
 

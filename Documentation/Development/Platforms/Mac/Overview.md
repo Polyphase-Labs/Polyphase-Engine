@@ -49,7 +49,7 @@ make -C Standalone -f Makefile_Mac_Editor -j$(sysctl -n hw.ncpu) MAC_ARCH=univer
 MAC_ARCH=universal bash Tools/prebuild_mac.sh      # libgit2 must be rebuilt for the same slices
 ```
 
-Each output directory carries a `.mac_arch` stamp; when the requested value differs, the Makefile wipes that tree (`Build/Mac`, `Intermediate/Mac`, and the Bullet/Assimp equivalents) before compiling so a thin archive is never linked into a universal binary. `Tools/CI/mac_check_archs.sh "arm64 x86_64" <files>` verifies the slices of executables, dylibs and static archives.
+Engine, Bullet and Assimp stamp their output directory (`Build/Mac/.mac_arch`) and wipe it plus their intermediates when the requested value differs, so a thin archive is never linked into a universal binary. The Standalone and Template makefiles stamp per flavour (`.mac_arch-Editor`, `.mac_arch-Game`, ...) and wipe only that flavour's objects and binary, so packaging a game for another architecture never deletes the editor binary next to it. `Tools/CI/mac_check_archs.sh "arm64 x86_64" <files>` verifies the slices of executables, dylibs and static archives.
 
 ## Platform Layer
 

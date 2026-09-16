@@ -341,6 +341,8 @@ namespace MacBundlePackager
             s += "ICONNAME=" + shIconNm + "\n";
             s += "IDENTITY=" + shIdent + "\n";
             s += "WANT_ARCH=" + shArch + "\n";
+            s += "has_arch() { case \" $1 \" in *\" $2 \"*) return 0 ;; esac; return 1; }\n";
+            s += "is_universal() { has_arch \"$1\" arm64 && has_arch \"$1\" x86_64; }\n";
             s += "\n";
             s += "rm -rf \"$APP\"\n";
             s += "mkdir -p \"$APP/Contents/MacOS\" \"$APP/Contents/Frameworks\" \"$APP/Contents/Resources/vulkan/icd.d\"\n";
@@ -353,13 +355,13 @@ namespace MacBundlePackager
             s += "HAVE_ARCHS=\"$(lipo -archs \"$OUTDIR/$EXE.macho\")\"\n";
             s += "if [ \"$WANT_ARCH\" = \"universal\" ]; then\n";
             s += "    cp \"$OUTDIR/$EXE.macho\" \"$APP/Contents/MacOS/$EXE\"\n";
-            s += "    case \" $HAVE_ARCHS \" in *\" arm64 \"*\" x86_64 \"*|*\" x86_64 \"*\" arm64 \"*) ;; *)\n";
-            s += "        echo \"warning: Universal requested but the executable only contains '$HAVE_ARCHS' (a script-only project reuses the editor's bundled runtime; build the editor with MAC_ARCH=universal)\" >&2;;\n";
-            s += "    esac\n";
+            s += "    if ! is_universal \"$HAVE_ARCHS\"; then\n";
+            s += "        echo \"warning: Universal requested but the executable only contains '$HAVE_ARCHS' (a script-only project reuses the editor's bundled runtime; build the editor with MAC_ARCH=universal)\" >&2\n";
+            s += "    fi\n";
             s += "elif [ \"$HAVE_ARCHS\" = \"$WANT_ARCH\" ]; then\n";
             s += "    cp \"$OUTDIR/$EXE.macho\" \"$APP/Contents/MacOS/$EXE\"\n";
             s += "else\n";
-            s += "    case \" $HAVE_ARCHS \" in *\" $WANT_ARCH \"*) ;; *) echo \"executable has no $WANT_ARCH slice (has: $HAVE_ARCHS)\" >&2; exit 1;; esac\n";
+            s += "    if ! has_arch \"$HAVE_ARCHS\" \"$WANT_ARCH\"; then echo \"executable has no $WANT_ARCH slice (has: $HAVE_ARCHS)\" >&2; exit 1; fi\n";
             s += "    lipo \"$OUTDIR/$EXE.macho\" -thin \"$WANT_ARCH\" -output \"$APP/Contents/MacOS/$EXE\"\n";
             s += "fi\n";
             s += "chmod 0755 \"$APP/Contents/MacOS/$EXE\"\n";
@@ -367,8 +369,8 @@ namespace MacBundlePackager
             s += "for f in \"$APP\"/Contents/MacOS/Addons/*.dylib; do\n";
             s += "    [ -f \"$f\" ] || continue\n";
             s += "    A=\"$(lipo -archs \"$f\")\"\n";
-            s += "    if [ \"$WANT_ARCH\" = \"universal\" ]; then case \" $A \" in *\" arm64 \"*\" x86_64 \"*|*\" x86_64 \"*\" arm64 \"*) ;; *) echo \"warning: $(basename \"$f\") is not universal ($A)\" >&2;; esac\n";
-            s += "    else case \" $A \" in *\" $WANT_ARCH \"*) ;; *) echo \"warning: $(basename \"$f\") has no $WANT_ARCH slice ($A)\" >&2;; esac; fi\n";
+            s += "    if [ \"$WANT_ARCH\" = \"universal\" ]; then is_universal \"$A\" || echo \"warning: $(basename \"$f\") is not universal ($A)\" >&2\n";
+            s += "    else has_arch \"$A\" \"$WANT_ARCH\" || echo \"warning: $(basename \"$f\") has no $WANT_ARCH slice ($A)\" >&2; fi\n";
             s += "done\n";
             s += "\n";
             s += "# Payload -> Resources (the engine pivots its working directory here).\n";

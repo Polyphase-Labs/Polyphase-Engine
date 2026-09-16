@@ -41,10 +41,12 @@ VERSION_STRING="$(sed -n 's/^#define POLYPHASE_VERSION_STRING "\(.*\)"/\1/p' Eng
 # Arch tag from the payload itself so the filename can never disagree with it:
 # both slices -> universal, else the single slice (arm64 / x86_64).
 ARCHS="$(lipo -archs dist/Polyphase.app/Contents/MacOS/Polyphase)"
-case " $ARCHS " in
-    *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ARCH_TAG="universal" ;;
-    *) ARCH_TAG="$(echo "$ARCHS" | tr -d '[:space:]')" ;;
-esac
+has_arch() { case " $ARCHS " in *" $1 "*) return 0 ;; esac; return 1; }
+if has_arch arm64 && has_arch x86_64; then
+    ARCH_TAG="universal"
+else
+    ARCH_TAG="$(echo "$ARCHS" | tr -d '[:space:]')"
+fi
 DMG="dist/PolyphaseEditor-${VERSION_STRING}-macos-${ARCH_TAG}.dmg"
 DMGROOT="dist/dmgroot"
 
