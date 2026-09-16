@@ -11,7 +11,7 @@ The **macOS (App Bundle)** target (`polyphase.mac`) is the canonical build targe
 
 ```
 <Project>/Packaged/Mac/
-    <Project>.macho           loose arm64 Mach-O (kept, like the .elf beside an AppImage)
+    <Project>.macho           loose Mach-O (kept, like the .elf beside an AppImage); slices per the Architecture option
     Config.ini, <Project>.octp, <Project>/, Engine/, Addons/ ...   loose payload
     <Project>.app/            the deliverable
     <Project>.dmg             optional (Create .dmg)
@@ -28,6 +28,7 @@ Script-only projects reuse the prebuilt runtime at `Standalone/Build/Mac/Polypha
 | `mac.bundleId` | Bundle Identifier | `com.polyphase.<ProjectName>` | `CFBundleIdentifier` |
 | `mac.version` | Version | `1.0.0` | `CFBundleShortVersionString` / `CFBundleVersion` |
 | `mac.minOsVersion` | Minimum macOS | `12.0` | `LSMinimumSystemVersion` |
+| `mac.arch` | Architecture | Native (this Mac) | `universal`, `arm64` or `x86_64`; passed to make as `MAC_ARCH=`. Script-only projects reuse the editor's bundled runtime, so a single arch is applied with `lipo -thin` and Universal only warns when the runtime is thin |
 | `mac.iconPath` | Icon (PNG) | project PNG icon, else the engine logo | Converted with `sips` + `iconutil` |
 | `mac.signingIdentity` | Signing Identity | ad-hoc (`-`) | e.g. `Developer ID Application: Name (TEAMID)` |
 | `mac.notarize` | Notarize | off | Needs an identity and `mac.notaryProfile` |

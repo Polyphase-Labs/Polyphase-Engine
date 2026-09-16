@@ -2,7 +2,7 @@
 
 ## Overview
 
-The engine abstracts platform differences through a C-style API in `System.h` with platform-specific implementations. Six platforms are supported: Windows, Linux, macOS (Apple Silicon), Android, GameCube/Wii (Dolphin), and Nintendo 3DS.
+The engine abstracts platform differences through a C-style API in `System.h` with platform-specific implementations. Six platforms are supported: Windows, Linux, macOS (Apple Silicon and Intel), Android, GameCube/Wii (Dolphin), and Nintendo 3DS.
 
 ## Key Files
 

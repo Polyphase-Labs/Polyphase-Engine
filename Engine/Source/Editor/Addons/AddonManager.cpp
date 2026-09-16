@@ -2269,7 +2269,7 @@ bool AddonManager::SyncNativeAddonBinary(const std::string& addonId, std::string
     currentArch = "x64";
 #elif PLATFORM_MAC
     currentPlatform = "Mac";
-    currentArch = "arm64";
+    currentArch = POLYPHASE_MAC_HOST_ARCH;
 #else
     outError = "Binary mode not supported on this platform";
     return false;

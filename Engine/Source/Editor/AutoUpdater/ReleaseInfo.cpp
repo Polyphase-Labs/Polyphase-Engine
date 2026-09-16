@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "ReleaseInfo.h"
+#include "System/System.h"
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
@@ -254,12 +255,18 @@ const ReleaseAsset* ReleaseInfo::GetAssetForPlatform() const
         }
     }
 #elif PLATFORM_MAC
-    // Prefer a disk image, then anything labelled macOS.
-    for (const ReleaseAsset& asset : mAssets)
+    // Prefer a disk image: universal first, then one built for this slice's
+    // arch, then any dmg (single-arch releases predating the tag); then
+    // anything labelled macOS.
+    for (const char* tag : {"universal", POLYPHASE_MAC_HOST_ARCH, ""})
     {
-        if (asset.mName.find(".dmg") != std::string::npos)
+        for (const ReleaseAsset& asset : mAssets)
         {
-            return &asset;
+            if (asset.mName.find(".dmg") != std::string::npos &&
+                asset.mName.find(tag) != std::string::npos)
+            {
+                return &asset;
+            }
         }
     }
     for (const ReleaseAsset& asset : mAssets)

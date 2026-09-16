@@ -8,8 +8,11 @@ description: >
   asset `vulkansdk-macos-<version>.zip`) and falls back to LunarG's CDN when
   no mirror asset has been published yet — LunarG cycles old SDKs off their
   CDN, so uploading the mirror asset makes releases reproducible long-term.
-  macOS (arm64) runners only — Windows uses ../install-vulkan-sdk, Linux
-  uses the polyphaselabs/polyphase-bare Docker image with the SDK baked in.
+  macOS runners only (arm64 images; the SDK's dylibs and static libs are
+  universal, so a MAC_ARCH=universal engine build links against this same
+  install — release.yml asserts that with Tools/CI/mac_check_archs.sh).
+  Windows uses ../install-vulkan-sdk, Linux uses the
+  polyphaselabs/polyphase-bare Docker image with the SDK baked in.
   Companion documentation: Documentation/Development/SetupEnvironment/Mac.md
   must list the same version this action defaults to.
 

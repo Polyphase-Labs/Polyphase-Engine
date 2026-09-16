@@ -30,8 +30,22 @@ namespace MacBundlePackager
         constexpr const char* kNotarizeKey      = "mac.notarize";
         constexpr const char* kNotaryProfileKey = "mac.notaryProfile";
         constexpr const char* kCreateDmgKey     = "mac.createDmg";
+        constexpr const char* kArchKey          = "mac.arch";
 
         constexpr const char* kDefaultMinOs = "12.0";
+
+        // mac.arch: "" is Native (this Mac), which also keeps profiles that never
+        // touched the option on their historical build-manifest name. The other
+        // values are passed to make as MAC_ARCH= (see ActionManager).
+        constexpr const char* kArchValues[] = { "", "universal", "arm64", "x86_64" };
+        constexpr const char* kArchLabels[] = { "Native (this Mac)", "Universal (arm64 + x86_64)",
+                                                "Apple Silicon (arm64)", "Intel (x86_64)" };
+        constexpr int kArchCount = 4;
+#if PLATFORM_MAC
+        constexpr const char* kHostArch = POLYPHASE_MAC_HOST_ARCH;
+#else
+        constexpr const char* kHostArch = "arm64";
+#endif
 
         // Bundle identifiers are reverse-DNS: alphanumerics, '.' and '-'.
         std::string ToAppName(const std::string& projectName)
@@ -201,6 +215,8 @@ namespace MacBundlePackager
             const bool notarize         = LinuxHostShell::GetOption(ctx, kNotarizeKey, "0") == "1";
             const std::string notaryPro = LinuxHostShell::GetOption(ctx, kNotaryProfileKey);
             const bool createDmg        = LinuxHostShell::GetOption(ctx, kCreateDmgKey, "0") == "1";
+            const std::string archOpt   = LinuxHostShell::GetOption(ctx, kArchKey);
+            const std::string wantArch  = archOpt.empty() ? std::string(kHostArch) : archOpt;
 
             const std::string sdkRoot = ResolveVulkanSdkRoot();
             if (sdkRoot.empty())
@@ -213,7 +229,7 @@ namespace MacBundlePackager
             const std::string scriptPath = workDir + "/build_app.sh";
             const std::string appPath    = outDir + projectName + ".app";
 
-            LinuxHostShell::Report(ctx, "MacBundle: assembling " + projectName + ".app ...");
+            LinuxHostShell::Report(ctx, "MacBundle: assembling " + projectName + ".app (" + wantArch + ") ...");
 
             SYS_RemoveDirectory(workDir.c_str());
             if (!LinuxHostShell::EnsureHostDir(workDir + "/iconset.iconset"))
@@ -311,6 +327,7 @@ namespace MacBundlePackager
             const std::string shNotary  = LinuxHostShell::Quote(notaryPro);
             const std::string shDmg     = LinuxHostShell::Quote(outDir + appName + ".dmg");
             const std::string shVolName = LinuxHostShell::Quote(projectName);
+            const std::string shArch    = LinuxHostShell::Quote(wantArch);
 
             std::string s;
             s += "#!/bin/bash\n";
@@ -323,15 +340,36 @@ namespace MacBundlePackager
             s += "ICONSRC=" + shIcon + "\n";
             s += "ICONNAME=" + shIconNm + "\n";
             s += "IDENTITY=" + shIdent + "\n";
+            s += "WANT_ARCH=" + shArch + "\n";
             s += "\n";
             s += "rm -rf \"$APP\"\n";
             s += "mkdir -p \"$APP/Contents/MacOS\" \"$APP/Contents/Frameworks\" \"$APP/Contents/Resources/vulkan/icd.d\"\n";
             s += "\n";
-            s += "# Executable + game addons.\n";
+            s += "# Executable + game addons. WANT_ARCH is the profile's Architecture option\n";
+            s += "# (universal / arm64 / x86_64; Native resolved to this Mac's arch). A script-only\n";
+            s += "# project reuses the editor's bundled runtime, so thin it when a single arch is\n";
+            s += "# wanted and only warn when universal is wanted but the runtime is thin.\n";
             s += "if [ ! -f \"$OUTDIR/$EXE.macho\" ]; then echo \"packaged executable not found: $OUTDIR/$EXE.macho\" >&2; exit 1; fi\n";
-            s += "cp \"$OUTDIR/$EXE.macho\" \"$APP/Contents/MacOS/$EXE\"\n";
+            s += "HAVE_ARCHS=\"$(lipo -archs \"$OUTDIR/$EXE.macho\")\"\n";
+            s += "if [ \"$WANT_ARCH\" = \"universal\" ]; then\n";
+            s += "    cp \"$OUTDIR/$EXE.macho\" \"$APP/Contents/MacOS/$EXE\"\n";
+            s += "    case \" $HAVE_ARCHS \" in *\" arm64 \"*\" x86_64 \"*|*\" x86_64 \"*\" arm64 \"*) ;; *)\n";
+            s += "        echo \"warning: Universal requested but the executable only contains '$HAVE_ARCHS' (a script-only project reuses the editor's bundled runtime; build the editor with MAC_ARCH=universal)\" >&2;;\n";
+            s += "    esac\n";
+            s += "elif [ \"$HAVE_ARCHS\" = \"$WANT_ARCH\" ]; then\n";
+            s += "    cp \"$OUTDIR/$EXE.macho\" \"$APP/Contents/MacOS/$EXE\"\n";
+            s += "else\n";
+            s += "    case \" $HAVE_ARCHS \" in *\" $WANT_ARCH \"*) ;; *) echo \"executable has no $WANT_ARCH slice (has: $HAVE_ARCHS)\" >&2; exit 1;; esac\n";
+            s += "    lipo \"$OUTDIR/$EXE.macho\" -thin \"$WANT_ARCH\" -output \"$APP/Contents/MacOS/$EXE\"\n";
+            s += "fi\n";
             s += "chmod 0755 \"$APP/Contents/MacOS/$EXE\"\n";
             s += "if [ -d \"$OUTDIR/Addons\" ]; then mkdir -p \"$APP/Contents/MacOS/Addons\"; cp -R \"$OUTDIR/Addons/.\" \"$APP/Contents/MacOS/Addons/\"; fi\n";
+            s += "for f in \"$APP\"/Contents/MacOS/Addons/*.dylib; do\n";
+            s += "    [ -f \"$f\" ] || continue\n";
+            s += "    A=\"$(lipo -archs \"$f\")\"\n";
+            s += "    if [ \"$WANT_ARCH\" = \"universal\" ]; then case \" $A \" in *\" arm64 \"*\" x86_64 \"*|*\" x86_64 \"*\" arm64 \"*) ;; *) echo \"warning: $(basename \"$f\") is not universal ($A)\" >&2;; esac\n";
+            s += "    else case \" $A \" in *\" $WANT_ARCH \"*) ;; *) echo \"warning: $(basename \"$f\") has no $WANT_ARCH slice ($A)\" >&2;; esac; fi\n";
+            s += "done\n";
             s += "\n";
             s += "# Payload -> Resources (the engine pivots its working directory here).\n";
             s += "rsync -a --exclude '*.app' --exclude '*.dmg' --exclude '*.macho' --exclude '/Addons' --exclude '/*.dylib' \"$OUTDIR/.\" \"$APP/Contents/Resources/\"\n";
@@ -436,6 +474,26 @@ namespace MacBundlePackager
             }
         }
 
+        void DrawComboOption(const PolyphaseBuildContext* ctx, const char* label, const char* key,
+                             const char* const* values, const char* const* labels, int count,
+                             const char* tooltip)
+        {
+            const std::string current = LinuxHostShell::GetOption(ctx, key, values[0]);
+            int idx = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                if (current == values[i]) { idx = i; break; }
+            }
+            if (ImGui::Combo(label, &idx, labels, count) && ctx->SetProfileSetting != nullptr)
+            {
+                ctx->SetProfileSetting(key, values[idx]);
+            }
+            if (tooltip != nullptr && ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", tooltip);
+            }
+        }
+
         void DrawBoolOption(const PolyphaseBuildContext* ctx, const char* label,
                             const char* key, const char* tooltip)
         {
@@ -461,6 +519,10 @@ namespace MacBundlePackager
                 "CFBundleShortVersionString / CFBundleVersion.");
             DrawTextOption(ctx, "Minimum macOS", kMinOsKey, kDefaultMinOs,
                 "LSMinimumSystemVersion. MoltenVK needs 12.0 or newer.");
+            DrawComboOption(ctx, "Architecture", kArchKey, kArchValues, kArchLabels, kArchCount,
+                "CPU slices in the executable (make MAC_ARCH=...). Universal runs natively on\n"
+                "Apple Silicon and Intel Macs at about twice the compile time. Script-only projects\n"
+                "reuse the editor's bundled runtime, so they can only be thinned, not widened.");
             DrawTextOption(ctx, "Icon (PNG)", kIconPathKey, "",
                 "Square PNG (512x512 or larger), absolute or relative to the project dir.\n"
                 "Falls back to the project's PNG icon, then the engine logo.");
@@ -476,8 +538,8 @@ namespace MacBundlePackager
                 "Also write a compressed disk image with an Applications shortcut.");
 
             ImGui::Separator();
-            ImGui::TextDisabled("Apple Silicon (arm64) only. Vulkan runs through MoltenVK,");
-            ImGui::TextDisabled("bundled from the Vulkan SDK into Contents/Frameworks.");
+            ImGui::TextDisabled("Apple Silicon and Intel (see Architecture). Vulkan runs through");
+            ImGui::TextDisabled("MoltenVK, bundled from the Vulkan SDK into Contents/Frameworks.");
             ImGui::TextDisabled("Saves go to ~/Library/Application Support/<Project>/Saves");
             ImGui::TextDisabled("when the bundle is read-only.");
         }
