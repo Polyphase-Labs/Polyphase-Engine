@@ -4126,6 +4126,24 @@ void ActionManager::BuildPhase1()
                 }
             }
 
+            if (platform == Platform::Mac)
+            {
+                // Architecture option of the macOS (App Bundle) target. Passed on the
+                // make command line so it reaches Makefile_TEMP and every sub-make
+                // (Engine, Bullet, Assimp) through MAKEFLAGS; the makefiles' arch stamp
+                // wipes stale objects when it changes. Native (empty) leaves the
+                // makefile default (uname -m) in charge.
+                auto it = mBuildState.mTargetOptions.find("mac.arch");
+                if (it != mBuildState.mTargetOptions.end())
+                {
+                    const std::string& arch = it->second;
+                    if (arch == "universal" || arch == "arm64" || arch == "x86_64")
+                    {
+                        mBuildState.mCompileCommand += " MAC_ARCH=" + arch;
+                    }
+                }
+            }
+
             if (platform == Platform::Linux)
             {
                 std::string exeName = standalone ? "Polyphase" : projectName;

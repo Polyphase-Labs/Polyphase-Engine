@@ -10,6 +10,7 @@ Usage:
     python stage_distribution.py --platform windows|linux|mac [--output-dir dist/Editor] [--verbose]
 """
 
+import platform as host_platform
 import argparse
 import os
 import re
@@ -437,10 +438,15 @@ def stage(platform, output_dir, engine_root, verbose=False):
         if copy_file(polyphase_game_lib, dist / "PolyphaseGame.lib", verbose):
             log(f"PolyphaseGame.lib: {polyphase_game_lib}", verbose)
     elif platform == "mac":
-        # macOS: libLua.a for native addon builds (make -C External/Lua macosx).
-        lua_lib = engine_root / "External" / "Lua" / "Build" / "Mac" / "arm64" / "ReleaseEditor" / "libLua.a"
-        if not lua_lib.exists():
-            lua_lib = engine_root / "External" / "Lua" / "liblua.a"
+        # macOS: libLua.a for native addon builds (make -C External/Lua a ...).
+        # Universal first (what the release workflow builds), then this
+        # machine's arch, then the legacy arm64-only layout.
+        lua_lib = engine_root / "External" / "Lua" / "liblua.a"
+        for arch_dir in ("universal", host_platform.machine(), "arm64"):
+            candidate = engine_root / "External" / "Lua" / "Build" / "Mac" / arch_dir / "ReleaseEditor" / "libLua.a"
+            if candidate.exists():
+                lua_lib = candidate
+                break
         if copy_file(lua_lib, dist / "lib" / "libLua.a", verbose):
             log(f"libLua.a: {lua_lib}", verbose)
         else:

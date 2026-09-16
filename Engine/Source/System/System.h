@@ -24,6 +24,14 @@ std::string SYS_GetPolyphasePath();
 std::string SYS_GetBundleResourcePath();
 // backingScaleFactor of the main screen (2.0 on Retina), usable before the window exists.
 float SYS_GetDisplayScale();
+// CPU architecture of this binary's slice ("arm64" / "x86_64"). A universal
+// editor runs whichever slice matches the host, so this is also the host arch
+// ("x86_64" under Rosetta) and the arch editor-loaded addon dylibs must be.
+#if defined(__x86_64__)
+#define POLYPHASE_MAC_HOST_ARCH "x86_64"
+#else
+#define POLYPHASE_MAC_HOST_ARCH "arm64"
+#endif
 #endif
 std::string SYS_GetCurrentDirectoryPath();
 std::string SYS_GetAbsolutePath(const std::string& relativePath);

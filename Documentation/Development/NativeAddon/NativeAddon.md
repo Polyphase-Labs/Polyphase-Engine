@@ -1473,7 +1473,7 @@ The `nativePerPlatform.<PlatformName>` block lets you append platform-specific v
 "Windows"  "Linux"  "Mac"  "Android"  "GameCube"  "Wii"  "3DS"  "PSP"
 ```
 
-On macOS the editor builds addons as `lib<binaryName>.dylib` (arm64, `-dynamiclib -Wl,-undefined,dynamic_lookup`) and `copyBinaries` directories are staged into the bundle's `Contents/Frameworks`. A dylib must not declare `extern char** environ`; use `_NSGetEnviron()`.
+On macOS the editor builds addons as `lib<binaryName>.dylib` (the editor's own slice, arm64 or x86_64, `-dynamiclib -Wl,-undefined,dynamic_lookup`) and `copyBinaries` directories are staged into the bundle's `Contents/Frameworks`. A dylib must not declare `extern char** environ`; use `_NSGetEnviron()`.
 
 Unknown platform names are silently ignored at resolve time — typos are not flagged.
 

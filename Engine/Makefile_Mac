@@ -12,9 +12,25 @@ export STRIP	:=	$(PREFIX)strip
 export NM	:=	$(PREFIX)nm
 export RANLIB	:=	$(PREFIX)ranlib
 
-# Apple Silicon only. MACHDEP is also where a future x86_64/universal build
-# would add its -arch flags.
-MACHDEP	:=	-arch arm64 -mmacosx-version-min=12.0
+# MAC_ARCH selects the Mach-O slices: native (default, = uname -m), arm64,
+# x86_64 or universal (arm64 + x86_64 fat objects/archives/executables).
+# Command line or environment; propagates to every sub-make (Engine, Bullet,
+# Assimp, the inner -C $(BUILD) pass) through MAKEFLAGS like BUILD_SUFFIX.
+MAC_ARCH ?= native
+ifeq ($(MAC_ARCH),native)
+MAC_ARCH_RESOLVED := $(shell uname -m)
+else
+MAC_ARCH_RESOLVED := $(MAC_ARCH)
+endif
+ifeq ($(filter arm64 x86_64 universal,$(MAC_ARCH_RESOLVED)),)
+$(error MAC_ARCH must be native, arm64, x86_64 or universal (got '$(MAC_ARCH)'))
+endif
+ifeq ($(MAC_ARCH_RESOLVED),universal)
+MAC_ARCHFLAGS := -arch arm64 -arch x86_64
+else
+MAC_ARCHFLAGS := -arch $(MAC_ARCH_RESOLVED)
+endif
+MACHDEP	:=	$(MAC_ARCHFLAGS) -mmacosx-version-min=12.0
 
 ifeq ($(V),1)
     SILENTMSG := @true
@@ -107,6 +123,9 @@ INCLUDES	:=	Source Source/Engine ../External ../External/Vorbis ../External/Bull
 # Standalone/Makefile_Mac_Game's header comment. Propagates via MAKEFLAGS
 # from the outer make to Bullet/Assimp sub-makes below.
 OUTPUT_DIR	:=	$(CURDIR)/Build/Mac$(BUILD_SUFFIX)
+# Every flavour (EngineEditor/EngineGame/*Shared) shares OUTPUT_DIR, so the
+# arch stamp below governs the whole intermediate root, not one $(BUILD).
+ARCH_INTERMEDIATE_ROOT	:=	$(CURDIR)/Intermediate/Mac$(BUILD_SUFFIX)
 BULLET_DIR	:=	$(CURDIR)/../External/Bullet
 ASSIMP_DIR	:=	$(CURDIR)/../External/Assimp
 
@@ -266,6 +285,23 @@ endif
 #---------------------------------------------------------------------------------
 all: $(BUILD)
 
+# Arch stamp: everything under $(OUTPUT_DIR) and $(ARCH_INTERMEDIATE_ROOT) is
+# only valid for the MAC_ARCH it was compiled for. On a mismatch wipe both so a
+# thin archive can never be linked into a universal binary or vice versa. A
+# missing stamp on an existing tree means arm64 (the only arch any tree could
+# have been built for before MAC_ARCH existed), so no forced rebuild there.
+# Prerequisite of the first-running targets below so nothing races the rm -rf
+# under -j.
+MAC_ARCH_STAMP := $(OUTPUT_DIR)/.mac_arch
+.PHONY: ArchStamp
+ArchStamp:
+	@have="arm64"; [ -f "$(MAC_ARCH_STAMP)" ] && have="$$(cat "$(MAC_ARCH_STAMP)")"; \
+	if [ "$$have" != "$(MAC_ARCH_RESOLVED)" ] && { [ -d "$(OUTPUT_DIR)" ] || [ -d "$(ARCH_INTERMEDIATE_ROOT)" ]; }; then \
+	    echo "MAC_ARCH $$have -> $(MAC_ARCH_RESOLVED): cleaning $(OUTPUT_DIR) $(ARCH_INTERMEDIATE_ROOT)"; \
+	    rm -rf "$(OUTPUT_DIR)" "$(ARCH_INTERMEDIATE_ROOT)"; \
+	fi; \
+	mkdir -p "$(OUTPUT_DIR)"; echo "$(MAC_ARCH_RESOLVED)" > "$(MAC_ARCH_STAMP)"
+
 # W1: convenience entrypoints — `make -f Makefile_Mac shared` triggers a
 # game-only build with -fPIC and links libPolyphaseGame.dylib;
 # `make -f Makefile_Mac editor-shared` does the same but with EDITOR=1 and
@@ -277,13 +313,13 @@ shared:
 editor-shared:
 	@$(MAKE) --no-print-directory -f $(CURDIR)/Makefile_Mac POLYPHASE_EDITOR_SHARED=1
 
-OutputDir:
+OutputDir: ArchStamp
 	[ -d $(OUTPUT_DIR) ] || mkdir -p $(OUTPUT_DIR)
 
-MakeBullet:
+MakeBullet: ArchStamp
 	@$(MAKE) --no-print-directory -C $(BULLET_DIR) -f $(BULLET_DIR)/Makefile_Mac
 
-MakeAssimp:
+MakeAssimp: ArchStamp
 	@$(MAKE) --no-print-directory -C $(ASSIMP_DIR) -f $(ASSIMP_DIR)/Makefile_Mac
 
 $(BUILD): MakeBullet MakeAssimp OutputDir

@@ -91,7 +91,7 @@
                 "$gcc"
             ],
             "group": "build",
-            "detail": "macOS (Apple Silicon): builds Standalone/Build/Mac/PolyphaseEditor. Needs the LunarG Vulkan SDK (see Documentation/Development/SetupEnvironment/Mac.md)."
+            "detail": "macOS: builds Standalone/Build/Mac/PolyphaseEditor for this Mac's arch (MAC_ARCH=universal for both). Needs the LunarG Vulkan SDK (see Documentation/Development/SetupEnvironment/Mac.md)."
         },
 
         {

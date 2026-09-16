@@ -2063,7 +2063,11 @@ bool NativeAddonManager::IsBinaryDescriptorCompatible(const NativeBinaryDescript
     }
 
     // Check architecture
+#if PLATFORM_MAC
+    std::string currentArch = POLYPHASE_MAC_HOST_ARCH;
+#else
     std::string currentArch = "x64";
+#endif
     if (!descriptor.mArch.empty() && descriptor.mArch != currentArch)
     {
         return false;
@@ -3112,7 +3116,8 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
         ss << "\n";
     }
 #if PLATFORM_MAC
-    ss << "clang++ -dynamiclib -fPIC -O2 -std=c++17 -arch arm64 -mmacosx-version-min=12.0 \\\n";
+    // An editor-loaded dylib must match the slice the editor is running as.
+    ss << "clang++ -dynamiclib -fPIC -O2 -std=c++17 -arch " POLYPHASE_MAC_HOST_ARCH " -mmacosx-version-min=12.0 \\\n";
 #else
     ss << "g++ -shared -fPIC -O2 -std=c++17 \\\n";
 #endif
@@ -3188,15 +3193,26 @@ bool NativeAddonManager::GenerateBuildScript(const std::string& addonId,
     for (const std::string& config : luaConfigsLinux)
     {
 #if PLATFORM_MAC
-        std::string testPath = polyphasePath + "External/Lua/Build/Mac/arm64/" + config + "/libLua.a";
+        // A universal libLua.a (what the release workflow ships) serves every
+        // slice; then this slice's arch, then the legacy arm64-only layout.
+        for (const char* arch : {"universal", POLYPHASE_MAC_HOST_ARCH, "arm64"})
+        {
+            std::string testPath = polyphasePath + "External/Lua/Build/Mac/" + arch + "/" + config + "/libLua.a";
+            if (SYS_DoesFileExist(testPath.c_str(), false))
+            {
+                luaLibPathLinux = testPath;
+                break;
+            }
+        }
+        if (!luaLibPathLinux.empty()) break;
 #else
         std::string testPath = polyphasePath + "External/Lua/Build/Linux/x64/" + config + "/libLua.a";
-#endif
         if (SYS_DoesFileExist(testPath.c_str(), false))
         {
             luaLibPathLinux = testPath;
             break;
         }
+#endif
     }
     if (!luaLibPathLinux.empty())
     {
@@ -6164,8 +6180,8 @@ static bool WriteBuildSh(const std::string& addonPath, const std::string& binary
     ss << "BUILD_FAILED=0\n";
     ss << "\n";
     ss << "if [ \"$(uname -s)\" = \"Darwin\" ]; then\n";
-    ss << "    PLAT=\"Mac\"; ARCH=\"arm64\"; EXT=\"dylib\"; PLATDEF=\"-DPLATFORM_MAC=1\"; SHA=\"shasum -a 256\"\n";
-    ss << "    SHARED=\"-dynamiclib -Wl,-undefined,dynamic_lookup -arch arm64 -mmacosx-version-min=12.0\"\n";
+    ss << "    PLAT=\"Mac\"; ARCH=\"$(uname -m)\"; EXT=\"dylib\"; PLATDEF=\"-DPLATFORM_MAC=1\"; SHA=\"shasum -a 256\"\n";
+    ss << "    SHARED=\"-dynamiclib -Wl,-undefined,dynamic_lookup -arch $ARCH -mmacosx-version-min=12.0\"\n";
     ss << "else\n";
     ss << "    PLAT=\"Linux\"; ARCH=\"x64\"; EXT=\"so\"; PLATDEF=\"-DPLATFORM_LINUX=1\"; SHA=\"sha256sum\"\n";
     ss << "    SHARED=\"-shared\"\n";

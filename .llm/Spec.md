@@ -2,7 +2,7 @@
 
 ## Project Identity
 
-**Polyphase Engine** is a multi-platform game engine with an ImGui-based editor, Vulkan rendering, Lua scripting, visual node graphs, and timeline animation. It targets Windows, Linux, macOS (Apple Silicon, Vulkan via MoltenVK), Android, GameCube/Wii, and Nintendo 3DS.
+**Polyphase Engine** is a multi-platform game engine with an ImGui-based editor, Vulkan rendering, Lua scripting, visual node graphs, and timeline animation. It targets Windows, Linux, macOS (Apple Silicon and Intel, Vulkan via MoltenVK), Android, GameCube/Wii, and Nintendo 3DS.
 
 **Repository root:** The directory containing `Polyphase.sln`, `CMakeLists.txt`, and `Engine/`.
 
@@ -115,7 +115,7 @@ polyphase-engine/
 
 **Visual Studio** (`Engine.vcxproj`): Debug, DebugEditor, Release, ReleaseEditor, ReleaseSteam — for Win32, x64, Android-arm64-v8a.
 
-**Makefiles**: `Standalone/Makefile_Linux_Editor` (+ `Engine/Makefile_Linux`) and `Standalone/Makefile_Mac_Editor` (+ `Engine/Makefile_Mac`, Apple Silicon) are the canonical non-Windows builds; `Makefile_*_Game` build the game runtime and `Makefile_GCN/Wii/3DS` the consoles.
+**Makefiles**: `Standalone/Makefile_Linux_Editor` (+ `Engine/Makefile_Linux`) and `Standalone/Makefile_Mac_Editor` (+ `Engine/Makefile_Mac`; `MAC_ARCH=native|arm64|x86_64|universal`) are the canonical non-Windows builds; `Makefile_*_Game` build the game runtime and `Makefile_GCN/Wii/3DS` the consoles.
 
 **CMake** (`CMakeLists.txt`): Cross-platform support (stale on desktop; Makefiles are canonical).
 

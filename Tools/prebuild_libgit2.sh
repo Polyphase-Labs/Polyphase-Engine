@@ -15,13 +15,21 @@ cd "$LIBGIT2_DIR"
 # Job count: nproc is GNU-only; macOS uses sysctl.
 JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
-# macOS: build arm64 against the same deployment target as Makefile_Mac, and
-# use the system TLS stack (SecureTransport + CommonCrypto) so the editor links
-# with -framework Security instead of needing OpenSSL. libgit2 on macOS also
-# picks iconv for path normalisation, hence -liconv in Makefile_Mac_Editor.
+# macOS: build the slices MAC_ARCH selects (same values as the Makefiles:
+# native = uname -m, arm64, x86_64, universal) against the same deployment
+# target as Makefile_Mac, and use the system TLS stack (SecureTransport +
+# CommonCrypto) so the editor links with -framework Security instead of
+# needing OpenSSL. libgit2 on macOS also picks iconv for path normalisation,
+# hence -liconv in Makefile_Mac_Editor. cmake emits a fat libgit2.a itself.
 EXTRA_CMAKE_ARGS=""
 if [ "$(uname -s)" = "Darwin" ]; then
-    EXTRA_CMAKE_ARGS="-DUSE_HTTPS=SecureTransport -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"
+    case "${MAC_ARCH:-native}" in
+        native)       OSX_ARCHS="$(uname -m)" ;;
+        universal)    OSX_ARCHS="arm64;x86_64" ;;
+        arm64|x86_64) OSX_ARCHS="$MAC_ARCH" ;;
+        *) echo "ERROR: MAC_ARCH must be native, arm64, x86_64 or universal (got '$MAC_ARCH')" >&2; exit 1 ;;
+    esac
+    EXTRA_CMAKE_ARGS="-DUSE_HTTPS=SecureTransport -DCMAKE_OSX_ARCHITECTURES=$OSX_ARCHS -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"
 fi
 
 # Wipe any pre-existing build/ first. A stale CMakeCache.txt (e.g. from a

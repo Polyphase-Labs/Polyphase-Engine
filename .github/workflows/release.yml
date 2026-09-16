@@ -399,12 +399,16 @@ jobs:
   # =========================================================================
   #  macOS: Build engine + create .dmg
   #
-  #  Apple Silicon only — Standalone/Makefile_Mac_{Editor,Game} hardcode
-  #  `-arch arm64 -mmacosx-version-min=12.0`, so this must run on an arm64
-  #  runner image (macos-14+; the `-large` variants are Intel). Pinned rather
-  #  than `macos-latest` for the same reason build-windows stopped pinning a
+  #  Universal (arm64 + x86_64): MAC_ARCH=universal makes every Makefile_Mac
+  #  compile with `-arch arm64 -arch x86_64`, so one pass yields fat objects,
+  #  archives and executables — no per-slice jobs, no lipo merge. Runs on an
+  #  arm64 image (macos-14+; the Intel slice is cross-compiled) and takes
+  #  roughly twice as long as a single-arch build. Pinned rather than
+  #  `macos-latest` for the same reason build-windows stopped pinning a
   #  VS generator: image jumps have broken us before, and mac minutes are
-  #  the most expensive in the pool.
+  #  the most expensive in the pool. Tools/CI/mac_check_archs.sh asserts
+  #  both slices at every stage (SDK libs first, so a thin LunarG static
+  #  lib fails before the 2x-cost engine compile).
   #
   #  Toolchain: Xcode CLT + cmake + python3 ship on the runner image. The
   #  LunarG Vulkan SDK (MoltenVK, loader, glslc, shaderc, spirv-cross) comes
@@ -424,6 +428,10 @@ jobs:
     # Same fail-fast rationale as build-windows / build-linux above.
     needs: publish-docker-images
     runs-on: macos-15
+    env:
+      # Read by every Makefile_Mac (MAC_ARCH ?= native), Tools/prebuild_libgit2.sh
+      # and the Lua step below. universal = arm64 + x86_64 slices.
+      MAC_ARCH: universal
     steps:
       - uses: actions/checkout@v4
 
@@ -445,10 +453,25 @@ jobs:
         with:
           version: 1.4.357.1
 
-      # libgit2 (arm64, SecureTransport) + shader compile + embedded asset
-      # stubs in one go. Hard-fails if VULKAN_SDK has no bin/glslc.
+      # The editor statically links libshaderc_combined.a / libspirv-cross-core.a
+      # and ships the loader + MoltenVK dylibs; all four must carry both slices
+      # or the x86_64 half of the universal link fails 30+ minutes from now.
+      - name: Verify Vulkan SDK ships both slices
+        run: |
+          bash Tools/CI/mac_check_archs.sh "arm64 x86_64" \
+            "$VULKAN_SDK/lib/libvulkan.1.dylib" \
+            "$VULKAN_SDK/lib/libMoltenVK.dylib" \
+            "$VULKAN_SDK/lib/libshaderc_combined.a" \
+            "$VULKAN_SDK/lib/libspirv-cross-core.a"
+
+      # libgit2 (universal via CMAKE_OSX_ARCHITECTURES, SecureTransport) +
+      # shader compile + embedded asset stubs in one go. Hard-fails if
+      # VULKAN_SDK has no bin/glslc.
       - name: Prebuild (libgit2 + shaders + embedded stubs)
         run: bash Tools/prebuild_mac.sh
+
+      - name: Verify libgit2 is universal
+        run: bash Tools/CI/mac_check_archs.sh "arm64 x86_64" Engine/External/libgit2/build/libgit2.a
 
       - name: Build Engine (Mac Editor)
         run: make -C Standalone -f Makefile_Mac_Editor -j$(sysctl -n hw.ncpu)
@@ -460,17 +483,27 @@ jobs:
       - name: Build Engine (Mac Game runtime)
         run: make -C Standalone -f Makefile_Mac_Game -j$(sysctl -n hw.ncpu)
 
+      - name: Verify engine binaries are universal
+        run: |
+          bash Tools/CI/mac_check_archs.sh "arm64 x86_64" \
+            Standalone/Build/Mac/PolyphaseEditor \
+            Standalone/Build/Mac/Polyphase.macho \
+            Engine/Build/Mac/libEngineEditor.a \
+            Engine/Build/Mac/libEngineGame.a
+
       # Same story as Linux: the engine compiles Lua straight into
       # libEngineEditor.a, so build libLua.a separately for native-addon
       # link support. `a` (archive only) with explicit flags instead of the
       # `macosx` convenience target, which also links lua/luac against
       # -lreadline that we don't need. `make clean` afterwards keeps the
       # in-tree .o files out of the staged External/Lua tree.
+      # Output dir is keyed by MAC_ARCH (universal); stage_distribution.py and
+      # NativeAddonManager probe universal/ before the host arch.
       - name: Build libLua.a for native addons
         run: |
-          make -C External/Lua a SYSCFLAGS="-DLUA_USE_MACOSX" MYCFLAGS="-arch arm64 -mmacosx-version-min=12.0" -j$(sysctl -n hw.ncpu)
-          mkdir -p External/Lua/Build/Mac/arm64/ReleaseEditor
-          cp External/Lua/liblua.a External/Lua/Build/Mac/arm64/ReleaseEditor/libLua.a
+          make -C External/Lua a SYSCFLAGS="-DLUA_USE_MACOSX" MYCFLAGS="-arch arm64 -arch x86_64 -mmacosx-version-min=12.0" -j$(sysctl -n hw.ncpu)
+          mkdir -p External/Lua/Build/Mac/$MAC_ARCH/ReleaseEditor
+          cp External/Lua/liblua.a External/Lua/Build/Mac/$MAC_ARCH/ReleaseEditor/libLua.a
           make -C External/Lua clean
 
       # stage_distribution.py only WARNS when libLua.a is missing (and would
@@ -478,26 +511,28 @@ jobs:
       # loudly here instead.
       - name: Verify import library for native addon builds
         run: |
-          LUA_LIB="External/Lua/Build/Mac/arm64/ReleaseEditor/libLua.a"
+          LUA_LIB="External/Lua/Build/Mac/$MAC_ARCH/ReleaseEditor/libLua.a"
           if [ ! -f "$LUA_LIB" ]; then
             echo "ERROR: libLua.a was not produced by the Lua build."
             echo "       Expected: $LUA_LIB"
             exit 1
           fi
+          bash Tools/CI/mac_check_archs.sh "arm64 x86_64" "$LUA_LIB"
           echo "[OK] libLua.a found."
 
       # build_dmg_mac.sh drives build_app_mac.sh, which stages dist/Editor
       # (stage_distribution.py --platform mac), wraps it into
       # dist/Polyphase.app with MoltenVK + the loader in Contents/Frameworks,
       # ad-hoc signs it, then wraps the app into a UDZO dmg with an
-      # /Applications shortcut. Output name carries POLYPHASE_VERSION_STRING.
+      # /Applications shortcut. Output name carries POLYPHASE_VERSION_STRING
+      # and an arch tag derived from the payload (universal here).
       - name: Build .dmg
         run: bash Installers/build_dmg_mac.sh
 
       - name: Verify dmg
         run: |
           shopt -s nullglob
-          dmgs=(dist/PolyphaseEditor-*-macos-arm64.dmg)
+          dmgs=(dist/PolyphaseEditor-*-macos-universal.dmg)
           if [ ${#dmgs[@]} -ne 1 ]; then
             echo "ERROR: expected exactly one dmg in dist/, found ${#dmgs[@]}:"
             ls -la dist/ || true
@@ -505,12 +540,25 @@ jobs:
           fi
           ls -la "${dmgs[0]}"
           hdiutil verify "${dmgs[0]}"
+          bash Tools/CI/mac_check_archs.sh "arm64 x86_64" \
+            dist/Polyphase.app/Contents/MacOS/Polyphase \
+            dist/Polyphase.app/Contents/Resources/Standalone/Build/Mac/Polyphase.macho \
+            dist/Polyphase.app/Contents/Resources/lib/libLua.a
+
+      # Informational: prove the x86_64 slice loads and dyld resolves every
+      # dylib by running it under Rosetta. The runner has no GPU, so the
+      # editor cannot get further than argument parsing; never gate on it.
+      - name: Smoke-run the x86_64 slice under Rosetta
+        continue-on-error: true
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          perl -e 'alarm 60; exec @ARGV' -- arch -x86_64 dist/Polyphase.app/Contents/MacOS/Polyphase -h
 
       - name: Upload dmg artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: dist/PolyphaseEditor-*-macos-arm64.dmg
+          path: dist/PolyphaseEditor-*-macos-universal.dmg
           if-no-files-found: error
 
   # =========================================================================
@@ -773,4 +821,4 @@ jobs:
             release-assets/**/polyphase-sdk-windows-x64.zip
             release-assets/**/polyphase-engine_*_amd64.deb
             release-assets/**/PolyphaseEditor-linux-x64.tar.gz
-            release-assets/**/PolyphaseEditor-*-macos-arm64.dmg
+            release-assets/**/PolyphaseEditor-*-macos-universal.dmg

@@ -1,5 +1,20 @@
 ## Linux Developer Environment Setup
 
+### What to install
+
+Everything not marked optional is required. Polyphase always packages for GameCube, Wii and 3DS, so the devkitPro toolchains are part of the baseline setup, not an extra.
+
+| Install | Needed for | Verify with |
+|---------|-----------|-------------|
+| **Compiler and libraries**: `g++`, `make`, `cmake`, `pkg-config`, X11, ALSA, PulseAudio, curl and OpenSSL dev packages (exact package names per distro below) | Everything | `g++ --version`, `cmake --version` |
+| **Vulkan SDK 1.4.350.0** (LunarG) plus the distro `libvulkan-dev` | Editor and every game build, `glslc` for shaders | `vulkaninfo --summary` prints a device |
+| FFmpeg dev packages (optional) | Projects that use the VideoPlayer addon | `pkg-config --modversion libavformat` |
+| **devkitPro pacman** with `wii-dev` and `3ds-dev` | Packaging for **Wii**, **GameCube** and **3DS** (the devkitPPC and devkitARM compilers) | `$DEVKITPPC/bin/powerpc-eabi-g++ --version`, `$DEVKITARM/bin/arm-none-eabi-g++ --version` |
+| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/lib/cube` |
+| `rpm` / `appimagetool` (optional) | The Linux RPM and AppImage installer targets | `rpmbuild --version`, `appimagetool --version` |
+| `makerom`, `bannertool`, `cwavtool`, pycgfx | The **Nintendo 3DS (CIA)** installable target | [Packaging a 3DS installable](#packaging-a-3ds-installable-cia) |
+| Docker (optional) | Building Linux and console targets in the maintained container instead of installing the toolchains above; see [Compiling.md](Compiling.md#docker) | `docker --version` |
+
 ### Pull Submodules
 
 `git submodule update --init --recursive`
@@ -58,14 +73,14 @@ sudo apt install libvulkan-dev
 
    The `wget` may fail with a 403 — if so, just download the file manually in a browser from [https://apt.devkitpro.org/install-devkitpro-pacman](https://apt.devkitpro.org/install-devkitpro-pacman) and continue from `chmod`.
 
-2. Install the Wii/3DS toolchains ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started)). Skip this only if you will never package for a console — it is **required for GameCube too**: `wii-dev` provides devkitPPC (`powerpc-eabi-g++`), which the GameCube build compiles with even though its libraries come from `libogc2` in step 3.
+2. Install the Wii/3DS toolchains ([https://devkitpro.org/wiki/Getting_Started](https://devkitpro.org/wiki/Getting_Started)). This is required (Polyphase always packages for the consoles), and it is **required for GameCube too**: `wii-dev` provides devkitPPC (`powerpc-eabi-g++`), which the GameCube build compiles with even though its libraries come from `libogc2` in step 3.
 
    ```bash
    sudo dkp-pacman -S wii-dev 3ds-dev
    ```
 
-   - Restart computer
-3. If you want to package for GameCube, install `libogc2` ([https://github.com/extremscorner/pacman-packages#readme](https://github.com/extremscorner/pacman-packages#readme))
+   - Restart computer, then check `$DEVKITPPC/bin/powerpc-eabi-g++ --version` and `$DEVKITARM/bin/arm-none-eabi-g++ --version`.
+3. Install `libogc2`, which GameCube builds link against ([https://github.com/extremscorner/pacman-packages#readme](https://github.com/extremscorner/pacman-packages#readme))
 
    ```bash
    sudo dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com
@@ -84,6 +99,10 @@ sudo apt install libvulkan-dev
      sudo dkp-pacman -Syuu
      sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
      ```
+
+   - Check that `ls /opt/devkitpro/libogc2/lib/cube` lists `libogc.a`.
+
+> Note: the `libogc2` packages are only the GameCube/Wii **libraries**. `wii-dev` and `3ds-dev` are the meta-packages that pull in the actual compilers, devkitPPC (`powerpc-eabi-g++`) and devkitARM (`arm-none-eabi-g++`). Without them the editor works, but GameCube/Wii/3DS packaging fails partway through `make` with a missing-compiler error.
 
 #### Compile Shaders, libgit2, and Standalone embedded-asset stubs
 
