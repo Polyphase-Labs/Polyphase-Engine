@@ -5,6 +5,7 @@
 #include "../JsonSettings.h"
 #include "Log.h"
 #include "Engine.h"
+#include "EditorState.h"
 
 #include "document.h"
 #include "imgui.h"
@@ -36,6 +37,16 @@ void GeneralModule::Render()
         changed = true;
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Maximum number of recent projects to remember.");
+
+    ImGui::Spacing();
+
+    if (ImGui::SliderInt("Editor Frame Rate Cap", &mEditorFrameRateCap, 0, 240,
+                         mEditorFrameRateCap == 0 ? "Uncapped" : "%d fps"))
+    {
+        changed = true;
+        ApplyFrameRateCap();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Upper limit for the editor's frame rate outside Play In Editor.\n0 removes the cap. Lower values reduce heat and fan noise on laptops.");
 
     ImGui::Spacing();
 
@@ -113,6 +124,16 @@ void GeneralModule::LoadSettings(const rapidjson::Document& doc)
     mShowDebugLogsInBuild = JsonSettings::GetBool(doc, "showDebugLogsInBuild", true);
     SetDebugLogsInBuildEnabled(mShowDebugLogsInBuild);
     mCheckBuildDepsOnStartup = JsonSettings::GetBool(doc, "checkBuildDepsOnStartup", true);
+    mEditorFrameRateCap = JsonSettings::GetInt(doc, "editorFrameRateCap", 60);
+    ApplyFrameRateCap();
+}
+
+void GeneralModule::ApplyFrameRateCap() const
+{
+    if (GetEditorState() != nullptr)
+    {
+        GetEditorState()->mEditorFrameRateCap = mEditorFrameRateCap;
+    }
 }
 
 void GeneralModule::SaveSettings(rapidjson::Document& doc)
@@ -123,6 +144,7 @@ void GeneralModule::SaveSettings(rapidjson::Document& doc)
     JsonSettings::SetBool(doc, "showDebugInEditor", mShowDebugInEditor);
     JsonSettings::SetBool(doc, "showDebugLogsInBuild", mShowDebugLogsInBuild);
     JsonSettings::SetBool(doc, "checkBuildDepsOnStartup", mCheckBuildDepsOnStartup);
+    JsonSettings::SetInt(doc, "editorFrameRateCap", mEditorFrameRateCap);
 }
 
 #endif

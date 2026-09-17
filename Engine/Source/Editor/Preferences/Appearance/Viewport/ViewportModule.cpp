@@ -9,7 +9,11 @@
 #include "imgui.h"
 #include "Renderer.h"
 #include "Engine.h"
+#include "Log.h"
 #include "../../../Grid.h"
+#if API_VULKAN
+#include "Graphics/Vulkan/VulkanContext.h"
+#endif
 
 DEFINE_PREFERENCES_MODULE(ViewportModule, "Viewport", "Appearance")
 
@@ -39,6 +43,17 @@ void ViewportModule::Render()
         changed = true;
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set the vertical padding of the main menu bar.");
+
+    ImGui::Spacing();
+
+    ImGui::Text("Viewport Resolution Scale");
+    static const char* kResolutionScaleLabels[] = { "Auto", "100%", "75%", "50%" };
+    if (ImGui::Combo("##ViewportResolutionScale", &mResolutionScaleMode, kResolutionScaleLabels, 4))
+    {
+        changed = true;
+        ApplyResolutionScale();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Render the 3D scene at a fraction of the window's pixel size; the interface stays sharp.\nAuto picks 50% on integrated Intel/AMD GPUs driving a HiDPI window and 100% everywhere else.");
 
     ImGui::Separator();
     ImGui::Spacing();
@@ -120,7 +135,9 @@ void ViewportModule::LoadSettings(const rapidjson::Document& doc)
     mSelectedCheckerSize = JsonSettings::GetFloat(doc, "selectedCheckerSize", 8.0f);
     mMenuBarPadding = JsonSettings::GetFloat(doc, "menuBarPadding", 8.0f);
     mShowGizmosInPreview = JsonSettings::GetBool(doc, "showGizmosInPreview", false);
+    mResolutionScaleMode = JsonSettings::GetInt(doc, "resolutionScaleMode", 0);
 
+    ApplyResolutionScale();
     ApplyBackgroundColorToRenderer();
     SetGridColor(mGridColor);
     ApplyGridVisibility();
@@ -137,6 +154,43 @@ void ViewportModule::SaveSettings(rapidjson::Document& doc)
     JsonSettings::SetFloat(doc, "selectedCheckerSize", mSelectedCheckerSize);
     JsonSettings::SetFloat(doc, "menuBarPadding", mMenuBarPadding);
     JsonSettings::SetBool(doc, "showGizmosInPreview", mShowGizmosInPreview);
+    JsonSettings::SetInt(doc, "resolutionScaleMode", mResolutionScaleMode);
+}
+
+void ViewportModule::ApplyResolutionScale() const
+{
+    float scale = 1.0f;
+    switch (mResolutionScaleMode)
+    {
+    case 1: scale = 1.0f; break;
+    case 2: scale = 0.75f; break;
+    case 3: scale = 0.5f; break;
+    default:
+    {
+        // Auto: an integrated GPU filling a HiDPI (Retina / 4K) window is
+        // fill-bound in the scene pass, so halve it there. Apple GPUs report
+        // as integrated too (vendor 0x106B) but have the bandwidth, so they
+        // stay at 100%. Evaluated once per preferences load, at the window
+        // size the editor started with.
+        bool integrated = false;
+#if API_VULKAN
+        if (GetVulkanContext() != nullptr)
+        {
+            const VkPhysicalDeviceProperties& props = GetVulkanContext()->GetDeviceProperties();
+            integrated = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU && props.vendorID != 0x106B;
+        }
+#endif
+        const uint64_t pixels = (uint64_t)GetEngineState()->mWindowWidth * (uint64_t)GetEngineState()->mWindowHeight;
+        scale = (integrated && pixels >= 2500000ull) ? 0.5f : 1.0f;
+        break;
+    }
+    }
+
+    if (Renderer::Get() != nullptr && Renderer::Get()->GetResolutionScale() != scale)
+    {
+        Renderer::Get()->SetResolutionScale(scale);
+        LogDebug("Viewport resolution scale %.2f (%s)", scale, mResolutionScaleMode == 0 ? "auto" : "preference");
+    }
 }
 
 void ViewportModule::ApplyBackgroundColorToRenderer() const

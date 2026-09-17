@@ -119,6 +119,7 @@
 #include "DebugLog/DebugLogWindow.h"
 #include "CliTerminal/TerminalPanel.h"
 #include "LuaDebugger/LuaDebuggerPanel.h"
+#include "LuaDebugger/LuaDebugger.h"
 #include "ScriptEditor/ScriptEditorWindow.h"
 #include "ThemeEditor/ThemeEditorWindow.h"
 #include "Preferences/Appearance/Theme/CssThemeParser.h"
@@ -902,6 +903,11 @@ static void DrawDockspace()
         bool debugOpen = GetLuaDebuggerPanel()->mVisible;
         if (ImGui::BeginDock(ICON_MDI_BUG "  Lua Debugger", &debugOpen, ImGuiWindowFlags_NoScrollbar))
         {
+            // Opening the panel is what arms the deferred per-line hook.
+            if (LuaDebugger::Get() != nullptr)
+            {
+                LuaDebugger::Get()->EnsureInstalled();
+            }
             GetLuaDebuggerPanel()->DrawContent();
         }
         ImGui::EndDock();

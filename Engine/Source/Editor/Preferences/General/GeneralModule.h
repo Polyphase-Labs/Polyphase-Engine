@@ -26,10 +26,14 @@ public:
     bool GetShowDebugLogsInBuild() const { return mShowDebugLogsInBuild; }
     bool GetCheckBuildDepsOnStartup() const { return mCheckBuildDepsOnStartup; }
     void SetCheckBuildDepsOnStartup(bool value);
+    int GetEditorFrameRateCap() const { return mEditorFrameRateCap; }
 
 private:
+    void ApplyFrameRateCap() const;
+
     bool mAutoSave = true;
     int mRecentProjectsLimit = 10;
+    int mEditorFrameRateCap = 60;
     bool mShowWelcomeScreen = true;
     bool mShowDebugInEditor = true;
     bool mShowDebugLogsInBuild = true;

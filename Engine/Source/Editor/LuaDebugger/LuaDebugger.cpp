@@ -196,6 +196,32 @@ void LuaDebugger::Install(lua_State* L)
         return;
     }
 
+    // Persisted breakpoints need the hook from the first frame; otherwise
+    // wait for the Lua Debugger tab to actually be shown (the dock exists in
+    // the default layout, so "open" is not a useful signal) or for a
+    // breakpoint to be set. Both call EnsureInstalled().
+    if (mBreakpoints.empty())
+    {
+        mL = L;
+        mDeferred = true;
+        LogDebug("LuaDebugger: Deferred line hook install until the Lua Debugger tab is shown or a breakpoint is set.");
+        return;
+    }
+
+    InstallNow(L);
+}
+
+void LuaDebugger::EnsureInstalled()
+{
+    if (mInstalled || !mDeferred || mL == nullptr || !LoadActivePreference())
+        return;
+
+    mDeferred = false;
+    InstallNow(mL);
+}
+
+void LuaDebugger::InstallNow(lua_State* L)
+{
     if (IsLuaPandaActive(L))
     {
         // LuaPanda has installed its own line hook. Replacing it disables
@@ -207,6 +233,7 @@ void LuaDebugger::Install(lua_State* L)
     }
 
     mL = L;
+    mDeferred = false;
     lua_sethook(L, &LuaDebugger::OnHookTrampoline, LUA_MASKLINE, 0);
     mInstalled = true;
     LogDebug("LuaDebugger: Installed line hook on lua_State %p", (void*)L);
@@ -304,6 +331,7 @@ void LuaDebugger::ToggleBreakpoint(const std::string& sourceFile, int line)
     std::string key = NormalizeSource(sourceFile.c_str());
     if (key.empty()) return;
 
+    bool added = false;
     {
         std::lock_guard<std::mutex> lock(mBreakpointMutex);
         auto& set = mBreakpoints[key];
@@ -311,6 +339,7 @@ void LuaDebugger::ToggleBreakpoint(const std::string& sourceFile, int line)
         if (it == set.end())
         {
             set.insert(line);
+            added = true;
             LogDebug("LuaDebugger: Set breakpoint at %s:%d", key.c_str(), line);
         }
         else
@@ -324,6 +353,10 @@ void LuaDebugger::ToggleBreakpoint(const std::string& sourceFile, int line)
         }
     }
     SaveBreakpoints();
+    if (added)
+    {
+        EnsureInstalled();
+    }
 }
 
 void LuaDebugger::SetBreakpoint(const std::string& sourceFile, int line)
@@ -337,6 +370,7 @@ void LuaDebugger::SetBreakpoint(const std::string& sourceFile, int line)
         mBreakpoints[key].insert(line);
     }
     SaveBreakpoints();
+    EnsureInstalled();
 }
 
 void LuaDebugger::ClearBreakpoint(const std::string& sourceFile, int line)

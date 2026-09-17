@@ -41,7 +41,15 @@ public:
     static void Destroy();
     static LuaDebugger* Get();
 
+    // Records the lua_State and installs the per-line hook, unless nothing
+    // needs it yet: with no breakpoints the install is deferred
+    // (LUA_MASKLINE costs a callback on every Lua line executed, which is
+    // measurable on slow machines). Showing the Lua Debugger tab or setting
+    // a breakpoint calls EnsureInstalled().
     void Install(lua_State* L);
+
+    // Completes a deferred Install() if the 'active' preference allows it.
+    void EnsureInstalled();
 
     // Removes our line hook from the lua_State and, if LuaPanda is loaded,
     // tries to restore its hook so it can resume polling for a VS Code
@@ -163,7 +171,10 @@ private:
 
     static LuaDebugger* sInstance;
 
+    void InstallNow(lua_State* L);
+
     bool mInstalled = false;
+    bool mDeferred = false;
     bool mFirstHookLogged = false;
     lua_State* mL = nullptr;
 

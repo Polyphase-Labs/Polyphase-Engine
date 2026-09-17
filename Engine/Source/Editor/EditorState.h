@@ -159,6 +159,10 @@ struct EditorState
     float mOrthoWidth = 12.8f;
     bool mMouseNeedsRecenter = false;
     bool mUiEnabled = true;
+    // Editor frame-rate cap in frames per second, 0 = uncapped. Applied at
+    // the end of Engine::Update outside Play In Editor so an idle editor does
+    // not spin at the display's refresh rate. Set from Preferences > General.
+    int32_t mEditorFrameRateCap = 60;
     bool mPlayInEditor = false;
     bool mPlayInGameWindow = false;
     bool mEjected = false;

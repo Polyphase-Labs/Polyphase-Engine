@@ -13,6 +13,8 @@
 #include <direct.h>
 #include <chrono>
 #include <psapi.h>
+#include <timeapi.h>
+#pragma comment(lib, "winmm.lib")
 
 #if API_VULKAN
 #include "Graphics/Vulkan/VramAllocator.h"
@@ -308,6 +310,13 @@ void SYS_Initialize()
     // Apparently this is needed for anything using COM objects??
     // I think XAudio and XInput require this.
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+#if EDITOR
+    // The editor frame-rate cap (Engine::Update) sleeps in 1 ms slices; at
+    // Windows' default 15.6 ms scheduler period each of those would become
+    // a 15 ms nap and the cap would land well under its target.
+    timeBeginPeriod(1);
+#endif
 
     // Headless builds (-headless -project ... -build <Platform>) don't have a
     // window or an ImGui context. Mirror System_Linux.cpp's early return so

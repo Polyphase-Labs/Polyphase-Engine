@@ -1264,6 +1264,34 @@ bool Update()
         sEngineState.mFrameStep = false;
     }
 
+#if EDITOR
+    // Editor frame-rate cap. Vsync paces presentation, but on a 120 Hz
+    // display (or with vsync off) the editor otherwise runs the whole frame
+    // at the refresh rate, which is wasted heat on a laptop and starves
+    // background builds. Play In Editor is exempt so the game previews at
+    // full rate. Coarse 1 ms sleeps first, then a short spin for the
+    // remainder, because SYS_Sleep only has millisecond granularity.
+    if (!IsHeadless() && !GetEditorState()->mPlayInEditor && GetEditorState()->mEditorFrameRateCap > 0)
+    {
+        static uint64_t sNextFrameUs = 0;
+        const uint64_t frameUs = 1000000ull / (uint64_t)GetEditorState()->mEditorFrameRateCap;
+        uint64_t nowUs = SYS_GetTimeMicroseconds();
+        while (nowUs + 2000 < sNextFrameUs)
+        {
+            SYS_Sleep(1);
+            nowUs = SYS_GetTimeMicroseconds();
+        }
+        while (nowUs < sNextFrameUs)
+        {
+            nowUs = SYS_GetTimeMicroseconds();
+        }
+        // Schedule the next deadline relative to this one so the average rate
+        // holds; if we fell more than a frame behind (PIE just ended, a slow
+        // frame) restart from now instead of racing to catch up.
+        sNextFrameUs = (nowUs > sNextFrameUs + frameUs) ? nowUs + frameUs : sNextFrameUs + frameUs;
+    }
+#endif
+
     return !sEngineState.mQuit;
 }
 

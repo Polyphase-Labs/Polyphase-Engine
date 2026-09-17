@@ -29,6 +29,9 @@ public:
     float GetMenuBarPadding() const { return mMenuBarPadding; }
     bool GetShowGizmosInPreview() const { return mShowGizmosInPreview; }
     void SetShowGizmosInPreview(bool show);
+    // 0 = Auto (50% on Intel/AMD integrated GPUs driving a HiDPI window,
+    // else 100%), 1 = 100%, 2 = 75%, 3 = 50%.
+    int GetResolutionScaleMode() const { return mResolutionScaleMode; }
 
     static ViewportModule* Get();
     static void HandleExternalGridToggle(bool enabled);
@@ -37,7 +40,9 @@ private:
     void ApplyBackgroundColorToRenderer() const;
     void ApplyGridVisibility();
     void ApplySelectedOverlay() const;
+    void ApplyResolutionScale() const;
 
+    int mResolutionScaleMode = 0;
     glm::vec4 mBackgroundColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
     bool mShowGrid = true;
     glm::vec4 mGridColor = glm::vec4(0.3f, 0.3f, 0.3f, 1.0f);
