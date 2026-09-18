@@ -240,6 +240,11 @@ void VulkanContext::Destroy()
     mRayTracer.DestroyStaticRayTraceResources();
 
     DestroySwapchain();
+    if (mRetiredSwapchain != VK_NULL_HANDLE)
+    {
+        vkDestroySwapchainKHR(mDevice, mRetiredSwapchain, nullptr);
+        mRetiredSwapchain = VK_NULL_HANDLE;
+    }
 
     mRenderPassCache.Destroy();
     mPipelineCache.Destroy();
@@ -281,23 +286,25 @@ void VulkanContext::BeginFrame()
     if (mResolutionScale != resScale)
     {
         mResolutionScale = resScale;
-        RecreateSwapchain(false);
+        RecreateSwapchain(false, "resolution scale");
     }
 
     VkResult result = vkAcquireNextImageKHR(mDevice, mSwapchain, std::numeric_limits<uint64_t>::max(), mImageAvailableSemaphore[mFrameIndex], VK_NULL_HANDLE, &mSwapchainImageIndex);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    // A resize invalidates the swapchain: rebuild and retry. VK_SUBOPTIMAL_KHR
+    // after a rebuild is still a usable image (MoltenVK reports it whenever the
+    // layer and swapchain sizes disagree by a rounding pixel), so it ends the
+    // retry instead of rebuilding forever.
+    for (uint32_t attempt = 0; attempt < 8 && result == VK_ERROR_OUT_OF_DATE_KHR; ++attempt)
     {
-        while (result != VK_SUCCESS)
-        {
-            RecreateSwapchain(false);
-            result = vkAcquireNextImageKHR(mDevice, mSwapchain, std::numeric_limits<uint64_t>::max(), mImageAvailableSemaphore[mFrameIndex], VK_NULL_HANDLE, &mSwapchainImageIndex);
-        }
+        RecreateSwapchain(false, "out of date on acquire");
+        result = vkAcquireNextImageKHR(mDevice, mSwapchain, std::numeric_limits<uint64_t>::max(), mImageAvailableSemaphore[mFrameIndex], VK_NULL_HANDLE, &mSwapchainImageIndex);
     }
-    else if (result != VK_SUCCESS &&
-             result != VK_SUBOPTIMAL_KHR)
+
+    if (result != VK_SUCCESS &&
+        result != VK_SUBOPTIMAL_KHR)
     {
-        LogError("Failed to acquire swapchain image");
+        LogError("Failed to acquire swapchain image (VkResult %d)", (int)result);
         OCT_ASSERT(0);
     }
 
@@ -380,10 +387,30 @@ void VulkanContext::EndFrame()
 
     VkResult presentResult = vkQueuePresentKHR(mPresentQueue, &presentInfo);
 
-    if (!IsShuttingDown() &&
-        (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR))
+    if (!IsShuttingDown())
     {
-        RecreateSwapchain(false);
+        if (presentResult == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            RecreateSwapchain(false, "out of date on present");
+        }
+        else if (presentResult == VK_SUBOPTIMAL_KHR)
+        {
+            // Only a real size change is worth the rebuild (five device waits
+            // and every render target reallocated). MoltenVK also reports
+            // SUBOPTIMAL when the CAMetalLayer drawable size and the swapchain
+            // extent disagree by a rounding pixel, which a rebuild does not
+            // change, so treating every SUBOPTIMAL as a resize rebuilt the
+            // swapchain every frame in macOS full screen on Retina Intel Macs.
+            if (SurfaceExtentChanged())
+            {
+                RecreateSwapchain(false, "suboptimal present, surface extent changed");
+            }
+            else if (mSuboptimalIgnored++ == 0)
+            {
+                LogDebug("Swapchain: ignoring suboptimal present, surface extent unchanged (%ux%u)",
+                         mSwapchainExtent.width, mSwapchainExtent.height);
+            }
+        }
     }
 
     uint32_t nextFrameIndex = (mFrameIndex + 1) % MAX_FRAMES;
@@ -880,7 +907,14 @@ void VulkanContext::DestroySwapchain()
         vkDestroyImageView(mDevice, mSwapchainImageViews[i], nullptr);
     }
 
-    vkDestroySwapchainKHR(mDevice, mSwapchain, nullptr);
+    // Retire rather than destroy: CreateSwapchain hands it over as
+    // oldSwapchain and destroys it afterwards (Destroy() covers shutdown).
+    if (mRetiredSwapchain != VK_NULL_HANDLE)
+    {
+        vkDestroySwapchainKHR(mDevice, mRetiredSwapchain, nullptr);
+    }
+    mRetiredSwapchain = mSwapchain;
+    mSwapchain = VK_NULL_HANDLE;
 
 #if EDITOR
     DestroyHitCheck();
@@ -902,7 +936,10 @@ void VulkanContext::CreateSwapchain()
 
     mPreTransformFlag = swapChainSupport.capabilities.currentTransform;
 
-    uint32_t imageCount = 2;
+    // One more than the minimum (3 on MoltenVK): with only two drawables the
+    // direct-to-display full-screen path on macOS drops to half refresh
+    // whenever a frame misses its deadline. Frames in flight stay MAX_FRAMES.
+    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
 
     if (imageCount < swapChainSupport.capabilities.minImageCount)
         imageCount = swapChainSupport.capabilities.minImageCount;
@@ -950,13 +987,22 @@ void VulkanContext::CreateSwapchain()
     ciSwapchain.compositeAlpha = alphaFlags;
     ciSwapchain.presentMode = presentMode;
     ciSwapchain.clipped = VK_TRUE;
-    ciSwapchain.oldSwapchain = VK_NULL_HANDLE;
+    ciSwapchain.oldSwapchain = mRetiredSwapchain;
 
     if (vkCreateSwapchainKHR(mDevice, &ciSwapchain, nullptr, &mSwapchain) != VK_SUCCESS)
     {
         LogError("Failed to create swapchain");
         OCT_ASSERT(0);
     }
+
+    if (mRetiredSwapchain != VK_NULL_HANDLE)
+    {
+        vkDestroySwapchainKHR(mDevice, mRetiredSwapchain, nullptr);
+        mRetiredSwapchain = VK_NULL_HANDLE;
+    }
+    mSuboptimalIgnored = 0;
+
+    LogDebug("Swapchain: %ux%u, %u images, present mode %d", extent.width, extent.height, imageCount, (int)presentMode);
 
     vkGetSwapchainImagesKHR(mDevice, mSwapchain, &imageCount, nullptr);
     mSwapchainImages.resize(imageCount);
@@ -1439,12 +1485,31 @@ void VulkanContext::PickPhysicalDevice()
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(mInstance, &deviceCount, devices.data());
 
+    // Prefer a discrete GPU, then integrated, then virtual/CPU; ties keep
+    // enumeration order. Hybrid laptops (and the dual-GPU 2016 MacBook Pro,
+    // where full screen is driven by the Radeon) otherwise end up rendering
+    // on whichever device the loader happened to list first.
+    int32_t bestScore = -1;
     for (const auto& device : devices)
     {
-        if (IsDeviceSuitable(device))
+        if (!IsDeviceSuitable(device))
+            continue;
+
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(device, &props);
+        int32_t score = 0;
+        switch (props.deviceType)
         {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   score = 3; break;
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: score = 2; break;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    score = 1; break;
+        default:                                     score = 0; break;
+        }
+
+        if (score > bestScore)
+        {
+            bestScore = score;
             mPhysicalDevice = device;
-            break;
         }
     }
 
@@ -1452,6 +1517,16 @@ void VulkanContext::PickPhysicalDevice()
     {
         LogError("Failed to find a suitable GPU.");
         OCT_ASSERT(0);
+    }
+    else
+    {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(mPhysicalDevice, &props);
+        const char* type = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete"
+                         : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? "integrated"
+                         : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU ? "virtual"
+                         : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU ? "cpu" : "other";
+        LogDebug("Vulkan device: %s (%s, vendor 0x%04x) out of %u", props.deviceName, type, props.vendorID, deviceCount);
     }
 
     // Check properties to see what features we have. In the future, possibly
@@ -2255,7 +2330,7 @@ void VulkanContext::DestroyDescriptorPools()
     mDescriptorLayoutCache.Destroy();
 }
 
-void VulkanContext::RecreateSwapchain(bool recreateSurface)
+void VulkanContext::RecreateSwapchain(bool recreateSurface, const char* reason)
 {
     if (!mInitialized)
     {
@@ -2278,6 +2353,8 @@ void VulkanContext::RecreateSwapchain(bool recreateSurface)
         }
     }
 
+    const VkExtent2D oldExtent = mSwapchainExtent;
+
     DeviceWaitIdle();
 
     DestroySwapchain();
@@ -2288,6 +2365,8 @@ void VulkanContext::RecreateSwapchain(bool recreateSurface)
     }
 
     CreateSwapchain();
+    LogDebug("Swapchain: recreated (%s) %ux%u -> %ux%u", reason,
+             oldExtent.width, oldExtent.height, mSwapchainExtent.width, mSwapchainExtent.height);
     CreateDepthImage();
     CreateSceneColorImage();
     CreateShadowMapImage();
@@ -2314,6 +2393,22 @@ void VulkanContext::RecreateSwapchain(bool recreateSurface)
     // may lead to an OOM crash in the VRAM allocator.
     DeviceWaitIdle();
     GetDestroyQueue()->FlushAll();
+}
+
+bool VulkanContext::SurfaceExtentChanged()
+{
+    if (mSurface == VK_NULL_HANDLE)
+        return false;
+
+    VkSurfaceCapabilitiesKHR capabilities = {};
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mPhysicalDevice, mSurface, &capabilities) != VK_SUCCESS)
+        return false;
+
+    const VkExtent2D& cur = capabilities.currentExtent;
+    if (cur.width == 0 || cur.height == 0 || cur.width == std::numeric_limits<uint32_t>::max())
+        return false;
+
+    return cur.width != mSwapchainExtent.width || cur.height != mSwapchainExtent.height;
 }
 
 void VulkanContext::RecreateSurface()

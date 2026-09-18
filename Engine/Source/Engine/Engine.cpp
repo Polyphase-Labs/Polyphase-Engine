@@ -1849,6 +1849,7 @@ void ResizeWindow(uint32_t width, uint32_t height)
     if (width != 0 &&
         height != 0)
     {
+        LogDebug("Window resized to %ux%u", width, height);
         sEngineState.mWindowMinimized = false;
         sEngineState.mWindowWidth = width;
         sEngineState.mWindowHeight = height;

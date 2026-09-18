@@ -32,6 +32,9 @@ public:
     // 0 = Auto (50% on Intel/AMD integrated GPUs driving a HiDPI window,
     // else 100%), 1 = 100%, 2 = 75%, 3 = 50%.
     int GetResolutionScaleMode() const { return mResolutionScaleMode; }
+    // Pushes the mode's scale to the renderer. Auto depends on the window's
+    // pixel size, so EditorState::Update calls this whenever that changes.
+    void ApplyResolutionScale() const;
 
     static ViewportModule* Get();
     static void HandleExternalGridToggle(bool enabled);
@@ -40,7 +43,6 @@ private:
     void ApplyBackgroundColorToRenderer() const;
     void ApplyGridVisibility();
     void ApplySelectedOverlay() const;
-    void ApplyResolutionScale() const;
 
     int mResolutionScaleMode = 0;
     glm::vec4 mBackgroundColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);

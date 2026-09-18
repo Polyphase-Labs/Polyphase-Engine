@@ -87,7 +87,7 @@ public:
 
     VkDevice GetDevice();
     void CreateSwapchain();
-    void RecreateSwapchain(bool recreateSurface);
+    void RecreateSwapchain(bool recreateSurface, const char* reason = "unspecified");
 
     VkPhysicalDevice GetPhysicalDevice();
     DescriptorPool& GetDescriptorPool();
@@ -242,6 +242,8 @@ private:
         uint32_t count);
 
     void DestroySwapchain();
+    // True when the surface's current extent differs from mSwapchainExtent.
+    bool SurfaceExtentChanged();
     void DestroyDebugCallback();
 
 private:
@@ -273,6 +275,13 @@ private:
     VkFormat mSwapchainImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D mSwapchainExtent = {};
     std::vector<Image*> mExtSwapchainImages;
+    // Previous swapchain, kept alive across a recreate so it can be handed to
+    // VkSwapchainCreateInfoKHR::oldSwapchain (the driver reuses its drawables
+    // instead of tearing the pool down), then destroyed once the new one exists.
+    VkSwapchainKHR mRetiredSwapchain = VK_NULL_HANDLE;
+    // Presents that returned VK_SUBOPTIMAL_KHR without a surface size change
+    // since the last (re)create. Logged once; see EndFrame.
+    uint32_t mSuboptimalIgnored = 0;
 
     // RenderPasses
     RenderPassCache mRenderPassCache;

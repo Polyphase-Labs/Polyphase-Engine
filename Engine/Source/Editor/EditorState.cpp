@@ -39,6 +39,7 @@
 #include "Assets/Scene.h"
 #include "EditorUtils.h"
 #include "EditorImgui.h"
+#include "Preferences/Appearance/Viewport/ViewportModule.h"
 #include "Viewport3d.h"
 #include "Viewport2d.h"
 #include "EditorUIHookManager.h"
@@ -175,6 +176,23 @@ void EditorState::Update(float deltaTime)
     if (IsHeadless())
     {
         return;
+    }
+
+    // The Auto viewport resolution scale depends on the window's pixel size
+    // (full screen on a Retina panel is five times a 1280x720 window), so
+    // re-evaluate it when the size changes. A changed scale costs exactly one
+    // swapchain rebuild in VulkanContext::BeginFrame.
+    static uint32_t sLastWindowWidth = 0;
+    static uint32_t sLastWindowHeight = 0;
+    if (GetEngineState()->mWindowWidth != sLastWindowWidth ||
+        GetEngineState()->mWindowHeight != sLastWindowHeight)
+    {
+        sLastWindowWidth = GetEngineState()->mWindowWidth;
+        sLastWindowHeight = GetEngineState()->mWindowHeight;
+        if (ViewportModule::Get() != nullptr)
+        {
+            ViewportModule::Get()->ApplyResolutionScale();
+        }
     }
 
     // TODO-NODE: Handle Widgets/2D? Maybe split modes to 3D and 2D

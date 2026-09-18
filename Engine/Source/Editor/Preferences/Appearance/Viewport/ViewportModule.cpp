@@ -170,8 +170,9 @@ void ViewportModule::ApplyResolutionScale() const
         // Auto: an integrated GPU filling a HiDPI (Retina / 4K) window is
         // fill-bound in the scene pass, so halve it there. Apple GPUs report
         // as integrated too (vendor 0x106B) but have the bandwidth, so they
-        // stay at 100%. Evaluated once per preferences load, at the window
-        // size the editor started with.
+        // stay at 100%. Re-evaluated whenever the window's pixel size changes
+        // (EditorState::Update), so going full screen on a Retina panel from a
+        // small window flips to 50% and back.
         bool integrated = false;
 #if API_VULKAN
         if (GetVulkanContext() != nullptr)

@@ -46,6 +46,19 @@ static id sDelegate = nil;
 // the cached size (ResizeWindow() talks to the graphics backend).
 static bool sGraphicsReady = false;
 
+// Pixel size and scale last written to the CAMetalLayer, so resize
+// notifications carrying the same size do not re-assign drawableSize
+// (MoltenVK treats every assignment as a potential change).
+static uint32_t sLayerWidth = 0;
+static uint32_t sLayerHeight = 0;
+static float sLayerScale = 0.0f;
+
+// Set between the windowWill*/windowDid* full-screen notifications. The
+// layer keeps its pre-transition drawable size for the animation (AppKit
+// scales it to the frame), and the engine gets exactly one resize once the
+// final size is known, instead of one swapchain rebuild per animation frame.
+static bool sFullScreenTransition = false;
+
 // Mouse deltas accumulated from NSEvent while the cursor is trapped (the
 // cursor position itself is frozen by CGAssociateMouseAndMouseCursorPosition).
 static int32_t sTrapDeltaX = 0;
@@ -66,18 +79,29 @@ static void UpdateDrawableSize()
     if (sView == nil || sMetalLayer == nil)
         return;
 
-    float scale = BackingScale();
-    NSSize bounds = sView.bounds.size;
-    CGSize drawable = CGSizeMake(bounds.width * scale, bounds.height * scale);
+    if (sFullScreenTransition && sGraphicsReady)
+        return;
 
-    sMetalLayer.contentsScale = scale;
-    sMetalLayer.drawableSize = drawable;
+    // convertSizeToBacking rounds the way AppKit and CoreAnimation do, so the
+    // drawable and MoltenVK's view of the layer agree to the pixel. A
+    // truncated bounds * scale can sit one pixel off, and then every present
+    // comes back VK_SUBOPTIMAL_KHR.
+    float scale = BackingScale();
+    NSSize backing = [sView convertSizeToBacking:sView.bounds.size];
+    uint32_t width = (uint32_t)(backing.width + 0.5);
+    uint32_t height = (uint32_t)(backing.height + 0.5);
+
+    if (width != sLayerWidth || height != sLayerHeight || scale != sLayerScale)
+    {
+        sLayerWidth = width;
+        sLayerHeight = height;
+        sLayerScale = scale;
+        sMetalLayer.contentsScale = scale;
+        sMetalLayer.drawableSize = CGSizeMake(width, height);
+    }
 
     EngineState* engine = GetEngineState();
     engine->mSystem.mBackingScale = scale;
-
-    uint32_t width = (uint32_t)drawable.width;
-    uint32_t height = (uint32_t)drawable.height;
 
     if (sWindow.miniaturized)
     {
@@ -259,9 +283,23 @@ static void UpdateDrawableSize()
     CGAssociateMouseAndMouseCursorPosition(true);
 }
 
+- (void)windowWillEnterFullScreen:(NSNotification*)notification
+{
+    sFullScreenTransition = true;
+}
+
+- (void)windowWillExitFullScreen:(NSNotification*)notification
+{
+    sFullScreenTransition = true;
+}
+
 - (void)windowDidEnterFullScreen:(NSNotification*)notification
 {
     GetEngineState()->mSystem.mFullscreen = true;
+    sFullScreenTransition = false;
+    UpdateDrawableSize();
+    LogDebug("Cocoa window entered full screen (%ux%u px, scale %.1f)",
+             GetEngineState()->mWindowWidth, GetEngineState()->mWindowHeight, GetEngineState()->mSystem.mBackingScale);
 #if EDITOR
     ImGui_ImplMac_EnsureKeyResponder();
 #endif
@@ -270,9 +308,32 @@ static void UpdateDrawableSize()
 - (void)windowDidExitFullScreen:(NSNotification*)notification
 {
     GetEngineState()->mSystem.mFullscreen = false;
+    sFullScreenTransition = false;
+    UpdateDrawableSize();
+    LogDebug("Cocoa window left full screen (%ux%u px, scale %.1f)",
+             GetEngineState()->mWindowWidth, GetEngineState()->mWindowHeight, GetEngineState()->mSystem.mBackingScale);
 #if EDITOR
     ImGui_ImplMac_EnsureKeyResponder();
 #endif
+}
+
+- (void)windowDidFailToEnterFullScreen:(NSWindow*)window
+{
+    sFullScreenTransition = false;
+    UpdateDrawableSize();
+}
+
+- (void)windowDidFailToExitFullScreen:(NSWindow*)window
+{
+    sFullScreenTransition = false;
+    UpdateDrawableSize();
+}
+
+- (void)windowDidChangeScreen:(NSNotification*)notification
+{
+    // A full-screen Space can land on a display with a different backing
+    // scale; viewDidChangeBackingProperties does not always follow.
+    UpdateDrawableSize();
 }
 
 @end
