@@ -928,6 +928,8 @@
     <ClCompile Include="Source\Editor\PaintManager.cpp" />
     <ClCompile Include="Source\Editor\Viewport2d.cpp" />
     <ClCompile Include="Source\Editor\Viewport3d.cpp" />
+    <ClCompile Include="Source\Editor\TransformSnap.cpp" />
+    <ClCompile Include="Source\Editor\TriangleBvh.cpp" />
     <ClCompile Include="Source\Editor\Preferences\JsonSettings.cpp" />
     <ClCompile Include="Source\Editor\Preferences\PreferencesManager.cpp" />
     <ClCompile Include="Source\Editor\Preferences\PreferencesModule.cpp" />
@@ -1537,6 +1539,8 @@
     <ClInclude Include="Source\Editor\PaintManager.h" />
     <ClInclude Include="Source\Editor\Viewport2d.h" />
     <ClInclude Include="Source\Editor\Viewport3d.h" />
+    <ClInclude Include="Source\Editor\TransformSnap.h" />
+    <ClInclude Include="Source\Editor\TriangleBvh.h" />
     <ClInclude Include="Source\Editor\Preferences\JsonSettings.h" />
     <ClInclude Include="Source\Editor\Preferences\PreferencesManager.h" />
     <ClInclude Include="Source\Editor\Preferences\PreferencesModule.h" />

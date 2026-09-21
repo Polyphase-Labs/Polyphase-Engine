@@ -13,6 +13,10 @@ public:
     void DrawContent();
 
     void OpenFile(const std::string& filePath);
+
+    // The editor font atlas was rebuilt: Zep's cached ImFont pointers are stale.
+    // sizeRatio = new text scale / old text scale.
+    void OnEditorFontsRebuilt(float sizeRatio);
     bool HasUnsavedChanges() const;
 
     // Toolbar actions

@@ -2,6 +2,7 @@
 
 #include "EditorState.h"
 #include "Nodes/Widgets/PolyRect.h"
+#include "TransformSnap.h"
 
 
 struct VpWidgetTransform
@@ -42,6 +43,7 @@ public:
     void HandleInput();
 
     void SetWidgetControlMode(WidgetControlMode newMode);
+    WidgetControlMode GetWidgetControlMode() const { return mControlMode; }
 
     Widget* GetWrapperWidget();
     Widget* GetHoveredWidget();
@@ -77,4 +79,5 @@ protected:
     int32_t mPrevMouseY = 0;
 
     std::vector<VpWidgetTransform> mSavedTransforms;
+    TransformSnapAccum mSnapAccum;
 };

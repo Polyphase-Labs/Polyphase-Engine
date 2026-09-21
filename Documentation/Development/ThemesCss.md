@@ -2,6 +2,8 @@
 
 The Polyphase Editor supports importing custom themes via `.css` files. This system maps a simplified CSS syntax to ImGui style colors and properties.
 
+Themes control colours and style. To change the **size** of the editor's text or of the whole interface, see [Text Scale & Interface Scale](../Info/InterfaceScaling.md).
+
 ## Quick Start
 
 1. Create a `.css` file using the format described below

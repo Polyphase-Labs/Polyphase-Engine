@@ -257,6 +257,14 @@ namespace IMGUIZMO_NAMESPACE
    // When false, they always stay along the positive world/local axis
    IMGUI_API void AllowAxisFlip(bool value);
 
+   // Polyphase: scale applied to mouse movement while a manipulation is active
+   // (1 = handles track the cursor). Can change mid-drag without a jump.
+   IMGUI_API void SetPrecisionScale(float scale);
+
+   // Polyphase: constraint of the current/last translate manipulation.
+   // Returns 0 = free, 1 = axis (outDir = axis), 2 = plane (outDir = plane normal).
+   IMGUI_API int GetTranslationConstraint(float* outDir);
+
    // Configure the limit where axis are hidden
    IMGUI_API void SetAxisLimit(float value);
    // Set an axis mask to permanently hide a given axis (true -> hidden, false -> shown)

@@ -100,6 +100,8 @@ enum class EditorAction : int32_t
     Gizmo_ScaleImGuizmo,
     Gizmo_TransformLocalToggle,
     Gizmo_GridToggle,
+    Gizmo_SnapToggle,
+    Gizmo_SnapCycleMode,
 
     // ----- Debug -----
     Debug_Wireframe,

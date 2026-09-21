@@ -222,6 +222,23 @@ void VulkanContext::Initialize()
     mInitialized = true;
 }
 
+#if EDITOR
+void VulkanContext::RebuildImguiFontTexture()
+{
+    // Must run outside an ImGui frame (before NewFrame): the previous frame's
+    // draw data still references the old font descriptor set until the GPU
+    // has finished with it.
+    DeviceWaitIdle();
+    ImGui_ImplVulkan_DestroyFontsTexture();
+
+    VkCommandBuffer cb = BeginCommandBuffer();
+    ImGui_ImplVulkan_CreateFontsTexture(cb);
+    EndCommandBuffer(cb);
+    DeviceWaitIdle();
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+}
+#endif
+
 void VulkanContext::Destroy()
 {
     DeviceWaitIdle();

@@ -24,6 +24,8 @@ nav:
   - Info:
       - Quick Start: Info/QuickStart.md
       - Editor: Info/Editor.md
+      - Transform Snapping & Precision: Info/TransformSnapping.md
+      - Text & Interface Scale: Info/InterfaceScaling.md
       - Scripting: Info/Scripting.md
       - Templates: Info/Templates.md
       - Addons: Info/Addons.md
@@ -58,6 +60,8 @@ nav:
       - Static Content: Development/StaticContent.md
       - Themes / CSS: Development/ThemesCss.md
       - Editor Widgets: Development/EditorWidgets.md
+      - Editor Text Scaling: Development/EditorTextScaling.md
+      - Transform Snapping: Development/TransformSnapping.md
       - 3DS:
           - Overview: Development/Platforms/3DS/Overview.md
           - Screens: Development/Platforms/3DS/Screens.md

@@ -127,6 +127,26 @@ void ScriptEditorWindow::EnsureEditor()
     LogDebug("Script Editor created.");
 }
 
+void ScriptEditorWindow::OnEditorFontsRebuilt(float sizeRatio)
+{
+    if (!mEditor)
+        return;
+
+    ZepDisplay& display = AsZep(mEditor)->GetDisplay();
+    ImFont* font = ImGui::GetIO().Fonts->Fonts.empty() ? nullptr : ImGui::GetIO().Fonts->Fonts[0];
+    if (font == nullptr)
+        return;
+
+    for (int32_t i = 0; i < (int32_t)ZepTextType::Count; ++i)
+    {
+        ZepTextType type = (ZepTextType)i;
+        int pixelHeight = int(roundf(display.GetFont(type).GetPixelHeight() * sizeRatio));
+        display.SetFont(type, std::make_shared<ZepFont_ImGui>(display, font, pixelHeight));
+    }
+
+    display.SetLayoutDirty(true);
+}
+
 // ---------------------------------------------------------------------------
 // DrawContent — toolbar + Zep editor
 // ---------------------------------------------------------------------------

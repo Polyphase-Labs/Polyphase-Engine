@@ -768,6 +768,15 @@ namespace IMGUIZMO_NAMESPACE
       bool mAllowAxisFlip = true;
       float mGizmoSizeClipSpace = 0.1f;
 
+      // Polyphase: precision dragging. While a manipulation is active the
+      // handles follow a virtual mouse that advances by the real mouse delta
+      // times mPrecisionScale, so the scale can change mid-drag without a jump.
+      float mPrecisionScale = 1.f;
+      ImVec2 mPrecisionMouse;
+      ImVec2 mPrecisionLastMouse;
+      int mPrecisionFrame = -1;
+      bool mbPrecisionTracking = false;
+
       inline ImGuiID GetCurrentID()
       {
          if (mIDStack.empty())
@@ -824,15 +833,50 @@ namespace IMGUIZMO_NAMESPACE
       return ImVec2(trans.x, trans.y);
    }
 
+   // Polyphase: mouse position manipulations are driven by (see mPrecisionScale).
+   static ImVec2 GetManipulationMousePos()
+   {
+      return gContext.mbPrecisionTracking ? gContext.mPrecisionMouse : ImGui::GetIO().MousePos;
+   }
+
+   // Polyphase: advance the virtual mouse once per frame.
+   static void UpdatePrecisionMouse()
+   {
+      const ImGuiIO& io = ImGui::GetIO();
+      const int frame = ImGui::GetFrameCount();
+      if (frame == gContext.mPrecisionFrame)
+      {
+         return;
+      }
+
+      if (!gContext.mbUsing)
+      {
+         gContext.mbPrecisionTracking = false;
+      }
+      else if (!gContext.mbPrecisionTracking)
+      {
+         gContext.mPrecisionMouse = io.MousePos;
+         gContext.mbPrecisionTracking = true;
+      }
+      else
+      {
+         gContext.mPrecisionMouse.x += (io.MousePos.x - gContext.mPrecisionLastMouse.x) * gContext.mPrecisionScale;
+         gContext.mPrecisionMouse.y += (io.MousePos.y - gContext.mPrecisionLastMouse.y) * gContext.mPrecisionScale;
+      }
+
+      gContext.mPrecisionLastMouse = io.MousePos;
+      gContext.mPrecisionFrame = frame;
+   }
+
    static void ComputeCameraRay(vec_t& rayOrigin, vec_t& rayDir, ImVec2 position = ImVec2(gContext.mX, gContext.mY), ImVec2 size = ImVec2(gContext.mWidth, gContext.mHeight))
    {
-      ImGuiIO& io = ImGui::GetIO();
-
       matrix_t mViewProjInverse;
       mViewProjInverse.Inverse(gContext.mViewMat * gContext.mProjectionMat);
 
-      const float mox = ((io.MousePos.x - position.x) / size.x) * 2.f - 1.f;
-      const float moy = (1.f - ((io.MousePos.y - position.y) / size.y)) * 2.f - 1.f;
+      // Polyphase: virtual mouse instead of io.MousePos.
+      const ImVec2 mousePos = GetManipulationMousePos();
+      const float mox = ((mousePos.x - position.x) / size.x) * 2.f - 1.f;
+      const float moy = (1.f - ((mousePos.y - position.y) / size.y)) * 2.f - 1.f;
 
       const float zNear = gContext.mReversed ? (1.f - FLT_EPSILON) : 0.f;
       const float zFar = gContext.mReversed ? 0.f : (1.f - FLT_EPSILON);
@@ -1117,6 +1161,7 @@ namespace IMGUIZMO_NAMESPACE
       gContext.mScreenSquareMin = ImVec2(centerSSpace.x - 10.f, centerSSpace.y - 10.f);
       gContext.mScreenSquareMax = ImVec2(centerSSpace.x + 10.f, centerSSpace.y + 10.f);
 
+      UpdatePrecisionMouse(); // Polyphase
       ComputeCameraRay(gContext.mRayOrigin, gContext.mRayVector);
    }
 
@@ -2342,7 +2387,7 @@ namespace IMGUIZMO_NAMESPACE
          }
          else
          {
-            float scaleDelta = (io.MousePos.x - gContext.mSaveMousePosx) * 0.01f;
+            float scaleDelta = (GetManipulationMousePos().x - gContext.mSaveMousePosx) * 0.01f; // Polyphase: virtual mouse
             gContext.mScale.Set(max(1.f + scaleDelta, 0.001f));
          }
 
@@ -2632,6 +2677,31 @@ namespace IMGUIZMO_NAMESPACE
    void AllowAxisFlip(bool value)
    {
      gContext.mAllowAxisFlip = value;
+   }
+
+   // Polyphase
+   void SetPrecisionScale(float scale)
+   {
+      gContext.mPrecisionScale = scale;
+   }
+
+   // Polyphase
+   int GetTranslationConstraint(float* outDir)
+   {
+      const int type = gContext.mCurrentOperation;
+      if (type >= MT_MOVE_X && type <= MT_MOVE_Z)
+      {
+         const vec_t& axis = *(vec_t*)&gContext.mModel.m[type - MT_MOVE_X];
+         outDir[0] = axis.x; outDir[1] = axis.y; outDir[2] = axis.z;
+         return 1;
+      }
+      if (type >= MT_MOVE_YZ && type <= MT_MOVE_XY)
+      {
+         const vec_t& normal = *(vec_t*)&gContext.mModel.m[type - MT_MOVE_YZ];
+         outDir[0] = normal.x; outDir[1] = normal.y; outDir[2] = normal.z;
+         return 2;
+      }
+      return 0;
    }
 
    void SetAxisLimit(float value)

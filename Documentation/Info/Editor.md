@@ -33,6 +33,9 @@ These global hotkeys can be activated no matter where the mouse cursor is locate
 
 ### Viewport
 
+See [Transform Snapping & Precision](TransformSnapping.md) for snap targets, step sizes and tips.
+If the editor is hard to read on your display, see [Text Scale & Interface Scale](InterfaceScaling.md).
+
 - `Right Click` Hold to pilot viewport camera
 - `W/A/S/D` Move viewport camera while piloting
 - `MouseWheel` Scroll while piloting viewport camera to adjust move speed
@@ -62,6 +65,10 @@ These global hotkeys can be activated no matter where the mouse cursor is locate
 - `B` Cycle through bounds rendering mode
 - `Ctrl + G` Toggle grid
 - `Ctrl + T` Toggle transform mode (Local vs Pivot)
+- `M` Toggle transform snapping (also the magnet button in the toolbar)
+- `Alt + M` Cycle snap target: Increment, Vertex, Edge, Face
+- Hold `Shift` while transforming to invert snapping (snaps when the magnet is off, moves freely when it is on)
+- Hold `Ctrl` while transforming for precision (slower) movement. Works for cursor-locked transforms and for gizmo handle drags. Undo / Redo / Save shortcuts are paused until the transform ends.
 - `Numpad5` Switch between orthographic and perspective projection
 - `Numpad1` Front view
 - `Numpad3` Right view

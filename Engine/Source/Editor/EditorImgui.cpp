@@ -71,6 +71,7 @@
 
 #include "Viewport3d.h"
 #include "Viewport2d.h"
+#include "TransformSnap.h"
 #include "ActionManager.h"
 #include "EditorState.h"
 #include "CSharp/CSharpManager.h"
@@ -79,6 +80,7 @@
 #include "SoundWaveImportFixup/SoundWaveImportFixupModal.h"
 #include "FileDropImport/FileDropImportModal.h"
 #include "Preferences/PreferencesWindow.h"
+#include "Preferences/Appearance/AppearanceModule.h"
 #include "Preferences/Appearance/Theme/ThemeModule.h"
 #include "Preferences/Appearance/Viewport/ViewportModule.h"
 #include "Packaging/PackagingWindow.h"
@@ -11834,7 +11836,7 @@ static void DrawMainMenuBar()
             previewLabel = addonModes[curMode - kBuiltinModeCount]->mDisplayName.c_str();
 
         int prevCurMode = curMode;
-        ImGui::SetNextItemWidth(80);
+        ImGui::SetNextItemWidth(80.0f * GetEditorTextScale());
         if (ImGui::BeginCombo("##EditorMode", previewLabel))
         {
             for (int i = 0; i < kBuiltinModeCount; ++i)
@@ -11980,6 +11982,26 @@ static void DrawMainMenuBar()
             gizmoMode = isLocal ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
         if (isLocal) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Local/World (Ctrl+T)");
+
+        // Transform snapping toggle + snap target
+        if (ViewportModule* viewportPrefs = ViewportModule::Get())
+        {
+            ImGui::SameLine();
+
+            bool snapEnabled = viewportPrefs->GetSnapEnabled();
+            if (snapEnabled) ImGui::PushStyleColor(ImGuiCol_Button, kToggledColor);
+            if (ImGui::Button(ICON_PH_MAGNET_FILL "##SnapToggle"))
+                viewportPrefs->SetSnapEnabled(!snapEnabled);
+            if (snapEnabled) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Snapping (M)\nHold Shift while transforming to invert. Hold Ctrl for precision.");
+
+            ImGui::SameLine();
+            int snapMode = viewportPrefs->GetSnapMode();
+            ImGui::SetNextItemWidth(115.0f * GetEditorTextScale());
+            if (ImGui::Combo("##SnapMode", &snapMode, "Increment\0Vertex\0Edge\0Face\0"))
+                viewportPrefs->SetSnapMode(snapMode);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Snap target (Alt+M). Vertex, Edge and Face apply to translate;\nincrements are set in Preferences > Appearance > Viewport.");
+        }
 
         // Scene tabs
         static int32_t sPrevActiveSceneIdx = 0;
@@ -13559,6 +13581,8 @@ static void DrawImGuizmo()
     static bool wasUsing = false;
     static std::vector<glm::mat4> originalMatrices;
     static std::vector<Node3D*> lastManipulatedNodes;
+    // Unsnapped pivot position for Vertex/Edge/Face snapping (see below).
+    static glm::vec3 sRawPivot = {};
 
     bool isUsing = ImGuizmo::IsUsing();
 
@@ -13572,10 +13596,63 @@ static void DrawImGuizmo()
             originalMatrices.push_back(n->GetTransform());
             lastManipulatedNodes.push_back(n);
         }
+
+        sRawPivot = node3d->GetWorldPosition();
+        TransformSnap::BeginDrag();
     }
 
     // Store the delta matrix so we can apply incremental changes
     glm::mat4 deltaMatrix = glm::mat4(1.0f);
+
+    const bool snapActive = TransformSnap::IsActive();
+    const bool isTranslateOp = (edState->mGizmoOperation == ImGuizmo::TRANSLATE);
+    const bool surfaceMode = (TransformSnap::GetMode() != SnapMode::Increment);
+
+    // Increment snapping is native to ImGuizmo (it rounds the cumulative delta
+    // from the drag start). Translate = units per axis, rotate = degrees,
+    // scale = factor.
+    float snapValues[3] = {};
+    const float* snap = nullptr;
+    if (snapActive && !(isTranslateOp && surfaceMode))
+    {
+        float increment = TransformSnap::GetTranslateIncrement();
+        if (edState->mGizmoOperation == ImGuizmo::ROTATE)
+        {
+            increment = TransformSnap::GetRotateIncrement();
+        }
+        else if (edState->mGizmoOperation == ImGuizmo::SCALE)
+        {
+            increment = TransformSnap::GetScaleIncrement();
+        }
+
+        if (increment > 0.0f)
+        {
+            snapValues[0] = snapValues[1] = snapValues[2] = increment;
+            snap = snapValues;
+        }
+    }
+
+    // Vertex/Edge/Face: ImGuizmo's constrained output inherits its off-axis
+    // position (and screen factor) from the matrix it is fed, so feeding back a
+    // surface-snapped position corrupts the next frame. Feed it the unsnapped
+    // pivot instead and place the nodes from the snapped result ourselves.
+    int32_t primaryIdx = -1;
+    for (size_t i = 0; i < lastManipulatedNodes.size(); ++i)
+    {
+        if (lastManipulatedNodes[i] == node3d)
+        {
+            primaryIdx = (int32_t)i;
+            break;
+        }
+    }
+
+    const bool shadowTranslate = isUsing && isTranslateOp && surfaceMode && primaryIdx >= 0;
+    if (shadowTranslate)
+    {
+        modelMatrix[3] = glm::vec4(sRawPivot, 1.0f);
+    }
+
+    ImGuizmo::SetPrecisionScale(TransformSnap::GetGizmoPrecisionScale());
 
     // Call Manipulate with delta matrix
     bool manipulated = ImGuizmo::Manipulate(
@@ -13585,14 +13662,53 @@ static void DrawImGuizmo()
         edState->mGizmoMode,
         glm::value_ptr(modelMatrix),
         glm::value_ptr(deltaMatrix),
-        nullptr   // snap
+        snap
     );
 
+    if (shadowTranslate)
+    {
+        // Read back every frame: 'manipulated' only reports a change in the
+        // per-frame delta, not whether the matrix moved.
+        sRawPivot = glm::vec3(modelMatrix[3]);
+
+        const glm::vec3 startPos = glm::vec3(originalMatrices[primaryIdx][3]);
+        glm::vec3 moveDelta = sRawPivot - startPos;
+
+        glm::vec3 snapPos;
+        if (snapActive && TransformSnap::SnapToSurface(camera, selectedNodes, sRawPivot, snapPos))
+        {
+            moveDelta = snapPos - startPos;
+
+            // Keep the snapped position on the handle's axis / plane.
+            float constraintDir[3] = {};
+            int constraint = ImGuizmo::GetTranslationConstraint(constraintDir);
+            glm::vec3 dir(constraintDir[0], constraintDir[1], constraintDir[2]);
+            if (constraint == 1)
+            {
+                moveDelta = dir * glm::dot(moveDelta, dir);
+            }
+            else if (constraint == 2)
+            {
+                moveDelta -= dir * glm::dot(moveDelta, dir);
+            }
+        }
+
+        const glm::mat4 moveMatrix = glm::translate(glm::mat4(1.0f), moveDelta);
+        for (size_t i = 0; i < lastManipulatedNodes.size(); ++i)
+        {
+            lastManipulatedNodes[i]->SetTransform(moveMatrix * originalMatrices[i]);
+        }
+    }
     // If the gizmo was manipulated, apply the delta to all selected nodes
-    if (manipulated)
+    else if (manipulated)
     {
         // Apply the primary node's new transform
         node3d->SetTransform(modelMatrix);
+
+        if (isTranslateOp)
+        {
+            sRawPivot = glm::vec3(modelMatrix[3]);
+        }
 
         // Apply the delta to all other selected nodes
         for (Node3D* n : selectedNode3Ds)
@@ -13642,6 +13758,7 @@ static void DrawImGuizmo()
 
         lastManipulatedNodes.clear();
         originalMatrices.clear();
+        TransformSnap::EndDrag();
     }
 
     wasUsing = isUsing;
@@ -13776,6 +13893,31 @@ static void DrawImGuizmo2D()
     // Store the delta matrix
     glm::mat4 deltaMatrix = glm::mat4(1.0f);
 
+    // Increment snapping. The gizmo works in scaled screen pixels, so the
+    // widget pixel increment is converted through zoom and interface scale.
+    float snapValues[3] = {};
+    const float* snap = nullptr;
+    if (TransformSnap::IsActive())
+    {
+        float increment = TransformSnap::GetWidgetIncrement() * zoom * invInterfaceScale;
+        if (edState->mGizmoOperation == ImGuizmo::ROTATE)
+        {
+            increment = TransformSnap::GetRotateIncrement();
+        }
+        else if (edState->mGizmoOperation == ImGuizmo::SCALE)
+        {
+            increment = TransformSnap::GetScaleIncrement();
+        }
+
+        if (increment > 0.0f)
+        {
+            snapValues[0] = snapValues[1] = snapValues[2] = increment;
+            snap = snapValues;
+        }
+    }
+
+    ImGuizmo::SetPrecisionScale(TransformSnap::GetGizmoPrecisionScale());
+
     // Call Manipulate
     bool manipulated = ImGuizmo::Manipulate(
         glm::value_ptr(viewMatrix),
@@ -13784,7 +13926,7 @@ static void DrawImGuizmo2D()
         ImGuizmo::LOCAL,  // Use local mode for 2D
         glm::value_ptr(modelMatrix),
         glm::value_ptr(deltaMatrix),
-        nullptr   // snap
+        snap
     );
 
     // Apply transform changes to all selected widgets
@@ -13995,32 +14137,25 @@ static std::string ResolveEditorIconFontPath()
     return absolutePath;
 }
 
-void EditorImguiInit()
+static float sEditorTextScale = 1.0f;
+static float sPendingTextScale = 0.0f;   // > 0 while a font rebuild is queued
+
+// ImGui 1.89 bakes glyphs at a fixed pixel size, so text scaling re-bakes the
+// atlas at the scaled size rather than stretching the 15px bitmaps.
+static void LoadEditorFonts(float textScale)
 {
-    if (IsHeadless())
-    {
-        return;
-    }
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    
-    // Disabling keyboard controls because it interferes with Alt hotkeys.
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-
-    // Setup Dear ImGui default style
-    ImGui::StyleColorsDark();
+    ImGuiIO& io = ImGui::GetIO();
+    const float textSize = roundf(15.0f * textScale);
+    const float iconSize = roundf(14.0f * textScale);
 
     if (GetFeatureFlagsEditor().mShowTheming == true) {
        
         std::string fontPath = ResolveEditorFontPath();
-        ImFont* myFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 15.0f);
+        ImFont* myFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), textSize);
         if (myFont == nullptr)
         {
             const std::string defaultFontPath = GetDefaultEditorFontPath();
-            myFont = io.Fonts->AddFontFromFileTTF(defaultFontPath.c_str(), 15.0f);
+            myFont = io.Fonts->AddFontFromFileTTF(defaultFontPath.c_str(), textSize);
             if (myFont == nullptr)
             {
                 LogError("Failed to load editor font from %s", defaultFontPath.c_str());
@@ -14032,7 +14167,7 @@ void EditorImguiInit()
     std::string iconFontPath = ResolveEditorIconFontPath();
     if (!iconFontPath.empty())
     {
-        MergePolyphaseIcons(io.Fonts, 14.0f, iconFontPath.c_str());
+        MergePolyphaseIcons(io.Fonts, iconSize, iconFontPath.c_str());
     }
 
     // Terminal panel font: load Roboto Mono with an extended glyph range
@@ -14066,7 +14201,7 @@ void EditorImguiInit()
             cfg.PixelSnapH = true;
 
             sTerminalFont = io.Fonts->AddFontFromFileTTF(
-                termFontPath.c_str(), 15.0f, &cfg, kTerminalRanges);
+                termFontPath.c_str(), textSize, &cfg, kTerminalRanges);
             if (sTerminalFont == nullptr)
             {
                 LogWarning("[CLI] Failed to load terminal font from %s",
@@ -14084,6 +14219,85 @@ void EditorImguiInit()
                        "as '?'.", termFontPath.c_str());
         }
     }
+}
+
+float GetDefaultEditorInterfaceScale()
+{
+#if PLATFORM_MAC
+    return glm::max(1.0f, SYS_GetDisplayScale());
+#else
+    return 1.0f;
+#endif
+}
+
+void ApplyEditorInterfaceScale(float scale)
+{
+    GetMutableEngineConfig()->mEditorInterfaceScale = glm::clamp(scale, 0.5f, 3.0f);
+    WriteEngineConfig();
+}
+
+void RequestEditorFontRebuild(float textScale)
+{
+    sPendingTextScale = glm::clamp(textScale, 0.75f, 2.0f);
+}
+
+float GetEditorTextScale()
+{
+    return sEditorTextScale;
+}
+
+// Runs before ImGui::NewFrame(): no ImGui frame is open and the previous
+// frame's draw data is finished, so the atlas and its descriptor set can go.
+static void ProcessPendingFontRebuild()
+{
+    if (sPendingTextScale <= 0.0f)
+        return;
+
+    const float newScale = sPendingTextScale;
+    sPendingTextScale = 0.0f;
+
+    if (newScale == sEditorTextScale)
+        return;
+
+#if API_VULKAN
+    const float ratio = newScale / sEditorTextScale;
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    sTerminalFont = nullptr;
+    LoadEditorFonts(newScale);
+    io.Fonts->Build();
+
+    GetVulkanContext()->RebuildImguiFontTexture();
+    sEditorTextScale = newScale;
+
+    // Zep caches an ImFont* per text type; Clear() just freed them.
+    GetScriptEditorWindow()->OnEditorFontsRebuilt(ratio);
+
+    LogDebug("Editor text scale %.2f", newScale);
+#endif
+}
+
+void EditorImguiInit()
+{
+    if (IsHeadless())
+    {
+        return;
+    }
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    
+    // Disabling keyboard controls because it interferes with Alt hotkeys.
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    // Setup Dear ImGui default style
+    ImGui::StyleColorsDark();
+
+    sEditorTextScale = AppearanceModule::LoadSavedTextScale();
+    LoadEditorFonts(sEditorTextScale);
 
     //ImGui::StyleColorsLight();
 
@@ -14856,6 +15070,7 @@ void EditorImguiDraw()
     // before NewFrame() -- ImGui_ImplVulkan_RemoveTexture is immediate, so the
     // descriptor sets can only be freed once last frame's draw list is done.
     EditorImageCache::RetirePending();
+    ProcessPendingFontRebuild();
 
     EngineState* engState = GetEngineState();
 
@@ -14916,6 +15131,7 @@ void EditorImguiDraw()
 
         // Draw ImGuizmo gizmos for selected 3D nodes
         DrawImGuizmo();
+        TransformSnap::DrawIndicator();
         // Draw ImGuizmo gizmos for selected 2D widgets
         DrawImGuizmo2D();
 

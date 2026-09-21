@@ -71,6 +71,11 @@ public:
     void Initialize();
     void Destroy();
 
+#if EDITOR
+    // Re-uploads the ImGui font atlas after io.Fonts was rebuilt. Call outside an ImGui frame.
+    void RebuildImguiFontTexture();
+#endif
+
     void BeginFrame();
     void EndFrame();
     void BeginRenderPass(RenderPassId id);

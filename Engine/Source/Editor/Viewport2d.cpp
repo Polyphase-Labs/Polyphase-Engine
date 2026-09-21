@@ -306,6 +306,11 @@ void Viewport2D::HandleDefaultControls()
             }
         }
 
+        if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_SnapToggle))
+        {
+            TransformSnap::ToggleEnabled();
+        }
+
         // Reset viewport on Focus key (or Numpad . as a secondary).
         if (hotkeys->IsActionJustTriggered(EditorAction::View_FocusSelection) ||
             IsKeyJustDown(POLYPHASE_KEY_DECIMAL))
@@ -389,8 +394,13 @@ void Viewport2D::HandleTransformControls()
     HandleAxisLocking();
     glm::vec2 delta = HandleLockedCursor();
 
-    const bool shiftDown = IsShiftDown();
-    const float shiftSpeedMult = 0.1f;
+    // Control = precision, Shift = invert snapping. Same accumulate-then-snap
+    // scheme as Viewport3D. Stretched axes are ratios, not pixels, so they
+    // are left unsnapped.
+    const float speedMult = TransformSnap::GetModalSpeedMultiplier();
+    const bool snapActive = TransformSnap::IsActive();
+    const bool snapChanged = (snapActive != mSnapAccum.mWasActive);
+    mSnapAccum.mWasActive = snapActive;
     const float scaleAmount = 0.00002f;
 
     glm::vec2 stretchScale = { 1.0f, 1.0f };
@@ -403,55 +413,82 @@ void Viewport2D::HandleTransformControls()
         stretchScale.y =scaleAmount;
     }
 
-    if (delta != glm::vec2(0.0f, 0.0f))
+    auto snapPixels = [&](glm::vec2 raw)
+    {
+        glm::vec2 target = raw;
+        if (snapActive)
+        {
+            glm::vec2 snapped = TransformSnap::SnapValue(raw, TransformSnap::GetWidgetIncrement());
+            if (!widget->StretchX()) target.x = snapped.x;
+            if (!widget->StretchY()) target.y = snapped.y;
+        }
+        return target;
+    };
+
+    if ((delta != glm::vec2(0.0f, 0.0f) || snapChanged) &&
+        widgets.size() == mSavedTransforms.size())
     {
         if (mControlMode == WidgetControlMode::Translate)
         {
             const float translateSpeed = 0.1f;
-            float speed = shiftDown ? (shiftSpeedMult * translateSpeed) : translateSpeed;
+            float speed = translateSpeed * speedMult;
 
             if (mAxisLock == WidgetAxisLock::AxisX)
                 delta.y = 0.0f;
             else if (mAxisLock == WidgetAxisLock::AxisY)
                 delta.x = 0.0f;
 
+            mSnapAccum.mRawTranslate2D += speed * delta;
+            glm::vec2 target = snapPixels(mSnapAccum.mRawTranslate2D);
+
             for (uint32_t i = 0; i < widgets.size(); ++i)
             {
-                glm::vec2 offset = widgets[i]->GetOffset();
-                offset += speed * stretchScale * delta;
+                glm::vec2 offset = mSavedTransforms[i].mOffset + stretchScale * target;
                 widgets[i]->SetOffset(offset.x, offset.y);
             }
         }
         else if (mControlMode == WidgetControlMode::Rotate)
         {
             const float rotateSpeed = 0.025f;
-            float speed = shiftDown ? (shiftSpeedMult * rotateSpeed) : rotateSpeed;
+            float speed = rotateSpeed * speedMult;
             float totalDelta = -(delta.x - delta.y);
+
+            mSnapAccum.mRawAngle += speed * totalDelta;
+            float target = mSnapAccum.mRawAngle;
+            if (snapActive)
+            {
+                target = TransformSnap::SnapValue(target, TransformSnap::GetRotateIncrement());
+            }
 
             for (uint32_t i = 0; i < widgets.size(); ++i)
             {
-                float rotation = widgets[i]->GetRotation();
-                rotation += speed * totalDelta;
-                widgets[i]->SetRotation(rotation);
+                widgets[i]->SetRotation(mSavedTransforms[i].mRotation + target);
             }
         }
         else if (mControlMode == WidgetControlMode::Scale)
         {
             const float scaleSpeed = 0.050f;
-            float speed = shiftDown ? (shiftSpeedMult * scaleSpeed) : scaleSpeed;
+            float speed = scaleSpeed * speedMult;
 
             if (mAxisLock == WidgetAxisLock::AxisX)
                 delta.y = 0.0f;
             else if (mAxisLock == WidgetAxisLock::AxisY)
                 delta.x = 0.0f;
 
+            mSnapAccum.mRawSize2D += speed * delta;
+            glm::vec2 target = snapPixels(mSnapAccum.mRawSize2D);
+
             for (uint32_t i = 0; i < widgets.size(); ++i)
             {
-                glm::vec2 size = widgets[i]->GetSize();
-                size += speed * stretchScale * delta;
+                glm::vec2 size = mSavedTransforms[i].mSize + stretchScale * target;
                 widgets[i]->SetSize(size.x, size.y);
             }
         }
+    }
+
+    if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Gizmo_SnapToggle))
+    {
+        TransformSnap::ToggleEnabled();
     }
 
     if (IsMouseButtonDown(MOUSE_LEFT))
@@ -558,6 +595,7 @@ void Viewport2D::SavePreTransforms()
 {
     const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
     mSavedTransforms.clear();
+    mSnapAccum.Reset();
 
     for (uint32_t i = 0; i < selNodes.size(); ++i)
     {
@@ -577,6 +615,7 @@ void Viewport2D::SavePreTransforms()
 void Viewport2D::RestorePreTransforms()
 {
     const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
+    mSnapAccum.Reset();
     for (uint32_t i = 0; i < selNodes.size(); ++i)
     {
         if (i >= mSavedTransforms.size())

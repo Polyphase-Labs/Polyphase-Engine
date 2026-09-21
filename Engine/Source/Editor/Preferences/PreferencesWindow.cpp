@@ -6,6 +6,7 @@
 #include "Editor/EditorUIHookManager.h"
 
 #include "imgui.h"
+#include "../EditorImgui.h"
 
 static PreferencesWindow sPreferencesWindow;
 
@@ -60,7 +61,11 @@ void PreferencesWindow::Draw()
 
     // Center the modal window
     ImGuiIO& io = ImGui::GetIO();
-    ImVec2 windowSize(700.0f, 500.0f);
+    // Fixed-size modal: grow with the text scale so the footer buttons still fit.
+    const float textScale = GetEditorTextScale();
+    ImVec2 windowSize(700.0f * textScale, 500.0f * textScale);
+    if (windowSize.x > io.DisplaySize.x) windowSize.x = io.DisplaySize.x;
+    if (windowSize.y > io.DisplaySize.y) windowSize.y = io.DisplaySize.y;
     ImVec2 windowPos((io.DisplaySize.x - windowSize.x) * 0.5f, (io.DisplaySize.y - windowSize.y) * 0.5f);
     ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(windowSize, ImGuiCond_Always);
@@ -70,10 +75,10 @@ void PreferencesWindow::Draw()
     if (ImGui::Begin("Preferences", &mIsOpen, windowFlags))
     {
         // Calculate layout dimensions
-        float sidebarWidth = 200.0f;
-        float footerHeight = 40.0f;
+        float sidebarWidth = 200.0f * textScale;
+        float footerHeight = 40.0f * textScale;
         float contentWidth = windowSize.x - sidebarWidth - 24.0f; // Account for padding
-        float contentHeight = windowSize.y - footerHeight - 60.0f; // Account for title bar and footer
+        float contentHeight = windowSize.y - footerHeight - 60.0f * textScale; // Account for title bar and footer
 
         // Left sidebar
         ImGui::BeginChild("Sidebar", ImVec2(sidebarWidth, contentHeight), true);

@@ -385,6 +385,16 @@ void Viewport3D::HandleDefaultControls()
             ToggleGrid();
         }
 
+        if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_SnapToggle))
+        {
+            TransformSnap::ToggleEnabled();
+        }
+
+        if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_SnapCycleMode))
+        {
+            TransformSnap::CycleMode();
+        }
+
         if (hotkeys->IsActionJustTriggered(EditorAction::Gizmo_TransformLocalToggle))
         {
             ToggleTransformMode();
@@ -892,10 +902,15 @@ void Viewport3D::HandleTransformControls()
     glm::vec2 delta = HandleLockedCursor();
     delta.y *= -1.0f;
 
-    const bool shiftDown = IsShiftDown();
-    const float shiftSpeedMult = 0.1f;
+    // Control = precision, Shift = invert snapping. The mouse deltas accumulate
+    // into raw values since the drag began; snapping rounds the accumulated
+    // value and the difference from what was last applied drives the nodes.
+    const float speedMult = TransformSnap::GetModalSpeedMultiplier();
+    const bool snapActive = TransformSnap::IsActive();
+    const bool snapChanged = (snapActive != mSnapAccum.mWasActive);
+    mSnapAccum.mWasActive = snapActive;
 
-    if (delta != glm::vec2(0.0f, 0.0f))
+    if (delta != glm::vec2(0.0f, 0.0f) || snapChanged)
     {
         if (controlMode == ControlMode::Translate)
         {
@@ -904,22 +919,61 @@ void Viewport3D::HandleTransformControls()
             worldDelta = invViewMat * glm::vec4(worldDelta, 0.0);
             worldDelta = GetLockedTranslationDelta(worldDelta);
 
-            float speed = shiftDown ? (shiftSpeedMult * translateSpeed) : translateSpeed;
+            mSnapAccum.mRawTranslate += (translateSpeed * speedMult) * worldDelta;
+            glm::vec3 target = mSnapAccum.mRawTranslate;
+
+            const bool preValid = (mPreTransforms.size() == transComps.size());
+
+            if (snapActive)
+            {
+                if (instance || !preValid || TransformSnap::GetMode() == SnapMode::Increment)
+                {
+                    target = TransformSnap::SnapValue(target, TransformSnap::GetTranslateIncrement());
+                }
+                else
+                {
+                    uint32_t primaryIdx = uint32_t(transComps.size()) - 1;
+                    for (uint32_t i = 0; i < transComps.size(); ++i)
+                    {
+                        if (transComps[i] == transComp)
+                        {
+                            primaryIdx = i;
+                            break;
+                        }
+                    }
+
+                    glm::vec3 prePivot = glm::vec3(mPreTransforms[primaryIdx][3]);
+                    glm::vec3 snapPos;
+                    if (TransformSnap::SnapToSurface(camera, selectedComps, prePivot + target, snapPos))
+                    {
+                        target = GetLockedTranslationDelta(snapPos - prePivot);
+                    }
+                }
+            }
+
+            glm::vec3 step = target - mSnapAccum.mAppliedTranslate;
+            mSnapAccum.mAppliedTranslate = target;
 
             if (instance)
             {
                 glm::mat4 invTransform = glm::inverse(instMesh->GetTransform());
-                glm::vec3 localDelta = invTransform * glm::vec4(worldDelta.x, worldDelta.y, worldDelta.z, 0.0f);
-                instData.mPosition += speed * localDelta;
+                glm::vec3 localDelta = invTransform * glm::vec4(step.x, step.y, step.z, 0.0f);
+                instData.mPosition += localDelta;
                 instMesh->SetInstanceData(selInstance, instData);
             }
             else
             {
                 for (uint32_t i = 0; i < transComps.size(); ++i)
                 {
-                    glm::vec3 pos = transComps[i]->GetWorldPosition();
-                    pos += speed * glm::vec3(worldDelta.x, worldDelta.y, worldDelta.z);
-                    transComps[i]->SetWorldPosition(pos);
+                    if (preValid)
+                    {
+                        // Absolute from the drag start so snapped values land exactly.
+                        transComps[i]->SetWorldPosition(glm::vec3(mPreTransforms[i][3]) + target);
+                    }
+                    else
+                    {
+                        transComps[i]->SetWorldPosition(transComps[i]->GetWorldPosition() + step);
+                    }
                 }
             }
         }
@@ -927,7 +981,6 @@ void Viewport3D::HandleTransformControls()
         {
             const float rotateSpeed = 0.025f;
 
-            float speed = shiftDown ? (shiftSpeedMult * rotateSpeed) : rotateSpeed;
             glm::vec3 rotateAxisWS = invViewMat * glm::vec4(0, 0, 1, 0);
             float totalDelta = delta.x - delta.y;
 
@@ -936,13 +989,29 @@ void Viewport3D::HandleTransformControls()
                 rotateAxisWS = GetLockedRotationAxis();
             }
 
-            glm::quat addQuat = glm::angleAxis(-totalDelta * speed, rotateAxisWS);
+            // The axis is constant for the drag (the camera cannot move in this
+            // mode and a lock change resets the accumulator).
+            mSnapAccum.mRawAngle += -totalDelta * rotateSpeed * speedMult;
+            float targetAngle = mSnapAccum.mRawAngle;
+            if (snapActive)
+            {
+                targetAngle = TransformSnap::SnapValue(targetAngle, TransformSnap::GetRotateIncrement() * DEGREES_TO_RADIANS);
+            }
 
-            if (instance)
+            const float stepAngle = targetAngle - mSnapAccum.mAppliedAngle;
+            mSnapAccum.mAppliedAngle = targetAngle;
+
+            glm::quat addQuat = glm::angleAxis(stepAngle, rotateAxisWS);
+
+            if (stepAngle == 0.0f)
+            {
+                // Nothing to apply this frame.
+            }
+            else if (instance)
             {
                 glm::mat4 invTransform = glm::inverse(instMesh->GetTransform());
                 glm::vec3 localRotateAxis = invTransform * glm::vec4(rotateAxisWS, 0.0f);
-                glm::quat localAddQuat = glm::angleAxis(-totalDelta * speed, localRotateAxis);
+                glm::quat localAddQuat = glm::angleAxis(stepAngle, localRotateAxis);
 
                 glm::quat instRotQuat = glm::quat(instData.mRotation * DEGREES_TO_RADIANS);
                 instRotQuat = localAddQuat * instRotQuat;
@@ -966,7 +1035,7 @@ void Viewport3D::HandleTransformControls()
                 for (uint32_t i = 0; i < transComps.size(); ++i)
                 {
                     glm::mat4 rotMat = glm::translate(pivot);
-                    rotMat *= glm::rotate(-totalDelta * speed, rotateAxisWS);
+                    rotMat *= glm::rotate(stepAngle, rotateAxisWS);
                     rotMat *= glm::translate(-pivot);
 
                     glm::mat4 transform = transComps[i]->GetTransform();
@@ -979,9 +1048,16 @@ void Viewport3D::HandleTransformControls()
             // Only enable uniform scaling for now
             const float scaleSpeed = 0.025f;
 
-            float speed = shiftDown ? (shiftSpeedMult * scaleSpeed) : scaleSpeed;
             float totalDelta = delta.x - delta.y;
-            float deltaScale = speed * totalDelta;
+
+            mSnapAccum.mRawScale += scaleSpeed * speedMult * totalDelta;
+            float targetScale = mSnapAccum.mRawScale;
+            if (snapActive)
+            {
+                targetScale = TransformSnap::SnapValue(targetScale, TransformSnap::GetScaleIncrement());
+            }
+
+            float deltaScale = targetScale - mSnapAccum.mAppliedScale;
             glm::vec3 deltaScale3 = glm::vec3(deltaScale, deltaScale, deltaScale);
 
             if (GetEditorState()->mTransformLock != TransformLock::None)
@@ -989,7 +1065,43 @@ void Viewport3D::HandleTransformControls()
                 deltaScale3 *= GetLockedScaleDelta();
             }
 
+            // Snapped steps can land a scale component exactly on zero, which the
+            // pivot branch then divides by. Hold this step back; the next one
+            // carries the scale across zero instead.
+            bool landsOnZero = false;
+            auto checkZero = [&](glm::vec3 scale, glm::vec3 scaleDelta)
+            {
+                for (int32_t c = 0; c < 3; ++c)
+                {
+                    if (scaleDelta[c] != 0.0f && fabsf(scale[c] + scaleDelta[c]) < 1e-4f)
+                    {
+                        landsOnZero = true;
+                    }
+                }
+            };
+
             if (instance)
+            {
+                checkZero(instData.mScale, deltaScale3);
+            }
+            else
+            {
+                for (uint32_t i = 0; i < transComps.size(); ++i)
+                {
+                    checkZero(transComps[i]->GetScale(), mTransformLocal ? glm::vec3(deltaScale) : deltaScale3);
+                }
+            }
+
+            if (!landsOnZero)
+            {
+                mSnapAccum.mAppliedScale = targetScale;
+            }
+
+            if (landsOnZero || deltaScale == 0.0f)
+            {
+                // Nothing to apply this frame.
+            }
+            else if (instance)
             {
                 // TODO: Move in world space
                 instData.mScale += deltaScale3;
@@ -1055,6 +1167,16 @@ void Viewport3D::HandleTransformControls()
         ToggleTransformMode();
     }
 
+    if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Gizmo_SnapToggle))
+    {
+        TransformSnap::ToggleEnabled();
+    }
+
+    if (EditorHotkeyMap::Get()->IsActionJustTriggered(EditorAction::Gizmo_SnapCycleMode))
+    {
+        TransformSnap::CycleMode();
+    }
+
     if (IsMouseButtonDown(MOUSE_LEFT))
     {
         std::vector<glm::mat4> newTransforms;
@@ -1083,6 +1205,7 @@ void Viewport3D::HandleTransformControls()
             ActionManager::Get()->EXE_EditTransforms(transComps, newTransforms);
         }
 
+        TransformSnap::EndDrag();
         GetEditorState()->SetControlMode(ControlMode::Default);
     }
 
@@ -1090,6 +1213,7 @@ void Viewport3D::HandleTransformControls()
     {
         // Cancel transform operation
         RestorePreTransforms();
+        TransformSnap::EndDrag();
         GetEditorState()->SetControlMode(ControlMode::Default);
     }
 }
@@ -1241,6 +1365,8 @@ void Viewport3D::SavePreTransforms()
 {
     const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
     mPreTransforms.clear();
+    mSnapAccum.Reset();
+    TransformSnap::BeginDrag();
     int32_t selInstance = GetEditorState()->GetSelectedInstance();
 
     if (ShouldTransformInstance())
@@ -1272,6 +1398,9 @@ void Viewport3D::RestorePreTransforms()
 {
     const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
     int32_t selInstance = GetEditorState()->GetSelectedInstance();
+
+    // Nodes go back to their drag-start transforms, so the accumulated deltas do too.
+    mSnapAccum.Reset();
 
     if (ShouldTransformInstance())
     {

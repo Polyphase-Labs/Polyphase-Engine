@@ -125,6 +125,8 @@ static const EditorActionInfo sActionMetadata[(int32_t)EditorAction::Count] =
     { "Gizmo: Scale (ImGuizmo)",     "Gizmo", "Switch ImGuizmo to scale (Space+S)",     "Gizmo_ScaleImGuizmo",        KB_Space(POLYPHASE_KEY_S) },
     { "Gizmo: Toggle Local/World",   "Gizmo", "Toggle between local and world transform","Gizmo_TransformLocalToggle", KB(POLYPHASE_KEY_T, true, false, false) },
     { "Gizmo: Toggle Grid",          "Gizmo", "Show or hide the grid",                  "Gizmo_GridToggle",           KB(POLYPHASE_KEY_G, true, false, false) },
+    { "Gizmo: Toggle Snapping",      "Gizmo", "Toggle transform snapping (hold Shift while transforming to invert)", "Gizmo_SnapToggle", KB(POLYPHASE_KEY_M) },
+    { "Gizmo: Cycle Snap Mode",      "Gizmo", "Cycle snap target: Increment, Vertex, Edge, Face", "Gizmo_SnapCycleMode",  KB(POLYPHASE_KEY_M, false, false, true) },
 
     // ----- Debug -----
     { "Debug: Wireframe",     "Debug",  "Toggle wireframe rendering",          "Debug_Wireframe",        KB(POLYPHASE_KEY_Z) },

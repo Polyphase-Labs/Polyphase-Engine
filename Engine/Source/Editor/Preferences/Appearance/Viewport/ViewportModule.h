@@ -36,6 +36,19 @@ public:
     // pixel size, so EditorState::Update calls this whenever that changes.
     void ApplyResolutionScale() const;
 
+    // Transform snapping. Mode: 0 = Increment, 1 = Vertex, 2 = Edge, 3 = Face.
+    bool GetSnapEnabled() const { return mSnapEnabled; }
+    void SetSnapEnabled(bool enabled);
+    int GetSnapMode() const { return mSnapMode; }
+    void SetSnapMode(int mode);
+    float GetSnapTranslate() const { return mSnapTranslate; }
+    float GetSnapRotate() const { return mSnapRotate; }
+    float GetSnapScale() const { return mSnapScale; }
+    float GetSnapWidgetPixels() const { return mSnapWidgetPixels; }
+    float GetSnapPixelThreshold() const { return mSnapPixelThreshold; }
+    float GetPrecisionNormal() const { return mPrecisionNormal; }
+    float GetPrecisionCtrl() const { return mPrecisionCtrl; }
+
     static ViewportModule* Get();
     static void HandleExternalGridToggle(bool enabled);
 
@@ -53,6 +66,16 @@ private:
     float mSelectedCheckerSize = 8.0f;
     float mMenuBarPadding = 8.0f;
     bool mShowGizmosInPreview = false;
+
+    bool mSnapEnabled = false;
+    int mSnapMode = 0;
+    float mSnapTranslate = 1.0f;
+    float mSnapRotate = 15.0f;
+    float mSnapScale = 0.1f;
+    float mSnapWidgetPixels = 8.0f;
+    float mSnapPixelThreshold = 16.0f;
+    float mPrecisionNormal = 1.0f;
+    float mPrecisionCtrl = 0.1f;
 
     static ViewportModule* sInstance;
     static bool sSyncingGridState;

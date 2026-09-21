@@ -2,6 +2,7 @@
 
 #include "EditorState.h"
 #include "Nodes/3D/InstancedMesh3d.h"
+#include "TransformSnap.h"
 
 class Viewport3D
 {
@@ -53,6 +54,7 @@ protected:
     int32_t mPrevMouseX = 0;
     int32_t mPrevMouseY = 0;
     std::vector<glm::mat4> mPreTransforms;
+    TransformSnapAccum mSnapAccum;
 
     float mFocalDistance = sDefaultFocalDistance;
     bool mNeedsMouseRecenter = false;

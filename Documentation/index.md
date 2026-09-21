@@ -26,7 +26,11 @@ For autocompletion and type checking in Lua scripts, install the [Lua Language S
 
 [Docker Documentation](Documentation/Docker/README.md)
 
-[Editor Hotkeys](Documentation/Info/Editor.md)
+[Editor Hotkeys](Info/Editor.md)
+
+[Transform Snapping & Precision](Info/TransformSnapping.md)
+
+[Text Scale & Interface Scale](Info/InterfaceScaling.md) (editor too small on a HiDPI / Retina display?)
 
 **Check out the Releases page for precompiled standalone builds.**
 

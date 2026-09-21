@@ -38,6 +38,16 @@ inline bool EditorShortcutModDown()
  */
 ImFont* GetEditorTerminalFont();
 
+// Queues a rebuild of the editor font atlas at 15px * textScale (0.75 - 2.0).
+// Applied at the start of the next frame.
+void RequestEditorFontRebuild(float textScale);
+float GetEditorTextScale();
+
+// 1.0, or the display's backing scale on Retina Macs.
+float GetDefaultEditorInterfaceScale();
+// Sets EngineConfig::mEditorInterfaceScale (clamped 0.5 - 3.0) and writes Config.ini.
+void ApplyEditorInterfaceScale(float scale);
+
 void EditorImguiShutdown();
 void EditorImguiPreShutdown();
 

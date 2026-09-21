@@ -634,12 +634,26 @@ static void DrawViewMenu()
 
     if (ImGui::BeginMenu("Interface Scale"))
     {
-        static float sInterfaceScale = GetEngineConfig()->mEditorInterfaceScale;
-        ImGui::SliderFloat("IntScale", &sInterfaceScale, 0.5f, 3.0f);
+        // Re-seed the edit buffer whenever the live value changes (Apply / Reset
+        // here or in Preferences > Appearance).
+        static float sInterfaceScale = 1.0f;
+        static float sSeenInterfaceScale = 0.0f;
+        if (GetEngineConfig()->mEditorInterfaceScale != sSeenInterfaceScale)
+        {
+            sSeenInterfaceScale = GetEngineConfig()->mEditorInterfaceScale;
+            sInterfaceScale = sSeenInterfaceScale;
+        }
+
+        ImGui::SliderFloat("IntScale", &sInterfaceScale, 0.5f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ctrl+Click to type a value.");
         if (ImGui::Button("Apply"))
         {
-            GetMutableEngineConfig()->mEditorInterfaceScale = sInterfaceScale;
-            WriteEngineConfig();
+            ApplyEditorInterfaceScale(sInterfaceScale);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset"))
+        {
+            ApplyEditorInterfaceScale(GetDefaultEditorInterfaceScale());
         }
         ImGui::EndMenu();
     }

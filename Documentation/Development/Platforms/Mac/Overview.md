@@ -66,7 +66,7 @@ Engine, Bullet and Assimp stamp their output directory (`Build/Mac/.mac_arch`) a
 
 ### Coordinate model
 
-Everything the engine sees is in **backing pixels**: `mWindowWidth/Height` equal the `CAMetalLayer` drawable size and mouse positions are multiplied by the window's `backingScaleFactor`. Cocoa's points only appear at the boundary inside `System_MacCocoa.mm`. On a Retina display the editor's interface scale preference is what makes the UI readable.
+Everything the engine sees is in **backing pixels**: `mWindowWidth/Height` equal the `CAMetalLayer` drawable size and mouse positions are multiplied by the window's `backingScaleFactor`. Cocoa's points only appear at the boundary inside `System_MacCocoa.mm`. On a Retina display the editor's interface scale preference is what makes the UI readable: it defaults to the display's backing scale, and **Text Scale** can enlarge the text on top of that without blurring it. See [Text Scale & Interface Scale](../../../Info/InterfaceScaling.md).
 
 ### Command key
 

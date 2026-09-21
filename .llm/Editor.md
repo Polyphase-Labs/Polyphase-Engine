@@ -18,8 +18,10 @@ All paths relative to `Engine/Source/Editor/`:
 | `EditorConstants.h` | Drag-drop types, basic node names |
 | `EditorUtils.h/.cpp` | Editor utility functions |
 | `InputManager.h/.cpp` | Hotkey handling |
-| `Viewport3d.h/.cpp` | 3D viewport camera (pilot, orbit, pan) |
-| `Viewport2d.h/.cpp` | 2D widget viewport |
+| `Viewport3d.h/.cpp` | 3D viewport camera (pilot, orbit, pan) + cursor-locked G/R/S transforms |
+| `Viewport2d.h/.cpp` | 2D widget viewport + cursor-locked widget transforms |
+| `TransformSnap.h/.cpp` | Transform snapping / precision rules, surface snap query, snap marker |
+| `TriangleBvh.h/.cpp` | World-space triangle BVH + scene triangle gather (snapping, occlusion bake) |
 | `PaintManager.h/.cpp` | Mesh instance/color painting |
 | `Grid.h/.cpp` | Grid rendering |
 | `CustomImgui.h/.cpp` | ImGui extensions |
@@ -100,7 +102,9 @@ Cleanup: `RemoveAllHooks(hookId)` removes all hooks for a given addon.
 
 Hierarchical module system. Each module: `Render()`, `LoadSettings()`, `SaveSettings()`.
 
-Modules: General (autosave, debug flags), Appearance > Theme (CSS themes, font) + Viewport, External > Editors + Launchers, Packaging > Docker, Input (gamepad emulation), Editor Hotkeys (rebindable editor shortcuts).
+Modules: General (autosave, debug flags), Appearance (text scale, interface scale, tab rounding) > Theme (CSS themes, font) + Viewport (colors, grid, resolution scale, transform snapping increments, transform precision), External > Editors + Launchers, Packaging > Docker, Input (gamepad emulation), Editor Hotkeys (rebindable editor shortcuts).
+
+**Text Scale** (`AppearanceModule`) re-bakes the ImGui font atlas: ImGui is 1.89 (no dynamic fonts), so `RequestEditorFontRebuild(scale)` queues a rebuild that `EditorImguiDraw()` runs before `ImGui::NewFrame()` (`LoadEditorFonts` -> `VulkanContext::RebuildImguiFontTexture`, which uses the backported `ImGui_ImplVulkan_DestroyFontsTexture`). Anything caching an `ImFont*` must refresh afterwards (`sTerminalFont`, Zep via `ScriptEditorWindow::OnEditorFontsRebuilt`). **Interface Scale** stays in `EngineConfig::mEditorInterfaceScale` / `Config.ini`; use `ApplyEditorInterfaceScale()` and `GetDefaultEditorInterfaceScale()` (display scale on Retina Macs, else 1.0).
 
 `PreferencesManager::Get()->RegisterModule(module)`, `LoadAllSettings()`, `SaveAllSettings()`.
 
@@ -142,6 +146,7 @@ When the gate is `false` every editor hotkey query returns `false`, so the edito
 
 - **PIE safety keys:** Escape / F8 / Alt+P / F10 / Ctrl+Alt+P inside `InputManager.cpp::UpdateHotkeys()`. These are always-on safety controls during PIE and must work even if the user has rebound everything else.
 - **Transform axis-lock:** X / Y / Z while inside an active rotate/scale mode at `Viewport3d.cpp::HandleAxisLocking()`. These are semantic — pressing X means lock to the X axis, that's not a "hotkey".
+- **Transform modifiers:** hold Shift = invert snapping, hold Control = precision, read with `IsShiftDown()` / `IsControlDown()` in `TransformSnap.cpp`. A `KeyBinding` cannot be a bare modifier (exact-modifier matching), so these are not `EditorAction`s; the snap *toggle* and mode cycle are (`Gizmo_SnapToggle`, `Gizmo_SnapCycleMode`). Because Control is held mid-transform, `InputManager` suppresses Undo / Redo / Save while a transform is active.
 - **Modal Enter/Escape:** Confirm/cancel keys inside ImGui dialogs (`EditorImgui.cpp:1308`, `1418`, `1499`) are dialog UI, not editor hotkeys.
 
 ### Preset storage and sharing
@@ -166,6 +171,21 @@ Multi-platform build system with build profiles. Supports Docker for console bui
 **File:** `ImGuizmo/ImGuizmo.cpp`
 
 3D/2D transform gizmos: Translate, Rotate, Scale in World/Local space. Configured via `EditorState::mGizmoOperation` and `mGizmoMode`.
+
+The vendored ImGuizmo carries two small `// Polyphase:` patches: `SetPrecisionScale()` (manipulations follow a virtual mouse that advances by the real mouse delta times the scale, so Control-precision can engage mid-drag without a jump) and `GetTranslationConstraint()` (axis / plane of the active translate handle).
+
+## Transform Snapping
+
+**Files:** `TransformSnap.h/.cpp`, `TriangleBvh.h/.cpp`; settings in `Preferences/Appearance/Viewport/ViewportModule`.
+
+`TransformSnap::IsActive()` = snapping preference XOR Shift. Two transform paths consume it:
+
+- **ImGuizmo handles** (`DrawImGuizmo` / `DrawImGuizmo2D` in `EditorImgui.cpp`): increments use ImGuizmo's native snap argument. Vertex / Edge / Face (translate only) feed ImGuizmo an unsnapped "shadow" pivot and place the nodes from `TransformSnap::SnapToSurface()`, projected onto the handle's axis / plane.
+- **Cursor-locked G/R/S** (`Viewport3D::HandleTransformControls`, `Viewport2D::HandleTransformControls`): mouse deltas accumulate into a `TransformSnapAccum`; the accumulated value is snapped and the nodes are placed relative to their saved pre-transforms. The accumulator resets in `SavePreTransforms` / `RestorePreTransforms`.
+
+`SnapToSurface` casts a ray from the camera through the unsnapped pivot against a `TriangleBvh` of the visible scene (selection subtree excluded), built lazily on the first snapped frame of a drag and dropped at drag end. `TriangleBvh` is shared with the occlusion baker. Snapping is relative to the drag start, not an absolute world grid. Widgets snap offset / size to a pixel increment; stretched axes are left unsnapped.
+
+Full write-ups: `Documentation/Development/TransformSnapping.md` and `Documentation/Development/EditorTextScaling.md` (internals), `Documentation/Info/TransformSnapping.md` and `Documentation/Info/InterfaceScaling.md` (user guides). When adding editor UI: never cache an `ImFont*` across frames, add fonts only inside `LoadEditorFonts()`, and size text-bearing widgets from `ImGui::GetFontSize()` / `GetEditorTextScale()` rather than fixed pixels.
 
 ## Editor Widget Library
 

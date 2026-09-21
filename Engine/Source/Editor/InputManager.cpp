@@ -16,6 +16,7 @@
 #include "Hotkeys/EditorHotkeyMap.h"
 
 #include "imgui.h"
+#include "./ImGuizmo/ImGuizmo.h"
 
 #include "EditorImgui.h"
 
@@ -125,6 +126,15 @@ void InputManager::UpdateHotkeys()
         EditorMode editorMode = GetEditorState()->GetEditorMode();
         const bool isScene = (editorMode == EditorMode::Scene) || (editorMode == EditorMode::Scene2D) || (editorMode == EditorMode::Scene3D);
 
+        // Control is the precision modifier while transforming, so Ctrl+Z / Ctrl+Y /
+        // Ctrl+S must not fire mid-drag (Z and Y are also the axis-lock keys).
+        const ControlMode controlMode = GetEditorState()->GetControlMode();
+        const WidgetControlMode widgetMode = GetEditorState()->GetViewport2D()->GetWidgetControlMode();
+        const bool transforming =
+            controlMode == ControlMode::Translate || controlMode == ControlMode::Rotate || controlMode == ControlMode::Scale ||
+            widgetMode == WidgetControlMode::Translate || widgetMode == WidgetControlMode::Rotate || widgetMode == WidgetControlMode::Scale ||
+            ImGuizmo::IsUsing();
+
         if (hotkeys->IsActionJustTriggered(EditorAction::File_NewProject))
         {
             ActionManager::Get()->CreateNewProject();
@@ -148,7 +158,7 @@ void InputManager::UpdateHotkeys()
         }
         else if (hotkeys->IsActionJustTriggered(EditorAction::File_SaveAllAssets))
         {
-            if (isScene)
+            if (isScene && !transforming)
             {
                 ActionManager::Get()->RequestResaveAllAssets();
                 hotkeys->ConsumeBindingKey(EditorAction::File_SaveAllAssets);
@@ -156,7 +166,7 @@ void InputManager::UpdateHotkeys()
         }
         else if (hotkeys->IsActionJustTriggered(EditorAction::File_SaveScene))
         {
-            if (isScene)
+            if (isScene && !transforming)
             {
                 ActionManager::Get()->RequestSaveScene(false);
 
@@ -191,11 +201,11 @@ void InputManager::UpdateHotkeys()
             ClearControlDown();
             hotkeys->ConsumeBindingKey(EditorAction::File_ImportAsset);
         }
-        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_Redo))
+        else if (!textFieldActive && !transforming && hotkeys->IsActionJustTriggered(EditorAction::Edit_Redo))
         {
             ActionManager::Get()->Redo();
         }
-        else if (!textFieldActive && hotkeys->IsActionJustTriggered(EditorAction::Edit_Undo))
+        else if (!textFieldActive && !transforming && hotkeys->IsActionJustTriggered(EditorAction::Edit_Undo))
         {
             ActionManager::Get()->Undo();
         }
