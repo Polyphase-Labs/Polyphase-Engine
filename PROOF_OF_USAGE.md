@@ -13,6 +13,7 @@ purpose, a single row covering the period is enough.
 | System | Operator | Date and Time (UTC) | What | Purpose | Contact | Provenance Hash |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | ExampleModel v2 | AI Corp | 2026-08-12T14:30:00Z | whole repository | training | contact@aicorp.com | `471e3dc7467c3c9f83be8199e5ed76b2635a0aefc86b2e3679ffc836fc9c741c` |
+| OpenAI Codex (GPT-5) | Leon (ATBHeidelberg) | 2026-09-29T23:19:03Z | whole repository | inference, evaluation, and code generation for a Nintendo 3DS technology spike | raulundmuul@gmail.com | `a490d0cf7f611558aaf3d4449b0764f5dec34e5624f7d9595b8d62af12270598` |
 
 <!-- The example row's hash is the real digest of its own four fields against
      https://github.com/Polyphase-Labs/Polyphase-Engine, so it does not match this repository's URL - it is an
