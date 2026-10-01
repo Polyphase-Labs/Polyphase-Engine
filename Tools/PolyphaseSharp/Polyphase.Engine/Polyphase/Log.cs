@@ -3,7 +3,7 @@
 namespace Polyphase
 {
     /// <summary>Engine log (maps to the Lua Log table).</summary>
-    public static class Log
+    public static partial class Log
     {
         /// @CSharpLua.Template = "Log.Debug({0})"
         public static extern void Debug(string message);

@@ -96,6 +96,11 @@ jobs:
       - name: Generate Standalone embedded asset stubs
         run: python3 Tools/generate_embedded_stubs.py
 
+      # The C# scripting API is generated from the Lua bindings and committed;
+      # a binding change without `python Tools/generate_csharp_api.py` fails here.
+      - name: Check generated C# scripting API is up to date
+        run: python3 Tools/generate_csharp_api.py --check
+
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
 

@@ -17,7 +17,7 @@ echo ============================================
 echo.
 
 REM --- libgit2 ---
-echo [1/3] Building libgit2...
+echo [1/4] Building libgit2...
 call "%SCRIPT_DIR%prebuild_libgit2.bat"
 if %ERRORLEVEL% neq 0 (
     echo [FAILED] libgit2 prebuild failed.
@@ -29,7 +29,7 @@ REM --- Shaders ---
 REM compile.bat uses relative paths (.\src, .\bin), so cwd MUST be the shader
 REM directory when it runs. Use cd /d with explicit error checks rather than
 REM pushd/popd so any failure is loud.
-echo [2/3] Compiling shaders...
+echo [2/4] Compiling shaders...
 if not exist "%SHADER_DIR%\compile.bat" (
     echo [FAILED] compile.bat not found at: %SHADER_DIR%\compile.bat
     exit /b 1
@@ -49,10 +49,24 @@ cd /d "%REPO_ROOT%"
 echo.
 
 REM --- Standalone embedded asset stubs ---
-echo [3/3] Generating Standalone embedded asset stubs...
+echo [3/4] Generating Standalone embedded asset stubs...
 python "%SCRIPT_DIR%generate_embedded_stubs.py"
 if %ERRORLEVEL% neq 0 (
     echo [FAILED] Embedded asset stub generation failed.
+    exit /b 1
+)
+echo.
+
+REM --- Scripting API from the Lua bindings (C# reference assembly + LuaLS stubs) ---
+echo [4/4] Generating scripting API from Lua bindings...
+python "%SCRIPT_DIR%generate_csharp_api.py"
+if %ERRORLEVEL% neq 0 (
+    echo [FAILED] C# API generation failed.
+    exit /b 1
+)
+python "%SCRIPT_DIR%generate_lua_stubs.py"
+if %ERRORLEVEL% neq 0 (
+    echo [FAILED] LuaLS stub generation failed.
     exit /b 1
 )
 echo.

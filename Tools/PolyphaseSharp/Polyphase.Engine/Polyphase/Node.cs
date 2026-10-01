@@ -7,7 +7,7 @@ namespace Polyphase
     /// there is no wrapper object at runtime; every member maps directly onto the
     /// engine's Lua binding for that node.
     /// </summary>
-    public class Node
+    public partial class Node
     {
         // Protected (not internal): user code may subclass Node/Node3D to build a
         // typed façade over a Lua script's functions — extern members carrying
@@ -53,9 +53,6 @@ namespace Polyphase
         /// @CSharpLua.Template = "{this}:GetNumChildren()"
         public extern int GetNumChildren();
 
-        /// @CSharpLua.Template = "{this}:GetChild({0})"
-        public extern Node GetChild(int index);
-
         /// @CSharpLua.Template = "{this}:AddChild({0})"
         public extern void AddChild(Node child);
 
@@ -90,14 +87,21 @@ namespace Polyphase
         /// @CSharpLua.Template = "{this}:CreateChild({0})"
         public extern Node CreateChild(string nodeClass);
 
-        /// @CSharpLua.Template = "{this}:EmitSignal({0})"
-        public extern void EmitSignal(string signalName);
+
+        /// <summary>Runtime class check by engine class name ("StaticMesh3D", "Camera3D", ...),
+        /// including base classes. C# `is` / `as` against the handle classes below
+        /// do the same thing with static typing.</summary>
+        /// @CSharpLua.Template = "{this}:CheckType({0})"
+        public extern bool Is(string className);
+
+        /// @CSharpLua.Template = "{this}:GetWorld()"
+        public extern World GetWorld();
     }
 
     /// <summary>
     /// Handle to an engine Node3D (transform-bearing node).
     /// </summary>
-    public class Node3D : Node
+    public partial class Node3D : Node
     {
         protected Node3D() { }
 
@@ -178,7 +182,7 @@ namespace Polyphase
     }
 
     /// <summary>Handle to a Primitive3D (collision-capable node).</summary>
-    public class Primitive3D : Node3D
+    public partial class Primitive3D : Node3D
     {
         protected Primitive3D() { }
 
@@ -201,7 +205,7 @@ namespace Polyphase
     }
 
     /// <summary>Handle to a Camera3D.</summary>
-    public class Camera3D : Node3D
+    public partial class Camera3D : Node3D
     {
         protected Camera3D() { }
 
@@ -210,8 +214,61 @@ namespace Polyphase
         public extern float FieldOfView { get; set; }
     }
 
+    /// <summary>Handle to a Mesh3D — base of StaticMesh3D / SkeletalMesh3D /
+    /// TextMesh3D; owns the material slot.</summary>
+    public partial class Mesh3D : Primitive3D
+    {
+        protected Mesh3D() { }
+
+        /// <summary>The material actually used for rendering: the override if one
+        /// is set, else the mesh asset's material. Cast with `as MaterialLite` /
+        /// `as MaterialInstance` to reach the concrete API.</summary>
+        /// @CSharpLua.Template = "{this}:GetMaterial()"
+        public extern Material GetMaterial();
+
+        /// @CSharpLua.Template = "{this}:GetMaterialOverride()"
+        public extern Material GetMaterialOverride();
+
+        /// <summary>Per-node material override (null clears it).</summary>
+        /// @CSharpLua.Template = "{this}:SetMaterialOverride({0})"
+        public extern void SetMaterialOverride(Material material);
+
+        /// <summary>Create a MaterialInstance of the current material, assign it as
+        /// this node's override, and return it — the way to recolor one mesh
+        /// without touching the shared asset.</summary>
+        /// @CSharpLua.Template = "{this}:InstantiateMaterial()"
+        public extern Material InstantiateMaterial();
+
+        /// @CSharpLua.Get = "{this}:IsBillboard()"
+        /// @CSharpLua.Set = "{this}:SetBillboard({0})"
+        public extern bool Billboard { get; set; }
+    }
+
+    /// <summary>Handle to a StaticMesh3D node (renders a StaticMesh asset).</summary>
+    public partial class StaticMesh3D : Mesh3D
+    {
+        protected StaticMesh3D() { }
+
+        /// @CSharpLua.Get = "{this}:GetStaticMesh()"
+        /// @CSharpLua.Set = "{this}:SetStaticMesh({0})"
+        public extern StaticMesh Mesh { get; set; }
+
+        /// @CSharpLua.Template = "{this}:GetStaticMesh()"
+        public extern StaticMesh GetStaticMesh();
+
+        /// @CSharpLua.Template = "{this}:SetStaticMesh({0})"
+        public extern void SetStaticMesh(StaticMesh mesh);
+
+        /// @CSharpLua.Get = "{this}:GetUseTriangleCollision()"
+        /// @CSharpLua.Set = "{this}:SetUseTriangleCollision({0})"
+        public extern bool UseTriangleCollision { get; set; }
+
+        /// @CSharpLua.Template = "{this}:GetBakeLighting()"
+        public extern bool GetBakeLighting();
+    }
+
     /// <summary>Handle to a SkeletalMesh3D (animated mesh).</summary>
-    public class SkeletalMesh3D : Node3D
+    public partial class SkeletalMesh3D : Mesh3D
     {
         protected SkeletalMesh3D() { }
 
@@ -238,8 +295,95 @@ namespace Polyphase
         public extern void QueueAnimation(string animName, string dependentAnim, int priority, bool loop, float speed, float weight);
     }
 
+    /// <summary>
+    /// Handle to a Spline3D. A spline's points are its "pointN" child nodes
+    /// (placed in the editor); the *SplinePoint* / length / distance queries read
+    /// those. Indices are 0-based here (the Lua binding is 1-based).
+    /// </summary>
+    public partial class Spline3D : Node3D
+    {
+        protected Spline3D() { }
+
+        /// @CSharpLua.Template = "{this}:GetNumSplinePoints()"
+        public extern int GetNumSplinePoints();
+
+        /// <summary>Point position relative to the spline node.</summary>
+        /// @CSharpLua.Template = "{this}:GetSplinePointPosition(({0}) + 1)"
+        public extern Vector3 GetSplinePointPosition(int index);
+
+        /// @CSharpLua.Template = "{this}:GetSplinePointWorldPosition(({0}) + 1)"
+        public extern Vector3 GetSplinePointWorldPosition(int index);
+
+        /// <summary>Arc length in world units (re-sampled every call — cache it).</summary>
+        /// @CSharpLua.Template = "{this}:GetSplineLength()"
+        public extern float GetSplineLength();
+
+        /// <summary>Distance along the spline (world units) of the point closest to worldPos.</summary>
+        /// @CSharpLua.Template = "{this}:GetClosestDistanceAlong({0})"
+        public extern float GetClosestDistanceAlong(Vector3 worldPos);
+
+        /// <summary>Catmull-Rom sample over the legacy AddPoint() point list, t in [0,1].</summary>
+        /// @CSharpLua.Template = "{this}:GetPositionAt({0})"
+        public extern Vector3 GetPositionAt(float t);
+
+        /// <summary>Normalized tangent over the legacy AddPoint() point list, t in [0,1].</summary>
+        /// @CSharpLua.Template = "{this}:GetTangentAt({0})"
+        public extern Vector3 GetTangentAt(float t);
+
+        // ---- Legacy point list (feeds GetPositionAt / GetTangentAt) ----
+
+        /// @CSharpLua.Template = "{this}:AddPoint({0})"
+        public extern void AddPoint(Vector3 point);
+
+        /// @CSharpLua.Template = "{this}:ClearPoints()"
+        public extern void ClearPoints();
+
+        /// @CSharpLua.Template = "{this}:GetPointCount()"
+        public extern int GetPointCount();
+
+        /// @CSharpLua.Template = "{this}:GetPoint(({0}) + 1)"
+        public extern Vector3 GetPoint(int index);
+
+        /// @CSharpLua.Template = "{this}:SetPoint(({0}) + 1, {1})"
+        public extern void SetPoint(int index, Vector3 point);
+
+        // ---- Playback / follow links ----
+
+        /// @CSharpLua.Template = "{this}:Play()"
+        public extern void Play();
+
+        /// @CSharpLua.Template = "{this}:Stop()"
+        public extern void Stop();
+
+        /// @CSharpLua.Get = "{this}:IsPaused()"
+        /// @CSharpLua.Set = "{this}:SetPaused({0})"
+        public extern bool Paused { get; set; }
+
+        /// <summary>Follow-link slots are 1..64, matching the editor and Lua.</summary>
+        /// @CSharpLua.Template = "{this}:SetFollowLinkEnabled({0}, {1})"
+        public extern void SetFollowLinkEnabled(int link, bool enabled);
+
+        /// @CSharpLua.Template = "{this}:IsFollowLinkEnabled({0})"
+        public extern bool IsFollowLinkEnabled(int link);
+
+        /// @CSharpLua.Template = "{this}:IsNearLinkFrom({0}, {1})"
+        public extern bool IsNearLinkFrom(int link, float epsilon);
+
+        /// @CSharpLua.Template = "{this}:IsNearLinkTo({0}, {1})"
+        public extern bool IsNearLinkTo(int link, float epsilon);
+
+        /// @CSharpLua.Template = "{this}:IsLinkDirectionForward({0}, {1})"
+        public extern bool IsLinkDirectionForward(int link, float threshold);
+
+        /// @CSharpLua.Template = "{this}:TriggerLink({0})"
+        public extern bool TriggerLink(int link);
+
+        /// @CSharpLua.Template = "{this}:CancelActiveLink()"
+        public extern void CancelActiveLink();
+    }
+
     /// <summary>Handle to the world a node lives in (Script.World).</summary>
-    public sealed class World
+    public sealed partial class World
     {
         private World() { }
 
@@ -252,5 +396,26 @@ namespace Polyphase
 
         /// @CSharpLua.Template = "{this}:FindNode({0})"
         public extern Node FindNode(string name);
+
+        /// <summary>Every node carrying the tag (empty array if none).</summary>
+        /// @CSharpLua.Template = "CSharpCore.Array({this}:FindNodesWithTag({0}), Polyphase.Node)"
+        public extern Node[] FindNodesWithTag(string tag);
+
+        /// @CSharpLua.Template = "CSharpCore.Array({this}:FindNodesWithName({0}), Polyphase.Node)"
+        public extern Node[] FindNodesWithName(string name);
+
+        /// <summary>Spawn a node of an engine class ("StaticMesh3D", "PointLight3D", ...)
+        /// at the world origin, parented to the root.</summary>
+        /// @CSharpLua.Template = "{this}:SpawnNode({0})"
+        public extern Node SpawnNode(string nodeClass);
+
+        /// @CSharpLua.Template = "{this}:SpawnNode({0}, {1})"
+        public extern Node SpawnNode(string nodeClass, Vector3 position);
+
+        /// @CSharpLua.Template = "{this}:GetActiveCamera()"
+        public extern Camera3D GetActiveCamera();
+
+        /// @CSharpLua.Template = "{this}:SetActiveCamera({0})"
+        public extern void SetActiveCamera(Camera3D camera);
     }
 }

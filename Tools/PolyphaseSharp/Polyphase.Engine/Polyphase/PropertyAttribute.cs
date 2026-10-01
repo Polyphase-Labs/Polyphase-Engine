@@ -10,11 +10,14 @@ namespace Polyphase
     /// pair that reads/writes the owning node's uservalue field of the same name,
     /// and emits a matching entry in the generated GatherProperties() table.
     ///
-    /// v1 constraints (enforced by the transpiler):
+    /// Constraints (enforced by the transpiler):
     /// - Allowed types: int, short, byte, float, double, bool, string,
-    ///   Vector3, Color, Node and Node-derived handles.
-    /// - Initializers must be literals or new Vector3/Color(literal, ...) calls.
-    /// - Arrays are not yet supported.
+    ///   Vector3, Color, Node handles (Node, Node3D, StaticMesh3D, Spline3D, ...),
+    ///   Asset handles (Asset, Texture, StaticMesh, Material, MaterialLite, ...),
+    ///   and single-dimension arrays of any of those (inspector: +/- to size).
+    /// - Initializers must be literals or new Vector3/Color(literal, ...) calls;
+    ///   arrays: `new T[] { literals }`, `{ literals }`, or `new T[N]` for value
+    ///   types. Handle arrays start empty.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field)]
     public sealed class PropertyAttribute : Attribute
@@ -23,6 +26,48 @@ namespace Polyphase
 
         /// <summary>Optional display name shown in the editor inspector.</summary>
         public string Display { get; set; }
+    }
+
+    /// <summary>
+    /// Marks a field as server-to-client replicated state (Lua's
+    /// GatherReplicatedData). Same storage rules as [Property] (the value lives
+    /// on the node), same type set. The server writes it; clients receive it.
+    /// OnRep names a public method called on clients when the value changes:
+    ///
+    ///   [Replicated(OnRep = nameof(OnHealthChanged))] public int Health = 100;
+    ///   public void OnHealthChanged() { ... }
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class ReplicatedAttribute : Attribute
+    {
+        public ReplicatedAttribute() { }
+
+        /// <summary>Public method invoked on clients after the value is replicated.</summary>
+        public string OnRep { get; set; }
+    }
+
+    /// <summary>
+    /// Declares a public method as a network function (Lua's GatherNetFuncs).
+    /// Call it remotely with InvokeNetFunc(nameof(Method), args...):
+    /// Server funcs run on the server when invoked by the owning client,
+    /// Client funcs run on the owning client when invoked by the server,
+    /// Multicast funcs run on every host.
+    ///
+    ///   [NetFunc(NetFuncType.Server, Reliable = true)]
+    ///   public void S_Fire(Vector3 dir) { ... }
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class NetFuncAttribute : Attribute
+    {
+        public NetFuncAttribute(NetFuncType type)
+        {
+            Type = type;
+        }
+
+        public NetFuncType Type { get; }
+
+        /// <summary>Reliable delivery (default false).</summary>
+        public bool Reliable { get; set; }
     }
 
     /// <summary>

@@ -69,6 +69,11 @@ struct SkeletalMesh3D_Lua
     static int SetMaterialSlot(lua_State* L);
     static int FindMaterialSlot(lua_State* L);
 
+    static int AddAnimationAsset(lua_State* L);
+    static int RemoveAnimationAsset(lua_State* L);
+    static int GetNumAnimationAssets(lua_State* L);
+    static int GetAnimationAsset(lua_State* L);
+
     static void Bind();
 };
 

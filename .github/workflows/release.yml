@@ -92,6 +92,11 @@ jobs:
       - name: Generate Standalone embedded asset stubs
         run: python Tools/generate_embedded_stubs.py
 
+      - name: Generate scripting API from Lua bindings (C# + LuaLS stubs)
+        run: |
+          python Tools/generate_csharp_api.py
+          python Tools/generate_lua_stubs.py
+
       - name: Build Engine (ReleaseEditor x64)
         run: msbuild Polyphase.sln /p:Configuration=ReleaseEditor /p:Platform=x64 /m
 
@@ -283,6 +288,11 @@ jobs:
 
       - name: Generate Standalone embedded asset stubs
         run: python3 Tools/generate_embedded_stubs.py
+
+      - name: Generate scripting API from Lua bindings (C# + LuaLS stubs)
+        run: |
+          python3 Tools/generate_csharp_api.py
+          python3 Tools/generate_lua_stubs.py
 
       # W1: DLL-flavor editor + game shared objects come FIRST so the
       # subsequent static editor build can overwrite the elf at

@@ -9845,23 +9845,43 @@ void ActionManager::DrawImportAnimationsModal()
 
 void ActionManager::BeginRetargetAnimation(AssetStub* sourceClipStub)
 {
-    if (sourceClipStub == nullptr ||
-        sourceClipStub->mType != SkeletalAnimationAsset::GetStaticType())
+    BeginRetargetAnimation(std::vector<AssetStub*>{ sourceClipStub });
+}
+
+void ActionManager::BeginRetargetAnimation(const std::vector<AssetStub*>& sourceClipStubs)
+{
+    std::vector<AssetStub*> clipStubs;
+    for (AssetStub* stub : sourceClipStubs)
+    {
+        if (stub == nullptr ||
+            stub->mType != SkeletalAnimationAsset::GetStaticType())
+        {
+            continue;
+        }
+
+        if (stub->mAsset == nullptr)
+        {
+            AssetManager::Get()->LoadAsset(*stub);
+        }
+
+        if (stub->mAsset != nullptr)
+        {
+            clipStubs.push_back(stub);
+        }
+    }
+
+    if (clipStubs.empty())
     {
         LogWarning("Cannot retarget. Selected asset is not a SkeletalAnimationAsset.");
         return;
     }
 
-    if (sourceClipStub->mAsset == nullptr)
-    {
-        AssetManager::Get()->LoadAsset(*sourceClipStub);
-    }
-
-    mRetargetClipStub = sourceClipStub;
+    mRetargetClipStubs = std::move(clipStubs);
     mRetargetSrcAvatar = AssetRef();
     mRetargetDstAvatar = AssetRef();
     snprintf(mRetargetOutputName, sizeof(mRetargetOutputName),
-             "%s_Retargeted", sourceClipStub->mAsset->GetName().c_str());
+             "%s_Retargeted", mRetargetClipStubs[0]->mAsset->GetName().c_str());
+    snprintf(mRetargetSuffix, sizeof(mRetargetSuffix), "_Retargeted");
     mRetargetMode = 0;
     mRetargetOverwrite = false;
     mRetargetUnique = true;
@@ -9977,12 +9997,14 @@ void ActionManager::DrawRetargetAnimationModal()
         return;
     }
 
-    if (mRetargetClipStub == nullptr || mRetargetClipStub->mAsset == nullptr)
+    if (mRetargetClipStubs.empty() || mRetargetClipStubs[0]->mAsset == nullptr)
     {
         mShowRetargetModal = false;
-        mRetargetClipStub = nullptr;
+        mRetargetClipStubs.clear();
         return;
     }
+
+    const bool batch = mRetargetClipStubs.size() > 1;
 
     // Regular Begin window, not BeginPopupModal. BeginPopupModal blocks input
     // to every other window — that breaks the asset browser drag-drop AND
@@ -10009,15 +10031,41 @@ void ActionManager::DrawRetargetAnimationModal()
                      ImGuiWindowFlags_NoSavedSettings))
     {
         // ---- Header ----
-        ImGui::TextDisabled("Source clip");
-        ImGui::SameLine();
-        ImGui::Text("%s", mRetargetClipStub->mAsset->GetName().c_str());
-
-        SkeletalAnimationAsset* srcClip = mRetargetClipStub->mAsset->As<SkeletalAnimationAsset>();
-        if (srcClip != nullptr)
+        if (batch)
         {
-            ImGui::TextDisabled("  %.2fs, %zu channels", srcClip->GetDurationSeconds(),
-                                srcClip->GetChannels().size());
+            ImGui::TextDisabled("Source clips");
+            ImGui::SameLine();
+            ImGui::Text("%zu selected", mRetargetClipStubs.size());
+
+            if (ImGui::BeginChild("##RetargetClipList", ImVec2(0.0f, 110.0f), true))
+            {
+                for (AssetStub* clipStub : mRetargetClipStubs)
+                {
+                    SkeletalAnimationAsset* clip = clipStub->mAsset
+                        ? clipStub->mAsset->As<SkeletalAnimationAsset>() : nullptr;
+                    if (clip != nullptr)
+                    {
+                        ImGui::Text("%s", clip->GetName().c_str());
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("%.2fs, %zu channels", clip->GetDurationSeconds(),
+                                            clip->GetChannels().size());
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+        else
+        {
+            ImGui::TextDisabled("Source clip");
+            ImGui::SameLine();
+            ImGui::Text("%s", mRetargetClipStubs[0]->mAsset->GetName().c_str());
+
+            SkeletalAnimationAsset* srcClip = mRetargetClipStubs[0]->mAsset->As<SkeletalAnimationAsset>();
+            if (srcClip != nullptr)
+            {
+                ImGui::TextDisabled("  %.2fs, %zu channels", srcClip->GetDurationSeconds(),
+                                    srcClip->GetChannels().size());
+            }
         }
         ImGui::Separator();
 
@@ -10070,7 +10118,19 @@ void ActionManager::DrawRetargetAnimationModal()
         ShowAvatarStatus("Target", mRetargetDstAvatar);
         ImGui::Separator();
 
-        ImGui::InputText("Output Name", mRetargetOutputName, sizeof(mRetargetOutputName));
+        if (batch)
+        {
+            ImGui::InputText("Output Suffix", mRetargetSuffix, sizeof(mRetargetSuffix));
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Each baked clip is named <source clip name> + suffix,\n"
+                                  "and saved next to its source clip.");
+            }
+        }
+        else
+        {
+            ImGui::InputText("Output Name", mRetargetOutputName, sizeof(mRetargetOutputName));
+        }
 
         const char* modeNames[] = { "Tier 1 - Name remap (passthrough)", "Tier 2 - Reference-pose aware" };
         ImGui::Combo("Mode", &mRetargetMode, modeNames, IM_ARRAYSIZE(modeNames));
@@ -10102,7 +10162,7 @@ void ActionManager::DrawRetargetAnimationModal()
         }
 
         if (!canBake) ImGui::BeginDisabled();
-        if (ImGui::Button("Bake"))
+        if (ImGui::Button(batch ? "Bake All" : "Bake"))
         {
             // Resolve avatars back to their stubs for the action options.
             HumanoidAvatarAsset* srcAv = mRetargetSrcAvatar.Get<HumanoidAvatarAsset>();
@@ -10110,16 +10170,46 @@ void ActionManager::DrawRetargetAnimationModal()
             AssetStub* srcAvStub = AssetManager::Get()->GetAssetStub(srcAv->GetName());
             AssetStub* dstAvStub = AssetManager::Get()->GetAssetStub(dstAv->GetName());
 
-            RetargetAnimationOptions opts;
-            opts.mSourceClipStub = mRetargetClipStub;
-            opts.mSourceAvatarStub = srcAvStub;
-            opts.mTargetAvatarStub = dstAvStub;
-            opts.mTargetDir = mRetargetClipStub->mDirectory;
-            opts.mOutputName = mRetargetOutputName;
-            opts.mMode = mRetargetMode;
-            opts.mOverwriteExisting = mRetargetOverwrite;
-            opts.mUniqueNames = mRetargetUnique;
-            RetargetAnimation(opts);
+            // Walk by name, not by cached pointer: with Overwrite on, baking
+            // one clip can purge another selected clip (e.g. Walk and
+            // Walk_Retargeted both selected), so re-resolve each stub.
+            std::vector<std::string> clipNames;
+            for (AssetStub* clipStub : mRetargetClipStubs)
+            {
+                clipNames.push_back(clipStub->mName);
+            }
+
+            uint32_t numBaked = 0;
+            for (const std::string& clipName : clipNames)
+            {
+                AssetStub* clipStub = AssetManager::Get()->GetAssetStub(clipName);
+                if (clipStub == nullptr ||
+                    clipStub->mType != SkeletalAnimationAsset::GetStaticType())
+                {
+                    continue;
+                }
+
+                RetargetAnimationOptions opts;
+                opts.mSourceClipStub = clipStub;
+                opts.mSourceAvatarStub = srcAvStub;
+                opts.mTargetAvatarStub = dstAvStub;
+                opts.mTargetDir = clipStub->mDirectory;
+                opts.mOutputName = batch
+                    ? (clipName + mRetargetSuffix)
+                    : std::string(mRetargetOutputName);
+                opts.mMode = mRetargetMode;
+                opts.mOverwriteExisting = mRetargetOverwrite;
+                opts.mUniqueNames = mRetargetUnique;
+                if (RetargetAnimation(opts))
+                {
+                    ++numBaked;
+                }
+            }
+
+            if (batch)
+            {
+                LogDebug("RetargetAnimation: baked %u of %zu clips.", numBaked, clipNames.size());
+            }
             mShowRetargetModal = false;
         }
         if (!canBake) ImGui::EndDisabled();
@@ -10134,7 +10224,7 @@ void ActionManager::DrawRetargetAnimationModal()
 
     if (!mShowRetargetModal)
     {
-        mRetargetClipStub = nullptr;
+        mRetargetClipStubs.clear();
         mRetargetSrcAvatar = AssetRef();
         mRetargetDstAvatar = AssetRef();
     }

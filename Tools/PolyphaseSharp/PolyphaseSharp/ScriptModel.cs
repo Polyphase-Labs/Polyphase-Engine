@@ -10,6 +10,19 @@ namespace PolyphaseSharp
         public string DisplayName;       // optional [Property(Display = "...")]
         public string DefaultLuaLiteral; // Lua expression for the initializer, or null
         public string CSharpType;        // for diagnostics
+        public bool IsArray;             // T[] field -> engine `array = true` property
+        public string ElementLuaType;    // arrays: CoreSystem class path of T, e.g. "Polyphase.Node3D", "System.Single"
+        public bool IsInspector;         // carries [Property] -> GatherProperties row
+        public bool IsReplicated;        // carries [Replicated] -> GatherReplicatedData row
+        public string OnRep;             // [Replicated(OnRep = "...")]
+    }
+
+    /// <summary>A [NetFunc] method — one row of the generated GatherNetFuncs().</summary>
+    public sealed class ScriptNetFunc
+    {
+        public string Name;
+        public string NetFuncType;  // Lua NetFuncType member: Server | Client | Multicast
+        public bool Reliable;
     }
 
     /// <summary>A public instance method exposed on the engine wrapper so Lua
@@ -37,7 +50,8 @@ namespace PolyphaseSharp
         public string SourceFile;                // absolute path of the defining .cs
         public bool OverridesCreate;
         public readonly List<string> OverriddenMethods = new();  // lifecycle names except Create
-        public readonly List<ScriptProperty> Properties = new(); // whole chain, base-first
+        public readonly List<ScriptProperty> Properties = new(); // [Property] and/or [Replicated] fields, whole chain, base-first
+        public readonly List<ScriptNetFunc> NetFuncs = new();    // [NetFunc] methods
         public readonly List<ScriptMethod> PublicMethods = new(); // forwarded for cross-script calls
         public readonly List<ScriptButton> Buttons = new();       // [Button] methods, chain order
     }

@@ -199,7 +199,7 @@ namespace PolyphaseSharp
             {
                 for (int i = 0; i < userTrees.Count; ++i)
                 {
-                    units[i].RewrittenText = SourceRewriter.Rewrite(userTrees[i], Analyzer.DefaultNamespace);
+                    units[i].RewrittenText = SourceRewriter.Rewrite(userTrees[i], Analyzer.DefaultNamespace, units[i].Script);
                     string dst = Path.Combine(tempSrc, units[i].RelativePath);
                     Directory.CreateDirectory(Path.GetDirectoryName(dst));
                     File.WriteAllText(dst, units[i].RewrittenText, Utf8NoBom);

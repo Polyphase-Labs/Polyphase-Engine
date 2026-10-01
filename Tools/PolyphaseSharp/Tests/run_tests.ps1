@@ -14,6 +14,14 @@ $toolDir = Split-Path $testsDir -Parent
 $repoRoot = Split-Path (Split-Path $toolDir -Parent) -Parent
 $workDir = Join-Path $testsDir "work"
 
+# ---- 0. generated API must match the Lua bindings ----
+if (Get-Command python -ErrorAction SilentlyContinue) {
+    python (Join-Path $repoRoot "Tools\generate_csharp_api.py") --check
+    if ($LASTEXITCODE -ne 0) { throw "Polyphase.Engine/Polyphase/Generated is stale: run python Tools/generate_csharp_api.py" }
+} else {
+    Write-Host "python not found - skipping generated-API freshness check"
+}
+
 # ---- 1. build tool ----
 dotnet build (Join-Path $toolDir "PolyphaseSharp\PolyphaseSharp.csproj") -c Release --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw "tool build failed" }

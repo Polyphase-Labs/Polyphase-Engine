@@ -55,14 +55,17 @@ public class SpinnerCS : Script3D
 }
 ```
 
-- Derive from `Script` (any node) or `Script3D` (transform nodes).
+- Derive from `Script` (any node), `Script3D` (transform nodes), `ScriptWidget`
+  (UI widgets — the Widget API becomes bare calls) or `Script<TNode>` when you
+  want `Node` typed as a concrete class (`Script<StaticMesh3D>` → `Node.GetMaterial()`).
 - Override only the lifecycle methods you need: `Create` (before serialized
   properties apply), `Awake`, `Start`, `Tick(dt)`, `EditorTick(dt)`, `Stop`,
   `Destroy`, `BeginOverlap(other)`, `EndOverlap(other)`,
   `OnCollision(other, point, normal)`.
 - The node API is inherited — `AddRotation(...)`, `Position`, `Name`, `AddTag(...)`
   work like `self:` in Lua. `Node` is the attached node's handle (like Unity's
-  `gameObject`); other nodes are held/passed as `Node` / `Node3D` values.
+  `gameObject`); other nodes are held/passed as `Node` / `Node3D` values or a
+  concrete handle such as `StaticMesh3D` / `Spline3D` (see *Engine types* below).
 - `[Property]` fields appear in the inspector, serialize with the scene, and
   survive hot reload. `[Property(Display = "...")]` sets the inspector label.
 - `[Button("Title", "Tooltip")]` on a **public, parameterless** method renders a
@@ -83,6 +86,154 @@ Save the file — the editor transpiles automatically (about a second) and
 hot-reloads the result. **Ctrl+R** rebuilds C# and reloads all scripts.
 The file name must equal the class name (script class names are global across
 Engine/Scripts, your Scripts/, and every addon — the transpiler validates this).
+
+## Engine types: nodes, assets, widgets, systems
+
+Engine objects are not C# objects — a `Node3D`, `Button` or `MaterialLite` value
+**is** the engine's Lua userdata, and the `Polyphase.*` classes are typed views over
+it (every member is a template onto the matching Lua binding, zero runtime cost).
+Handles are never constructed with `new`; they come from `[Property]` fields, node
+getters, `CreateNode(...)`, the `World`, or `AssetManager`.
+
+**The whole Lua API is available.** Every class, module and enum table the engine
+binds to Lua (`Documentation/Lua/`) exists in C# with the same names, generated
+straight from the bindings:
+
+| Area | C# |
+|---|---|
+| Nodes | `Node` → `Node3D` → `Primitive3D` (physics: velocity, forces, collision groups, sweeps) → `Mesh3D` → `StaticMesh3D` / `SkeletalMesh3D` / `TextMesh3D` / `Terrain3D` / `Voxel3D` / `TileMap2D` …; `Camera3D`, `Spline3D`, lights, `Audio3D`, `Particle3D`, `TimelinePlayer`, `NodeGraphPlayer`, … |
+| Widgets | `Widget` → `Quad`, `Text`, `Button`, `Canvas`, `Slider`, `InputField`, `CheckBox`, `ProgressBar`, `ComboBox`, `ScrollContainer`, `Window`, `DialogWindow`, `ListViewWidget`, … |
+| Assets | `Asset` → `Texture`, `StaticMesh`, `SkeletalMesh`, `Material` → `MaterialLite` / `MaterialInstance`, `SoundWave`, `Font`, `Scene`, `ParticleSystem`, `DataAsset`, `UIDocument`, … |
+| Statics | `Engine`, `Input`, `PlayerInput`, `Audio`, `Network`, `Renderer`, `TimerManager`, `Tween`, `SignalBus`, `SaveData`, `AssetManager`, `Http`, `WebSocket`, `Serial`, `Gizmos`, `LoadingMenu`, `WindowManager`, `ToolTip`, `Maths`, `Sys` (Lua `System`), `LuaScript` (Lua `Script`), `Log`, `Debugger` |
+| Enums | `AnchorMode`, `Justification`, `BlendMode`, `ShadingModel`, `Easing`, `NetFuncType`, `ButtonState`, `AttenuationFunc`, `ParticleOrientation`, … with the engine's values. Key codes are engine constants: `Key.W`, `Mouse.Left`, `Gamepad.A` (ints). |
+| Tables | Lua result tables get phantom classes: `HitResult`, `MultiHitResult`, `AABB`, `Bounds`, `NavPath`, `FogSettings`, `ScreenTrace`, `NetSessionInfo`, `NetClientInfo`, `Rect`. Free-form tables (TileMap cells, `DataAsset.Get`, `HttpResponse.GetJson`) are `object`; read them with `Lua.Get(table, "key")`. |
+
+Conventions that differ from Lua: indices are 0-based where the binding is 1-based
+(`GetChild(i)`, spline points, `Network.GetSession(i)`); functions that return
+several numbers return a `Vector2` / `Vector3` / `Rect`; Lua node arrays come back
+as `Node[]` (`World.FindNodesWithTag`); optional trailing arguments are overloads.
+Inside a script, `Node` is the attached node, so allocate new nodes with
+`CreateNode("Text")` (the Lua `Node.Construct`) and attach them.
+
+`is`, `as` and casts work on engine values and honour the engine's class hierarchy
+(the runtime asks the node/asset itself, the way Lua's `node:Is("StaticMesh3D")`
+does). `Node.Is("ClassName")` is the string form.
+
+### Callbacks: signals, timers, tweens
+
+Lambdas and method groups are handed to the engine as plain Lua functions:
+
+```csharp
+Node.ConnectSignal("Opened", Node, (listener, who) => Log.Debug("opened by " + who));
+int id = TimerManager.SetTimer(() => Respawn(), 3.0f, loop: false);
+Tween.Position(Node, Easing.OutQuad, target, 0.5f, () => Log.Debug("arrived"));
+Http.Get("https://example.com/api", r => Log.Debug(r.GetBody()));
+```
+
+Signal handlers always receive the listener node first (that is how the engine
+calls them), then the arguments passed to `EmitSignal(name, a, b, ...)`. Widget events
+(`OnActivated`, `OnToggled`, `OnTextChanged`, …), `OnFinished`, `OwnerChanged`,
+`OnDrawGizmos` and timeline function tracks are dispatched by **name** to any public
+method on the script — just declare `public void OnActivated(Widget button)`.
+
+### Networking
+
+```csharp
+public class Player : Script3D
+{
+    [Replicated(OnRep = nameof(OnHealthChanged))] public int Health = 100;
+    [Property] [Replicated] public string DisplayName = "";   // inspector + replicated
+
+    [NetFunc(NetFuncType.Server, Reliable = true)]
+    public void S_TakeDamage(int amount) { Health -= amount; }   // runs on the server
+
+    [NetFunc(NetFuncType.Multicast)]
+    public void M_PlayHitFx() { /* runs everywhere */ }
+
+    public void OnHealthChanged() { /* client-side, after Health arrived */ }
+
+    public void Hit(int amount) { InvokeNetFunc("S_TakeDamage", amount); }
+}
+```
+
+`[Replicated]` fields live on the node like `[Property]` fields (same types, no
+arrays); `[NetFunc]` methods take up to 8 arguments. `Network.IsAuthority()`,
+`IsOwned()` and `HasAuthority()` gate what runs where, exactly as in Lua.
+
+### Materials and arrays
+
+An LED strip driven along a spline:
+
+```csharp
+using Polyphase;
+
+public class LEDStrip : Script3D
+{
+    [Property] public int count = 160;
+    [Property] public Spline3D spline;
+    [Property] public StaticMesh3D[] leds;
+
+    public void SetLEDColor(int index, Color color)
+    {
+        if (index < 0 || index >= leds.Length) return;
+
+        var led = leds[index];                       // null if the slot is empty
+        var material = led?.GetMaterial() as MaterialLite;
+        if (material == null) return;                // graph material, not a lite one
+
+        material.SetColor(color);
+    }
+
+    public void LayOut()
+    {
+        for (int i = 0; i < leds.Length; ++i)
+        {
+            if (leds[i] == null) continue;
+            leds[i].WorldPosition = spline.GetSplinePointWorldPosition(i % spline.GetNumSplinePoints());
+        }
+    }
+}
+```
+
+Two things to know about arrays: the C# array **is** the node's Lua table (Lua
+scripts and the inspector read the same one, so an assignment like `leds = other`
+is visible everywhere), and an unassigned handle slot reads as `null` rather than
+throwing. `GetMaterial()` returns the shared asset unless the node has an override —
+call `InstantiateMaterial()` once per node before recoloring, or every mesh using
+that material changes.
+
+### Widgets from code
+
+```csharp
+public class Hud : ScriptWidget            // Node is a Widget; Widget API is bare calls
+{
+    public override void Start()
+    {
+        var label = CreateNode("Text") as Text;
+        label.SetAnchorMode(AnchorMode.TopLeft);
+        label.SetPosition(10, 20);
+        label.SetText("Ready");
+        label.Attach(Node);
+        SetOpacityFloat(1.0f);                 // this widget
+    }
+}
+```
+
+**When a binding is missing or mistyped:** the C# surface is generated from
+`Engine/Source/LuaBindings/*_Lua.cpp` by `python Tools/generate_csharp_api.py`
+(run it after adding a Lua binding; the test suite fails when it is stale).
+Anything can also be reached untyped right away with `Lua.Call(node, "Name", args)`.
+Hand-written refinements go in `Tools/PolyphaseSharp/Polyphase.Engine/Polyphase/*.cs`
+as `extern` members with a `@CSharpLua.Template` doc comment:
+
+```csharp
+/// @CSharpLua.Template = "{this}:SetBakeLighting({0})"
+public extern void SetBakeLighting(bool bake);
+```
+
+`{this}` is the handle, `{0}`… the arguments; the template is pasted verbatim into
+the generated Lua. Rebuild the tool (Ctrl+R in the editor does it) and the member
+is available with IntelliSense.
 
 ## NuGet and third-party libraries
 
@@ -195,7 +346,10 @@ project; `--no-trim` on the tool keeps everything). Generated files carry a
 | Numbers | The engine Lua VM is 32-bit on every platform: `double` **is** `float` at runtime; `long`, `ulong`, `decimal` are unrepresentable (warned as PS2001). |
 | Threads / async | No threads. `async`/`await` has no scheduler (warned as PS2002). |
 | Reflection | Not supported (no metadata is exported). |
-| `[Property]` types | int, short, byte, float, double, bool, string, Vector3, Color, Node, Node3D. No arrays yet. Initializers must be literals or `new Vector3/Color(<literals>)`. |
+| `[Property]` types | int, short, byte, float, double, bool, string, Vector3, Color, any node handle (Node, Node3D, StaticMesh3D, Spline3D, Camera3D, ...), any asset handle (Asset, Texture, StaticMesh, Material, MaterialLite, ...), and single-dimension arrays of those. Initializers: literals, `new Vector3/Color(<literals>)`, `new T[] { <literals> }`, `new T[N]` (value types only). |
+| Engine API coverage | Every Lua binding is generated into the `Polyphase` namespace (see *Engine types*). Functions returning free-form Lua tables (TileMap cells, DataAsset.Get, Http JSON) come back as `object` — read fields with `Lua.Get(table, "key")`. |
+| Callbacks | Single-cast delegates and lambdas only. `delegate += other` builds a multicast table the engine rejects. |
+| Networking | `[Replicated]` fields cannot be arrays; `[NetFunc]` methods take at most 8 parameters. |
 | Script classes | One per file, file name == class name, not generic, public parameterless constructor only. |
 | LINQ / collections | Available (List, Dictionary, LINQ, etc. bundle on use) — but they allocate; on console targets prefer plain loops in `Tick`. |
 | Debugging | Breakpoints land in the generated `.lua` (readable, source file noted in its header). C# source maps are future work. |

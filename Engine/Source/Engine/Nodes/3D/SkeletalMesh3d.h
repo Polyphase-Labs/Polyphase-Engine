@@ -271,6 +271,13 @@ public:
     void SetMaterialSlot(uint32_t slot, Material* material);
     int32_t FindMaterialSlot(const std::string& sectionName) const;
 
+    // External SkeletalAnimationAsset list (the "Animation Assets" property).
+    // Add/Remove invalidate the bound-clip cache; see FindAnimation below.
+    const std::vector<SkeletalAnimationRef>& GetAnimationAssets() const { return mAnimationAssets; }
+    std::vector<SkeletalAnimationRef>& GetAnimationAssetsMutable();
+    void AddAnimationAsset(class SkeletalAnimationAsset* asset);
+    void RemoveAnimationAsset(class SkeletalAnimationAsset* asset);
+
     void UpdateAnimation(float deltaTime, bool updateBones);
 
     virtual Bounds GetLocalBounds() const override;
@@ -326,11 +333,6 @@ protected:
     // bound external assets. Channels in external assets are keyed by bone
     // NAME and get resolved into target-mesh bone indices lazily into the
     // mBoundExternalAnims cache below.
-    const std::vector<SkeletalAnimationRef>& GetAnimationAssets() const { return mAnimationAssets; }
-    std::vector<SkeletalAnimationRef>& GetAnimationAssetsMutable();
-    void AddAnimationAsset(class SkeletalAnimationAsset* asset);
-    void RemoveAnimationAsset(class SkeletalAnimationAsset* asset);
-
     const Animation* FindAnimation(const char* animName);
     void InvalidateAnimationBindings();
 

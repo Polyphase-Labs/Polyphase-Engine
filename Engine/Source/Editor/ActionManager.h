@@ -443,10 +443,14 @@ protected:
     bool mShowImportAnimModal = false;
 
     // Retarget-animation modal state.
-    AssetStub* mRetargetClipStub = nullptr;
+    // One entry = single-clip retarget (editable output name). Several =
+    // batch: every clip is baked with the same avatar pair and named
+    // <clip name> + mRetargetSuffix.
+    std::vector<AssetStub*> mRetargetClipStubs;
     AssetRef mRetargetSrcAvatar;
     AssetRef mRetargetDstAvatar;
     char mRetargetOutputName[128] = "";
+    char mRetargetSuffix[64] = "_Retargeted";
     int32_t mRetargetMode = 0;          // 0=NameRemap, 1=ReferencePose
     bool mRetargetOverwrite = false;
     bool mRetargetUnique = true;
@@ -606,6 +610,9 @@ public:
         bool mUniqueNames = true;
     };
     void BeginRetargetAnimation(AssetStub* sourceClipStub);
+    // Batch variant: non-clip stubs are skipped. All clips share the avatar
+    // pair / mode picked in the modal.
+    void BeginRetargetAnimation(const std::vector<AssetStub*>& sourceClipStubs);
     // POLYPHASE_API: takes an explicit mTargetDir, so unlike most import actions
     // it never reads EditorState::GetAssetDirectory() and is callable from a
     // headless cook.

@@ -26,7 +26,7 @@ Designer guide: `Documentation/Development/SkeletalAnimation.md`. Design doc: `.
 | `Engine/Source/Editor/ActionManager.h/.cpp` | Three modal pipelines: `BeginExtractSkeletalAnimations`/`ExtractSkeletalAnimations`/`DrawExtractSkeletalAnimationsModal`, `BeginImportAnimations`/`ImportAnimations`/`DrawImportAnimationsModal`, `BeginRetargetAnimation`/`RetargetAnimation`/`DrawRetargetAnimationModal`. |
 | `Engine/Source/Editor/EditorImgui.cpp` | Right-click entries on SkeletalMesh stubs (Extract Animations…) and SkeletalAnimationAsset stubs (Retarget…). Asset-browser "Import Animations" entry. Inspector panels for SkeletalMesh sections, SkeletalAnimationAsset channels, HumanoidAvatarAsset slots. Create Asset → Humanoid Avatar menu entry. Three `Draw*Modal` hooks at end-of-frame. |
 | `Engine/Source/LuaBindings/SkeletalMesh_Lua.h/.cpp` | Section accessors (`GetNumSections`, `GetSectionName`, `Get/SetSectionMaterial`, `FindSectionIndex`). |
-| `Engine/Source/LuaBindings/SkeletalMesh3d_Lua.h/.cpp` | Material slot accessors (`GetNumMaterialSlots`, `Get/SetMaterialSlot`, `FindMaterialSlot`). Slot args accept integer index or string section name. |
+| `Engine/Source/LuaBindings/SkeletalMesh3d_Lua.h/.cpp` | Material slot accessors (`GetNumMaterialSlots`, `Get/SetMaterialSlot`, `FindMaterialSlot`). Slot args accept integer index or string section name. Animation-asset list accessors (`Add/RemoveAnimationAsset`, `GetNumAnimationAssets`, `GetAnimationAsset`). |
 | `Engine/Source/LuaBindings/SkeletalAnimationAsset_Lua.h/.cpp` | Read-only clip accessors (clip name, duration, ticks, source rig, channel introspection). |
 | `Engine/Source/LuaBindings/LuaBindings.cpp` | `SkeletalAnimationAsset_Lua::Bind()` registered alongside `SkeletalMesh_Lua`. |
 | `Engine/Source/Engine/Engine.cpp` | `FORCE_LINK_CALL(SkeletalAnimationAsset)`, `FORCE_LINK_CALL(HumanoidAvatarAsset)`. |
@@ -196,6 +196,8 @@ Three modal pipelines, all in `ActionManager`:
 | Retarget | right-click SkeletalAnimationAsset | `BeginRetargetAnimation` | `DrawRetargetAnimationModal` |
 
 The Retarget modal uses `ImGui::Begin` (not `BeginPopupModal`) so the asset browser stays interactive for `AssetRefPicker` drag-drop. `SetNextWindowFocus` fires only on the first frame the modal opens via a `mRetargetModalJustOpened` latch — otherwise the modal steals focus back from any popup (combo, autocomplete) that opens inside it. This was the original "second avatar picker doesn't work" bug.
+
+Retarget is batch-capable: `BeginRetargetAnimation` has a `std::vector<AssetStub*>` overload, fed by the context menu when the clicked clip is part of a multi-selection ("Retarget N Clips..."). `mRetargetClipStubs` holds the clips; with more than one, the modal swaps Output Name for an Output Suffix and Bake loops `RetargetAnimation` per clip with the shared avatar pair. The bake loop re-resolves each stub by name, because Overwrite can purge a clip that is itself in the selection.
 
 All three modals draw at end-of-frame from `EditorImgui.cpp`'s tail block alongside the existing build modal.
 
