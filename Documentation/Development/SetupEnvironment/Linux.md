@@ -10,7 +10,7 @@ Everything not marked optional is required. Polyphase always packages for GameCu
 | **Vulkan SDK 1.4.350.0** (LunarG) plus the distro `libvulkan-dev` | Editor and every game build, `glslc` for shaders | `vulkaninfo --summary` prints a device |
 | FFmpeg dev packages (optional) | Projects that use the VideoPlayer addon | `pkg-config --modversion libavformat` |
 | **devkitPro pacman** with `wii-dev` and `3ds-dev` | Packaging for **Wii**, **GameCube** and **3DS** (the devkitPPC and devkitARM compilers) | `$DEVKITPPC/bin/powerpc-eabi-g++ --version`, `$DEVKITARM/bin/arm-none-eabi-g++ --version` |
-| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/lib/cube` |
+| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/gamecube/lib` |
 | `rpm` / `appimagetool` (optional) | The Linux RPM and AppImage installer targets | `rpmbuild --version`, `appimagetool --version` |
 | `makerom`, `bannertool`, `cwavtool`, pycgfx | The **Nintendo 3DS (CIA)** installable target | [Packaging a 3DS installable](#packaging-a-3ds-installable-cia) |
 | Docker (optional) | Building Linux and console targets in the maintained container instead of installing the toolchains above; see [Compiling.md](Compiling.md#docker) | `docker --version` |
@@ -102,7 +102,7 @@ sudo apt install libvulkan-dev
      sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
      ```
 
-   - Check that `ls /opt/devkitpro/libogc2/lib/cube` lists `libogc.a`.
+   - Check that `ls /opt/devkitpro/libogc2/gamecube/lib` lists `libogc.a`.
 
 > Note: the `libogc2` packages are only the GameCube/Wii **libraries**. `wii-dev` and `3ds-dev` are the meta-packages that pull in the actual compilers, devkitPPC (`powerpc-eabi-g++`) and devkitARM (`arm-none-eabi-g++`). Without them the editor works, but GameCube/Wii/3DS packaging fails partway through `make` with a missing-compiler error.
 

@@ -11,7 +11,7 @@ Everything not marked optional is required. Polyphase always packages for GameCu
 | **Vulkan SDK 1.3.275.0** (LunarG) | Editor and every game build, `glslc` for shaders | `echo %VULKAN_SDK%` prints the install path, `glslc --version` |
 | **Python 3** on `PATH` | `Tools\prebuild.bat` asset stubs, Lua stub generator, 3DS 3D banners | `python --version` |
 | **devkitPro** installer with `wii-dev` and `3ds-dev` (installed through its MSys2 pacman) | Packaging for **Wii**, **GameCube** and **3DS** (the devkitPPC and devkitARM compilers) | in the devkitPro MSys2 shell: `/opt/devkitpro/devkitPPC/bin/powerpc-eabi-g++ --version` |
-| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` (same pacman) | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/lib/cube` in the MSys2 shell |
+| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` (same pacman) | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/gamecube/lib` in the MSys2 shell |
 | `makerom`, `bannertool`, `cwavtool`, pycgfx | The **Nintendo 3DS (CIA)** installable target | [Packaging a 3DS installable](#packaging-a-3ds-installable-cia) |
 | WSL2 with `rpm` / `appimagetool` (optional) | The Linux RPM and AppImage installer targets from a Windows host; see [Linux.md](Linux.md#packaging-linux-installers-rpm-appimage) | `wsl rpmbuild --version` |
 | Android Studio with SDK Build Tools 34.0.0, NDK 25.2.9519653, CMake 3.22.1 (optional) | Packaging for Android; see [Compiling.md](Compiling.md#packaging) | SDK Manager shows the three components |

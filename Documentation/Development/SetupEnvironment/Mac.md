@@ -14,7 +14,7 @@ Everything not marked optional is required. Polyphase always packages for GameCu
 | Rosetta 2 (Apple Silicon only, optional) | Running the Intel slice of a universal build, and `cwavtool` for 3DS banners | `arch -x86_64 /usr/bin/true` |
 | Homebrew `curl` (optional) | `wss://` connections from the editor | `ls /opt/homebrew/opt/curl/lib` (`/usr/local/opt/curl/lib` on Intel) |
 | **devkitPro pacman** with `wii-dev` and `3ds-dev` | Packaging for **Wii**, **GameCube** and **3DS** (the devkitPPC and devkitARM compilers) | `powerpc-eabi-g++ --version`, `arm-none-eabi-g++ --version` |
-| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/lib/cube` |
+| **libogc2**, `libogc2-libdvm`, `gamecube-tools-git` | Packaging for **GameCube** (its libraries come from libogc2, not the stock libogc) | `ls /opt/devkitpro/libogc2/gamecube/lib` |
 | `makerom`, `bannertool`, `cwavtool`, pycgfx | The **Nintendo 3DS (CIA)** installable target | [Packaging a 3DS installable](#packaging-a-3ds-installable-cia) |
 
 Not needed on a Mac: Docker (macOS targets cannot be built in a container, and the console toolchains above run natively), Visual Studio, MSYS2.
@@ -124,7 +124,7 @@ Required: Polyphase packages for GameCube, Wii and 3DS, and the editor's **Build
      sudo dkp-pacman -S gamecube-tools-git libogc2 libogc2-libdvm
      ```
 
-   - Check that `ls /opt/devkitpro/libogc2/lib/cube` lists `libogc.a`.
+   - Check that `ls /opt/devkitpro/libogc2/gamecube/lib` lists `libogc.a`.
 
 > Note: the `libogc2` packages are only the GameCube/Wii **libraries**. `wii-dev` and `3ds-dev` are the meta-packages that pull in the actual compilers, devkitPPC (`powerpc-eabi-g++`) and devkitARM (`arm-none-eabi-g++`). Without them the editor works, but GameCube/Wii/3DS packaging fails partway through `make` with a missing-compiler error.
 
