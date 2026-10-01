@@ -29,7 +29,9 @@ For the VideoPlayer addon (FFmpeg-backed video playback):
 
 ### For Arch-based distributions:
 
-`sudo pacman -S gcc make libx11 alsa-lib libpulse curl cmake pkgconf openssl`
+`sudo pacman -S gcc make libx11 alsa-lib libpulse curl cmake pkgconf openssl vulkan-icd-loader git python`
+
+`vulkan-icd-loader` is the Arch equivalent of `libvulkan-dev` in the Vulkan SDK step below. You still need the LunarG SDK tarball for `glslc`, `shaderc` and `spirv-cross`.
 
 For the VideoPlayer addon (FFmpeg-backed video playback):
 

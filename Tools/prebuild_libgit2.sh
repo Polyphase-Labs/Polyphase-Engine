@@ -30,6 +30,12 @@ if [ "$(uname -s)" = "Darwin" ]; then
         *) echo "ERROR: MAC_ARCH must be native, arm64, x86_64 or universal (got '$MAC_ARCH')" >&2; exit 1 ;;
     esac
     EXTRA_CMAKE_ARGS="-DUSE_HTTPS=SecureTransport -DCMAKE_OSX_ARCHITECTURES=$OSX_ARCHS -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0"
+else
+    # Linux: GSSAPI is auto-detected, so any host with krb5 installed (Arch
+    # pulls it in via curl) bakes gss_* references into libgit2.a that
+    # Makefile_Linux_Editor never links. Pin it off so the archive is the same
+    # on every distro.
+    EXTRA_CMAKE_ARGS="-DUSE_GSSAPI=OFF"
 fi
 
 # Wipe any pre-existing build/ first. A stale CMakeCache.txt (e.g. from a

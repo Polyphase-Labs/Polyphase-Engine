@@ -102,7 +102,7 @@ ENGINE_TARGET	:=
 ENGINE_LIB_NAME	:=	libEngineGame.a
 endif
 
-CXXFLAGS	=	$(CFLAGS)
+CXXFLAGS	=	$(CFLAGS) -std=gnu++17
 
 LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -Wl,-rpath,'$$ORIGIN'
 
