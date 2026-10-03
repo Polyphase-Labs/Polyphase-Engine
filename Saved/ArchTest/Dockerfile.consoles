@@ -1,0 +1,26 @@
+# Layers devkitPro (Wii/GameCube/3DS toolchains) onto the Arch snapshot that
+# already holds a built editor + the octo-bombers test project.
+# devkitPro supports Arch natively: its repos go straight into the system
+# pacman.conf, no dkp-pacman wrapper.
+FROM polyphase-arch-built
+
+USER root
+RUN pacman-key --init \
+ && pacman-key --recv-keys BC26F752D25B92CE272E0F44F7FD5492264BB9D0 --keyserver keyserver.ubuntu.com \
+ && pacman-key --lsign-key BC26F752D25B92CE272E0F44F7FD5492264BB9D0 \
+ && pacman -U --noconfirm https://pkg.devkitpro.org/devkitpro-keyring.pkg.tar.zst \
+ && pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com \
+ && pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE \
+ && printf '\n[libogc2-devkitpro]\nServer = https://packages.libogc2.org/devkitpro/linux/$arch\nServer = https://packages.extremscorner.org/devkitpro/linux/$arch\n\n[dkp-libs]\nServer = https://pkg.devkitpro.org/packages\n\n[dkp-linux]\nServer = https://pkg.devkitpro.org/packages/linux/$arch/\n' >> /etc/pacman.conf \
+ && pacman -Syu --noconfirm --needed wii-dev 3ds-dev gamecube-tools-git libogc2 libogc2-libdvm \
+ && pacman -S --noconfirm --needed dolphin-emu \
+ && pacman -Scc --noconfirm
+
+ENV DEVKITPRO=/opt/devkitpro
+ENV DEVKITPPC=${DEVKITPRO}/devkitPPC
+ENV DEVKITARM=${DEVKITPRO}/devkitARM
+ENV PATH="${DEVKITPRO}/tools/bin:${DEVKITPPC}/bin:${DEVKITARM}/bin:${PATH}"
+
+USER builder
+COPY --chown=builder:builder run_consoles.sh /usr/local/bin/run_consoles.sh
+CMD ["bash", "/usr/local/bin/run_consoles.sh"]

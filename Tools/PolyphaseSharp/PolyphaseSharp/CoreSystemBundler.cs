@@ -242,7 +242,101 @@ function CSharpCore.Finalize(ordered)
 end
 
 -- Finalize the Polyphase API types registered above (inheritance-depth order).
-CSharpCore.Finalize(POLYPHASE_API_TYPE_ORDER)");
+CSharpCore.Finalize(POLYPHASE_API_TYPE_ORDER)
+
+-- [Property] arrays and engine node lists are plain 1-based Lua tables — the
+-- same tables Lua scripts and the inspector read, with nil holes for unassigned
+-- node/asset slots. C# array syntax (arr[i], arr.Length, foreach) dispatches to
+-- CoreSystem's Array metatable, whose get/set throw on nil entries; install a
+-- hole-tolerant variant on the table in place. Getters re-run this per access
+-- (cheap metatable compare) so a table swapped in from Lua keeps working.
+local arrayMetas = setmetatable({}, { __mode = ""k"" })
+local function propArrayGet(t, index)
+    if index < 0 then System.throw(System.ArgumentOutOfRangeException(""index"")) end
+    local v = t[index + 1]
+    if v == System.null then return nil end
+    return v
+end
+local function propArraySet(t, index, v)
+    if index < 0 then System.throw(System.ArgumentOutOfRangeException(""index"")) end
+    t[index + 1] = v
+end
+function CSharpCore.Array(t, T)
+    if t == nil then return nil end
+    local meta = arrayMetas[T]
+    if meta == nil then
+        local base = System.Array(T)
+        meta = setmetatable({ get = propArrayGet, set = propArraySet, __name__ = rawget(base, ""__name__"") },
+                            { __index = base })
+        meta.__index = meta
+        arrayMetas[T] = meta
+    end
+    if getmetatable(t) ~= meta then setmetatable(t, meta) end
+    return t
+end
+
+-- Multi-return bindings (Camera3D:TraceScreenToWorld) packed into a table so a
+-- phantom class can expose the values as properties.
+function CSharpCore.Pack(...)
+    return { ... }
+end
+
+-- C# `is` / `as` / casts against engine handle classes (Polyphase.Node3D,
+-- Polyphase.MaterialLite, ...). Engine values are userdata whose class chain
+-- lives in metatable flags (""cf<ClassName>"") and in Node:CheckType; CoreSystem's
+-- table-based checks cannot see either, so route engine values through them.
+local coreIs, coreAs, coreCast = System.is, System.as, System.cast
+local function engineClassName(T)
+    local name = rawget(T, ""__name__"")
+    if type(name) ~= ""string"" then return nil end
+    local ns, short = string.match(name, ""^(.*)%.([^%.]+)$"")
+    if ns ~= ""Polyphase"" then return nil end
+    return short
+end
+local function isEngineValue(obj)
+    local t = type(obj)
+    if t == ""userdata"" then return true end
+    if t == ""table"" then
+        local mt = getmetatable(obj)
+        return mt ~= nil and rawget(mt, ""__name__"") == nil -- not a CoreSystem class instance
+    end
+    return false
+end
+local function engineIs(obj, T)
+    if T == System.Object then return true end
+    local short = engineClassName(T)
+    if short == nil then return false end
+    local mt = getmetatable(obj)
+    if mt == nil then return false end
+    if short == ""Vector3"" or short == ""Color"" then
+        return rawget(mt, ""__name"") == ""Vector""
+    end
+    -- Assets (and other class metatables): the flag chain is on the metatable itself.
+    if mt[""cf"" .. short] then return true end
+    -- Nodes: the wrapper metatable hides the class table; ask the engine.
+    local check = obj.CheckType
+    if type(check) == ""function"" then return check(obj, short) == true end
+    return false
+end
+System.is = function(obj, T)
+    if obj ~= nil and isEngineValue(obj) then return engineIs(obj, T) end
+    return coreIs(obj, T)
+end
+System.as = function(obj, T)
+    if obj ~= nil and isEngineValue(obj) then
+        if engineIs(obj, T) then return obj end
+        return nil
+    end
+    return coreAs(obj, T)
+end
+System.cast = function(T, obj, nullable)
+    if obj ~= nil and isEngineValue(obj) then
+        if engineIs(obj, T) then return obj end
+        System.throw(System.InvalidCastException(
+            ""Unable to cast engine value to type '"" .. tostring(rawget(T, ""__name__"")) .. ""'.""), 1)
+    end
+    return coreCast(T, obj, nullable)
+end");
 
             return sb.ToString();
         }

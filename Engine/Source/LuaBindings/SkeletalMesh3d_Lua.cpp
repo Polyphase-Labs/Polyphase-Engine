@@ -3,11 +3,13 @@
 #include "LuaBindings/Asset_Lua.h"
 #include "LuaBindings/Material_Lua.h"
 #include "LuaBindings/SkeletalMesh_Lua.h"
+#include "LuaBindings/SkeletalAnimationAsset_Lua.h"
 #include "LuaBindings/Vector_Lua.h"
 
 #include "Asset.h"
 #include "AssetManager.h"
 #include "Assets/SkeletalMesh.h"
+#include "Assets/SkeletalAnimationAsset.h"
 #include "Assets/BoneMaskAsset.h"
 
 int SkeletalMesh3D_Lua::SetSkeletalMesh(lua_State* L)
@@ -624,6 +626,50 @@ int SkeletalMesh3D_Lua::FindMaterialSlot(lua_State* L)
     return 1;
 }
 
+int SkeletalMesh3D_Lua::AddAnimationAsset(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    SkeletalAnimationAsset* asset = CHECK_SKELETAL_ANIMATION_ASSET(L, 2);
+
+    comp->AddAnimationAsset(asset);
+
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::RemoveAnimationAsset(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    SkeletalAnimationAsset* asset = CHECK_SKELETAL_ANIMATION_ASSET(L, 2);
+
+    comp->RemoveAnimationAsset(asset);
+
+    return 0;
+}
+
+int SkeletalMesh3D_Lua::GetNumAnimationAssets(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+
+    lua_pushinteger(L, (int)comp->GetAnimationAssets().size());
+    return 1;
+}
+
+int SkeletalMesh3D_Lua::GetAnimationAsset(lua_State* L)
+{
+    SkeletalMesh3D* comp = CHECK_SKELETAL_MESH_3D(L, 1);
+    int32_t index = CHECK_INDEX(L, 2);
+
+    const std::vector<SkeletalAnimationRef>& assets = comp->GetAnimationAssets();
+    Asset* asset = nullptr;
+    if (index >= 0 && index < (int32_t)assets.size())
+    {
+        asset = assets[index].Get();
+    }
+
+    Asset_Lua::Create(L, asset);
+    return 1;
+}
+
 void SkeletalMesh3D_Lua::Bind()
 {
     lua_State* L = GetLua();
@@ -719,6 +765,14 @@ void SkeletalMesh3D_Lua::Bind()
     REGISTER_TABLE_FUNC(L, mtIndex, SetMaterialSlot);
 
     REGISTER_TABLE_FUNC(L, mtIndex, FindMaterialSlot);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, AddAnimationAsset);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, RemoveAnimationAsset);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetNumAnimationAssets);
+
+    REGISTER_TABLE_FUNC(L, mtIndex, GetAnimationAsset);
 
     lua_pop(L, 1);
 

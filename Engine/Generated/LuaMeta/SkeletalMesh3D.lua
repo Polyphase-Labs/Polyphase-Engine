@@ -186,3 +186,16 @@ function SkeletalMesh3D:SetMaterialSlot(slot, material) end
 ---@param name string
 ---@return integer
 function SkeletalMesh3D:FindMaterialSlot(name) end
+
+---@param arg1 SkeletalAnimationAsset
+function SkeletalMesh3D:AddAnimationAsset(arg1) end
+
+---@param arg1 SkeletalAnimationAsset
+function SkeletalMesh3D:RemoveAnimationAsset(arg1) end
+
+---@return integer
+function SkeletalMesh3D:GetNumAnimationAssets() end
+
+---@param index integer
+---@return Asset
+function SkeletalMesh3D:GetAnimationAsset(index) end

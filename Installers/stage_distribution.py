@@ -192,6 +192,7 @@ def run_generators(engine_root, verbose=False):
     tools_dir = engine_root / "Tools"
 
     generators = [
+        ("generate_csharp_api.py", "Generating C# scripting API from Lua bindings..."),
         ("generate_lua_stubs.py", "Generating Lua IntelliSense stubs..."),
         ("generate_ui_xsd.py", "Generating UI XSD schema..."),
     ]

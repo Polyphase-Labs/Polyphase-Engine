@@ -41,8 +41,10 @@ void AUD_Initialize()
 
     if( err < 0 )
     {
-        LogError("Cannot open audio device");
-        OCT_ASSERT(0);
+        // No "default" ALSA device (headless box, container, VM without a
+        // sound card) is not fatal: AUD_Update no-ops on a null device.
+        LogWarning("Cannot open audio device (%s); audio disabled.", snd_strerror(err));
+        sSoundDevice = nullptr;
         return;
     }
     else

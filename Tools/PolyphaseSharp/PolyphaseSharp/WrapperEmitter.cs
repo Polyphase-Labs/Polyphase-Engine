@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace PolyphaseSharp
@@ -77,21 +78,27 @@ namespace PolyphaseSharp
             {
                 if (prop.DefaultLuaLiteral != null)
                     sb.Append("    self.").Append(prop.Name).Append(" = ").AppendLine(prop.DefaultLuaLiteral);
+                else if (prop.IsArray)
+                    sb.Append("    self.").Append(prop.Name).AppendLine(" = self." + prop.Name + " or {}");
             }
             sb.Append("    self.__cs = CSharpCore.New(").Append(script.FullLuaPath).AppendLine(", self)");
             if (script.OverridesCreate)
                 sb.AppendLine("    self.__cs:Create()");
             sb.AppendLine("end");
 
-            if (script.Properties.Count > 0 || script.Buttons.Count > 0)
+            if (script.Properties.Any(p => p.IsInspector) || script.Buttons.Count > 0)
             {
                 sb.AppendLine();
                 sb.Append("function ").Append(cls).AppendLine(":GatherProperties()");
                 sb.AppendLine("    return {");
                 foreach (var prop in script.Properties)
                 {
+                    if (!prop.IsInspector)
+                        continue;
                     sb.Append("        { name = \"").Append(prop.Name)
                       .Append("\", type = DatumType.").Append(prop.DatumType);
+                    if (prop.IsArray)
+                        sb.Append(", array = true");
                     if (!string.IsNullOrEmpty(prop.DisplayName))
                         sb.Append(", display_name = ").Append(QuoteLua(prop.DisplayName));
                     sb.AppendLine(" },");
@@ -107,6 +114,41 @@ namespace PolyphaseSharp
                     if (!string.IsNullOrEmpty(button.Tooltip))
                         sb.Append(", tooltip = ").Append(QuoteLua(button.Tooltip));
                     sb.AppendLine(" },");
+                }
+                sb.AppendLine("    }");
+                sb.AppendLine("end");
+            }
+
+            if (script.Properties.Any(p => p.IsReplicated))
+            {
+                sb.AppendLine();
+                sb.Append("function ").Append(cls).AppendLine(":GatherReplicatedData()");
+                sb.AppendLine("    return {");
+                foreach (var prop in script.Properties)
+                {
+                    if (!prop.IsReplicated)
+                        continue;
+                    sb.Append("        { name = \"").Append(prop.Name)
+                      .Append("\", type = DatumType.").Append(prop.DatumType);
+                    if (!string.IsNullOrEmpty(prop.OnRep))
+                        sb.Append(", onRep = ").Append(QuoteLua(prop.OnRep));
+                    sb.AppendLine(" },");
+                }
+                sb.AppendLine("    }");
+                sb.AppendLine("end");
+            }
+
+            if (script.NetFuncs.Count > 0)
+            {
+                sb.AppendLine();
+                sb.Append("function ").Append(cls).AppendLine(":GatherNetFuncs()");
+                sb.AppendLine("    return {");
+                foreach (var nf in script.NetFuncs)
+                {
+                    sb.Append("        { name = \"").Append(nf.Name)
+                      .Append("\", type = NetFuncType.").Append(nf.NetFuncType)
+                      .Append(", reliable = ").Append(nf.Reliable ? "true" : "false")
+                      .AppendLine(" },");
                 }
                 sb.AppendLine("    }");
                 sb.AppendLine("end");

@@ -12,7 +12,7 @@ namespace Polyphase
     /// At runtime the C# instance is a companion object; the attached node is
     /// reachable as the Node property (this.__node in generated Lua).
     /// </summary>
-    public class Script
+    public partial class Script
     {
         // ---- Lifecycle (override what you need; the transpiler forwards only
         //      the methods your class actually overrides) ----
@@ -47,6 +47,20 @@ namespace Polyphase
 
         /// <summary>Called on physics collision with contact point and normal.</summary>
         public virtual void OnCollision(Node other, Vector3 impactPoint, Vector3 impactNormal) { }
+
+        // ---- Other engine callbacks. Any public method is reachable by name
+        //      from the engine (widget events OnActivated/OnToggled/..., timeline
+        //      OnFinished, OnRep_<field>, net funcs), so these are just typed
+        //      starting points — override what you need. ----
+
+        /// <summary>Networking: the node's owning host changed.</summary>
+        public virtual void OwnerChanged() { }
+
+        /// <summary>Editor: draw gizmos for this node every frame (use Gizmos.*).</summary>
+        public virtual void OnDrawGizmos() { }
+
+        /// <summary>Editor: draw gizmos while this node is selected.</summary>
+        public virtual void OnDrawGizmosSelected() { }
 
         // ---- The attached node ----
 
@@ -106,15 +120,41 @@ namespace Polyphase
         /// @CSharpLua.Template = "{this}.__node:DestroyDeferred()"
         public extern void DestroyNode();
 
-        /// @CSharpLua.Template = "{this}.__node:EmitSignal({0})"
-        public extern void EmitSignal(string signalName);
+        /// <summary>Allocate a detached node of an engine class ("Text", "StaticMesh3D", ...);
+        /// Attach()/AddChild() it somewhere. Same as Polyphase.Node.Construct — this
+        /// bare-call form exists because `Node` inside a script is the attached node.</summary>
+        /// @CSharpLua.Template = "Node.Construct({0})"
+        public extern Node CreateNode(string nodeClass);
+
+    }
+
+    /// <summary>
+    /// Script base whose Node is typed as a concrete handle:
+    /// `class Door : Script&lt;StaticMesh3D&gt;` gives `Node.GetMaterial()` without a cast.
+    /// </summary>
+    public class Script<TNode> : Script where TNode : Node
+    {
+        /// <summary>The attached node, typed as TNode.</summary>
+        /// @CSharpLua.Get = "{this}.__node"
+        public extern new TNode Node { get; }
+    }
+
+    /// <summary>
+    /// Base class for scripts attached to widgets. The whole Widget API is
+    /// available as bare calls (SetPosition, SetColor, ...); use
+    /// `Node as Button` etc. for subclass members.
+    /// </summary>
+    public partial class ScriptWidget : Script
+    {
+        /// @CSharpLua.Get = "{this}.__node"
+        public extern new Widget Node { get; }
     }
 
     /// <summary>
     /// Base class for scripts attached to Node3D (transform-bearing) nodes.
     /// Adds the transform API as bare calls / properties.
     /// </summary>
-    public class Script3D : Script
+    public partial class Script3D : Script
     {
         /// <summary>The attached node, typed as Node3D.</summary>
         /// @CSharpLua.Get = "{this}.__node"

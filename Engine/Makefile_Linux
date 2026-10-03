@@ -148,7 +148,7 @@ TARGET		:= EngineEditor
 BUILD		:=	Intermediate/Linux$(BUILD_SUFFIX)/EngineEditor
 endif
 
-CXXFLAGS	=	$(CFLAGS)
+CXXFLAGS	=	$(CFLAGS) -std=gnu++17
 
 LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 

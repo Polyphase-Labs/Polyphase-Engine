@@ -7193,7 +7193,28 @@ static bool DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
     if (stub && stub->mType == SkeletalAnimationAsset::GetStaticType())
     {
-        if (ImGui::Selectable("Retarget..."))
+        // With a multi-selection that includes the clicked clip, retarget every
+        // selected clip in one pass (same avatar pair for all of them).
+        std::vector<AssetStub*> clipStubs;
+        if (GetEditorState()->IsAssetStubSelected(stub))
+        {
+            for (AssetStub* s : GetEditorState()->GetSelectedAssetStubs())
+            {
+                if (s && s->mType == SkeletalAnimationAsset::GetStaticType())
+                    clipStubs.push_back(s);
+            }
+        }
+
+        if (clipStubs.size() > 1)
+        {
+            char label[64];
+            snprintf(label, sizeof(label), "Retarget %d Clips...", (int)clipStubs.size());
+            if (ImGui::Selectable(label))
+            {
+                actMan->BeginRetargetAnimation(clipStubs);
+            }
+        }
+        else if (ImGui::Selectable("Retarget..."))
         {
             actMan->BeginRetargetAnimation(stub);
         }

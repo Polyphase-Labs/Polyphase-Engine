@@ -34,6 +34,8 @@ namespace PolyphaseSharp
         private INamedTypeSymbol mScriptBase;
         private INamedTypeSymbol mPropertyAttr;
         private INamedTypeSymbol mButtonAttr;
+        private INamedTypeSymbol mReplicatedAttr;
+        private INamedTypeSymbol mNetFuncAttr;
 
         public CSharpCompilation Compile(IReadOnlyList<SyntaxTree> userTrees, IReadOnlyList<SyntaxTree> apiTrees)
         {
@@ -76,6 +78,8 @@ namespace PolyphaseSharp
             mScriptBase = mCompilation.GetTypeByMetadataName("Polyphase.Script");
             mPropertyAttr = mCompilation.GetTypeByMetadataName("Polyphase.PropertyAttribute");
             mButtonAttr = mCompilation.GetTypeByMetadataName("Polyphase.ButtonAttribute");
+            mReplicatedAttr = mCompilation.GetTypeByMetadataName("Polyphase.ReplicatedAttribute");
+            mNetFuncAttr = mCompilation.GetTypeByMetadataName("Polyphase.NetFuncAttribute");
             if (mScriptBase == null || mPropertyAttr == null)
             {
                 Error(null, 0, 0, "PS0001", "internal: Polyphase engine API sources not found in compilation");
@@ -183,6 +187,7 @@ namespace PolyphaseSharp
 
             CollectPublicMethods(chain, script, tree.FilePath);
             CollectButtons(chain, script);
+            CollectNetFuncs(chain, script);
 
             foreach (var (name, arity) in kLifecycle)
             {
@@ -372,6 +377,59 @@ namespace PolyphaseSharp
             }
         }
 
+        /// <summary>
+        /// [NetFunc] methods become GatherNetFuncs() rows; the engine dispatches
+        /// InvokeNetFunc(name, ...) to the same-named wrapper method, which the
+        /// public-method forwarders provide.
+        /// </summary>
+        private void CollectNetFuncs(List<INamedTypeSymbol> chain, ScriptClass script)
+        {
+            if (mNetFuncAttr == null)
+                return;
+            foreach (var type in chain)
+            {
+                foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+                {
+                    var attr = method.GetAttributes().FirstOrDefault(a =>
+                        SymbolEqualityComparer.Default.Equals(a.AttributeClass, mNetFuncAttr));
+                    if (attr == null)
+                        continue;
+
+                    var declSyntax = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+                    int line = declSyntax != null ? Line(declSyntax) : 0;
+                    int col = declSyntax != null ? Col(declSyntax) : 0;
+
+                    if (method.MethodKind != MethodKind.Ordinary || method.IsStatic ||
+                        method.DeclaredAccessibility != Accessibility.Public ||
+                        method.Parameters.Length > 8)
+                    {
+                        Error(script.SourceFile, line, col, "PS1013",
+                            $"[NetFunc] method '{method.Name}' must be a public, non-static instance method " +
+                            "with at most 8 parameters (InvokeNetFunc forwards up to 8 arguments)");
+                        continue;
+                    }
+                    if (script.NetFuncs.Any(n => n.Name == method.Name))
+                        continue;
+
+                    string typeName = "Server";
+                    if (attr.ConstructorArguments.Length >= 1 && attr.ConstructorArguments[0].Value is int typeValue)
+                    {
+                        var enumType = attr.ConstructorArguments[0].Type as INamedTypeSymbol;
+                        var member = enumType?.GetMembers().OfType<IFieldSymbol>()
+                            .FirstOrDefault(f => f.HasConstantValue && f.ConstantValue is int v && v == typeValue);
+                        if (member != null)
+                            typeName = member.Name;
+                    }
+                    bool reliable = attr.NamedArguments
+                        .Where(kv => kv.Key == "Reliable")
+                        .Select(kv => kv.Value.Value is bool b && b)
+                        .FirstOrDefault();
+
+                    script.NetFuncs.Add(new ScriptNetFunc { Name = method.Name, NetFuncType = typeName, Reliable = reliable });
+                }
+            }
+        }
+
         // ---- helpers ----
 
         private bool DerivesFromScript(INamedTypeSymbol symbol)
@@ -408,7 +466,9 @@ namespace PolyphaseSharp
             {
                 var attr = field.GetAttributes().FirstOrDefault(a =>
                     SymbolEqualityComparer.Default.Equals(a.AttributeClass, mPropertyAttr));
-                if (attr == null)
+                var repAttr = mReplicatedAttr == null ? null : field.GetAttributes().FirstOrDefault(a =>
+                    SymbolEqualityComparer.Default.Equals(a.AttributeClass, mReplicatedAttr));
+                if (attr == null && repAttr == null)
                     continue;
 
                 var declSyntax = field.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as VariableDeclaratorSyntax;
@@ -430,32 +490,64 @@ namespace PolyphaseSharp
                     continue;
                 }
 
-                string datumType = MapDatumType(field.Type);
+                ITypeSymbol elementType = field.Type;
+                bool isArray = false;
+                if (field.Type is IArrayTypeSymbol arrayType)
+                {
+                    if (arrayType.Rank != 1)
+                    {
+                        Error(file, line, col, "PS1005",
+                            $"[Property] field '{field.Name}': only single-dimension arrays are supported");
+                        continue;
+                    }
+                    isArray = true;
+                    elementType = arrayType.ElementType;
+                }
+
+                string datumType = MapDatumType(elementType);
                 if (datumType == null)
                 {
                     Error(file, line, col, "PS1005",
                         $"[Property] field '{field.Name}' has unsupported type '{field.Type.ToDisplayString()}'. " +
-                        "Supported: int, short, byte, float, double, bool, string, Vector3, Color, Node, Node3D.");
+                        "Supported: int, short, byte, float, double, bool, string, Vector3, Color, " +
+                        "Node handles (Node, Node3D, StaticMesh3D, ...), Asset handles (Material, Texture, ...), " +
+                        "and single-dimension arrays of those.");
                     continue;
                 }
 
                 string defaultLiteral = null;
                 if (declSyntax?.Initializer != null)
                 {
-                    defaultLiteral = ToLuaLiteral(declSyntax.Initializer.Value);
+                    defaultLiteral = isArray
+                        ? ToLuaArrayLiteral(declSyntax.Initializer.Value, elementType)
+                        : ToLuaLiteral(declSyntax.Initializer.Value);
                     if (defaultLiteral == null)
                     {
-                        Error(file, line, col, "PS1006",
-                            $"[Property] field '{field.Name}' initializer must be a literal or " +
-                            "new Vector3/Color(<literals>) (evaluated before serialized values are applied)");
+                        Error(file, line, col, "PS1006", isArray
+                            ? $"[Property] array field '{field.Name}' initializer must be `new T[] {{ <literals> }}`, " +
+                              "`{ <literals> }`, or `new T[N]` for value types (handle arrays start empty; " +
+                              "size them in the inspector or assign at runtime)"
+                            : $"[Property] field '{field.Name}' initializer must be a literal or " +
+                              "new Vector3/Color(<literals>) (evaluated before serialized values are applied)");
                         continue;
                     }
                 }
 
-                string display = attr.NamedArguments
+                string display = attr?.NamedArguments
                     .Where(kv => kv.Key == "Display")
                     .Select(kv => kv.Value.Value as string)
                     .FirstOrDefault();
+                string onRep = repAttr?.NamedArguments
+                    .Where(kv => kv.Key == "OnRep")
+                    .Select(kv => kv.Value.Value as string)
+                    .FirstOrDefault();
+
+                if (repAttr != null && isArray)
+                {
+                    Error(file, line, col, "PS1014",
+                        $"[Replicated] field '{field.Name}' cannot be an array (replicated data is single-valued)");
+                    continue;
+                }
 
                 script.Properties.Add(new ScriptProperty
                 {
@@ -464,11 +556,16 @@ namespace PolyphaseSharp
                     DisplayName = display,
                     DefaultLuaLiteral = defaultLiteral,
                     CSharpType = field.Type.ToDisplayString(),
+                    IsArray = isArray,
+                    ElementLuaType = isArray ? LuaTypePathOf(elementType) : null,
+                    IsInspector = attr != null,
+                    IsReplicated = repAttr != null,
+                    OnRep = onRep,
                 });
             }
         }
 
-        private string MapDatumType(ITypeSymbol type)
+        private static string MapDatumType(ITypeSymbol type)
         {
             switch (type.SpecialType)
             {
@@ -484,17 +581,116 @@ namespace PolyphaseSharp
             switch (full)
             {
                 case "Polyphase.Vector3": return "Vector";
+                case "Polyphase.Vector2": return "Vector2D";
                 case "Polyphase.Color": return "Color";
                 case "Polyphase.Node3D": return "Node3D";
                 case "Polyphase.Node": return "Node";
+                // Handles with a dedicated engine datum get the type-filtered
+                // inspector picker; every other node/asset handle falls back to
+                // its nearest base datum below.
+                case "Polyphase.Spline3D": return "Spline3D";
+                case "Polyphase.Camera3D": return "Camera3D";
             }
-            // Node-derived handles map to their nearest engine datum.
             for (var t = type as INamedTypeSymbol; t != null; t = t.BaseType)
             {
-                if (t.ToDisplayString() == "Polyphase.Node3D") return "Node3D";
-                if (t.ToDisplayString() == "Polyphase.Node") return "Node";
+                switch (t.ToDisplayString())
+                {
+                    case "Polyphase.Node3D": return "Node3D";
+                    case "Polyphase.Node": return "Node";
+                    case "Polyphase.Material": return "Material";
+                    case "Polyphase.Asset": return "Asset";
+                }
             }
             return null;
+        }
+
+        /// <summary>CoreSystem class path for an array element type (System.Array(T) needs it).</summary>
+        private static string LuaTypePathOf(ITypeSymbol type)
+        {
+            switch (type.SpecialType)
+            {
+                case SpecialType.System_Int32: return "System.Int32";
+                case SpecialType.System_Int16: return "System.Int16";
+                case SpecialType.System_Byte: return "System.Byte";
+                case SpecialType.System_Single: return "System.Single";
+                case SpecialType.System_Double: return "System.Double";
+                case SpecialType.System_Boolean: return "System.Boolean";
+                case SpecialType.System_String: return "System.String";
+            }
+            return type.ToDisplayString(); // Polyphase.* handle classes
+        }
+
+        /// <summary>
+        /// Array initializer → Lua table constructor. `new T[] { .. }`, `{ .. }`,
+        /// `new[] { .. }` with literal elements; `new T[N]` (literal N) for value
+        /// types, filled with the engine default (0 / false / "" / Vec()).
+        /// Handle arrays cannot be pre-sized: null entries are nil holes in the
+        /// engine table, which would make its length ambiguous.
+        /// </summary>
+        public static string ToLuaArrayLiteral(ExpressionSyntax expr, ITypeSymbol elementType)
+        {
+            InitializerExpressionSyntax init = null;
+            ExpressionSyntax sizeExpr = null;
+            switch (expr)
+            {
+                case InitializerExpressionSyntax direct:
+                    init = direct;
+                    break;
+                case ImplicitArrayCreationExpressionSyntax implicitArr:
+                    init = implicitArr.Initializer;
+                    break;
+                case ArrayCreationExpressionSyntax creation:
+                    init = creation.Initializer;
+                    if (init == null)
+                    {
+                        var rank = creation.Type.RankSpecifiers.FirstOrDefault();
+                        if (rank == null || rank.Sizes.Count != 1)
+                            return null;
+                        sizeExpr = rank.Sizes[0];
+                    }
+                    break;
+                default:
+                    return null;
+            }
+
+            if (init != null)
+            {
+                var parts = new List<string>();
+                foreach (var element in init.Expressions)
+                {
+                    string part = ToLuaLiteral(element);
+                    if (part == null)
+                        return null;
+                    parts.Add(part);
+                }
+                return "{ " + string.Join(", ", parts) + " }";
+            }
+
+            if (sizeExpr is not LiteralExpressionSyntax sizeLit || sizeLit.Token.Value is not int size || size < 0)
+                return null;
+            string fill;
+            switch (elementType.SpecialType)
+            {
+                case SpecialType.System_Int32:
+                case SpecialType.System_Int16:
+                case SpecialType.System_Byte:
+                case SpecialType.System_Single:
+                case SpecialType.System_Double: fill = "0"; break;
+                case SpecialType.System_Boolean: fill = "false"; break;
+                case SpecialType.System_String: fill = "\"\""; break;
+                default:
+                    fill = elementType.ToDisplayString() switch
+                    {
+                        "Polyphase.Vector3" => "Vec()",
+                        "Polyphase.Vector2" => "Vec()",
+                        "Polyphase.Color" => "Vec(0, 0, 0, 0)",
+                        _ => null,
+                    };
+                    break;
+            }
+            if (fill == null)
+                return null;
+            return "{ " + string.Join(", ", Enumerable.Repeat(fill, size)) + " }";
         }
 
         /// <summary>Literal / new Vector3(...) / new Color(...) → Lua source, else null.</summary>
@@ -525,8 +721,9 @@ namespace PolyphaseSharp
                 {
                     string typeName = creation.Type.ToString();
                     bool isVec = typeName is "Vector3" or "Polyphase.Vector3";
+                    bool isVec2 = typeName is "Vector2" or "Polyphase.Vector2";
                     bool isColor = typeName is "Color" or "Polyphase.Color";
-                    if (!isVec && !isColor)
+                    if (!isVec && !isVec2 && !isColor)
                         return null;
                     var args = creation.ArgumentList?.Arguments ?? default;
                     var parts = new List<string>();
@@ -538,7 +735,9 @@ namespace PolyphaseSharp
                         parts.Add(part);
                     }
                     if (isVec && parts.Count is not (0 or 3)) return null;
-                    if (isColor && parts.Count != 4) return null;
+                    if (isVec2 && parts.Count is not (0 or 2)) return null;
+                    if (isColor && parts.Count is not (3 or 4)) return null;
+                    if (isColor && parts.Count == 3) parts.Add("1");
                     return "Vec(" + string.Join(", ", parts) + ")";
                 }
 

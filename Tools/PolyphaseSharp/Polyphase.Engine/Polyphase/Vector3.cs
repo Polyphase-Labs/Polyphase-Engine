@@ -84,6 +84,13 @@ namespace Polyphase
         /// @CSharpLua.Template = "Vec({0}, {1}, {2}, {3})"
         public extern Color(float r, float g, float b, float a);
 
+        /// <summary>Opaque color (alpha = 1).</summary>
+        /// @CSharpLua.Template = "Vec({0}, {1}, {2}, 1)"
+        public extern Color(float r, float g, float b);
+
+        /// @CSharpLua.Template = "Vec({this}.x, {this}.y, {this}.z, {this}.w)"
+        public extern Color Clone();
+
         /// @CSharpLua.Get = "{this}.x"
         /// @CSharpLua.Set = "{this}.x = {0}"
         public extern float R { get; set; }

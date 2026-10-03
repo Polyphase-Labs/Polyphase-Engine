@@ -247,7 +247,14 @@
       "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)] VPATH-CSHARP=[$\\(filter %CSharp,$\\(subst :, ,$\\(VPATH\\)\\)\\)]\\)' dbg --eval='dbg: ; @true')",
       "Bash(POLYPHASE_EDITOR=1 make -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)]\\)' --eval='dbg: ; @true' dbg)",
       "Bash(POLYPHASE_EDITOR=1 make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux --eval='$\\(info OFILES-CSHARP=[$\\(filter CSharp%,$\\(OFILES\\)\\)]\\)' --eval='dbg: ; @true' dbg)",
-      "Bash(POLYPHASE_EDITOR=1 make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux)"
+      "Bash(POLYPHASE_EDITOR=1 make -C /home/uai/Projects/Octave/Polyphase-Engine/Engine -f Makefile_Linux)",
+      "PowerShell($d=\"M:\\\\Projects\\\\Polyphase\\\\Addons\\\\BuildTargets\\\\Polyphase-BuildTargetManager\"; Get-ChildItem \"$d\\\\src\",\"$d\\\\scripts\" -Recurse -File | ForEach-Object { \"{0,7} {1}\" -f \\(Get-Content $_.FullName | Measure-Object -Line\\).Lines, $_.FullName.Substring\\($d.Length+1\\) }; Get-Content \"$d\\\\package.json\")",
+      "PowerShell(bun --version; $c=\"$env:LOCALAPPDATA\\\\PolyphaseAddonManager\\\\config.json\"; if \\(Test-Path $c\\) { $j = Get-Content $c -Raw | ConvertFrom-Json; \"repos: $\\($j.repos.Count\\)  registries: $\\($j.registries.Count\\)  projects: $\\($j.projects.Count\\)\"; $j.repos | ForEach-Object { \"{0}  exists={1}\" -f $_.path, \\(Test-Path $_.path\\) } })",
+      "Bash(cd \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/Engine/Source/LuaBindings\" && grep -n \"define REGISTER_TABLE_FUNC\\\\|define CreateClass\\\\|CreateClassMetatable\\(\" LuaUtils.h LuaUtils.cpp | head; grep -n -A3 \"define REGISTER_TABLE_FUNC\" -r ../ | head -20)",
+      "Bash(cd \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/Tools/PolyphaseSharp\" && find . -type f -not -path \"*/bin/*\" -not -path \"*/obj/*\" | head -100 && wc -l Polyphase.Engine/Polyphase/*.cs PolyphaseSharp/*.cs README.md Tests/* ../../Documentation/Info/CSharpScripting.md ../../Engine/Source/Editor/CSharp/*)",
+      "Bash(cd \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine\"; find Template Plugins Testing sdk Engine/Assets -name \"*.lua\" 2>/dev/null | grep -v LuaPanda | head -60; find .. -maxdepth 4 -type d -name Scripts 2>/dev/null | grep -v \"/.claude/\\\\|dist\\\\|External\" | head -30)",
+      "Bash(cd \"M:/Projects/Polyphase/Polyphase/CODE/mergePolyphase/polyphase-engine/Engine/Source/LuaBindings\" && sed -n '/::Bind\\(\\)/,$p' Node_Lua.cpp | head -80)",
+      "Bash(awk '{print $2\"=\"$3}')"
     ]
   }
 }

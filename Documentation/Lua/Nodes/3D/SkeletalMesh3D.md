@@ -320,6 +320,31 @@ Sig: `slot = SkeletalMesh3D:FindMaterialSlot(name)`
  - Ret: `integer slot` Slot index (Lua 1-indexed), or 0 if not found
 ---
 
+### AddAnimationAsset
+Append a [`SkeletalAnimationAsset`](../../Assets/SkeletalAnimationAsset.md) to this node's **Animation Assets** list so `PlayAnimation` can resolve its clip name. Adding an asset that is already in the list is a no-op. The change lives on this node instance only.
+
+Sig: `SkeletalMesh3D:AddAnimationAsset(asset)`
+ - Arg: `SkeletalAnimationAsset asset` Clip to add
+---
+### RemoveAnimationAsset
+Remove a clip from this node's **Animation Assets** list. Does nothing if the asset isn't in the list.
+
+Sig: `SkeletalMesh3D:RemoveAnimationAsset(asset)`
+ - Arg: `SkeletalAnimationAsset asset` Clip to remove
+---
+### GetNumAnimationAssets
+Get the number of external clips on this node's **Animation Assets** list (inspector-assigned and script-added).
+
+Sig: `count = SkeletalMesh3D:GetNumAnimationAssets()`
+ - Ret: `integer count` Number of external clips
+---
+### GetAnimationAsset
+Get one entry of this node's **Animation Assets** list.
+
+Sig: `asset = SkeletalMesh3D:GetAnimationAsset(index)`
+ - Arg: `integer index` List index (Lua 1-indexed)
+ - Ret: `SkeletalAnimationAsset asset` The clip, or `nil` if the index is out of range or the slot is empty
+---
 ## External animation clips
 
 `SkeletalMesh3D` accepts a list of [`SkeletalAnimationAsset`](../../Assets/SkeletalAnimationAsset.md) references on its **Animation Assets** vector property (editable in the inspector or via scripts attached to scenes loaded from disk). At runtime, `PlayAnimation(name)` resolves names in this order:
@@ -330,4 +355,4 @@ Sig: `slot = SkeletalMesh3D:FindMaterialSlot(name)`
 
 So a retargeted Mixamo clip on a custom character "just works" with `node:PlayAnimation("Walk", true)` — same play handle as if the clip were embedded.
 
-The cache auto-invalidates when `SetSkeletalMesh` is called or when the Animation Assets property changes. There's no Lua API for the asset list itself yet (edit it through the inspector); the runtime resolution path is what scripts see.
+The cache auto-invalidates when `SetSkeletalMesh` is called or when the Animation Assets property changes. Scripts can edit the list at runtime with `AddAnimationAsset` / `RemoveAnimationAsset` (below); both invalidate the cache too.

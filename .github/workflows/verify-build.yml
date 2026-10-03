@@ -96,6 +96,11 @@ jobs:
       - name: Generate Standalone embedded asset stubs
         run: python3 Tools/generate_embedded_stubs.py
 
+      # The C# scripting API is generated from the Lua bindings and committed;
+      # a binding change without `python Tools/generate_csharp_api.py` fails here.
+      - name: Check generated C# scripting API is up to date
+        run: python3 Tools/generate_csharp_api.py --check
+
       - name: Build Engine (Linux Editor)
         run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
 
@@ -203,3 +208,78 @@ jobs:
       - name: Cleanup local clone
         if: always()
         run: bash Tools/CI/TestBuildProject/cleanup_test_project.sh ./test-project || true
+
+  # Builds the editor from source on archlinux:latest. Arch rolls gcc/glibc
+  # forward continuously (gcc 16 changed the default C++ standard and broke the
+  # Linux build), so this catches the next toolchain change here instead of in
+  # a user's checkout. Debian Bookworm (build-linux) stays the release baseline.
+  # Package list matches the Arch section of
+  # Documentation/Development/SetupEnvironment/Linux.md, so this also keeps the
+  # documented install line honest.
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      VULKAN_VERSION: 1.4.350.0
+    steps:
+      - name: Install build dependencies (Linux.md Arch list)
+        run: pacman -Syu --noconfirm --needed gcc make libx11 alsa-lib libpulse curl cmake pkgconf openssl vulkan-icd-loader git python wget xz
+
+      - uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git submodules (running as root in container)
+        run: git config --global --add safe.directory '*'
+
+      - name: Initialize submodules
+        run: |
+          git submodule init -- External/bullet3 External/doxygen-awesome-css External/zep Engine/External/PolyVox Engine/External/libgit2 Plugins/Blender/polyshade-gameengine-connect
+          git submodule update --recursive
+
+      - name: Cache Vulkan SDK
+        uses: actions/cache@v4
+        with:
+          path: /opt/vulkan
+          key: vulkan-sdk-linux-${{ env.VULKAN_VERSION }}
+
+      - name: Install Vulkan SDK
+        run: |
+          if [ ! -d "/opt/vulkan/$VULKAN_VERSION" ]; then
+            wget -q "https://sdk.lunarg.com/sdk/download/$VULKAN_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz"
+            mkdir -p /opt/vulkan
+            tar -xf "vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz" -C /opt/vulkan
+            rm "vulkansdk-linux-x86_64-$VULKAN_VERSION.tar.xz"
+          fi
+          SDK="/opt/vulkan/$VULKAN_VERSION/x86_64"
+          echo "VULKAN_SDK=$SDK" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$SDK/lib" >> "$GITHUB_ENV"
+          echo "$SDK/bin" >> "$GITHUB_PATH"
+
+      - name: Compiler versions
+        run: |
+          gcc --version | head -n1
+          ldd --version | head -n1
+
+      - name: Compile shaders
+        working-directory: Engine/Shaders/GLSL
+        run: bash compile.sh
+
+      - name: Prebuild libgit2
+        run: bash Tools/prebuild_libgit2.sh
+
+      - name: Generate Standalone embedded asset stubs
+        run: python3 Tools/generate_embedded_stubs.py
+
+      - name: Build Engine (Linux Editor)
+        run: make -C Standalone -f Makefile_Linux_Editor -j$(nproc)
+
+      - name: Check editor links against Arch's libraries
+        run: |
+          ldd Standalone/Build/Linux/PolyphaseEditor.elf
+          if ldd Standalone/Build/Linux/PolyphaseEditor.elf | grep "not found"; then
+            echo "FAIL: unresolved shared libraries on Arch" >&2
+            exit 1
+          fi

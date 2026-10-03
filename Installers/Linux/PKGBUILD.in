@@ -1,0 +1,43 @@
+# Arch Linux package for the Polyphase Editor. Repackages the release tarball
+# (Installers/build_tarball_linux.sh) into the same /opt/polyphase layout the
+# .deb installs. @PKGVER@ is filled in by Installers/build_arch_pkg_linux.sh.
+# Desktop/MIME/icon caches are refreshed by Arch's stock pacman hooks.
+pkgname=polyphase-editor
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc="Polyphase multi-platform game engine and editor"
+arch=('x86_64')
+url="https://github.com/Polyphase-Labs/Polyphase-Engine"
+license=('MIT')
+depends=('libx11' 'libxcb' 'alsa-lib' 'libpulse' 'vulkan-icd-loader' 'vulkan-driver' 'openssl' 'curl')
+optdepends=('ffmpeg: VideoPlayer addon'
+            'git: Clone From Git in the project browser')
+# The editor ships static archives (libLua.a, ...) for native addons and is
+# linked -rdynamic for them; leave every binary exactly as built.
+options=('!strip' '!debug')
+source=("PolyphaseEditor-linux-x64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/PolyphaseEditor-linux-x64"
+
+    install -d "$pkgdir/opt"
+    cp -a polyphase "$pkgdir/opt/polyphase"
+    chmod 755 "$pkgdir/opt/polyphase/PolyphaseEditor"
+    install -dm777 "$pkgdir/opt/polyphase/Engine/Saves"
+    install -dm777 "$pkgdir/opt/polyphase/Standalone"
+
+    install -d "$pkgdir/usr/bin"
+    printf '#!/bin/sh\ncd /opt/polyphase\nexec /opt/polyphase/PolyphaseEditor "$@"\n' > "$pkgdir/usr/bin/polyphase-editor"
+    chmod 755 "$pkgdir/usr/bin/polyphase-editor"
+
+    install -Dm644 polyphase-editor.desktop "$pkgdir/usr/share/applications/polyphase-editor.desktop"
+    install -Dm644 polyphase-editor.xml "$pkgdir/usr/share/mime/packages/polyphase-editor.xml"
+    if [ -f polyphase/PolyphaseLogo_128.png ]; then
+        install -Dm644 polyphase/PolyphaseLogo_128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/polyphase-editor.png"
+    fi
+
+    install -d "$pkgdir/etc/profile.d"
+    printf 'export POLYPHASE_PATH="/opt/polyphase"\n' > "$pkgdir/etc/profile.d/polyphase.sh"
+    chmod 644 "$pkgdir/etc/profile.d/polyphase.sh"
+}

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -18,10 +19,16 @@ namespace PolyphaseSharp
     /// </summary>
     public static class SourceRewriter
     {
-        public static string Rewrite(SyntaxTree tree, string defaultNamespace)
+        public static string Rewrite(SyntaxTree tree, string defaultNamespace, ScriptClass script)
         {
             var root = tree.GetCompilationUnitRoot();
-            var rewritten = (CompilationUnitSyntax)new PropertyFieldRewriter().Visit(root);
+            var props = new Dictionary<string, ScriptProperty>(System.StringComparer.Ordinal);
+            if (script != null)
+            {
+                foreach (var p in script.Properties)
+                    props[p.Name] = p;
+            }
+            var rewritten = (CompilationUnitSyntax)new PropertyFieldRewriter(props).Visit(root);
 
             bool hasNamespace = rewritten.Members.Any(m =>
                 m is NamespaceDeclarationSyntax or FileScopedNamespaceDeclarationSyntax);
@@ -46,6 +53,13 @@ namespace PolyphaseSharp
 
         private sealed class PropertyFieldRewriter : CSharpSyntaxRewriter
         {
+            private readonly Dictionary<string, ScriptProperty> mProps;
+
+            public PropertyFieldRewriter(Dictionary<string, ScriptProperty> props)
+            {
+                mProps = props;
+            }
+
             public override SyntaxNode VisitFieldDeclaration(FieldDeclarationSyntax node)
             {
                 if (!HasPropertyAttribute(node))
@@ -60,7 +74,20 @@ namespace PolyphaseSharp
                 foreach (var variable in node.Declaration.Variables)
                 {
                     string name = variable.Identifier.Text;
-                    sb.AppendLine($"/// @CSharpLua.Get = \"{{this}}.__node.{name}\"");
+                    if (node.Declaration.Type is ArrayTypeSyntax)
+                    {
+                        // The node holds a plain 1-based Lua table (what Lua scripts
+                        // and the inspector read). CSharpCore.Array installs the
+                        // hole-tolerant CoreSystem Array metatable in place so C#
+                        // arr[i] / arr.Length / foreach work on the same table.
+                        string elem = mProps.TryGetValue(name, out var p) && p.ElementLuaType != null
+                            ? p.ElementLuaType : "System.Object";
+                        sb.AppendLine($"/// @CSharpLua.Get = \"CSharpCore.Array({{this}}.__node.{name}, {elem})\"");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"/// @CSharpLua.Get = \"{{this}}.__node.{name}\"");
+                    }
                     sb.AppendLine($"/// @CSharpLua.Set = \"{{this}}.__node.{name} = {{0}}\"");
                     sb.AppendLine($"public extern {typeText} {name} {{ get; set; }}");
                 }
@@ -81,7 +108,9 @@ namespace PolyphaseSharp
                     {
                         string name = attr.Name.ToString();
                         if (name is "Property" or "PropertyAttribute"
-                            or "Polyphase.Property" or "Polyphase.PropertyAttribute")
+                            or "Polyphase.Property" or "Polyphase.PropertyAttribute"
+                            or "Replicated" or "ReplicatedAttribute"
+                            or "Polyphase.Replicated" or "Polyphase.ReplicatedAttribute")
                         {
                             return true;
                         }

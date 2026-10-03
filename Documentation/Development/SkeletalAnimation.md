@@ -168,7 +168,7 @@ The modal has:
 
 - **Source Avatar** — the avatar for the rig the clip was authored against
 - **Target Avatar** — the avatar for the rig you want the clip to play on
-- **Output Name** — defaults to `<source>_Retargeted`
+- **Output Name** — defaults to `<source>_Retargeted`. With several clips multi-selected, right-click shows **Retarget N Clips...** instead: one avatar pair / mode is applied to every selected clip, and this field becomes **Output Suffix** (each result is `<clip name><suffix>`, saved next to its source clip)
 - **Mode**:
   - **Tier 1 — Name remap** — copies keyframes verbatim, just renames channels by slot. Use when source/target rigs have identical proportions and bone-axis conventions.
   - **Tier 2 — Reference-pose aware** — full world-space retarget through both rigs' bind poses. Use when proportions or bone-axis conventions differ. **Both avatars must have a Reference Mesh assigned.**
