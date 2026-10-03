@@ -407,6 +407,53 @@ jobs:
           path: dist/PolyphaseEditor-linux-x64.tar.gz
 
   # =========================================================================
+  #  Arch Linux: Repackage the Linux tarball as a .pkg.tar.zst
+  #
+  #  No rebuild: the Bookworm-built editor runs as-is on Arch (newer glibc
+  #  is backward compatible), so this wraps the exact tarball build-linux
+  #  produced via Installers/Linux/PKGBUILD.in. makepkg only exists on Arch
+  #  and refuses root, hence the archlinux container + throwaway user.
+  #  Tools/CI/smoke_test_arch_pkg.sh then installs it on the same clean
+  #  system and launches the editor, so a package that can't start never
+  #  reaches the release.
+  # =========================================================================
+  package-arch:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install makepkg toolchain
+        run: pacman -Syu --noconfirm --needed base-devel git
+
+      - uses: actions/checkout@v4
+
+      - name: Download Linux tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: dist
+
+      - name: Build Arch package
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "bash Installers/build_arch_pkg_linux.sh dist/PolyphaseEditor-linux-x64.tar.gz"
+
+      - name: Smoke test on clean Arch
+        run: bash Tools/CI/smoke_test_arch_pkg.sh dist/polyphase-editor-*-x86_64.pkg.tar.zst
+
+      - name: Upload Arch package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arch-pkg
+          path: dist/polyphase-editor-*-x86_64.pkg.tar.zst
+          if-no-files-found: error
+
+  # =========================================================================
   #  macOS: Build engine + create .dmg
   #
   #  Universal (arm64 + x86_64): MAC_ARCH=universal makes every Makefile_Mac
@@ -800,7 +847,7 @@ jobs:
   #  Create GitHub Release with all artifacts
   # =========================================================================
   create-release:
-    needs: [build-windows, build-linux, build-mac, verify-test-project]
+    needs: [build-windows, build-linux, package-arch, build-mac, verify-test-project]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -814,7 +861,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
-          pattern: '{windows-installer,windows-sdk,linux-deb,linux-tarball,macos-dmg}'
+          pattern: '{windows-installer,windows-sdk,linux-deb,linux-tarball,linux-arch-pkg,macos-dmg}'
           merge-multiple: true
 
       - name: List release assets
@@ -831,4 +878,5 @@ jobs:
             release-assets/**/polyphase-sdk-windows-x64.zip
             release-assets/**/polyphase-engine_*_amd64.deb
             release-assets/**/PolyphaseEditor-linux-x64.tar.gz
+            release-assets/**/polyphase-editor-*-x86_64.pkg.tar.zst
             release-assets/**/PolyphaseEditor-*-macos-universal.dmg
