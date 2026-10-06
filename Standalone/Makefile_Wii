@@ -17,7 +17,9 @@ include $(DEVKITPPC)/wii_rules
 # INCLUDES is a list of directories containing extra header files
 #---------------------------------------------------------------------------------
 TARGET		:=	Polyphase
-BUILD		:=	Intermediate/Wii
+# One object folder per project (POLYPHASE_BUILD_KEY, set by the editor): addon sources
+# from different projects can share a file name, and a stale same-named .o would link.
+BUILD		:=	Intermediate/Wii$(if $(POLYPHASE_BUILD_KEY),/$(POLYPHASE_BUILD_KEY))
 SOURCES		:=	Source \
 				Generated
 #DATA		:=	data
@@ -46,10 +48,10 @@ OUTPUT_DIR	:=	$(CURDIR)/Build/Wii
 #---------------------------------------------------------------------------------
 ifeq ($(POLYPHASE_GDB),1)
 GDB_CFLAGS	:=	-Og -gdwarf-4 -gstrict-dwarf -DPOLYPHASE_GDB=1
-GDB_LIBS	:=	-ldb
+GDB_LINK	:=	-ldb
 else
 GDB_CFLAGS	:=	-O2
-GDB_LIBS	:=
+GDB_LINK	:=
 endif
 
 CFLAGS	= -g $(GDB_CFLAGS) -Wall $(MACHDEP) $(INCLUDE) -DPLATFORM_WII=1 -DPLATFORM_DOLPHIN=1 -DAPI_GX=1
@@ -60,7 +62,7 @@ LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lEngine -lBullet -lwiiuse -lbte -lasnd -lfat -lmbedtls -lmbedx509 -lmbedcrypto $(GDB_LIBS) -logc -lm
+LIBS	:=	-lEngine -lBullet -lwiiuse -lbte -lasnd -lfat -lmbedtls -lmbedx509 -lmbedcrypto $(GDB_LINK) -logc -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

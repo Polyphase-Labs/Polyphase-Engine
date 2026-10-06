@@ -1,6 +1,11 @@
 #pragma once
 
 #include "InputTypes.h"
+#include "PolyphaseAPI.h"
+
+// Native addons can query input actions (Get / IsActionActive / WasActionJustActivated /
+// WasActionJustDeactivated / GetActions are exported); test this before using them.
+#define POLYPHASE_PLAYER_INPUT_EXPORTED 1
 
 #include <string>
 #include <vector>
@@ -98,7 +103,7 @@ public:
 
     static void Create();
     static void Destroy();
-    static PlayerInputSystem* Get();
+    POLYPHASE_API static PlayerInputSystem* Get();
 
     void Update(float deltaTime);
 
@@ -113,16 +118,16 @@ public:
                     const InputActionTrigger& trigger);
 
     // Queries (playerIndex: -1 = any, 0-3 = specific gamepad/pointer)
-    bool IsActionActive(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
-    bool WasActionJustActivated(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
-    bool WasActionJustDeactivated(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
+    POLYPHASE_API bool IsActionActive(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
+    POLYPHASE_API bool WasActionJustActivated(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
+    POLYPHASE_API bool WasActionJustDeactivated(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
     float GetActionValue(const std::string& category, const std::string& name, int32_t playerIndex = -1) const;
 
     // Connected players
     int32_t GetPlayersConnected() const;
 
     // Bulk access (for editor/debugger)
-    const std::vector<InputAction>& GetActions() const;
+    POLYPHASE_API const std::vector<InputAction>& GetActions() const;
     InputAction* FindAction(const std::string& category, const std::string& name);
     const InputAction* FindAction(const std::string& category, const std::string& name) const;
 

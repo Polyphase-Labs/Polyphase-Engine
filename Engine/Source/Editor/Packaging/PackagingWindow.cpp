@@ -576,7 +576,15 @@ void PackagingWindow::DrawProfileSettings()
     // need to know anything about target-specific config. Addons interact
     // with the profile entirely through the context trampolines — they never
     // touch BuildProfile directly, so the ABI stays a pure C surface.
-    if (activeTarget != nullptr && activeTarget->mDesc.DrawProfileOptions != nullptr)
+    //
+    // Addons can also add sections for every target (EditorUIHooks
+    // AddTargetOptions), e.g. a step their OnPreBuild hook runs for the built-in
+    // targets; those are drawn under the same header, after the target's own.
+    const std::vector<RegisteredTargetOptions>* addonSections =
+        (uiHookMgr != nullptr) ? &uiHookMgr->GetTargetOptions() : nullptr;
+    const bool hasTargetDraw = activeTarget != nullptr && activeTarget->mDesc.DrawProfileOptions != nullptr;
+    const bool hasAddonSections = addonSections != nullptr && !addonSections->empty();
+    if (hasTargetDraw || hasAddonSections)
     {
         if (ImGui::CollapsingHeader("Target Options"))
         {
@@ -584,8 +592,9 @@ void PackagingWindow::DrawProfileSettings()
             // carries the BuildProfile* so the trampolines below resolve it.
             PolyphaseBuildContext drawCtx{};
             drawCtx.structVersion    = POLYPHASE_BUILD_TARGET_API_VERSION;
-            drawCtx.targetId         = activeTarget->mDesc.targetId;
-            drawCtx.basePlatform     = activeTarget->mDesc.basePlatform;
+            drawCtx.targetId         = activeTarget != nullptr ? activeTarget->mDesc.targetId : "";
+            drawCtx.basePlatform     = activeTarget != nullptr ? activeTarget->mDesc.basePlatform
+                                                               : (int32_t)profile->mTargetPlatform;
             drawCtx.opaqueEngineState = static_cast<void*>(profile);
 
             drawCtx.GetProfileSetting = [](const char* key, char* outVal, size_t cap) -> int32_t {
@@ -607,11 +616,30 @@ void PackagingWindow::DrawProfileSettings()
             };
 
             sActiveProfileForOptionsTrampoline = profile;
-            activeTarget->mDesc.DrawProfileOptions(&drawCtx);
+            if (hasTargetDraw)
+            {
+                activeTarget->mDesc.DrawProfileOptions(&drawCtx);
+                // Trampoline edits dirty the profile; flag for save.
+                changed = true;
+            }
+            if (hasAddonSections)
+            {
+                // Copy: a callback may add or remove sections (addon reload).
+                const std::vector<RegisteredTargetOptions> sections = *addonSections;
+                for (const RegisteredTargetOptions& section : sections)
+                {
+                    ImGui::PushID(section.mName.c_str());
+                    ImGui::SeparatorText(section.mName.c_str());
+                    const std::unordered_map<std::string, std::string> before = profile->mTargetOptions;
+                    section.mDrawFunc(&drawCtx, section.mUserData);
+                    if (profile->mTargetOptions != before)
+                    {
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+            }
             sActiveProfileForOptionsTrampoline = nullptr;
-
-            // Trampoline edits dirty the profile; flag for save.
-            changed = true;
         }
     }
 

@@ -259,6 +259,27 @@ typedef void (*ControllerRouteCallback)(const char* method, const char* path, co
 typedef void (*ControllerServerEventCallback)(int32_t state, void* userData);
 
 /**
+ * @brief Draws an addon's section in a build profile's "Target Options".
+ *
+ * Called inside the Packaging window for every target (built-in or addon). Read and
+ * write the profile's settings through ctx->GetProfileSetting / SetProfileSetting;
+ * ctx->targetId and ctx->basePlatform tell which target the profile builds. Only
+ * those fields (plus structVersion) are set.
+ */
+typedef void (*TargetOptionsDrawCallback)(const struct PolyphaseBuildContext* ctx, void* userData);
+
+/**
+ * @brief Draws the contents of an addon's modal dialog (see OpenModal).
+ *
+ * Called every frame inside ImGui::BeginPopupModal while the dialog is open.
+ * Return false to close it.
+ */
+typedef bool (*ModalDrawCallback)(void* userData);
+// EditorUIHooks has OpenModal / CloseModal / IsModalOpen (addons that also build against
+// older engines test this before using them)
+#define POLYPHASE_EDITOR_HOOKS_HAS_MODALS 1
+
+/**
  * @brief Unique identifier for tracking hooks.
  *
  * Use GenerateHookId() to create from addon ID or Lua script UUID.
@@ -1342,6 +1363,55 @@ struct EditorUIHooks
      * shutdown regardless.
      */
     void (*EditorImage_Invalidate)(const char* absPath);
+
+    // ===== Build profile options for any target =====
+    //
+    // DrawProfileOptions (PolyphaseBuildTargetAPI.h) only exists for targets an
+    // addon registers itself. These let an addon add settings to every target's
+    // profile, e.g. a step its OnPreBuild hook runs for the built-in Windows/Wii
+    // targets. Values live in the profile's per-target options map (same JSON),
+    // so prefix keys with the addon name ("myaddon.someOption").
+
+    /**
+     * @brief Add a section to the "Target Options" panel of the Packaging window.
+     *
+     * Sections are drawn for every target, in registration order, each under a
+     * separator titled `sectionName`. Re-adding the same name for the same hookId
+     * replaces it. Removed automatically by RemoveAllHooks(hookId).
+     */
+    void (*AddTargetOptions)(HookId hookId, const char* sectionName,
+                             TargetOptionsDrawCallback drawFunc, void* userData);
+
+    /** @brief Remove a section added with AddTargetOptions. */
+    void (*RemoveTargetOptions)(HookId hookId, const char* sectionName);
+
+    /**
+     * @brief Read a setting of the build profile being packaged.
+     *
+     * Use from OnPreBuild until the build finishes: it reads the snapshot the
+     * build took of its profile at start (outside a build, the last build's).
+     * Copies the value into outVal and returns 1, or returns 0 (outVal empty)
+     * when the key is unset.
+     */
+    int32_t (*GetBuildSetting)(const char* key, char* outVal, size_t cap);
+
+    // ===== Modal dialogs =====
+
+    /**
+     * @brief Open a modal dialog titled `title` (also its ImGui id: keep it unique).
+     *
+     * drawFunc draws its contents every frame until it returns false or the user
+     * closes it with the title bar's X. Opening one that is already open only
+     * replaces its callback. Closed automatically by RemoveAllHooks(hookId).
+     * Null-check before calling: older engine builds don't have it.
+     */
+    void (*OpenModal)(HookId hookId, const char* title, ModalDrawCallback drawFunc, void* userData);
+
+    /** @brief Close a modal opened with OpenModal. */
+    void (*CloseModal)(HookId hookId, const char* title);
+
+    /** @brief True while a modal opened with OpenModal is open. */
+    bool (*IsModalOpen)(HookId hookId, const char* title);
 };
 
 /**

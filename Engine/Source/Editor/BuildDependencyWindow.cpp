@@ -271,8 +271,18 @@ void BuildDependencyWindow::CheckDocker()
     BuildDependency dep;
     dep.mName = "Docker";
     dep.mDescription = "Optional for cross-compilation (e.g. Linux builds)";
-    dep.mInstallHint = "Download and install Docker Desktop";
-    dep.mInstallUrl = "https://docs.docker.com/get-docker/";
+#if PLATFORM_LINUX
+    // Docker Engine is free/open source; Docker Desktop carries a commercial licence.
+    dep.mInstallHint = "Optional. Install Docker Engine (free) from your distro or Docker's repo";
+    dep.mInstallUrl = "https://docs.docker.com/engine/install/";
+#elif PLATFORM_WINDOWS
+    dep.mInstallHint = "Optional - only needed for Docker builds. Set up Docker Desktop with the WSL 2 backend";
+    dep.mInstallUrl = "https://docs.docker.com/desktop/features/wsl/";
+#else
+    dep.mInstallHint = "Optional - only needed for Docker builds. Docker Desktop is free for "
+                       "personal/small-business use; larger companies need a Docker subscription";
+    dep.mInstallUrl = "https://docs.docker.com/desktop/";
+#endif
 
     ExternalModule* ext = static_cast<ExternalModule*>(
         PreferencesManager::Get()->FindModule("External"));

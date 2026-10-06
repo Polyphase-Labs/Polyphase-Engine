@@ -9,6 +9,9 @@
 
 #if PLATFORM_WII
 #include <wiiuse/wpad.h>
+
+// System_Dolphin.cpp: the Wii Remote power button powers the console off.
+void SYS_DolphinOnWiimotePower(s32 chan);
 #endif
 
 void INP_Initialize()
@@ -18,6 +21,7 @@ void INP_Initialize()
     WPAD_Init();
 
     WPAD_SetVRes(WPAD_CHAN_ALL, 640, 480);
+    WPAD_SetPowerButtonCallback(SYS_DolphinOnWiimotePower);
 
     for (uint32_t i = 0; i < INPUT_MAX_GAMEPADS; ++i)
     {
@@ -183,19 +187,22 @@ void INP_Update()
 
     for (uint32_t i = 0; i < INPUT_MAX_GAMEPADS; ++i)
     {
-        input.mGamepads[i].mConnected = (pads[i].err == PAD_ERR_NONE);
-
 #if PLATFORM_WII
         if (pads[i].button != 0)
         {
             input.mGamepads[i].mType = GamepadType::GameCube;
         }
 
+        // A Wiimote / Classic Controller slot keeps the connection state read from
+        // WPAD above: an empty GameCube port must not mark it disconnected (on
+        // hardware with no GC pad plugged in, every Wiimote press was ignored).
         if (input.mGamepads[i].mType != GamepadType::GameCube)
         {
             continue;
         }
 #endif
+
+        input.mGamepads[i].mConnected = (pads[i].err == PAD_ERR_NONE);
 
         // Buttons
         input.mGamepads[i].mButtons[GAMEPAD_A] = pads[i].button & PAD_BUTTON_A;

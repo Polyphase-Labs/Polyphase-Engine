@@ -482,6 +482,29 @@ struct RegisteredControllerServerEvent
 };
 
 /**
+ * @brief Registered addon section of the Packaging window's "Target Options".
+ */
+struct RegisteredTargetOptions
+{
+    HookId mHookId;
+    std::string mName;
+    TargetOptionsDrawCallback mDrawFunc;
+    void* mUserData;
+};
+
+/**
+ * @brief An addon's open modal dialog (EditorUIHooks::OpenModal).
+ */
+struct RegisteredModal
+{
+    HookId mHookId;
+    std::string mTitle;
+    ModalDrawCallback mDrawFunc;
+    void* mUserData;
+    bool mOpenPending; // ImGui::OpenPopup on the next DrawModals
+};
+
+/**
  * @brief Singleton manager for editor UI hooks.
  *
  * Stores all registered hooks and provides rendering helpers.
@@ -522,6 +545,11 @@ public:
      * @brief Draw all open custom windows.
      */
     void DrawWindows();
+
+    /**
+     * @brief Draw the addons' open modal dialogs (outside any window).
+     */
+    void DrawModals();
 
     /**
      * @brief Open a window by ID.
@@ -658,6 +686,9 @@ public:
     void FireOnSceneOpen(const char* scenePath);
     void FireOnSceneClose(const char* scenePath);
     void FireOnPackageStarted(int32_t platform);
+
+    /** @brief Addon sections of the Packaging window's "Target Options" (any target). */
+    const std::vector<RegisteredTargetOptions>& GetTargetOptions() const { return mTargetOptions; }
     void FireOnPackageFinished(int32_t platform, bool success);
     void FireOnSelectionChanged();
     void FireOnPlayModeChanged(int32_t state);
@@ -834,6 +865,12 @@ private:
 
     // Batch 11: Build target registry (addon-provided + engine built-ins)
     BuildTargetRegistry mBuildTargets;
+
+    // Addon sections of "Target Options", drawn for every target
+    std::vector<RegisteredTargetOptions> mTargetOptions;
+
+    // Addon modal dialogs that are open
+    std::vector<RegisteredModal> mModals;
 
 public:
     /** @brief Access the build-target registry (built-in + addon-provided). */

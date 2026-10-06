@@ -16,6 +16,7 @@
 #include "Profiling/ProfilingWindow.h"
 #include "Packaging/BuiltInBuildTargets.h"
 #include "System/System.h"
+#include "ActionManager.h"
 
 #include "imgui.h"
 #include "imgui_dock.h"
@@ -1410,6 +1411,83 @@ void EditorUIHookManager::InitializeHooks()
         EditorImageCache::Invalidate(absPath);
     };
 
+    // ===== Build profile options for any target =====
+    mHooks.AddTargetOptions = [](HookId hookId, const char* sectionName,
+                                 TargetOptionsDrawCallback drawFunc, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || sectionName == nullptr || drawFunc == nullptr) return;
+
+        for (RegisteredTargetOptions& entry : mgr->mTargetOptions)
+        {
+            if (entry.mHookId == hookId && entry.mName == sectionName)
+            {
+                entry.mDrawFunc = drawFunc;
+                entry.mUserData = userData;
+                return;
+            }
+        }
+        mgr->mTargetOptions.push_back({hookId, sectionName, drawFunc, userData});
+    };
+
+    mHooks.RemoveTargetOptions = [](HookId hookId, const char* sectionName) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || sectionName == nullptr) return;
+        auto& v = mgr->mTargetOptions;
+        v.erase(std::remove_if(v.begin(), v.end(), [&](const RegisteredTargetOptions& entry) {
+                    return entry.mHookId == hookId && entry.mName == sectionName;
+                }), v.end());
+    };
+
+    // ===== Modal dialogs =====
+    mHooks.OpenModal = [](HookId hookId, const char* title, ModalDrawCallback drawFunc, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || title == nullptr || drawFunc == nullptr) return;
+
+        for (RegisteredModal& modal : mgr->mModals)
+        {
+            if (modal.mHookId == hookId && modal.mTitle == title)
+            {
+                modal.mDrawFunc = drawFunc;
+                modal.mUserData = userData;
+                return;
+            }
+        }
+        mgr->mModals.push_back({hookId, title, drawFunc, userData, true});
+    };
+
+    mHooks.CloseModal = [](HookId hookId, const char* title) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || title == nullptr) return;
+        auto& v = mgr->mModals;
+        v.erase(std::remove_if(v.begin(), v.end(), [&](const RegisteredModal& modal) {
+                    return modal.mHookId == hookId && modal.mTitle == title;
+                }), v.end());
+    };
+
+    mHooks.IsModalOpen = [](HookId hookId, const char* title) -> bool {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || title == nullptr) return false;
+        for (const RegisteredModal& modal : mgr->mModals)
+        {
+            if (modal.mHookId == hookId && modal.mTitle == title) return true;
+        }
+        return false;
+    };
+
+    mHooks.GetBuildSetting = [](const char* key, char* outVal, size_t cap) -> int32_t {
+        if (outVal == nullptr || cap == 0) return 0;
+        outVal[0] = '\0';
+        ActionManager* am = ActionManager::Get();
+        if (key == nullptr || am == nullptr) return 0;
+        // The snapshot BuildData takes of the profile; it stays set for the whole
+        // build (Phase 1, where OnPreBuild fires, runs before mRunning is set).
+        const LocalBuildState& state = am->GetBuildState();
+        auto it = state.mTargetOptions.find(key);
+        if (it == state.mTargetOptions.end()) return 0;
+        std::snprintf(outVal, cap, "%s", it->second.c_str());
+        return 1;
+    };
+
     mHooks.Viewport_GetMouseState = [](float* outViewportX, float* outViewportY,
                                        float* outViewportW, float* outViewportH,
                                        float* outMouseX,    float* outMouseY,
@@ -1700,6 +1778,43 @@ void EditorUIHookManager::DrawWindows()
     }
 }
 
+void EditorUIHookManager::DrawModals()
+{
+    // Work on a copy: a draw callback may open or close modals (changing mModals).
+    const std::vector<RegisteredModal> modals = mModals;
+    for (const RegisteredModal& modal : modals)
+    {
+        if (modal.mOpenPending)
+        {
+            ImGui::OpenPopup(modal.mTitle.c_str());
+            for (RegisteredModal& m : mModals)
+            {
+                if (m.mHookId == modal.mHookId && m.mTitle == modal.mTitle) m.mOpenPending = false;
+            }
+        }
+
+        bool open = true;
+        bool keep = false;
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal(modal.mTitle.c_str(), &open, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            keep = modal.mDrawFunc(modal.mUserData) && open;
+            if (!keep)
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        if (!keep)
+        {
+            mModals.erase(std::remove_if(mModals.begin(), mModals.end(), [&](const RegisteredModal& m) {
+                              return m.mHookId == modal.mHookId && m.mTitle == modal.mTitle;
+                          }), mModals.end());
+        }
+    }
+}
+
 void EditorUIHookManager::OpenWindow(const std::string& windowId)
 {
     for (RegisteredWindow& win : mWindows)
@@ -1888,6 +2003,8 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     removeByHookId(mPlayTargets);
     removeByHookId(mDragDropHandlers);
     removeByHookId(mFileDropHandlers);
+    removeByHookId(mTargetOptions);
+    removeByHookId(mModals);
     removeByHookId(mAssetImporters);
     removeByHookId(mOnPreAssetImport);
     removeByHookId(mOnPostAssetImport);

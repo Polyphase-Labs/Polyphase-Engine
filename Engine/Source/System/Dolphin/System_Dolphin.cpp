@@ -21,7 +21,40 @@
 
 #define ENABLE_LIBOGC_CONSOLE 0
 
-static bool sRunning = true;
+// Cleared by the console's Reset button and (Wii) the console / Wii Remote power
+// buttons; SYS_Update turns it into an engine quit. Written from interrupt context.
+static volatile bool sRunning = true;
+static volatile bool sPowerOff = false;
+
+#if PLATFORM_WII
+static void OnResetButton(u32 irq, void* ctx)
+{
+    (void)irq;
+    (void)ctx;
+    sRunning = false;
+}
+#else
+static void OnResetButton()
+{
+    sRunning = false;
+}
+#endif
+
+#if PLATFORM_WII
+static void OnPowerButton()
+{
+    sPowerOff = true;
+    sRunning = false;
+}
+
+// Wii Remote power button (registered by INP_Initialize once WPAD is up).
+void SYS_DolphinOnWiimotePower(s32 chan)
+{
+    (void)chan;
+    sPowerOff = true;
+    sRunning = false;
+}
+#endif
 
 // EXI channel a USB Gecko was detected on, or -1 for none. SYS_Log mirrors every
 // line onto it, giving a serial console on the host with no cable-specific code
@@ -123,20 +156,34 @@ void SYS_Initialize()
 #endif
 
     InitFAT();
+
+    // Reset quits back to the loader (Homebrew Channel / Swiss); on Wii the power
+    // button powers the console off once the engine has shut down.
+    SYS_SetResetCallback(OnResetButton);
+#if PLATFORM_WII
+    SYS_SetPowerCallback(OnPowerButton);
+#endif
 }
 
 void SYS_Shutdown()
 {
-
+#if PLATFORM_WII
+    if (sPowerOff)
+    {
+        SYS_ResetSystem(SYS_POWEROFF, 0, 0);
+    }
+#endif
 }
 
 void SYS_Update()
 {
-    // sRunning is flipped to false by the Reset/Power button callbacks
-    // (libogc IRQ + Wii hooks at the top of this file). The SYS_MainLoop
-    // wrapper that used to return sRunning was removed in 922fe79b but the
-    // caller wasn't updated — read sRunning directly.
-    GetEngineState()->mQuit = !sRunning;
+    // sRunning is flipped to false by the Reset/Power button callbacks at the top
+    // of this file. Only ever set mQuit here: assigning !sRunning also cleared a
+    // Quit() requested by the game since the last frame, so Quit() never worked.
+    if (!sRunning)
+    {
+        GetEngineState()->mQuit = true;
+    }
 }
 
 // Files

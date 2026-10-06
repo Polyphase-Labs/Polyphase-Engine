@@ -275,19 +275,30 @@ void CookTexture(
     stbi_flip_vertically_on_write(0);
 
     // (2) Exec platform-specific texture converter with relevant args, and output to another temp file in Intermediate.
-    std::string cookCmd = "";
+    //
+    // gxtexconv re-splits its own arguments on spaces, so a project under a folder with a
+    // space in it ("Tilt Strike X") fails even with quoted paths: nothing is written, the
+    // read-back below gets 0 bytes, and every texture ships with no pixel data (renders as
+    // a transparent 1x1 on GX). Run the converter from inside the temp dir with bare file names.
+    // A stale output from the previous texture must not be picked up if this run fails.
+    SYS_RemoveFile(outPath.c_str());
+#if PLATFORM_WINDOWS
+    std::string cookCmd = "cd /d \"" + tempDir + "\" && ";
+#else
+    std::string cookCmd = "cd \"" + tempDir + "\" && ";
+#endif
 
     switch (platform)
     {
     case Platform::GameCube:
     case Platform::Wii:
     {
-        cookCmd += GetDevkitproPath() + "/tools/bin/gxtexconv";
+        cookCmd += "\"" + GetDevkitproPath() + "/tools/bin/gxtexconv\"";
 
         cookCmd += " -i ";
-        cookCmd += pngPath.c_str();
+        cookCmd += tempPng;
         cookCmd += " -o ";
-        cookCmd += outPath.c_str();
+        cookCmd += tempOut;
         cookCmd += " colfmt=";
 
         PixelFormat format = texture->GetFormat();
@@ -334,9 +345,9 @@ void CookTexture(
     }
     case Platform::N3DS:
     {
-        cookCmd += GetDevkitproPath() + "/tools/bin/tex3ds";
+        cookCmd += "\"" + GetDevkitproPath() + "/tools/bin/tex3ds\"";
         cookCmd += " -o ";
-        cookCmd += outPath.c_str();
+        cookCmd += tempOut;
         cookCmd += " -f ";
 
         switch (texture->GetFormat())
@@ -358,7 +369,7 @@ void CookTexture(
             cookCmd += " ";
         }
 
-        cookCmd += pngPath.c_str();
+        cookCmd += tempPng;
         
         break;
     }
@@ -371,6 +382,10 @@ void CookTexture(
     // (3) Use a stream to read the converted file, and copy all the data into outData
     Stream stream;
     stream.ReadFile(outPath.c_str(), false);
+    if (stream.GetSize() == 0)
+    {
+        LogError("Texture cook failed for '%s': no output from: %s", texture->GetName().c_str(), cookCmd.c_str());
+    }
     outData.resize(stream.GetSize());
     memcpy(outData.data(), stream.GetData(), stream.GetSize());
 

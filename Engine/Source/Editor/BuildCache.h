@@ -16,7 +16,9 @@ struct FileEntry
 
 struct BuildManifest
 {
-    static constexpr uint32_t kCurrentVersion = 1;
+    // 2: GX/3DS texture cooks from projects under a path with spaces were empty
+    // (gxtexconv can't take such paths); invalidate those cached outputs.
+    static constexpr uint32_t kCurrentVersion = 2;
 
     uint32_t mVersion = kCurrentVersion;
     Platform mPlatform = Platform::Windows;

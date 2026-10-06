@@ -40,6 +40,9 @@
 
 GxContext gGxContext;
 
+// vertical syncs per engine frame (GFX_SetFrameRate)
+static int32_t sGxVSyncsPerFrame = 1;
+
 void GFX_Initialize()
 {
     LogDebug("GFX_Initialize");
@@ -162,7 +165,10 @@ void GFX_EndFrame()
 
     VIDEO_SetNextFramebuffer(systemState->mFrameBuffers[systemState->mFrameIndex]);
     VIDEO_Flush();
-    VIDEO_WaitVSync();
+    for (int32_t i = 0; i < sGxVSyncsPerFrame; ++i)
+    {
+        VIDEO_WaitVSync();
+    }
 }
 
 void GFX_BeginScreen(uint32_t screenIndex)
@@ -329,7 +335,10 @@ uint32_t GFX_GetNumViews()
 
 void GFX_SetFrameRate(int32_t frameRate)
 {
-
+    // Frames are paced by vertical syncs (GFX_EndFrame): 60 -> every sync, 30 -> every
+    // second one, 20 -> every third. Fewer engine frames leave the CPU to whatever shares
+    // it, which on these single-core consoles is everything (e.g. a GBA game thread).
+    sGxVSyncsPerFrame = (frameRate <= 0 || frameRate >= 50) ? 1 : (frameRate >= 25 ? 2 : 3);
 }
 
 void GFX_PathTrace()
@@ -1622,11 +1631,22 @@ void GFX_DrawQuad(Quad* quad)
     Renderer* renderer = Renderer::Get();
     Texture* texture = quad->GetTexture() ? quad->GetTexture() : renderer->mWhiteTexture.Get<Texture>();
 
+    if (texture == nullptr)
+    {
+        return; // engine T_White missing: see GFX_DrawText
+    }
+
     GX_SetNumTevStages(2);
     GX_SetNumTexGens(1);
     GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
     GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    if (texture == nullptr)
+    {
+        // No texture and no engine fallback texture (engine content missing on the device):
+        // skip the draw. A null texture object is a hard fault on real hardware.
+        return;
+    }
     GX_LoadTexObj(&texture->GetResource()->mGxTexObj, GX_TEXMAP0);
 
     // TEV1 applies uniform color modulation
@@ -1698,11 +1718,22 @@ void GFX_DrawQuadBorder(Quad* quad)
     Renderer* renderer = Renderer::Get();
     Texture* texture = renderer->mWhiteTexture.Get<Texture>();
 
+    if (texture == nullptr)
+    {
+        return; // engine T_White missing: see GFX_DrawText
+    }
+
     GX_SetNumTevStages(2);
     GX_SetNumTexGens(1);
     GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
     GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    if (texture == nullptr)
+    {
+        // No texture and no engine fallback texture (engine content missing on the device):
+        // skip the draw. A null texture object is a hard fault on real hardware.
+        return;
+    }
     GX_LoadTexObj(&texture->GetResource()->mGxTexObj, GX_TEXMAP0);
 
     glm::vec4 borderColor = glm::clamp(quad->GetBorderColor(), 0.0f, 1.0f);
@@ -1799,6 +1830,13 @@ void GFX_DrawText(Text* text)
         texture = font->GetTexture();
     }
 
+    // No font texture and no engine T_White (engine assets not found): binding a
+    // null texture faults in GX_LoadTexObj, so draw nothing instead.
+    if (texture == nullptr)
+    {
+        return;
+    }
+
     GX_SetNumTevStages(2);
     GX_SetNumTexGens(1);
     GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
@@ -1822,6 +1860,12 @@ void GFX_DrawText(Text* text)
     //GX_SetTevSwapMode(GX_TEVSTAGE0, GX_TEV_SWAP0, GX_TEV_SWAP1);
     //GX_SetTevSwapModeTable(GX_TEV_SWAP1, GX_CH_RED, GX_CH_GREEN, GX_CH_BLUE, GX_CH_RED);
 
+    if (texture == nullptr)
+    {
+        // No texture and no engine fallback texture (engine content missing on the device):
+        // skip the draw. A null texture object is a hard fault on real hardware.
+        return;
+    }
     GX_LoadTexObj(&texture->GetResource()->mGxTexObj, GX_TEXMAP0);
 
     GX_SetAlphaCompare(GX_ALWAYS, 0, GX_AOP_OR, GX_ALWAYS, 0);

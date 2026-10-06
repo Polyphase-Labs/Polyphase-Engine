@@ -32,7 +32,9 @@ include $(DEVKITARM)/3ds_rules
 #     - <libctru folder>/default_icon.png
 #---------------------------------------------------------------------------------
 TARGET		:=	Polyphase
-BUILD		:=	Intermediate/3DS
+# One object folder per project (POLYPHASE_BUILD_KEY, set by the editor): addon sources
+# from different projects can share a file name, and a stale same-named .o would link.
+BUILD		:=	Intermediate/3DS$(if $(POLYPHASE_BUILD_KEY),/$(POLYPHASE_BUILD_KEY))
 SOURCES		:=	Source \
 				Generated
 DATA		:=	Data

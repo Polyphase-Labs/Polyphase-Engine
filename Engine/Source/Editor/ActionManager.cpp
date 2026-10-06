@@ -814,6 +814,78 @@ static void CopyAddonBinariesToPackaged(const std::string& packagedDir, Platform
     }
 }
 
+// GNU make splits SOURCES/VPATH/INCLUDES on spaces, so an addon living under a path
+// with spaces (e.g. a project folder named "My Game") silently drops out of Makefile
+// builds ("cannot find Foo.o" at link time). Such addons get a space-free alias in the
+// build directory instead: a directory junction on Windows (no admin rights needed), a
+// symlink elsewhere. Relative includes inside the addon (#include "../Lib/x.h") keep
+// working through the alias. Returns the root to use, with a trailing slash.
+static std::string SpaceFreeAddonRoot(const NativeAddonState& addon, const std::string& buildProjDir)
+{
+    const std::string& root = addon.mSourcePath;
+    if (root.find(' ') == std::string::npos)
+    {
+        return root;
+    }
+
+    const std::string linkDir = buildProjDir + "Intermediate/AddonLinks";
+    std::string alias = linkDir + "/" + addon.mAddonId;
+    if (alias.find(' ') != std::string::npos)
+    {
+        LogWarning("[INJ] %s: build directory has spaces too; addon may not compile", addon.mAddonId.c_str());
+        return root;
+    }
+
+    std::string target = root;
+    while (!target.empty() && (target.back() == '/' || target.back() == '\\'))
+    {
+        target.pop_back();
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(linkDir, ec);
+
+#if PLATFORM_WINDOWS
+    std::string aliasWin = alias;
+    std::string targetWin = target;
+    std::replace(aliasWin.begin(), aliasWin.end(), '/', '\\');
+    std::replace(targetWin.begin(), targetWin.end(), '/', '\\');
+
+    // A stale junction (addon moved) is replaced; RemoveDirectory deletes the
+    // junction itself, never the target's contents.
+    RemoveDirectoryA(aliasWin.c_str());
+
+    // cmd.exe by full path: devkitPro puts a `cmd` shim on PATH.
+    char sysRoot[MAX_PATH] = {};
+    GetEnvironmentVariableA("SystemRoot", sysRoot, MAX_PATH);
+    std::string cmdExe = std::string(sysRoot[0] ? sysRoot : "C:\\Windows") + "\\System32\\cmd.exe";
+    std::string cmdLine = "\"" + cmdExe + "\" /c mklink /J \"" + aliasWin + "\" \"" + targetWin + "\"";
+
+    STARTUPINFOA si = {};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {};
+    std::vector<char> buf(cmdLine.begin(), cmdLine.end());
+    buf.push_back(0);
+    if (CreateProcessA(cmdExe.c_str(), buf.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+    {
+        WaitForSingleObject(pi.hProcess, 10000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+#else
+    std::filesystem::remove(alias, ec);
+    std::filesystem::create_directory_symlink(target, alias, ec);
+#endif
+
+    if (!DoesDirExist(alias.c_str()))
+    {
+        LogWarning("[INJ] %s: could not create a space-free alias for %s", addon.mAddonId.c_str(), root.c_str());
+        return root;
+    }
+    LogDebug("[INJ] %s: path has spaces, building through %s", addon.mAddonId.c_str(), alias.c_str());
+    return alias + "/";
+}
+
 static void InjectNativeAddonSources(const std::string& makefilePath, const std::string& buildProjDir, Platform platform)
 {
     LogWarning("[INJ] Start inject");
@@ -891,9 +963,16 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
         return out;
     };
 
+    // Addon roots as make will see them (space-free; see SpaceFreeAddonRoot).
+    std::unordered_map<std::string, std::string> addonRoots;
     for (const NativeAddonState& addon : engineAddons)
     {
-        std::string sourceDir = addon.mSourcePath + addon.mNativeMetadata.mSourceDir + "/";
+        addonRoots[addon.mAddonId] = SpaceFreeAddonRoot(addon, buildProjDir);
+    }
+
+    for (const NativeAddonState& addon : engineAddons)
+    {
+        std::string sourceDir = addonRoots[addon.mAddonId] + addon.mNativeMetadata.mSourceDir + "/";
         LogWarning("[INJ] Addon: %s", addon.mAddonId.c_str());
         LogWarning("[INJ] SrcDir: %s", sourceDir.c_str());
 
@@ -1155,9 +1234,10 @@ static void InjectNativeAddonSources(const std::string& makefilePath, const std:
     for (const NativeAddonState& addon : engineAddons)
     {
         const auto extras = addon.mNativeMetadata.ResolveExtras(platformName);
+        const std::string& root = addonRoots[addon.mAddonId];
         for (const std::string& d : extras.mExtraDefines)     allExtraDefines.push_back(d);
-        for (const std::string& inc : extras.mExtraIncludeDirs) allExtraIncludeDirs.push_back(addon.mSourcePath + inc);
-        for (const std::string& ld : extras.mExtraLibDirs)     allExtraLibDirs.push_back(addon.mSourcePath + ld);
+        for (const std::string& inc : extras.mExtraIncludeDirs) allExtraIncludeDirs.push_back(root + inc);
+        for (const std::string& ld : extras.mExtraLibDirs)     allExtraLibDirs.push_back(root + ld);
         for (const std::string& lb : extras.mExtraLibs)        allExtraLibs.push_back(lb);
     }
 
@@ -4072,6 +4152,31 @@ void ActionManager::BuildPhase1()
             mBuildState.mCompileCommand = std::string("make -C \"") + buildProjDir + "\" -f Makefile_TEMP -j 12";
             mBuildState.mTmpMakefile = tmpMakefile;
 
+            // Standalone/Intermediate/<plat>/ is shared by every project and its objects are
+            // keyed by file name alone, so an addon source another project also has
+            // (N64Lua.cpp, ModBase*.cpp) left an older .o that make took as up to date and
+            // linked in -- a link error at best, the other project's code at worst. Give each
+            // project its own object folder: the Standalone Makefiles append
+            // POLYPHASE_BUILD_KEY to their BUILD. (Not BUILD= itself -- a command-line
+            // variable reaches the Engine/Bullet sub-makes too and would redirect theirs.)
+            // The key never equals "Standalone", which the outer/inner notdir test needs.
+            if (platform == Platform::GameCube || platform == Platform::Wii || platform == Platform::N3DS)
+            {
+                std::string key;
+                for (char c : projectName)
+                {
+                    if (isalnum((unsigned char)c) || c == '_' || c == '-')
+                    {
+                        key += c;
+                    }
+                }
+                char hashHex[17] = {};
+                snprintf(hashHex, sizeof(hashHex), "%08x", (uint32_t)std::hash<std::string>{}(projectDir));
+                key += std::string("_") + hashHex;
+
+                mBuildState.mCompileCommand += " POLYPHASE_BUILD_KEY=" + key;
+            }
+
             if (platform == Platform::N3DS)
             {
                 // SMDH metadata (HOME Menu / Homebrew Launcher title, description,
@@ -4540,6 +4645,27 @@ void ActionManager::FinalizeLocalBuild()
 
     // Copy the executable into the Packaged folder
     SYS_CopyDirectory(exeSrc.c_str(), packagedDir.c_str());
+
+    // Keep the symbolized .elf that produced this .dol. Build/<Platform>/Polyphase.elf is
+    // shared by every project and overwritten on the next package, which leaves on-console
+    // exception stack dumps unresolvable. Not copied into Packaged/ (debug info is ~150 MB).
+    if (needCompile && (platform == Platform::GameCube || platform == Platform::Wii) &&
+        exeSrc.size() > extension.size())
+    {
+        std::string elfSrc = exeSrc.substr(0, exeSrc.size() - extension.size()) + ".elf";
+        if (SYS_DoesFileExist(elfSrc.c_str(), false))
+        {
+            std::string symDir = projectDir + "Intermediate/Symbols/" + GetPlatformString(platform) + "/";
+            std::error_code ec;
+            std::filesystem::create_directories(symDir, ec);
+            std::string elfDst = symDir + projectName + ".elf";
+            std::filesystem::copy_file(elfSrc, elfDst, std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+                LogWarning("Could not keep debug symbols %s -> %s: %s", elfSrc.c_str(), elfDst.c_str(), ec.message().c_str());
+            else
+                AppendBuildOutput("Debug symbols: " + elfDst + "\n");
+        }
+    }
 
     // Delete the built binary so a stale file isn't copied on a subsequent
     // failed build. For ADDON targets we keep the .elf — make's incremental

@@ -670,6 +670,34 @@ bool Initialize()
     {
         SYS_SetWorkingDirectory(sEngineConfig.mWorkingDirectory);
     }
+#if PLATFORM_DOLPHIN && !EDITOR
+    else if (sEngineConfig.mProjectPath == "" && sEngineConfig.mProjectName != "")
+    {
+        // The project folder is looked up as <Name>/<Name>.octp from the working
+        // directory. Dolphin and Swiss start us at the card root, but on hardware the
+        // Homebrew Channel passes argv and libfat then starts us in the .dol's own
+        // folder (sd:/apps/<app>/), so a project copied to the card root is missed and
+        // the game boots with no assets at all. Accept it at a device root as well.
+        const std::string name = sEngineConfig.mProjectName;
+        const std::string local = name + "/" + name + ".octp";
+
+        if (!SYS_DoesFileExist(local.c_str(), false))
+        {
+            const char* roots[] = { "sd:/", "usb:/", "carda:/", "cardb:/" };
+
+            for (const char* root : roots)
+            {
+                if (SYS_DoesFileExist((std::string(root) + local).c_str(), false))
+                {
+                    LogDebug("Project found at %s%s (cwd %s)", root, name.c_str(),
+                             SYS_GetCurrentDirectoryPath().c_str());
+                    SYS_SetWorkingDirectory(root);
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     AssetManager::Get()->Initialize();
 

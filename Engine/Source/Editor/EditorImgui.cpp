@@ -12795,6 +12795,12 @@ static void DrawMainMenuBar()
     // SYS_DrainDroppedFiles at the start of each editor frame.
     FileDropImportModal::Get()->Draw();
 
+    // Addon modal dialogs (EditorUIHooks::OpenModal)
+    if (EditorUIHookManager* modalHooks = EditorUIHookManager::Get())
+    {
+        modalHooks->DrawModals();
+    }
+
 
     // Mesh-import mode dialog: fires after the user picks .glb/.gltf/.fbx/.dae/.obj
     // via File > Import > Asset (or the asset browser context menu). Lets the user

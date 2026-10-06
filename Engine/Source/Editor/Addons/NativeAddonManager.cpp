@@ -783,6 +783,10 @@ void NativeAddonManager::UnloadAllNativeAddons()
 
 void NativeAddonManager::InitializeEngineAPI()
 {
+    // Zero first: callers allocate with new, so unassigned slots would otherwise hold heap
+    // garbage that defeats the addons' `api->Fn != nullptr` checks.
+    mEngineAPI = PolyphaseEngineAPI{};
+
     // Logging
     mEngineAPI.LogDebug = PluginLogDebug;
     mEngineAPI.LogWarning = PluginLogWarning;
@@ -6811,11 +6815,12 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
         ss << "    ${POLYPHASE_PATH}/" << path << "\n";
     }
 
-    // Add dependency addon Source directories
+    // Add dependency addon Source directories. Relative to this package (dependencies are
+    // siblings in Packages/) and quoted: the file is committed with the package, and project
+    // paths often contain spaces.
     for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        std::string depSourceDir = normalizePath(packagesDir + dep.mId + "/Source");
-        ss << "    " << depSourceDir << "\n";
+        ss << "    \"${CMAKE_CURRENT_SOURCE_DIR}/../" << dep.mId << "/Source\"\n";
     }
 
     // Add Vulkan SDK include path
@@ -6858,11 +6863,10 @@ bool NativeAddonManager::WriteCMakeLists(const std::string& addonPath, const std
     ss << "    target_link_libraries(" << binaryName << " PRIVATE Polyphase Lua)\n";
 
     // Add dependency link directories and libraries
-    std::string packagesDirCMake = normalizePath(packagesDir);
     for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
         std::string depLibName = GenerateLibraryName(dep.mId);
-        ss << "    target_link_directories(" << binaryName << " PRIVATE \"" << packagesDirCMake << dep.mId << "/Build\")\n";
+        ss << "    target_link_directories(" << binaryName << " PRIVATE \"${CMAKE_CURRENT_SOURCE_DIR}/../" << dep.mId << "/Build\")\n";
         ss << "    target_link_libraries(" << binaryName << " PRIVATE " << depLibName << ")\n";
     }
     ss << "endif()\n";
@@ -7160,7 +7164,8 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     // Add dependency addon Source directories
     for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
-        includesStr += normalizePathVS(packagesDir + dep.mId + "/Source") + ";";
+        // relative to the package, like the CMakeLists.txt: the .vcxproj is committed with it
+        includesStr += "$(ProjectDir)..\\" + dep.mId + "\\Source;";
     }
     // Add Vulkan SDK include path: the resolved directory first (works on
     // machines without VULKAN_SDK set, e.g. an installed editor that ships
@@ -7206,7 +7211,7 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
     for (const AddonDependencySpec& dep : pkgContent.mDependencies)
     {
         // Add dependency's build output directory to library search path
-        std::string depBuildPath = normalizePathVS(packagesDir + dep.mId + "/Build");
+        std::string depBuildPath = "$(ProjectDir)..\\" + dep.mId + "\\Build";  // relative: committed with the package
         depLibPaths += depBuildPath + "\\Debug;";
         depLibPaths += depBuildPath + "\\Release;";
 
@@ -7320,7 +7325,7 @@ bool NativeAddonManager::WriteVSProject(const std::string& addonPath, const std:
                     depBinaryName = depMeta.mBinaryName;
                 }
             }
-            std::string depVcxpath = normalizePathVS(packagesDir + dep.mId + "/" + depBinaryName + ".vcxproj");
+            std::string depVcxpath = "$(ProjectDir)..\\" + dep.mId + "\\" + depBinaryName + ".vcxproj";
             std::string depGuid    = MakeStableAddonGuid(dep.mId);
 
             ss << "    <ProjectReference Include=\"" << depVcxpath << "\">\n";

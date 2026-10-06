@@ -563,6 +563,10 @@ RuntimePluginManager::~RuntimePluginManager()
 
 void RuntimePluginManager::InitializeEngineAPI()
 {
+    // Zero first: callers allocate with new, so unassigned slots would otherwise hold heap
+    // garbage that defeats the addons' `api->Fn != nullptr` checks.
+    mEngineAPI = PolyphaseEngineAPI{};
+
     // Logging
     mEngineAPI.LogDebug = PluginLogDebug;
     mEngineAPI.LogWarning = PluginLogWarning;
