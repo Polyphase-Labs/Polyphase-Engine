@@ -1558,7 +1558,7 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
         return "";
     }
 
-    // Gather all source files and compute hash from their mtimes and sizes
+    // Gather all source files and compute hash from their paths and contents
     std::vector<std::string> sourceFiles = GatherSourceFiles(sourceDir);
     if (sourceFiles.empty())
     {
@@ -1570,18 +1570,23 @@ std::string NativeAddonManager::ComputeFingerprint(const std::string& addonId)
     uint64_t hash = 0;
     for (const std::string& file : sourceFiles)
     {
-        // Simple hash using file path and mtime
-        // In a real implementation, you might want to use actual file content hashing
         for (char c : file)
         {
             hash = hash * 31 + c;
         }
 
-        // Add file size as part of fingerprint
+        // Add file contents as part of fingerprint. Sizes alone miss same-length edits, e.g. a
+        // stamp header an addon's build rewrites with the hash of a prebuilt library it links
+        // (so the addon relinks when only that library changed).
         Stream stream;
         if (stream.ReadFile(file.c_str(), false))
         {
-            hash = hash * 31 + stream.GetSize();
+            const char* data = stream.GetData();
+            const uint32_t size = stream.GetSize();
+            for (uint32_t i = 0; i < size; ++i)
+            {
+                hash = hash * 31 + uint8_t(data[i]);
+            }
         }
     }
 

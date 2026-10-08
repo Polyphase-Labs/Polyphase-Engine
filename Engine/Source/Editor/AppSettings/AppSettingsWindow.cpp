@@ -14,6 +14,9 @@
 
 #include <cstring>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 static AppSettingsWindow sAppSettingsWindow;
 
@@ -442,18 +445,64 @@ void AppSettingsWindow::DrawIconSection()
             std::string projDir = projectDir;
             std::replace(projDir.begin(), projDir.end(), '\\', '/');
 
-            if (selectedPath.find(projDir) == 0)
+            bool insideProject = selectedPath.size() > projDir.size();
+            for (size_t i = 0; insideProject && i < projDir.size(); ++i)
+            {
+#if PLATFORM_WINDOWS
+                // The file dialog's drive-letter case need not match the project path's.
+                insideProject = tolower((unsigned char)selectedPath[i]) == tolower((unsigned char)projDir[i]);
+#else
+                insideProject = selectedPath[i] == projDir[i];
+#endif
+            }
+
+            if (insideProject)
             {
                 // File is inside project directory, store relative path
                 config->mIconPath = selectedPath.substr(projDir.length());
             }
             else
             {
-                // File is outside project, copy it into the project root
-                std::string fileName = SYS_GetFileName(selectedPath);
-                std::string destPath = projDir + fileName;
-                SYS_CopyFile(selectedPath.c_str(), destPath.c_str());
-                config->mIconPath = fileName;
+                // File is outside project: copy it to Assets/Icons/ so the project carries it
+                // (Config.ini only stores the project-relative path). An identical file already
+                // there is reused; a different one with the same name is never overwritten.
+                namespace fs = std::filesystem;
+                auto readAll = [](const std::string& path)
+                {
+                    std::ifstream in(path, std::ios::binary);
+                    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+                };
+
+                const std::string iconDir = "Assets/Icons/";
+                std::error_code ec;
+                fs::create_directories(projDir + iconDir, ec);
+
+                const std::string fileName = SYS_GetFileName(selectedPath);
+                const size_t dot = fileName.find_last_of('.');
+                const std::string stem = (dot == std::string::npos) ? fileName : fileName.substr(0, dot);
+                const std::string ext = (dot == std::string::npos) ? "" : fileName.substr(dot);
+                const std::string srcData = readAll(selectedPath);
+
+                std::string relPath = iconDir + fileName;
+                for (int n = 1; fs::exists(projDir + relPath, ec); ++n)
+                {
+                    if (readAll(projDir + relPath) == srcData)
+                    {
+                        break;
+                    }
+                    relPath = iconDir + stem + "_" + std::to_string(n) + ext;
+                }
+
+                if (!fs::exists(projDir + relPath, ec))
+                {
+                    fs::copy_file(selectedPath, projDir + relPath, ec);
+                    if (ec)
+                    {
+                        LogError("Could not copy icon %s -> %s: %s", selectedPath.c_str(),
+                                 (projDir + relPath).c_str(), ec.message().c_str());
+                    }
+                }
+                config->mIconPath = relPath;
             }
 
             strncpy(mIconPathBuffer, config->mIconPath.c_str(), sizeof(mIconPathBuffer) - 1);

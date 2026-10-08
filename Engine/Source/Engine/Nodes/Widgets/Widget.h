@@ -234,7 +234,8 @@ protected:
     Rect mScissorRect;
     Rect mParentRectOverride;
     glm::mat3 mTransform;
-    glm::vec4 mColor;
+    glm::vec4 mColor;          // alpha = this widget's own opacity (what "Color" saves)
+    float mEffectiveAlpha = 1.0f; // own opacity x every ancestor's, used to draw
     glm::vec2 mOffset;
     glm::vec2 mSize;
     glm::vec2 mPivot;

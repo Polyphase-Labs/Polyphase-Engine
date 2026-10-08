@@ -83,7 +83,19 @@ void CheckBox::GatherProperties(std::vector<Property>& props)
 
     {
         SCOPED_CATEGORY("Text Style");
+        const size_t firstTextProp = props.size();
         mText->GatherTextProperties(props);
+
+        // The inner Text's own "Text" mirrors this widget's "Text" content property under
+        // the same name; exposed, the two collide on load. The content property drives it.
+        for (size_t i = firstTextProp; i < props.size(); ++i)
+        {
+            if (props[i].mName == "Text")
+            {
+                props.erase(props.begin() + i);
+                break;
+            }
+        }
     }
 }
 

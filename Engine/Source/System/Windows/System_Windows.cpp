@@ -11,6 +11,7 @@
 #include "EmbeddedFile.h"
 
 #include <direct.h>
+#include <stb_image.h>
 #include <chrono>
 #include <psapi.h>
 #include <timeapi.h>
@@ -1559,6 +1560,52 @@ void SYS_SetWindowIcon(const char* iconPath)
         IMAGE_ICON,
         0, 0,
         LR_LOADFROMFILE | LR_DEFAULTSIZE);
+
+    if (icon == NULL)
+    {
+        // Not a .ico: the project icon may be a PNG (packaging converts it for the exe).
+        int w = 0, h = 0, comps = 0;
+        unsigned char* rgba = stbi_load(iconPath, &w, &h, &comps, 4);
+        if (rgba != nullptr)
+        {
+            BITMAPV5HEADER bi = {};
+            bi.bV5Size = sizeof(bi);
+            bi.bV5Width = w;
+            bi.bV5Height = -h; // top-down
+            bi.bV5Planes = 1;
+            bi.bV5BitCount = 32;
+            bi.bV5Compression = BI_BITFIELDS;
+            bi.bV5RedMask = 0x00FF0000;
+            bi.bV5GreenMask = 0x0000FF00;
+            bi.bV5BlueMask = 0x000000FF;
+            bi.bV5AlphaMask = 0xFF000000;
+
+            void* bits = nullptr;
+            HDC dc = GetDC(NULL);
+            HBITMAP color = CreateDIBSection(dc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &bits, NULL, 0);
+            ReleaseDC(NULL, dc);
+            HBITMAP mask = CreateBitmap(w, h, 1, 1, NULL);
+            if (color != NULL && mask != NULL && bits != nullptr)
+            {
+                uint8_t* dst = (uint8_t*)bits;
+                for (int i = 0; i < w * h; ++i)
+                {
+                    dst[i * 4 + 0] = rgba[i * 4 + 2];
+                    dst[i * 4 + 1] = rgba[i * 4 + 1];
+                    dst[i * 4 + 2] = rgba[i * 4 + 0];
+                    dst[i * 4 + 3] = rgba[i * 4 + 3];
+                }
+                ICONINFO ii = {};
+                ii.fIcon = TRUE;
+                ii.hbmColor = color;
+                ii.hbmMask = mask;
+                icon = CreateIconIndirect(&ii);
+            }
+            if (color != NULL) DeleteObject(color);
+            if (mask != NULL) DeleteObject(mask);
+            stbi_image_free(rgba);
+        }
+    }
 
     if (icon != NULL)
     {

@@ -30,6 +30,30 @@
 
 static AddonsWindow sAddonsWindow;
 
+// Update is offered when a check found something newer, or on demand while Alt is held:
+// pulls latest even when the check never ran, failed (GitHub rate limit) or says up to
+// date. A pinned addon stays on the commit its dependency asked for.
+static bool ShouldShowUpdateButton(AddonManager* am, const std::string& addonId)
+{
+    if (am == nullptr)
+    {
+        return false;
+    }
+    if (am->HasUpdate(addonId))
+    {
+        return true;
+    }
+    return ImGui::GetIO().KeyAlt && am->GetUpdateStatus(addonId).mKind != AddonUpdateStatus::Pinned;
+}
+
+static void UpdateButtonTooltip(AddonManager* am, const std::string& addonId)
+{
+    if (ImGui::IsItemHovered() && am != nullptr && !am->HasUpdate(addonId))
+    {
+        ImGui::SetTooltip("Re-download the latest version (shown while Alt is held).");
+    }
+}
+
 AddonsWindow* GetAddonsWindow()
 {
     return &sAddonsWindow;
@@ -494,13 +518,14 @@ void AddonsWindow::DrawAddonTable_Browse(const std::vector<const Addon*>& filter
         if (addon.mIsInstalled)
         {
             ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Installed");
-            if (am && am->HasUpdate(addon.mMetadata.mId))
+            if (ShouldShowUpdateButton(am, addon.mMetadata.mId))
             {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Update"))
                 {
                     RequestUpdate(addon.mMetadata.mId);
                 }
+                UpdateButtonTooltip(am, addon.mMetadata.mId);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Remove"))
@@ -728,13 +753,14 @@ void AddonsWindow::DrawAddonTable_Installed(const std::vector<InstalledAddon>& i
 
         // Actions
         ImGui::TableNextColumn();
-        bool hasUpdate = am->HasUpdate(inst.mId);
+        bool hasUpdate = ShouldShowUpdateButton(am, inst.mId);
         if (hasUpdate)
         {
             if (ImGui::SmallButton("Update"))
             {
                 RequestUpdate(inst.mId);
             }
+            UpdateButtonTooltip(am, inst.mId);
             ImGui::SameLine();
         }
         if (hasNative)
@@ -1179,13 +1205,14 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
 
         // Check for update
         AddonManager* am = AddonManager::Get();
-        if (am && am->HasUpdate(addon.mMetadata.mId))
+        if (ShouldShowUpdateButton(am, addon.mMetadata.mId))
         {
             ImGui::SameLine();
             if (ImGui::SmallButton("Update"))
             {
                 RequestUpdate(addon.mMetadata.mId);
             }
+            UpdateButtonTooltip(am, addon.mMetadata.mId);
         }
         ImGui::SameLine();
         if (ImGui::SmallButton("Remove"))
@@ -1329,7 +1356,7 @@ void AddonsWindow::DrawInstalledAddons()
         DrawUpdateStatusLabel(inst.mId);
 
         // Check for update
-        bool hasUpdate = am->HasUpdate(inst.mId);
+        bool hasUpdate = ShouldShowUpdateButton(am, inst.mId);
 
         ImGui::SameLine(ImGui::GetWindowWidth() - 250);
 
@@ -1339,6 +1366,7 @@ void AddonsWindow::DrawInstalledAddons()
             {
                 RequestUpdate(inst.mId);
             }
+            UpdateButtonTooltip(am, inst.mId);
             ImGui::SameLine();
         }
 
@@ -1711,7 +1739,7 @@ void AddonsWindow::DrawAddonDetailsPopup()
             ImGui::SameLine();
             DrawUpdateStatusLabel(addon->mMetadata.mId);
 
-            if (am->HasUpdate(addon->mMetadata.mId))
+            if (ShouldShowUpdateButton(am, addon->mMetadata.mId))
             {
                 ImGui::SameLine();
                 if (ImGui::Button("Update"))
@@ -1719,6 +1747,7 @@ void AddonsWindow::DrawAddonDetailsPopup()
                     RequestUpdate(addon->mMetadata.mId);
                     mShowAddonDetails = false;
                 }
+                UpdateButtonTooltip(am, addon->mMetadata.mId);
             }
             else
             {

@@ -438,8 +438,10 @@ void Quad::UpdateVertexData()
 
     if (mObjectFit != ObjectFit::Fill && tex != nullptr && posW > 0.0f && posH > 0.0f)
     {
-        float texW = (float)tex->GetWidth();
-        float texH = (float)tex->GetHeight();
+        // The visible region, not the whole texture: a sprite cut out of an atlas with
+        // UV Scale has its own aspect ratio, and Contain/Cover must keep that one.
+        float texW = (float)tex->GetWidth() * glm::abs(mUvScale.x);
+        float texH = (float)tex->GetHeight() * glm::abs(mUvScale.y);
 
         if (texW > 0.0f && texH > 0.0f)
         {

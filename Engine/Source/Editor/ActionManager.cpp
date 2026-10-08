@@ -788,6 +788,218 @@ static void InjectNativeAddonsIntoVcxproj(
              addons.size(), sourceFiles.size(), extraLibs.size(), vcxprojPath.c_str());
 }
 
+// Produces Windows .ico bytes for the project icon: a real .ico is passed through, anything
+// stb_image can read (PNG, JPG, BMP, TGA, ...) is converted, so a project can keep one PNG
+// icon for every platform. Converted entries are 16..256 px uncompressed 32-bit BGRA DIBs
+// (alpha in the image, all-zero AND mask): the classic layout rc.exe and LoadImage accept.
+// Fields are written little-endian byte by byte.
+static bool BuildIcoBytes(const std::string& srcPath, std::vector<uint8_t>& out)
+{
+    out.clear();
+    {
+        Stream file;
+        if (file.ReadFile(srcPath.c_str(), false) && file.GetSize() >= 6)
+        {
+            const uint8_t* data = (const uint8_t*)file.GetData();
+            if (data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x01 && data[3] == 0x00)
+            {
+                out.assign(data, data + file.GetSize());
+                return true;
+            }
+        }
+    }
+
+    int srcW = 0, srcH = 0, srcComps = 0;
+    unsigned char* src = stbi_load(srcPath.c_str(), &srcW, &srcH, &srcComps, 4);
+    if (src == nullptr)
+    {
+        return false;
+    }
+
+    const int sizes[] = { 16, 24, 32, 48, 64, 128, 256 };
+    const int count = int(sizeof(sizes) / sizeof(sizes[0]));
+
+    auto put16 = [&](uint32_t v) { out.push_back(uint8_t(v)); out.push_back(uint8_t(v >> 8)); };
+    auto put32 = [&](uint32_t v) { put16(v & 0xFFFF); put16(v >> 16); };
+
+    put16(0);       // reserved
+    put16(1);       // type: icon
+    put16(count);
+
+    std::vector<std::vector<uint8_t>> rgba(count);
+    uint32_t offset = 6 + 16 * count;
+    for (int i = 0; i < count; ++i)
+    {
+        const int s = sizes[i];
+        rgba[i].resize(size_t(s) * s * 4);
+        stbir_resize_uint8_srgb(src, srcW, srcH, 0, rgba[i].data(), s, s, 0, STBIR_RGBA);
+
+        const uint32_t maskBytes = uint32_t(((s + 31) / 32) * 4 * s);
+        const uint32_t bytes = 40 + uint32_t(s) * s * 4 + maskBytes;
+        out.push_back(uint8_t(s == 256 ? 0 : s)); // width (0 = 256)
+        out.push_back(uint8_t(s == 256 ? 0 : s)); // height
+        out.push_back(0);                          // palette colors
+        out.push_back(0);                          // reserved
+        put16(1);                                  // planes
+        put16(32);                                 // bits per pixel
+        put32(bytes);
+        put32(offset);
+        offset += bytes;
+    }
+    stbi_image_free(src);
+
+    for (int i = 0; i < count; ++i)
+    {
+        const int s = sizes[i];
+        const uint32_t maskBytes = uint32_t(((s + 31) / 32) * 4 * s);
+
+        // BITMAPINFOHEADER; the height counts the XOR image and the AND mask together.
+        put32(40);
+        put32(s);
+        put32(s * 2);
+        put16(1);
+        put16(32);
+        put32(0);   // BI_RGB
+        put32(uint32_t(s) * s * 4 + maskBytes);
+        put32(0);
+        put32(0);
+        put32(0);
+        put32(0);
+
+        // Rows bottom-up, BGRA.
+        for (int y = s - 1; y >= 0; --y)
+        {
+            const uint8_t* row = rgba[i].data() + size_t(y) * s * 4;
+            for (int x = 0; x < s; ++x)
+            {
+                out.push_back(row[x * 4 + 2]);
+                out.push_back(row[x * 4 + 1]);
+                out.push_back(row[x * 4 + 0]);
+                out.push_back(row[x * 4 + 3]);
+            }
+        }
+        out.insert(out.end(), maskBytes, 0);
+    }
+    return true;
+}
+
+#if PLATFORM_WINDOWS
+struct IconResRef { bool isId; ULONG_PTR id; std::string name; WORD lang; };
+
+static BOOL CALLBACK CollectIconResLang(HMODULE, LPCSTR, LPCSTR name, WORD lang, LONG_PTR param)
+{
+    IconResRef ref;
+    ref.isId = IS_INTRESOURCE(name);
+    ref.id = ref.isId ? (ULONG_PTR)name : 0;
+    if (!ref.isId) ref.name = name;
+    ref.lang = lang;
+    ((std::vector<IconResRef>*)param)->push_back(ref);
+    return TRUE;
+}
+
+static BOOL CALLBACK CollectIconResName(HMODULE module, LPCSTR type, LPSTR name, LONG_PTR param)
+{
+    EnumResourceLanguagesA(module, type, name, CollectIconResLang, param);
+    return TRUE;
+}
+
+// Replaces the icon of an already-built .exe with the images in `ico` (a whole .ico file).
+// Works on the prebuilt Polyphase.exe an installed editor ships as well as on a freshly
+// compiled one, needs no rc.exe/VS toolchain, and only writes the packaged copy -- never
+// the engine install, which may be read-only. Every existing RT_GROUP_ICON / RT_ICON is
+// removed first: UpdateResource only replaces an entry with the same id AND language, so
+// a mismatched language would leave the engine icon in place beside the new one.
+static bool StampIconIntoExe(const std::vector<uint8_t>& ico, const std::string& exePath, std::string& outError)
+{
+    auto rd16 = [&](size_t o) { return uint16_t(ico[o] | (ico[o + 1] << 8)); };
+    auto rd32 = [&](size_t o) { return uint32_t(rd16(o) | (uint32_t(rd16(o + 2)) << 16)); };
+
+    if (ico.size() < 6 || rd16(2) != 1 || rd16(4) == 0)
+    {
+        outError = "not a valid .ico";
+        return false;
+    }
+    const uint16_t count = rd16(4);
+    if (ico.size() < 6 + size_t(count) * 16)
+    {
+        outError = "truncated .ico directory";
+        return false;
+    }
+
+    std::vector<IconResRef> groups, icons;
+    HMODULE module = LoadLibraryExA(exePath.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+    if (module != nullptr)
+    {
+        EnumResourceNamesA(module, RT_GROUP_ICON, CollectIconResName, (LONG_PTR)&groups);
+        EnumResourceNamesA(module, RT_ICON, CollectIconResName, (LONG_PTR)&icons);
+        FreeLibrary(module);
+    }
+
+    // Keep the exe's own group id and language so the shell still finds "the" icon.
+    ULONG_PTR groupId = 101;
+    WORD lang = MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL);
+    if (!groups.empty() && groups[0].isId)
+    {
+        groupId = groups[0].id;
+        lang = groups[0].lang;
+    }
+
+    HANDLE update = BeginUpdateResourceA(exePath.c_str(), FALSE);
+    if (update == nullptr)
+    {
+        outError = "BeginUpdateResource failed (error " + std::to_string(GetLastError()) + ")";
+        return false;
+    }
+
+    auto refName = [](const IconResRef& r) { return r.isId ? MAKEINTRESOURCEA(r.id) : (LPSTR)r.name.c_str(); };
+    for (const IconResRef& r : groups) UpdateResourceA(update, RT_GROUP_ICON, refName(r), r.lang, nullptr, 0);
+    for (const IconResRef& r : icons)  UpdateResourceA(update, RT_ICON, refName(r), r.lang, nullptr, 0);
+
+    // GRPICONDIR: the .ico directory with each 4-byte file offset replaced by a 2-byte RT_ICON id.
+    std::vector<uint8_t> group;
+    auto put16 = [&](uint16_t v) { group.push_back(uint8_t(v)); group.push_back(uint8_t(v >> 8)); };
+    put16(0);
+    put16(1);
+    put16(count);
+
+    bool ok = true;
+    for (uint16_t i = 0; i < count && ok; ++i)
+    {
+        const size_t e = 6 + size_t(i) * 16;
+        const uint32_t bytes = rd32(e + 8);
+        const uint32_t offset = rd32(e + 12);
+        if (size_t(offset) + bytes > ico.size())
+        {
+            outError = "image " + std::to_string(i) + " lies outside the .ico";
+            ok = false;
+            break;
+        }
+        const uint16_t iconId = uint16_t(i + 1);
+        ok = UpdateResourceA(update, RT_ICON, MAKEINTRESOURCEA(iconId), lang,
+                             (LPVOID)(ico.data() + offset), bytes) != FALSE;
+
+        group.insert(group.end(), ico.begin() + e, ico.begin() + e + 12); // size, colors, planes, bpp, bytes
+        put16(iconId);
+    }
+
+    if (ok)
+    {
+        ok = UpdateResourceA(update, RT_GROUP_ICON, MAKEINTRESOURCEA(groupId), lang,
+                             group.data(), (DWORD)group.size()) != FALSE;
+    }
+    if (!ok && outError.empty())
+    {
+        outError = "UpdateResource failed (error " + std::to_string(GetLastError()) + ")";
+    }
+    if (!EndUpdateResourceA(update, ok ? FALSE : TRUE) && ok)
+    {
+        outError = "EndUpdateResource failed (error " + std::to_string(GetLastError()) + ")";
+        ok = false;
+    }
+    return ok;
+}
+#endif
+
 // After the shipped game's exe has been copied to the Packaged directory, copy each addon's
 // `copyBinaries` directories (e.g. FFmpeg DLLs) next to the exe so runtime DLL loading works.
 // platform selects which nativePerPlatform.<P>.copyBinaries entries also apply on top of the
@@ -2803,50 +3015,18 @@ void ActionManager::BuildPhase1()
         }
     }
 
-    // Copy custom icon for Windows packaging
+    // Copy the custom icon file into the package, keeping its project-relative path (e.g.
+    // Assets/Icons/game.png). The exe's own icon is stamped in FinalizeLocalBuild, after the
+    // exe (prebuilt or compiled) has been copied to Packaged/.
     if (platform == Platform::Windows && !GetEngineConfig()->mIconPath.empty())
     {
         std::string iconSrc = projectDir + GetEngineConfig()->mIconPath;
         if (SYS_DoesFileExist(iconSrc.c_str(), false))
         {
-            // Validate the source is actually a Windows ICO before overwriting
-            // Standalone/Polyphase.ico — a PNG (or any non-ICO file) silently
-            // copied over the engine icon makes rc.exe fail with RC2175 and
-            // breaks the entire Windows build for everyone using the engine
-            // until the .ico is restored. Magic for ICO: 00 00 01 00.
-            bool validIco = false;
-            FILE* iconFile = fopen(iconSrc.c_str(), "rb");
-            if (iconFile != nullptr)
-            {
-                uint8_t header[4] = {};
-                size_t read = fread(header, 1, 4, iconFile);
-                fclose(iconFile);
-                validIco = (read == 4 &&
-                            header[0] == 0x00 && header[1] == 0x00 &&
-                            header[2] == 0x01 && header[3] == 0x00);
-            }
-
-            if (!validIco)
-            {
-                LogWarning("Custom project icon '%s' is not a valid Windows .ico file (expected magic 00 00 01 00). Falling back to engine default.",
-                           iconSrc.c_str());
-                AppendBuildOutput("WARNING: Custom icon ignored (not a valid .ico).\n");
-            }
-            else
-            {
-                std::string iconDst = polyphaseDirectory + "Standalone/Polyphase.ico";
-                std::string iconBackup = polyphaseDirectory + "Standalone/Polyphase.ico.bak";
-
-                // Back up original icon
-                SYS_CopyFile(iconDst.c_str(), iconBackup.c_str());
-
-                // Replace with project icon
-                SYS_CopyFile(iconSrc.c_str(), iconDst.c_str());
-                AppendBuildOutput("Using custom project icon.\n");
-
-                // Also copy icon into packaged directory
-                SYS_CopyFile(iconSrc.c_str(), (packagedDir + GetEngineConfig()->mIconPath).c_str());
-            }
+            const std::string iconPackaged = packagedDir + GetEngineConfig()->mIconPath;
+            std::error_code iconEc;
+            std::filesystem::create_directories(std::filesystem::path(iconPackaged).parent_path(), iconEc);
+            SYS_CopyFile(iconSrc.c_str(), iconPackaged.c_str());
         }
     }
 
@@ -4693,6 +4873,37 @@ void ActionManager::FinalizeLocalBuild()
     {
         SYS_MoveFile((packagedDir + "Polyphase" + extension).c_str(), (packagedDir + projectName + extension).c_str());
     }
+
+#if PLATFORM_WINDOWS
+    // Project icon (App Settings): written into the packaged exe's resources, so it applies to
+    // the prebuilt exe of an installed editor as much as to a source build.
+    if (platform == Platform::Windows && !isAddonTarget && !GetEngineConfig()->mIconPath.empty())
+    {
+        const std::string iconSrc = projectDir + GetEngineConfig()->mIconPath;
+        const std::string exePath = packagedDir + projectName + extension;
+        std::vector<uint8_t> ico;
+        std::string iconError;
+        if (!SYS_DoesFileExist(iconSrc.c_str(), false))
+        {
+            LogWarning("Project icon '%s' not found; the exe keeps the engine icon.", iconSrc.c_str());
+            AppendBuildOutput("WARNING: Project icon not found: " + iconSrc + "\n");
+        }
+        else if (!BuildIcoBytes(iconSrc, ico))
+        {
+            LogWarning("Project icon '%s' is neither a .ico nor a readable image (PNG, JPG, BMP, TGA); the exe keeps the engine icon.", iconSrc.c_str());
+            AppendBuildOutput("WARNING: Project icon ignored (not a .ico or readable image).\n");
+        }
+        else if (!StampIconIntoExe(ico, exePath, iconError))
+        {
+            LogWarning("Could not set the exe icon from '%s': %s", iconSrc.c_str(), iconError.c_str());
+            AppendBuildOutput("WARNING: Could not set the exe icon: " + iconError + "\n");
+        }
+        else
+        {
+            AppendBuildOutput("Using custom project icon.\n");
+        }
+    }
+#endif
 
     if (platform == Platform::Windows && useSteam)
     {

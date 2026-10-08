@@ -109,7 +109,20 @@ void InputField::GatherInputFieldProperties(std::vector<Property>& props)
     if (mText != nullptr)
     {
         SCOPED_CATEGORY("Text Style");
+        const size_t firstTextProp = props.size();
         mText->GatherTextProperties(props);
+
+        // The inner Text's own "Text" is only the display string (content or placeholder,
+        // set by UpdateDisplayText). Exposed, it shares the name of this field's "Text"
+        // content property, and on load its value ("Text") overwrote the content.
+        for (size_t i = firstTextProp; i < props.size(); ++i)
+        {
+            if (props[i].mName == "Text")
+            {
+                props.erase(props.begin() + i);
+                break;
+            }
+        }
     }
 }
 

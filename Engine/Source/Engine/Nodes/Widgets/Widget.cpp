@@ -684,6 +684,15 @@ float Widget::GetWidth() const
 {
     if (FillsX())
     {
+        // Inside an ArrayWidget a Fill child only owns its flex slot (stamped in screen
+        // pixels by ArrayWidget::LayoutChildren), not the whole parent: report that, or
+        // stretched descendants (a ScrollContainer page) size themselves to the full
+        // array and run under the siblings after it.
+        const Widget* parent = GetParentWidget();
+        if (mHasParentRectOverride && parent != nullptr && parent->GetAbsoluteScale().x > 0.0f)
+        {
+            return mParentRectOverride.mWidth / parent->GetAbsoluteScale().x;
+        }
         return GetParentWidth();
     }
     else if (StretchX())
@@ -702,6 +711,12 @@ float Widget::GetHeight() const
 {
     if (FillsY())
     {
+        // See GetWidth: the ArrayWidget slot, not the whole parent.
+        const Widget* parent = GetParentWidget();
+        if (mHasParentRectOverride && parent != nullptr && parent->GetAbsoluteScale().y > 0.0f)
+        {
+            return mParentRectOverride.mHeight / parent->GetAbsoluteScale().y;
+        }
         return GetParentHeight();
     }
     else if (StretchY())
@@ -1011,10 +1026,14 @@ void Widget::UpdateRect()
 
 void Widget::UpdateColor()
 {
+    // The inherited alpha is kept out of mColor: "Color" is saved and copied as a property,
+    // and with the parents' alpha folded in, loading it through SetColor turned it into this
+    // widget's own Opacity -- each level of a loaded menu got dimmer (0.88, 0.77, 0.68, ...).
     Widget* parent = GetParentWidget();
-    float parentAlpha = parent ? parent->mColor.a : 1.0f;
+    float parentAlpha = parent ? parent->mEffectiveAlpha : 1.0f;
     float thisOpacity = GetOpacityFloat();
-    mColor.a = (parentAlpha * thisOpacity);
+    mColor.a = thisOpacity;
+    mEffectiveAlpha = parentAlpha * thisOpacity;
 }
 
 
@@ -1126,19 +1145,19 @@ float Widget::GetParentHeight() const
 void Widget::SetColor(glm::vec4 color)
 {
     mColor = color;
-    mColor.a = 1.0f; // Alpha is determined during UpdateColor().
     SetOpacityFloat(color.a);
     MarkDirty();
 }
 
 glm::vec4 Widget::GetColor() const
 {
-    return mColor;
+    return glm::vec4(glm::vec3(mColor), mEffectiveAlpha);
 }
 
 void Widget::SetOpacity(uint8_t opacity)
 {
     mOpacity = opacity;
+    mColor.a = opacity / 255.0f;
     MarkDirty();
 }
 

@@ -21,10 +21,11 @@ void PolyRect::UpdateGeometry()
         float height = mRect.mHeight;
 
         ClearVertices();
-        AddVertex({ 0.0f, 0.0f }, mColor);
-        AddVertex({ 0.0f, height }, mColor);
-        AddVertex({ width, height }, mColor);
-        AddVertex({ width, 0.0f }, mColor);
-        AddVertex({ 0.0f, 0.0f }, mColor);
+        const glm::vec4 color = GetColor();
+        AddVertex({ 0.0f, 0.0f }, color);
+        AddVertex({ 0.0f, height }, color);
+        AddVertex({ width, height }, color);
+        AddVertex({ width, 0.0f }, color);
+        AddVertex({ 0.0f, 0.0f }, color);
     }
 }
