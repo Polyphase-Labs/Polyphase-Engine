@@ -103,6 +103,47 @@ Audio uses the **DSP service** via `ndspInit()`.
 
 Wave buffers are allocated in linear memory (`linearAlloc` / `linearFree`), which is required for DMA transfers to the DSP.
 
+### Two audio backends: NDSP and CSND
+
+At startup the engine tries `ndspInit()` first. If that fails it falls back to the older **CSND** service, which needs no firmware. The log says which one you got:
+
+```
+AUD_Initialize: trying ndspInit...
+AUD_Initialize: ndspInit failed (0xd880a7fa), trying CSND...
+AUD_Initialize: CSND initialized successfully
+```
+
+| | NDSP | CSND |
+|---|---|---|
+| Needs `dspfirm.cdc` | Yes | No |
+| Short clips (resident in RAM) | Yes | Yes |
+| **Streaming** SoundWaves (music, long clips) | Yes | **No, silent** |
+| Video addon audio | Yes | No, silent |
+
+So for sound effects and short music loops you can ignore all of this. You only need NDSP, and therefore the DSP firmware, when a SoundWave has **Streaming** ticked.
+
+### Large clips must use Streaming
+
+A non-streaming SoundWave is loaded whole into linear memory, which is a small pool (about 32 MB on an original 3DS) shared with every texture and vertex buffer. A 44.1 kHz, 16-bit, stereo clip costs roughly 10 MB per minute, so a three-minute track cannot load and the log shows:
+
+```
+AUD_AllocWaveBuffer: linearAlloc failed for size 32672980
+SoundWave::LoadStream: AUD_AllocWaveBuffer(32672980) failed; sound disabled.
+AUD_Play: No wave data (data=0x0 size=0)
+```
+
+Tick **Streaming** on the SoundWave and repackage. The engine then reads the PCM from the `.oct` in chunks instead of loading it, but only through NDSP, so the firmware below becomes a requirement. Alternatively keep the clip short, or downsample it to 22 kHz mono, and leave Streaming off.
+
+### The DSP firmware (only needed for Streaming audio)
+
+`ndspInit()` needs the 3DS's own DSP firmware as a file, `dspfirm.cdc`, on the SD card at `sdmc:/3ds/dspfirm.cdc`. This is standard for all libctru homebrew that uses NDSP, not something specific to Polyphase.
+
+The firmware is Nintendo's copyrighted software. Polyphase does not include it, will not download it, and you should not obtain it from anyone else. The only legitimate source is **your own 3DS**: the file is a copy of firmware the console already contains, exported to its SD card with the open-source [DSP1](https://github.com/zoogie/DSP1) homebrew app. Its README covers the procedure. A console with custom firmware installed usually has the file already, because many other homebrew apps need it too.
+
+**Azahar:** the emulator has no DSP firmware either, so the same file from your own console has to be placed in its virtual SD card at the same relative path, `<Azahar user folder>/sdmc/3ds/dspfirm.cdc` (`%APPDATA%\Azahar` on Windows). Azahar's own documentation on system files describes this.
+
+Without the file, `ndspInit()` fails with `0xd880a7fa` and the engine runs on CSND: short clips still play, Streaming SoundWaves stay silent and the log shows `AUD_OpenStream failed (streaming unavailable on this platform)`. If you only need to test in Azahar and do not have a console, keep clips short and leave Streaming off.
+
 ## Networking (SOC)
 
 Networking uses the **SOC service** (`socInit()` / `socExit()`), which provides a BSD-style socket API.

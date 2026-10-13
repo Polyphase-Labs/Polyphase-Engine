@@ -543,9 +543,10 @@ extern void Ps2_SyncDCacheRange(void* p, size_t n);
   #define SYSFILE_IO_SYNC(p, n) ((void)0)
 #endif
 
-SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
+SysFile* SYS_FileOpenRead(const char* path, bool isAsset)
 {
     if (path == nullptr) return nullptr;
+    (void)isAsset;   // only consulted on 3DS (romfs) below
 
     SYSFILE_IO_GUARD();
 
@@ -579,7 +580,24 @@ SysFile* SYS_FileOpenRead(const char* path, bool /*isAsset*/)
     if (file == nullptr && memoryData == nullptr)
     {
         entryBase = 0;
-        file = fopen(path, "rb");
+
+#if PLATFORM_3DS
+        // Mirror SYS_AcquireFileData: on 3DS an "embedded" package ships its
+        // content as loose files inside romfs, which only resolves through the
+        // romfs:/ device prefix. Without this, streaming SoundWaves (the one
+        // caller that opens assets by handle instead of reading them whole)
+        // never find their .oct on a romfs build.
+        if (isAsset)
+        {
+            const std::string romfsPath = std::string("romfs:/") + path;
+            file = fopen(romfsPath.c_str(), "rb");
+        }
+#endif
+
+        if (file == nullptr)
+        {
+            file = fopen(path, "rb");
+        }
 
         if (file == nullptr)
         {

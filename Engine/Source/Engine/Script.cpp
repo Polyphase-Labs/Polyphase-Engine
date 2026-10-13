@@ -300,7 +300,14 @@ void Script::GatherScriptProperties()
 
                                 for (int32_t i = 0; i < count; ++i)
                                 {
-                                    lua_getfield(L, isArray ? tableIdx : udIdx, name);
+                                    if (isArray)
+                                    {
+                                        lua_geti(L, tableIdx, int(i + 1));
+                                    }
+                                    else
+                                    {
+                                        lua_getfield(L, udIdx, name);
+                                    }
 
                                     if (lua_isnil(L, -1) &&
                                         !IsAssetDatumType(type))

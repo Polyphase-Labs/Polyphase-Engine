@@ -177,6 +177,29 @@ results from enumeration APIs until permission is granted, so code that only
 requests on "open" can fail earlier and never ask.
 
 
+# Nintendo 3DS
+
+## Streaming audio is silent in Azahar (`ndspInit failed (0xd880a7fa)`)
+
+Short sound effects play, but a SoundWave with **Streaming** ticked produces nothing, and the log shows:
+
+```
+AUD_Initialize: ndspInit failed (0xd880a7fa), trying CSND...
+AUD_Initialize: CSND initialized successfully
+```
+
+Streaming audio runs on the 3DS DSP (NDSP), which needs the console's DSP firmware present as `sdmc:/3ds/dspfirm.cdc`. That firmware is Nintendo's and is not part of the engine or the emulator, and it is not something to download. The only proper source is your own 3DS: the open-source [DSP1](https://github.com/zoogie/DSP1) homebrew app exports the firmware the console already has to its SD card. A console with custom firmware usually has the file already. For Azahar, the same file from your own console goes in the emulator's virtual SD card at `<Azahar user folder>/sdmc/3ds/dspfirm.cdc` (`%APPDATA%\Azahar` on Windows).
+
+You only need this for Streaming SoundWaves (and video addon audio). Everything else plays through the CSND fallback without the firmware, so if you have no console, keep clips short and leave Streaming off. Full details: [3DS Platform Overview](../Development/Platforms/3DS/Overview.md#the-dsp-firmware-only-needed-for-streaming-audio).
+
+## `AUD_Play: No wave data (data=0x0 size=0)` on 3DS, works on Windows
+
+The clip is too big to load into 3DS linear memory. Look further up the log for `AUD_AllocWaveBuffer: linearAlloc failed for size ...`. Tick **Streaming** on the SoundWave and repackage (see the entry above for the firmware that streaming requires), or keep the clip short / 22 kHz mono.
+
+## Black screen on a console build without Docker (3DS, GameCube, Wii)
+
+Check whether your project path contains a space. On `v6.2.0-beta.18.4` and earlier, devkitPro's texture converters (`gxtexconv`, `tex3ds`) cannot handle such a path and every cooked texture ships empty, which shows up as a black screen with no error. The tell is `Packaged/<platform>/**/T_White.oct` being under 200 bytes. Move the project to a path without spaces, or update: releases after `v6.2.0-beta.18.4` run the converters from inside the temp folder so the path never reaches them. Docker builds were never affected because the project is mounted at a fixed path inside the container.
+
 # Native addon won't load on the installed editor (works fine in VS)
 
 Symptom: a project with a native addon (e.g. `com.polyphase.formats.video`) opens cleanly under the VS-built `ReleaseEditor` / `DebugEditor` from `Standalone\Build\Windows\x64\...\Polyphase.exe`, but under the installer-built `C:\Polyphase\Polyphase.exe` you get either:

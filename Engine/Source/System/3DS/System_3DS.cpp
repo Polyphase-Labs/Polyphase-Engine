@@ -217,6 +217,26 @@ std::string SYS_GetAbsolutePath(const std::string& relativePath)
         free(resolvedPath);
     }
 
+    // realpath() only knows the SD card. Content packaged as "embedded" on 3DS
+    // lives in romfs, which is reachable solely through the romfs:/ device
+    // prefix, so fall back to that when the bare path resolves to nothing.
+    // ContentPak::Mount relies on this to find a Content.pak bundled in romfs.
+    if (absPath == "" && relativePath != "" && relativePath.rfind("romfs:/", 0) != 0)
+    {
+        if (!sRomfsInit)
+        {
+            romfsInit();
+            sRomfsInit = true;
+        }
+
+        const std::string romfsPath = "romfs:/" + relativePath;
+        struct stat info;
+        if (stat(romfsPath.c_str(), &info) == 0)
+        {
+            absPath = romfsPath;
+        }
+    }
+
     if (absPath != "" && DoesDirExist(absPath.c_str()))
         absPath += "/";
 
