@@ -7,6 +7,7 @@
 #include "Log.h"
 
 #include <vector>
+#include <unordered_set>
 #include "Maths.h"
 #include "Engine.h"
 #include "World.h"
@@ -526,6 +527,21 @@ void PlayAudio(
 {
     OCT_ASSERT(sourceIndex < MAX_AUDIO_SOURCES);
     OCT_ASSERT(soundWave != nullptr);
+
+    // A clip whose PCM never made it into memory (allocation failure on a
+    // memory-tight console, truncated cook) can't play. Log it once per asset:
+    // the Audio3D auto-start loop retries every frame, and a per-attempt error
+    // floods the on-screen log and scrolls the real load error out of view.
+    if (soundWave->GetWaveData() == nullptr || soundWave->GetWaveDataSize() == 0)
+    {
+        static std::unordered_set<const SoundWave*> sReportedEmptyWaves;
+        if (sReportedEmptyWaves.insert(soundWave).second)
+        {
+            LogError("AudioManager: '%s' has no wave data; not playing (see earlier load errors)",
+                     soundWave->GetName().c_str());
+        }
+        return;
+    }
 
     audioClass = glm::clamp<int8_t>(audioClass, 0, MAX_AUDIO_CLASSES - 1);
 

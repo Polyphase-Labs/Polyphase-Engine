@@ -12,6 +12,7 @@
 #include "Log.h"
 #include <AssetManager.h>
 #include <Engine.h>
+#include <cctype>
 #include <cstring>
 
 DEFINE_PREFERENCES_MODULE(ThemeModule, "Theme", "Appearance")
@@ -19,6 +20,16 @@ DEFINE_PREFERENCES_MODULE(ThemeModule, "Theme", "Appearance")
 std::string ThemeModule::GetSettingsFilePathStatic()
 {
     return JsonSettings::GetPreferencesDirectory() + "/Appearance_Theme.json";
+}
+
+bool ThemeModule::IsIconFont(const std::string& fontName)
+{
+    std::string lower = fontName;
+    for (char& c : lower)
+    {
+        c = (char)tolower((unsigned char)c);
+    }
+    return lower.find("icons") != std::string::npos;
 }
 
 std::string ThemeModule::LoadSavedFontPreference()
@@ -89,6 +100,10 @@ void ThemeModule::RefreshAvailableFonts()
     auto FoundAvailableFonts = AssetManager::Get()->GetAvailableFontFiles();
     for (const auto& fontFile : FoundAvailableFonts)
     {
+        if (IsIconFont(fontFile))
+        {
+            continue;
+        }
         mAvailableFonts.push_back(fontFile);
     }
 
@@ -395,7 +410,7 @@ void ThemeModule::LoadSettings(const rapidjson::Document& doc)
 
     std::string fallbackFont = GetEngineConfig()->mCurrentFont.empty() ? "Default" : GetEngineConfig()->mCurrentFont;
     mCurrentFont = JsonSettings::GetString(doc, "font", fallbackFont);
-    if (mCurrentFont.empty())
+    if (mCurrentFont.empty() || IsIconFont(mCurrentFont))
     {
         mCurrentFont = "Default";
     }

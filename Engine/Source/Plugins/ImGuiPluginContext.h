@@ -2,6 +2,8 @@
 
 #if EDITOR
 
+#include <stddef.h>
+
 struct ImGuiContext;
 
 /**

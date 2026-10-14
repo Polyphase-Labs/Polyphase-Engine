@@ -13,6 +13,7 @@
 
 #if EDITOR
 
+#include <stddef.h>
 #include <stdint.h>
 
 // ===== Callback Types =====

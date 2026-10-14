@@ -25,6 +25,10 @@ public:
     const std::string& GetCurrentFont() const { return mCurrentFont; }
     static std::string LoadSavedFontPreference();
 
+    // Icon fonts (e.g. PolyphaseEngineIcons.ttf) only contain icon glyphs, so
+    // using one as the editor font renders every label as boxes.
+    static bool IsIconFont(const std::string& fontName);
+
     std::string mCurrentFont = "Default";
 
 private:

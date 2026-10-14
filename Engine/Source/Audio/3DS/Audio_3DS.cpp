@@ -51,6 +51,11 @@ static float sSampleRates[AUDIO_MAX_VOICES] = {};
 static constexpr uint32_t kMaxStreamingVoices = 4;
 static constexpr uint32_t kStreamChannelBase  = AUDIO_MAX_VOICES;
 static constexpr uint32_t kStreamInFlightCap  = 4;
+// Max buffers waiting behind the in-flight slots. This is the backpressure the
+// AudioManager pump relies on: it submits until AUD_SubmitStreamBuffer returns 0,
+// so without a cap it would read the whole track into linear memory in one go.
+// 4 in flight + 4 pending of 16 KB is ~0.75 s of 44.1 kHz stereo PCM16.
+static constexpr uint32_t kStreamPendingCap   = 4;
 // linearAlloc returns 16-byte aligned. We round buffer sizes to 32 bytes for DSP cache-
 // flush granularity (DSP_FlushDataCache works on cache lines).
 static constexpr uint32_t kStreamAlign = 32;
@@ -623,6 +628,15 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
     StreamVoice* sv = GetStreamFromId(streamId);
     if (sv == nullptr || data == nullptr || byteSize == 0) return 0;
 
+    // Retire finished buffers first so the queue-full check sees current state,
+    // then report "full" (0) once enough is queued. The pump keeps the chunk and
+    // retries next frame.
+    AdvanceStream(*sv);
+    if (sv->mPending.size() >= kStreamPendingCap)
+    {
+        return 0;
+    }
+
     // Round to 32 bytes for DSP_FlushDataCache granularity. Pad bytes are silence;
     // the played-frames counter only counts caller-submitted useful frames so the
     // clock isn't skewed by the padding.
@@ -632,7 +646,13 @@ int32_t AUD_SubmitStreamBuffer(uint32_t streamId, const uint8_t* data, uint32_t 
     p.mData = (uint8_t*)linearAlloc(padded);
     if (p.mData == nullptr)
     {
-        LogError("AUD_SubmitStreamBuffer: linearAlloc(%u) failed", padded);
+        // The pump retries every frame, so only report the first failure.
+        static bool sLoggedAllocFail = false;
+        if (!sLoggedAllocFail)
+        {
+            LogError("AUD_SubmitStreamBuffer: linearAlloc(%u) failed (linear memory exhausted)", padded);
+            sLoggedAllocFail = true;
+        }
         return 0;
     }
     memcpy(p.mData, data, byteSize);

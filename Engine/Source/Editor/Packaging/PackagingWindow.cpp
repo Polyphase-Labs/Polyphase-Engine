@@ -1193,6 +1193,23 @@ void PackagingWindow::DrawBuildButtons()
             mBuildAllFailedName.clear();
         }
     }
+
+    // devkitPro-based targets drive make and the texture converters through
+    // the shell, and a project path with a space in it has repeatedly produced
+    // builds that fail or ship empty textures (black screen, no error). Docker
+    // mounts the project at a fixed path so it is not affected. Flag it up
+    // front rather than letting the user discover it from a blank screen.
+    bool devkitProTarget = profile &&
+        (profile->mTargetPlatform == Platform::GameCube ||
+         profile->mTargetPlatform == Platform::Wii ||
+         profile->mTargetPlatform == Platform::N3DS);
+    if (devkitProTarget && !profile->mUseDocker &&
+        GetEngineState()->mProjectDirectory.find(' ') != std::string::npos)
+    {
+        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.40f, 1.0f),
+                           "Warning: the project path contains a space. Console builds may fail or render black; "
+                           "move the project to a path without spaces or build with Docker.");
+    }
 }
 
 void PackagingWindow::DrawDockerWarningPopup()

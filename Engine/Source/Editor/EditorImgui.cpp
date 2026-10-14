@@ -14136,6 +14136,16 @@ static std::string ResolveEditorFontPath()
         return defaultPath;
     }
 
+    // An icon font has no text glyphs, so every label would draw as boxes and the
+    // user could not even find the setting to undo it. Older builds offered these
+    // in the font list; recover anyone who picked one.
+    if (ThemeModule::IsIconFont(desiredFontName))
+    {
+        LogWarning("Editor font '%s' is an icon font with no text glyphs. Using the default font.", desiredFontName.c_str());
+        GetMutableEngineConfig()->mCurrentFont = "Default";
+        return defaultPath;
+    }
+
     const std::string relativePath = "Engine/Assets/Fonts/" + desiredFontName;
     const std::string absolutePath = SYS_GetAbsolutePath(relativePath.c_str());
 
