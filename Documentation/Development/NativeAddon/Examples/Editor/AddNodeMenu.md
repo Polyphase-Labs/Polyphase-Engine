@@ -2,7 +2,16 @@
 
 ## Overview
 
-This example demonstrates how to extend the "Add Node" submenu that appears in the hierarchy context menu and World > Spawn Node. You can add items to existing categories (3D, Widget, Other) or create entirely new categories.
+This example demonstrates how to extend the "Add Node" submenu that appears in the hierarchy context menu, the hierarchy `+` button, the viewport "Spawn Node" popup and World > Spawn Node. You can add items to existing categories (3D, Widget, Other) or create entirely new categories.
+
+There are two registration styles:
+
+| API | Style | Searchable |
+|-----|-------|------------|
+| `AddNodeMenuItem` (singular) | Declarative: category + item path + click callback | Yes |
+| `AddNodeMenuItems` (plural) | Draw callback: the addon runs its own ImGui code | No, listed unfiltered under "Addon items" while a search is active |
+
+The Add Node menu has a search box at the top. Prefer `AddNodeMenuItem` so your entries show up when the user types. Use the draw-callback form only when you need custom ImGui inside the menu (icons, toggles, dynamic sub-lists).
 
 ## Files
 
@@ -110,8 +119,21 @@ static void OnUnload()
 }
 
 #if EDITOR
+static void OnSpawnPatrolPoint(void* parentNode, void* userData)
+{
+    // parentNode is the node the menu was opened on (null = scene root).
+    sEngineAPI->LogDebug("Spawning PatrolPoint3D node");
+}
+
 static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
 {
+    // Declarative, searchable entry: Add Node > 3D > Gameplay > PatrolPoint3D.
+    // Null-check: older engine builds don't expose AddNodeMenuItem.
+    if (hooks->AddNodeMenuItem)
+    {
+        hooks->AddNodeMenuItem(hookId, "3D", "Gameplay/PatrolPoint3D", OnSpawnPatrolPoint, nullptr);
+    }
+
     // Add items to existing "3D" category
     hooks->AddNodeMenuItems(hookId, "3D", DrawCustom3dNodes, nullptr);
 
@@ -150,11 +172,14 @@ extern "C" OCTAVE_PLUGIN_API int PolyphasePlugin_GetDesc(PolyphasePluginDesc* de
 The Add Node menu will look like:
 
 ```
+[Search nodes...]
 Node
 3D >
     (built-in 3D nodes)
     Waypoint3D          <-- addon item
     TriggerVolume3D     <-- addon item
+    Gameplay >
+        PatrolPoint3D   <-- declarative addon item (searchable)
 Widget >
     (built-in widgets)
 AI >                    <-- new custom category
@@ -175,6 +200,22 @@ Create Asset >
 ```
 
 ## API Reference
+
+### AddNodeMenuItem
+
+```cpp
+void (*AddNodeMenuItem)(HookId hookId, const char* category, const char* itemPath,
+    NodeMenuItemCallback callback, void* userData);
+```
+
+**Parameters:**
+- `hookId` - The hook identifier
+- `category` - `"3D"`, `"Widget"`, `"Other"`, or any custom name for a new submenu
+- `itemPath` - `/`-separated path inside the category; the last segment is the visible label. Siblings from any addon sharing a prefix merge into the same submenu.
+- `callback` - `void callback(void* parentNode, void* userData)`, invoked on click
+- `userData` - Optional user data
+
+Entries registered this way are matched by the Add Node search box (label and category path). The hook pointer is null on engine builds older than the one that introduced it, so null-check before calling.
 
 ### AddNodeMenuItems
 

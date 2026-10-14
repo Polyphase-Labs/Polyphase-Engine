@@ -101,7 +101,7 @@ The `EditorUIHooks` struct provides function pointers for extending the editor. 
 | Inspectors | `RegisterInspector()` | Per-node-type custom property UI |
 | Context Menus | `AddNodeContextItem()`, `AddAssetContextItem()`, `AddViewportContextItem()` | Right-click menus |
 | Toolbar | `AddToolbarItem()` | Custom toolbar buttons |
-| Node Menus | `AddNodeMenuItems()`, `AddSpawnBasic3dItems()` | Extend "Add Node" menus |
+| Node Menus | `AddNodeMenuItem()` (searchable), `AddNodeMenuItems()`, `AddSpawnBasic3dItems()` | Extend "Add Node" menus |
 | Asset Creation | `AddCreateAssetItems()` | Extend "Create Asset" menu |
 | Scene Types | `RegisterSceneType()` | Custom scene templates |
 | Overlays | `RegisterViewportOverlay()` | Viewport overlays |

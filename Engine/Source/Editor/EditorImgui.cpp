@@ -309,6 +309,13 @@ static AssetStub* sDuplicateAssetStub = nullptr;
 static bool sNodesDiscovered = false;
 static bool showTheming = false;
 
+// "Add Node" menu search. Shared by every DrawAddNodeMenu host (hierarchy "+"
+// popup, node context menu, viewport "Spawn Node", World main menu) - only one
+// of them is open at a time so a single buffer is enough.
+static char sAddNodeSearchBuffer[128] = {};
+static int32_t sAddNodeSearchSelected = 0;
+static int32_t sAddNodeSearchFrames = 0;
+
 // Optional monospace font with extended Unicode coverage, loaded for the
 // CLI Terminal panel only. May remain null if F_RobotoMono16.ttf isn't
 // shipped — callers must check.
@@ -4394,6 +4401,122 @@ static void BuildSceneCategoryMap()
     }
 }
 
+struct AddNodeSearchEntry
+{
+    enum Kind : uint8_t { Class, Scene, Basic, AddonItem };
+
+    std::string mLabel;
+    std::string mCategory;
+    Kind mKind;
+    int32_t mRank;
+    int32_t mAddonIndex;   // AddonItem only: index into GetNodeMenuItemSingles()
+};
+
+static std::string ToLowerCopy(const std::string& in)
+{
+    std::string out = in;
+    std::transform(out.begin(), out.end(), out.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); });
+    return out;
+}
+
+// Flatten every leaf the categorized Add Node tree can spawn into one list,
+// keeping the "3D / Lighting"-style path so the result row can show where
+// the entry normally lives. Addon entries registered declaratively through
+// EditorUIHooks::AddNodeMenuItem are included; the older draw-callback
+// AddNodeMenuItems sections are opaque and get drawn unfiltered instead.
+static void CollectAddNodeSearchEntries(std::vector<AddNodeSearchEntry>& out)
+{
+    auto addClasses = [&](const char* prefix,
+                          const std::map<std::string, std::vector<std::string>>& categorized,
+                          const std::map<std::string, std::vector<std::string>>& addonGrouped)
+    {
+        for (const auto& pair : categorized)
+        {
+            std::string cat = std::string(prefix) + " / " + pair.first;
+        for (const std::string& nm : pair.second)
+            out.push_back({ nm, cat, AddNodeSearchEntry::Class, 0, -1 });
+        }
+        for (const auto& pair : addonGrouped)
+        {
+            std::string cat = std::string(prefix) + " / Addons / " + pair.first;
+            for (const std::string& nm : pair.second)
+                out.push_back({ nm, cat, AddNodeSearchEntry::Class, 0, -1 });
+        }
+    };
+
+    out.push_back({ "Node", "", AddNodeSearchEntry::Class, 0, -1 });
+
+    addClasses("3D", sNode3dCategorized, sNode3dAddonGrouped);
+    out.push_back({ BASIC_SKYBOX_TEXTURED,     "3D / Skybox", AddNodeSearchEntry::Basic, 0, -1 });
+    out.push_back({ BASIC_SKYBOX_VERTEX_COLOR, "3D / Skybox", AddNodeSearchEntry::Basic, 0, -1 });
+
+    addClasses("Widget", sNodeWidgetCategorized, sNodeWidgetAddonGrouped);
+    addClasses("Other", sNodeOtherCategorized, sNodeOtherAddonGrouped);
+
+    for (const auto& pair : sScenesByCategory)
+    {
+        for (const std::string& sceneName : pair.second)
+            out.push_back({ sceneName, pair.first, AddNodeSearchEntry::Scene, 0, -1 });
+    }
+
+    // Declarative addon entries: "<category> / <path prefix>" with the path's
+    // last segment as the label, matching how the tree nests them.
+    if (EditorUIHookManager* hookMgr = EditorUIHookManager::Get())
+    {
+        const auto& singles = hookMgr->GetNodeMenuItemSingles();
+        for (size_t i = 0; i < singles.size(); ++i)
+        {
+            const std::string& path = singles[i].mPath;
+            size_t slash = path.find_last_of('/');
+            std::string label = (slash == std::string::npos) ? path : path.substr(slash + 1);
+            std::string cat = singles[i].mCategory;
+            if (slash != std::string::npos && slash > 0)
+            {
+                std::string prefix = path.substr(0, slash);
+                for (size_t k = prefix.find('/'); k != std::string::npos; k = prefix.find('/', k + 3))
+                {
+                    prefix.replace(k, 1, " / ");
+                }
+                cat += " / " + prefix;
+            }
+            if (label.empty()) continue;
+            out.push_back({ label, cat, AddNodeSearchEntry::AddonItem, 0, (int32_t)i });
+        }
+    }
+}
+
+// Case-insensitive filter. Label-prefix hits sort first, then label
+// substrings, then entries that only matched on their category path (so
+// typing "light" lists every node in "3D / Lighting" after the lights).
+static void FilterAddNodeSearchEntries(std::vector<AddNodeSearchEntry>& entries,
+                                       const char* query)
+{
+    const std::string q = ToLowerCopy(query);
+
+    std::vector<AddNodeSearchEntry> kept;
+    kept.reserve(entries.size());
+    for (AddNodeSearchEntry& e : entries)
+    {
+        const std::string label = ToLowerCopy(e.mLabel);
+        size_t pos = label.find(q);
+        if (pos == 0)                      e.mRank = 0;
+        else if (pos != std::string::npos) e.mRank = 1;
+        else if (ToLowerCopy(e.mCategory).find(q) != std::string::npos) e.mRank = 2;
+        else continue;
+        kept.push_back(std::move(e));
+    }
+
+    std::stable_sort(kept.begin(), kept.end(),
+        [](const AddNodeSearchEntry& a, const AddNodeSearchEntry& b)
+        {
+            if (a.mRank != b.mRank) return a.mRank < b.mRank;
+            return a.mLabel < b.mLabel;
+        });
+
+    entries.swap(kept);
+}
+
 void DrawAddNodeMenu(Node* node)
 {
     ActionManager* am = ActionManager::Get();
@@ -4444,6 +4567,141 @@ void DrawAddNodeMenu(Node* node)
         else      GetWorld(0)->PlaceNewlySpawnedNode(ResolvePtr(newNode), {});
         GetEditorState()->SetSelectedNode(newNode);
     };
+
+    // Search box. Focused on open so typing filters immediately; same
+    // active-state release trick as the NodeGraph "Create Node" popup so the
+    // category submenus below still highlight on hover while the box is empty.
+    if (ImGui::IsWindowAppearing())
+    {
+        sAddNodeSearchBuffer[0] = '\0';
+        sAddNodeSearchSelected = 0;
+        sAddNodeSearchFrames = 0;
+        ImGui::SetKeyboardFocusHere();
+    }
+    sAddNodeSearchFrames++;
+
+    ImGui::SetNextItemWidth(240.0f);
+    if (ImGui::InputTextWithHint("##AddNodeSearch", "Search nodes...",
+                                 sAddNodeSearchBuffer, IM_ARRAYSIZE(sAddNodeSearchBuffer)))
+    {
+        sAddNodeSearchSelected = 0;
+    }
+    if (sAddNodeSearchBuffer[0] == '\0' && ImGui::IsItemActive() &&
+        !ImGui::IsItemHovered() && sAddNodeSearchFrames > 3)
+    {
+        ImGui::ClearActiveID();
+    }
+    ImGui::Separator();
+
+    if (sAddNodeSearchBuffer[0] != '\0')
+    {
+        std::vector<AddNodeSearchEntry> results;
+        CollectAddNodeSearchEntries(results);
+        FilterAddNodeSearchEntries(results, sAddNodeSearchBuffer);
+
+        const int32_t resultCount = (int32_t)results.size();
+        if (resultCount == 0)
+        {
+            ImGui::TextDisabled("No matching nodes");
+        }
+        else
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+                sAddNodeSearchSelected = (sAddNodeSearchSelected + 1) % resultCount;
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+                sAddNodeSearchSelected = (sAddNodeSearchSelected - 1 + resultCount) % resultCount;
+            if (sAddNodeSearchSelected >= resultCount)
+                sAddNodeSearchSelected = 0;
+
+            // Long lists scroll inside a fixed-height child so the popup never
+            // grows past the screen; short ones draw inline so the menu stays
+            // tight. Width is sized to the widest "label [category]" row.
+            const int32_t kMaxVisibleRows = 14;
+            const bool scrolling = resultCount > kMaxVisibleRows;
+            if (scrolling)
+            {
+                float listW = 240.0f;
+                for (const AddNodeSearchEntry& e : results)
+                {
+                    float w = ImGui::CalcTextSize(e.mLabel.c_str()).x +
+                              ImGui::CalcTextSize(e.mCategory.c_str()).x +
+                              ImGui::GetStyle().ItemSpacing.x * 3.0f + 24.0f;
+                    listW = std::max(listW, w);
+                }
+                ImGui::BeginChild("##AddNodeSearchList",
+                    ImVec2(listW, kMaxVisibleRows * ImGui::GetTextLineHeightWithSpacing()),
+                    false);
+            }
+
+            const bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+                                      ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+            const bool navMoved = ImGui::IsKeyPressed(ImGuiKey_DownArrow) ||
+                                  ImGui::IsKeyPressed(ImGuiKey_UpArrow);
+
+            for (int32_t r = 0; r < resultCount; ++r)
+            {
+                const AddNodeSearchEntry& e = results[r];
+                const bool isSelected = (r == sAddNodeSearchSelected);
+
+                ImGui::PushID(r);
+                bool activate = ImGui::Selectable(e.mLabel.c_str(), isSelected,
+                                                  ImGuiSelectableFlags_DontClosePopups);
+                if (!e.mCategory.empty())
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("[%s]", e.mCategory.c_str());
+                }
+                if (isSelected && navMoved)
+                    ImGui::SetScrollHereY();
+                ImGui::PopID();
+
+                if (activate || (enterPressed && isSelected))
+                {
+                    switch (e.mKind)
+                    {
+                    case AddNodeSearchEntry::Class: spawnAndAttach(e.mLabel); break;
+                    case AddNodeSearchEntry::Scene: SpawnSceneAsNode(e.mLabel, node); break;
+                    case AddNodeSearchEntry::Basic:
+                        am->SpawnBasicNode(e.mLabel.c_str(), node, nullptr, false, {});
+                        break;
+                    case AddNodeSearchEntry::AddonItem:
+                    {
+                        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+                        if (hookMgr != nullptr &&
+                            e.mAddonIndex >= 0 &&
+                            e.mAddonIndex < (int32_t)hookMgr->GetNodeMenuItemSingles().size())
+                        {
+                            const RegisteredNodeMenuItem& item =
+                                hookMgr->GetNodeMenuItemSingles()[e.mAddonIndex];
+                            if (item.mCallback) item.mCallback(node, item.mUserData);
+                        }
+                        break;
+                    }
+                    }
+                    ImGui::CloseCurrentPopup();
+                    break;
+                }
+            }
+
+            if (scrolling)
+                ImGui::EndChild();
+        }
+
+        // Draw-callback addon sections (AddNodeMenuItems) can't be filtered,
+        // so list them unfiltered below the results rather than hiding them.
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr && hookMgr->HasNodeMenuDrawCallbacks())
+            {
+                ImGui::Separator();
+                ImGui::TextDisabled("Addon items");
+                hookMgr->DrawNodeMenuDrawCallbacksFlat(node);
+            }
+        }
+
+        sScenesByCategory.clear();
+        return;
+    }
 
     // Render one categorized bucket. Hidden when its name list is empty so we
     // never open an empty submenu (matters for the unused "Layout" Widget

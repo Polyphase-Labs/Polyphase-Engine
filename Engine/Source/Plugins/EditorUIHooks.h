@@ -103,6 +103,13 @@ typedef bool (*MenuValidationCallback)(void* userData);
 typedef void (*MenuSectionDrawCallback)(void* parentNode, void* userData);
 
 /**
+ * @brief Callback for a declarative "Add Node" menu entry.
+ * @param parentNode The node the menu was opened on (may be null = scene root)
+ * @param userData User data passed during registration
+ */
+typedef void (*NodeMenuItemCallback)(void* parentNode, void* userData);
+
+/**
  * @brief Callback for viewport overlay drawing.
  * @param viewportX X position of viewport
  * @param viewportY Y position of viewport
@@ -592,7 +599,13 @@ struct EditorUIHooks
     // ===== Batch 2: Create/Spawn Menu Extensions =====
 
     /**
-     * @brief Extend the "Add Node" submenu.
+     * @brief Extend the "Add Node" submenu with a custom ImGui draw callback.
+     *
+     * Items drawn this way are opaque to the editor: they appear in the
+     * category tree but cannot be matched by the Add Node search box (they
+     * are listed unfiltered under "Addon items" while a search is active).
+     * Prefer AddNodeMenuItem (singular) so entries are searchable.
+     *
      * @param hookId Unique identifier for this hook
      * @param category Category name: "3D", "Widget", "Other", or custom name for a new submenu
      * @param drawFunc Function called to draw menu items
@@ -1413,6 +1426,34 @@ struct EditorUIHooks
 
     /** @brief True while a modal opened with OpenModal is open. */
     bool (*IsModalOpen)(HookId hookId, const char* title);
+
+    // ===== Add Node menu: declarative entries =============================
+
+    /**
+     * @brief Add a single named entry to the "Add Node" menu - no ImGui code
+     *        needed from the addon, and the entry is picked up by the menu's
+     *        search box.
+     *
+     * `category` is "3D", "Widget", "Other", or any custom name for a new
+     * submenu, exactly as for AddNodeMenuItems. `itemPath` supports
+     * '/'-separated nesting inside that category; siblings from any addon
+     * that share a prefix merge under the same submenu:
+     *
+     *     hooks->AddNodeMenuItem(hookId, "3D", "Gameplay/Waypoint3D",
+     *                            &OnSpawnWaypoint, userData);
+     *     hooks->AddNodeMenuItem(hookId, "3D", "Gameplay/TriggerVolume3D",
+     *                            &OnSpawnTrigger, userData);
+     *
+     * renders as `Add Node > 3D > Gameplay > [Waypoint3D | TriggerVolume3D]`
+     * and typing "trig" in the search box lists TriggerVolume3D with its
+     * `[3D / Gameplay]` path. The callback receives the node the menu was
+     * opened on so the addon can parent what it spawns.
+     *
+     * Removed automatically by RemoveAllHooks(hookId). Null-check before
+     * calling: older engine builds won't expose this.
+     */
+    void (*AddNodeMenuItem)(HookId hookId, const char* category, const char* itemPath,
+                            NodeMenuItemCallback callback, void* userData);
 };
 
 /**

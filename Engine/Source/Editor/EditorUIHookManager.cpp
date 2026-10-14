@@ -665,6 +665,23 @@ void EditorUIHookManager::InitializeHooks()
         mgr->mCreateAssetItemSingles.push_back(std::move(item));
     };
 
+    // Declarative Add Node entry: (category, itemPath, callback). Rendered
+    // into the category tree via the slash-path helper and enumerable by
+    // the Add Node search box, unlike the draw-callback AddNodeMenuItems.
+    mHooks.AddNodeMenuItem = [](HookId hookId, const char* category, const char* itemPath,
+                                NodeMenuItemCallback callback, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr || itemPath == nullptr || *itemPath == '\0') return;
+
+        RegisteredNodeMenuItem item;
+        item.mHookId   = hookId;
+        item.mCategory = (category && *category) ? category : "Other";
+        item.mPath     = itemPath;
+        item.mCallback = callback;
+        item.mUserData = userData;
+        mgr->mNodeMenuItemSingles.push_back(std::move(item));
+    };
+
     // ===== Batch 11: Build Targets =====
     mHooks.RegisterBuildTarget = [](HookId hookId, const PolyphaseBuildTargetDesc* desc) {
         EditorUIHookManager* mgr = EditorUIHookManager::Get();
@@ -1983,6 +2000,7 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
     // New hook types
     removeByHookId(mMenuItemsEx);
     removeByHookId(mNodeMenuItems);
+    removeByHookId(mNodeMenuItemSingles);
     removeByHookId(mSceneTypes);
     removeByHookId(mCreateAssetItems);
     removeByHookId(mCreateAssetItemSingles);
@@ -2206,6 +2224,32 @@ void EditorUIHookManager::DrawToolbarItems()
 
 // ===== Batch 2: Create/Spawn Menu Extensions =====
 
+// Declarative entries for one category, merged into a single slash tree so
+// "Gameplay/Waypoint3D" and "Gameplay/Trigger3D" from different addons share
+// the Gameplay submenu.
+void EditorUIHookManager::DrawNodeMenuItemSingles(const std::string& category, void* parentNode,
+                                                  bool separatorBefore)
+{
+    SlashMenuNode root;
+    bool any = false;
+    for (const RegisteredNodeMenuItem& item : mNodeMenuItemSingles)
+    {
+        if (item.mCategory != category) continue;
+        NodeMenuItemCallback cb = item.mCallback;
+        void* ud = item.mUserData;
+        InsertSlashLeaf(root, item.mPath,
+                        [cb, ud, parentNode]() { if (cb) cb(parentNode, ud); },
+                        /*shortcut*/ "",
+                        /*enabled*/ true);
+        any = true;
+    }
+    if (any)
+    {
+        if (separatorBefore) ImGui::Separator();
+        DrawSlashMenuTree(root);
+    }
+}
+
 void EditorUIHookManager::DrawNodeMenuItems(const char* category, void* parentNode)
 {
     for (const RegisteredNodeMenuItems& item : mNodeMenuItems)
@@ -2216,39 +2260,62 @@ void EditorUIHookManager::DrawNodeMenuItems(const char* category, void* parentNo
             item.mDrawFunc(parentNode, item.mUserData);
         }
     }
+
+    // Built-in entries always precede addon ones in these categories.
+    DrawNodeMenuItemSingles(category, parentNode, /*separatorBefore*/ true);
 }
 
 void EditorUIHookManager::DrawCustomNodeCategories(void* parentNode)
 {
-    // Collect unique custom category names (not built-in ones)
+    // Collect unique custom category names (not built-in ones) across both
+    // the draw-callback and declarative registrations, in registration order.
     std::vector<std::string> customCategories;
-    for (const RegisteredNodeMenuItems& item : mNodeMenuItems)
+    auto addCategory = [&](const std::string& cat)
     {
-        if (item.mCategory != "3D" && item.mCategory != "Widget" &&
-            item.mCategory != "Scene" && item.mCategory != "Other")
+        if (cat == "3D" || cat == "Widget" || cat == "Scene" || cat == "Other")
+            return;
+        for (const std::string& existing : customCategories)
         {
-            bool found = false;
-            for (const std::string& cat : customCategories)
-            {
-                if (cat == item.mCategory) { found = true; break; }
-            }
-            if (!found) customCategories.push_back(item.mCategory);
+            if (existing == cat) return;
         }
-    }
+        customCategories.push_back(cat);
+    };
+    for (const RegisteredNodeMenuItems& item : mNodeMenuItems)
+        addCategory(item.mCategory);
+    for (const RegisteredNodeMenuItem& item : mNodeMenuItemSingles)
+        addCategory(item.mCategory);
 
     for (const std::string& category : customCategories)
     {
         if (ImGui::BeginMenu(category.c_str()))
         {
+            bool drewCallbackItems = false;
             for (const RegisteredNodeMenuItems& item : mNodeMenuItems)
             {
                 if (item.mCategory == category && item.mDrawFunc)
                 {
                     item.mDrawFunc(parentNode, item.mUserData);
+                    drewCallbackItems = true;
                 }
             }
+            DrawNodeMenuItemSingles(category, parentNode, drewCallbackItems);
             ImGui::EndMenu();
         }
+    }
+}
+
+void EditorUIHookManager::DrawNodeMenuDrawCallbacksFlat(void* parentNode)
+{
+    std::string lastCategory;
+    for (const RegisteredNodeMenuItems& item : mNodeMenuItems)
+    {
+        if (!item.mDrawFunc) continue;
+        if (item.mCategory != lastCategory)
+        {
+            ImGui::TextDisabled("%s", item.mCategory.c_str());
+            lastCategory = item.mCategory;
+        }
+        item.mDrawFunc(parentNode, item.mUserData);
     }
 }
 

@@ -180,6 +180,22 @@ struct RegisteredNodeMenuItems
 };
 
 /**
+ * @brief Single declarative entry for the "Add Node" submenu.
+ *
+ * Companion to the callback-driven RegisteredNodeMenuItems. mPath supports
+ * slash-separated nesting inside mCategory; because the label is known up
+ * front these entries are enumerable by the Add Node search box.
+ */
+struct RegisteredNodeMenuItem
+{
+    HookId mHookId;
+    std::string mCategory;
+    std::string mPath;
+    NodeMenuItemCallback mCallback;
+    void* mUserData;
+};
+
+/**
  * @brief Registered create asset menu extension.
  */
 struct RegisteredCreateAssetItems
@@ -615,6 +631,18 @@ public:
 
     void DrawNodeMenuItems(const char* category, void* parentNode);
     void DrawCustomNodeCategories(void* parentNode);
+
+    /**
+     * @brief Draw every callback-style Add Node section (AddNodeMenuItems)
+     *        in one flat run, each under its category label. Used by the
+     *        Add Node search view, which cannot filter opaque draw callbacks
+     *        but must not hide them either.
+     */
+    void DrawNodeMenuDrawCallbacksFlat(void* parentNode);
+    bool HasNodeMenuDrawCallbacks() const { return !mNodeMenuItems.empty(); }
+    void DrawNodeMenuItemSingles(const std::string& category, void* parentNode, bool separatorBefore);
+
+    const std::vector<RegisteredNodeMenuItem>& GetNodeMenuItemSingles() const { return mNodeMenuItemSingles; }
     void DrawCreateAssetItems();
     void DrawSpawnBasic3dItems(void* parentNode);
     void DrawSpawnBasicWidgetItems(void* parentNode);
@@ -803,6 +831,7 @@ private:
 
     // Batch 2: Create/Spawn menu extensions
     std::vector<RegisteredNodeMenuItems> mNodeMenuItems;
+    std::vector<RegisteredNodeMenuItem>  mNodeMenuItemSingles;
     std::vector<RegisteredCreateAssetItems> mCreateAssetItems;
     std::vector<RegisteredCreateAssetItem>  mCreateAssetItemSingles;
     std::vector<RegisteredSpawnItems> mSpawnBasic3dItems;
