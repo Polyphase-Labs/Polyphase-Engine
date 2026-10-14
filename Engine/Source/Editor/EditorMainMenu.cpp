@@ -1205,8 +1205,8 @@ static void DrawHelpMenu()
 
     ImGui::Separator();
 
-    char versionStr[32];
-    snprintf(versionStr, 31, "Version: %d", POLYPHASE_VERSION);
+    char versionStr[64];
+    snprintf(versionStr, sizeof(versionStr), "Version: %s", POLYPHASE_VERSION_STRING);
     ImGui::MenuItem(versionStr, nullptr, false, false);
 
     if (ImGui::IsItemHovered() && IsMouseButtonJustUp(MOUSE_RIGHT))
